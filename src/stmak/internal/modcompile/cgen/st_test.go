@@ -1289,3 +1289,91 @@ END_PROGRAM`)
 		t.Error("a component with no string functions got the string runtime")
 	}
 }
+
+// TestSTToStringGating is the -Werror trap for the writers.
+//
+// Several source types share one writer -- every signed integer is written the
+// same way once it is an int64 -- so the gating is on the writer and not on
+// the type, and a component that writes one kind of value must not carry the
+// rest.
+func TestSTToStringGating(t *testing.T) {
+	// Written out and measured, not stored: an assignment into a STRING
+	// variable would bring the copy helper and its fault with it, and what is
+	// being pinned here is that the conversion itself needs neither.
+	ints := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    n : INT;
+  END_VAR
+  n := LEN(INT_TO_STRING(-1));
+END_PROGRAM`)
+	for _, want := range []string{"static int __st_num", "static char *__st_str_i"} {
+		if !strings.Contains(ints, want) {
+			t.Errorf("writing an integer out did not emit %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"__st_str_f", "__st_str_t", "__st_civil", "__st_word", "__st_unum",
+		// Nothing can truncate here: every buffer holds the widest result
+		// its type gives, so the reporter would be a helper nothing calls.
+		"__st_fault",
+	} {
+		if strings.Contains(ints, unwanted) {
+			t.Errorf("a component that only writes integers got %s", unwanted)
+		}
+	}
+
+	// A date pulls in the calendar, and with it the split that makes a day
+	// before 1970 land on the day it is.
+	dates := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    n : INT;
+  END_VAR
+  n := LEN(DATE_TO_STRING(D#2026-08-26));
+END_PROGRAM`)
+	for _, want := range []string{
+		"static void __st_civil", "static int64_t __st_day", "__ST_NS_PER_DAY",
+	} {
+		if !strings.Contains(dates, want) {
+			t.Errorf("writing a date out did not emit %q\n--- generated ---\n%s", want, dates)
+		}
+	}
+	// A date has no clock, so the clock writer is not reached.
+	if strings.Contains(dates, "__st_clock_at") {
+		t.Error("writing a date out pulled in the clock")
+	}
+}
+
+// TestSTToStringFloatCanFault covers the one conversion in the family that can
+// fail to place its value.
+//
+// Six decimals are held in an int64 scaled by a million, which runs out at
+// about nine million million; past an int64 entirely there is nothing to
+// place. It says so rather than printing a wrong number, which is why it alone
+// takes somewhere to say it.
+func TestSTToStringFloatCanFault(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    n : INT;
+  END_VAR
+  VAR
+    msg : STRING[40];
+    v : LREAL := 1.5;
+  END_VAR
+  msg := LREAL_TO_STRING(v);
+  n := LEN(msg);
+END_PROGRAM`)
+	if !strings.Contains(out, "__st_str_f(__comp_inst, __st_s0, (int)sizeof(__st_s0), (__comp_inst->v), \"LREAL_TO_STRING at") {
+		t.Errorf("the float writer was not given somewhere to report\n--- generated ---\n%s", out)
+	}
+	if !strings.Contains(out, "static void __st_fault") {
+		t.Error("the float writer can fault but the reporter was not emitted")
+	}
+	// Trailing zeros go, which is what makes 2.0 read as 2 rather than as
+	// 2.000000.
+	if !strings.Contains(out, "while (k > 0 && frac[k] == '0') k--;") {
+		t.Error("the float writer keeps its trailing zeros")
+	}
+}

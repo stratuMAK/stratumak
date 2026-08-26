@@ -713,6 +713,7 @@ const (
 	StrReplace                // REPLACE(a, b, n, p)
 	StrLen                    // LEN(s) -> INT
 	StrFind                   // FIND(a, b) -> INT
+	StrFrom                   // INT_TO_STRING(n) and the rest of the family
 )
 
 // String names the function as the source writes it.
@@ -736,6 +737,8 @@ func (f StrFunc) String() string {
 		return "LEN"
 	case StrFind:
 		return "FIND"
+	case StrFrom:
+		return "TO_STRING"
 	}
 	return fmt.Sprintf("StrFunc(%d)", int(f))
 }

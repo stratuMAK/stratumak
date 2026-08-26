@@ -1,0 +1,40 @@
+#!/bin/bash
+# Columns: the first check that failed (0 if none), how many failed, and the
+# length of the streamed number written out.
+fail() { echo "$1"; exit 1; }
+out=$1
+
+# The names are in the order tostring.st assigns them, so the number the
+# component reports says which one to go and look at.
+names=(
+    "BOOL_TO_STRING(TRUE)" "BOOL_TO_STRING(FALSE)"
+    "SINT_TO_STRING at its lowest" "INT_TO_STRING at its lowest"
+    "DINT_TO_STRING at its lowest" "LINT_TO_STRING at its lowest"
+    "USINT_TO_STRING at its highest" "UDINT_TO_STRING at its highest"
+    "ULINT_TO_STRING of a large value" "INT_TO_STRING(0)"
+    "LREAL_TO_STRING(1.5)" "LREAL_TO_STRING(2.0)"
+    "LREAL_TO_STRING(-0.5)" "LREAL_TO_STRING(-12.25)" "REAL_TO_STRING(0.0)"
+    "TIME_TO_STRING(T#1m30s)" "TIME_TO_STRING(T#0s)"
+    "TIME_TO_STRING(T#1s500ms)" "TIME_TO_STRING(T#1d2h3m4s5ms)"
+    "DT_TO_STRING" "DATE_TO_STRING" "TOD_TO_STRING"
+    "DT_TO_STRING at the epoch" "DT_TO_STRING before the epoch"
+    "DT_TO_STRING the second before the epoch"
+    "a leap day" "a century that is not a leap year" "a century that is"
+    "the earliest date an int64 of nanoseconds reaches" "the latest"
+    "a fraction of a second" "DT_TO_STRING inside a CONCAT"
+)
+
+[ "$(wc -l < "$out")" -eq 5 ] || fail "captured $(wc -l < "$out") cycles, want 5"
+
+n=$(awk 'NR==1 {print $1}' "$out")
+if [ "$n" != "0" ]; then
+    fail "check $n did not hold: ${names[$((n - 1))]} ($(awk 'NR==1 {print $2}' "$out") failed altogether)"
+fi
+
+# The streamed number written out: 1, -1, 0, 2147483647, -2147483648.
+want=(1 2 1 10 11)
+for i in 0 1 2 3 4; do
+    got=$(awk -v r="$((i + 1))" 'NR==r {print $3}' "$out")
+    [ "$got" = "${want[$i]}" ] ||
+        fail "DINT_TO_STRING gave $got characters on cycle $((i + 1)), want ${want[$i]}"
+done

@@ -180,7 +180,18 @@ func (g *generator) anyStringAssign() bool {
 
 // anyDayPart reports whether a point in time is split anywhere, and so
 // whether the two helpers that do it are needed.
+//
+// Writing a date or a clock out splits one too: the calendar takes a day
+// number and the clock the remainder, and both go through the same floor that
+// makes a date before 1970 come out on the day it is.  Missing that emitted
+// the writers above a helper they call and the file did not compile.
 func (g *generator) anyDayPart() bool {
+	if g.usedStrFrom == nil {
+		g.usedStrFrom = g.scanStrFrom()
+	}
+	if g.usedStrFrom["dt"] || g.usedStrFrom["d"] || g.usedStrFrom["tod"] {
+		return true
+	}
 	found := false
 	for _, body := range g.allBodies() {
 		walkStmts(body, func(ast.Stmt) {}, func(e ast.Expr) {

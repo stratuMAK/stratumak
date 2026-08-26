@@ -656,6 +656,9 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 	if e, handled := c.checkStrFunc(v, name.Name); handled {
 		return e
 	}
+	if e, handled := c.checkStrFrom(v, name.Name); handled {
+		return e
+	}
 	// A bare name that is a method of the block in scope: `helper(x := 1)`
 	// from that block's body, one of its actions, or another of its methods.
 	// There is an instance either way -- __self -- so no name for it is

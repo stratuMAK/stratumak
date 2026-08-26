@@ -174,3 +174,97 @@ func TestStrFuncRefusals(t *testing.T) {
 		})
 	}
 }
+
+// TestStrFromResultLength pins the buffer each conversion needs.
+//
+// These are exact rather than generous, and that is the whole safety argument
+// for the family: the buffer holds the widest result the type can give, so no
+// conversion in it can truncate and none of them needs a fault path.
+func TestStrFromResultLength(t *testing.T) {
+	decls := "VAR\n out : STRING[64];\n" +
+		" s8 : SINT;\n u8 : USINT;\n i16 : INT;\n u16 : UINT;\n" +
+		" i32 : DINT;\n u32 : UDINT;\n i64 : LINT;\n u64 : ULINT;\n" +
+		" r : REAL;\n lr : LREAL;\n pt : TIME;\n dt : DATE_AND_TIME;\n" +
+		" day : DATE;\n clock : TIME_OF_DAY;\n b : BOOL;\nEND_VAR"
+
+	for _, tt := range []struct {
+		body string
+		want int
+	}{
+		{"out := BOOL_TO_STRING(b);", 5},   // FALSE
+		{"out := SINT_TO_STRING(s8);", 4},  // -128
+		{"out := USINT_TO_STRING(u8);", 3}, // 255
+		{"out := INT_TO_STRING(i16);", 6},  // -32768
+		{"out := UINT_TO_STRING(u16);", 5}, // 65535
+		{"out := DINT_TO_STRING(i32);", 11},
+		{"out := UDINT_TO_STRING(u32);", 10},
+		{"out := LINT_TO_STRING(i64);", 20},
+		{"out := ULINT_TO_STRING(u64);", 20},
+		{"out := REAL_TO_STRING(r);", 32},
+		{"out := LREAL_TO_STRING(lr);", 32},
+		{"out := TIME_TO_STRING(pt);", 40},
+		{"out := DT_TO_STRING(dt);", 40},
+		{"out := DATE_TO_STRING(day);", 16},
+		{"out := TOD_TO_STRING(clock);", 24},
+	} {
+		t.Run(tt.body, func(t *testing.T) {
+			pkg := mustCheck(t, "p", wrap(decls, tt.body))
+			as := pkg.Component.Functions[0].Body[0].(*ast.AssignStmt)
+			e, ok := as.Value.(*ast.StrFuncExpr)
+			if !ok || e.Func != ast.StrFrom {
+				t.Fatalf("%s did not lower to a conversion, got %T", tt.body, as.Value)
+			}
+			if got := e.Typ.StringLen(); got != tt.want {
+				t.Errorf("%s: buffer is %d, want %d", tt.body, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStrFromRefusals covers what the family will not take.
+func TestStrFromRefusals(t *testing.T) {
+	decls := "VAR\n out : STRING[64];\n pt : TIME;\n day : DATE;\n" +
+		" n : DINT;\n s : STRING[8];\nEND_VAR"
+
+	for _, tt := range []struct{ name, body, want string }{{
+		// All four are int64s underneath, so nothing but the declared type
+		// would stop a duration being written out as a date fifty years off.
+		name: "a duration where a point in time goes",
+		body: "out := DT_TO_STRING(pt);",
+		want: "DT_TO_STRING takes DATE_AND_TIME, got TIME",
+	}, {
+		name: "a day where a duration goes",
+		body: "out := TIME_TO_STRING(day);",
+		want: "TIME_TO_STRING takes TIME, got DATE",
+	}, {
+		name: "a number where a duration goes",
+		body: "out := TIME_TO_STRING(n);",
+		want: "TIME_TO_STRING takes TIME, got DINT",
+	}, {
+		name: "a string, which is one already",
+		body: "out := INT_TO_STRING(s);",
+		want: "cannot assign",
+	}, {
+		name: "two arguments",
+		body: "out := INT_TO_STRING(1, 2);",
+		want: "INT_TO_STRING takes one argument, got 2",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", wrap(decls, tt.body))
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none\n--- source ---\n%s", tt.body)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestStrFromWidensANumber covers the one implicit conversion the family
+// allows: a narrower integer reaching a wider parameter, as it would for any
+// function. DINT_TO_STRING(anInt) should not need a cast written out.
+func TestStrFromWidensANumber(t *testing.T) {
+	decls := "VAR\n out : STRING[64];\n small : INT;\nEND_VAR"
+	mustCheck(t, "p", wrap(decls, "out := DINT_TO_STRING(small);"))
+}

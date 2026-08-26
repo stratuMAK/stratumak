@@ -223,3 +223,91 @@ func strResultType(fn ast.StrFunc, args []ast.Expr) ast.Type {
 	}
 	return ast.Type{Kind: ast.TypeString, Len: n}
 }
+
+// ---------------------------------------------------------------------------
+// The *_TO_STRING family
+// ---------------------------------------------------------------------------
+
+// Writing a value out is the other half of building a message, and it is a
+// family rather than one function because IEC names the source type: a
+// UINT_TO_STRING says what it takes, and passing it something else is a
+// mistake caught here rather than a number that reads wrong in a log.
+//
+// The lengths below are the longest each type can produce. They are exact, not
+// generous: the buffer holds the worst case, so no conversion in this family
+// can truncate and none of them reports a fault. The one exception is a
+// floating value too large to place, which says so -- see the backend.
+
+// strFrom is one member of the family: what it takes, and the longest result
+// it can give.
+type strFrom struct {
+	from ast.TypeKind
+	// max is the result length, excluding the terminator.
+	max int
+}
+
+var strFroms = map[string]strFrom{
+	// "FALSE".
+	"BOOL_TO_STRING": {ast.TypeBool, 5},
+
+	// The widest each integer can be written, sign included: -128, -32768,
+	// -2147483648, -9223372036854775808, and 18446744073709551615 unsigned.
+	"SINT_TO_STRING":  {ast.TypeSInt, 4},
+	"USINT_TO_STRING": {ast.TypeUSInt, 3},
+	"INT_TO_STRING":   {ast.TypeInt, 6},
+	"UINT_TO_STRING":  {ast.TypeUInt, 5},
+	"DINT_TO_STRING":  {ast.TypeDInt, 11},
+	"UDINT_TO_STRING": {ast.TypeUDInt, 10},
+	"LINT_TO_STRING":  {ast.TypeLInt, 20},
+	"ULINT_TO_STRING": {ast.TypeULInt, 20},
+
+	// Sign, up to nineteen digits, a point and six decimals.
+	"REAL_TO_STRING":  {ast.TypeReal, 32},
+	"LREAL_TO_STRING": {ast.TypeLReal, 32},
+
+	// The literal each one is written as, which is what makes a value read
+	// back as the thing it came from: T#-106751d23h47m16s854ms775us808ns is
+	// the longest duration an int64 of nanoseconds holds.
+	"TIME_TO_STRING": {ast.TypeTime, 40},
+	"DT_TO_STRING":   {ast.TypeDateTime, 40},
+	"DATE_TO_STRING": {ast.TypeDate, 16},
+	"TOD_TO_STRING":  {ast.TypeTimeOfDay, 24},
+}
+
+// checkStrFrom resolves one of them, or reports that this is not one.
+func (c *checker) checkStrFrom(v *st.CallExpr, name string) (ast.Expr, bool) {
+	upper := strings.ToUpper(name)
+	sig, ok := strFroms[upper]
+	if !ok {
+		return nil, false
+	}
+	if len(v.Args) != 1 {
+		c.errorf(v.Pos, "%s takes one argument, got %d", upper, len(v.Args))
+		return nil, true
+	}
+
+	from := ast.Type{Kind: sig.from}
+	arg := c.checkExpr(v.Args[0].Value, from)
+	if arg == nil {
+		return nil, true
+	}
+	if at := arg.ExprType(); at.Kind != sig.from {
+		if at.IsTimeLike() || sig.from == ast.TypeBool || from.IsTimeLike() {
+			// These would convert into each other as plain int64s and read as
+			// something else entirely, so the type has to be the named one.
+			c.errorf(v.Args[0].Pos, "%s takes %s, got %s", upper, from, at)
+			return nil, true
+		}
+		// A number widens into the parameter as it would for any function, so
+		// DINT_TO_STRING(anInt) needs no cast written out.
+		arg = c.assign(v.Args[0].Pos, upper, from, arg)
+		if arg == nil {
+			return nil, true
+		}
+	}
+
+	return &ast.StrFuncExpr{
+		Pos: v.Pos, Func: ast.StrFrom, Args: []ast.Expr{arg},
+		Typ: ast.Type{Kind: ast.TypeString, Len: sig.max},
+	}, true
+}

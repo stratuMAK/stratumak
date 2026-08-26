@@ -68,6 +68,11 @@ type generator struct {
 	// only those helpers are emitted.
 	usedStrFuncs map[ast.StrFunc]bool
 
+	// usedStrFrom is which of the *_TO_STRING writers the package reaches,
+	// keyed by the helper suffix ("i", "f", "dt", ...).  Several source types
+	// share one writer, which is why this is not keyed by the type.
+	usedStrFrom map[string]bool
+
 	err error
 
 	// outName is the path the generated C will be saved as; empty disables
@@ -107,8 +112,10 @@ func (g *generator) generate() error {
 		g.needStrCmp = g.anyStringCompare()
 		g.needDayPart = g.anyDayPart()
 		g.usedStrFuncs = g.scanStrFuncs()
+		g.usedStrFrom = g.scanStrFrom()
 		g.emitSTRuntime()
 		g.emitStrRuntime()
+		g.emitStrFromRuntime()
 		g.emitFperiodHelper()
 		// Blocks and functions are declared before any is defined, so they may
 		// call each other whatever order they were written in.

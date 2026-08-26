@@ -367,6 +367,47 @@ That buffer is capped at 255 characters, which is where CODESYS caps a result
 too — so a result that outgrows it is truncated in the same place, and the
 truncation is counted and logged.
 
+=== Writing a value out
+
+Every type has a conversion into text, named for what it takes:
+
+[source,pascal]
+----
+msg := CONCAT('count=', UINT_TO_STRING(count));
+msg := CONCAT('at ', DT_TO_STRING(started));
+----
+
+`BOOL_TO_STRING` gives `TRUE` or `FALSE`. The eight integers —
+`SINT`, `INT`, `DINT`, `LINT` and their unsigned forms — give the decimal.
+
+`REAL_TO_STRING` and `LREAL_TO_STRING` give six decimals with the trailing
+zeros dropped, so `1.5` is `1.5` and `2.0` is `2`; six is what the rest of
+stratuMAK prints a float to, so a value logged from a component and the same
+value captured from its pin read alike. Beyond about nine million million the
+decimals go and the whole part is written on its own; beyond what an `LINT`
+holds there is nothing to place, and the conversion says so in the log rather
+than printing a wrong number.
+
+`TIME_TO_STRING`, `DT_TO_STRING`, `DATE_TO_STRING` and `TOD_TO_STRING` each
+give the literal the value would be written as, which is what makes one read
+back as the thing it came from:
+
+[source,pascal]
+----
+TIME_TO_STRING(T#1m30s)                  (* 'T#1m30s' *)
+DT_TO_STRING(DT#2026-08-26-08:30:00)     (* 'DT#2026-08-26-08:30:00' *)
+DATE_TO_STRING(D#2026-08-26)             (* 'D#2026-08-26' *)
+TOD_TO_STRING(TOD#08:30:00)              (* 'TOD#08:30:00' *)
+----
+
+A fraction of a second is written only when there is one.
+
+Each of these takes the type it names and no other. The four nanosecond types
+are one machine word apiece, so nothing but that rule would stop a duration
+being written out as a date fifty years off.
+
+Going the other way — `STRING_TO_INT` and the rest — is not implemented.
+
 == Function blocks
 
 A function block is a reusable piece with its own state. Its inputs and outputs

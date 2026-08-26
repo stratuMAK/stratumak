@@ -681,7 +681,43 @@ throughout, as it did for every phase of the frontend.
   which is what the operation means and costs nothing the nesting did not
   already.
 
-  Still open: the `*_TO_STRING` family, and `STRING_TO_*`.
+  The `*_TO_STRING` family followed, since a message with no value in it is
+  not worth building. Every type has one, named for what it takes — which is
+  also the check that matters: the four nanosecond types are one machine word
+  apiece, and nothing but the declared type would stop a duration being
+  written out as a date fifty years off.
+
+  The digits are arithmetic here rather than `snprintf`. This runs in the
+  servo thread every cycle, and what printf does inside is what the
+  `STMAK_NONBLOCKING` contract exists to keep out of one — the project admits
+  it in the log path only, wrapped in a trusted region and rate-limited
+  besides. A loop over digits is a loop the compiler can see all of. The
+  buffers are sized to the widest result each type can give, so nothing in the
+  family truncates and none of it needs a fault path.
+
+  A float is fixed-point to six decimals with the trailing zeros dropped, six
+  being what halsampler and the filestream capture print a float to — so a
+  value logged from a component and the same value captured from its pin read
+  alike. It is the one member that can fail: past about 9e12 the scaled value
+  leaves an int64 and the decimals go, and past an int64 entirely there is
+  nothing to place, which it reports rather than printing a wrong number.
+
+  The four time types are written as their own literals, which is what makes a
+  value read back as the thing it came from. The calendar is Howard Hinnant's
+  `civil_from_days`: no table, no branch on leap years, and exact over the
+  whole range an int64 of nanoseconds reaches. It was checked against a known
+  calendar for all 213,300 days of that range, and the clock for every second
+  of a day on both sides of the epoch.
+
+  Two literals turn out to be unwritable, which is the scanner's limit and not
+  this family's: the magnitude of the most negative `LINT`, and anything above
+  `LINT`'s maximum for a `ULINT`. The scanner parses into an `int64` before
+  the sign is seen. `-9223372036854775807 - 1` reaches the first; the second
+  has no spelling.
+
+  Still open: `STRING_TO_*`. Parsing an integer back is a bounded loop, but a
+  float needs `strtod` or a decimal parser written out, and neither has been
+  asked for.
 - ~~**`THIS`.**~~ Done, and not by making `THIS` a value. A method needs an
   instance and there is always one in scope — `__self`, already a parameter of
   the generated function — so a bare `helper(x := 1)` inside a block's body,

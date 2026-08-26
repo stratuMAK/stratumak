@@ -1,0 +1,19 @@
+# Writing values out, at a 10 ms cycle.  The checks are all of written-out
+# values, so every column is exact; the last one takes a number from the
+# stream so that at least one conversion is of something that varies.
+
+newthread slow 10000000
+
+load ./tostring.so <r.0>
+
+load filestream stream_cfg=s infile=in.txt sample_cfg=sss outfile=out.txt depth=1000 samples=5
+
+net v filestream.stream.0 r.0.v
+
+net first r.0.first filestream.sample.0
+net nfail r.0.nfail filestream.sample.1
+net vlen  r.0.vlen  filestream.sample.2
+
+addf filestream.write slow
+addf r.0 slow
+addf filestream.read slow
