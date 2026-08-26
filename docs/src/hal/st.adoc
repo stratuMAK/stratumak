@@ -564,6 +564,17 @@ an ST string does, so `$N` is a line break.
 `modcompile --document -o ramp.9 ramp.st` writes the page;
 `modcompile --view-doc ramp.st` shows it.
 
+A library is documented the same way, but produces one page per function block
+in section 3 rather than one page for the file — a block is what you use:
+
+----
+modcompile --document standard.st -o /tmp/pages
+man -l /tmp/pages/TON.3
+----
+
+The build does this for every shipped library, so on an installed system
+`man 3 TON` works directly.
+
 == What is not supported
 
 Structured Text is a large language and this is a subset, chosen so that what

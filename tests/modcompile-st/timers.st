@@ -8,12 +8,16 @@
    call to one of these blocks is a static C function in the same translation
    unit, checked against this declaration and mapped back here by #line. *)
 
+{attribute 'doc' := 'Delay on: Q follows IN, but only after PT.'}
 FUNCTION_BLOCK TON
   VAR_INPUT
+    {attribute 'doc' := 'The signal to delay.'}
     IN : BOOL;
+    {attribute 'doc' := 'How long IN must stay true before Q follows.'}
     PT : TIME;
   END_VAR
   VAR_OUTPUT
+    {attribute 'doc' := 'True once IN has been true for PT.'}
     Q  : BOOL;
     ET : TIME;
   END_VAR

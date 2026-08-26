@@ -410,6 +410,57 @@ func componentNameFor(path string) string {
 	return strings.ReplaceAll(base, "-", "_")
 }
 
+// documentLibrary writes one man3 page per function block a library declares.
+//
+// One page per block rather than one per library, because a block is what
+// somebody uses: `man 3 TON` answers the question that was actually asked.
+// -o names a directory here rather than a file, since there is more than one
+// page; it defaults to the working directory.
+func documentLibrary(name string, lib *st.File, path, mode, outDir string) error {
+	doc := &docgen.Library{Name: name, Path: path, File: lib}
+	pages := doc.Pages()
+	if len(pages) == 0 {
+		return fmt.Errorf("%s: library %s declares no function block, so there is "+
+			"nothing to document", path, name)
+	}
+
+	if mode == "--view-doc" {
+		// Piping many pages into one pager would bury all but the first, so
+		// say what is there and how to read one.
+		fmt.Fprintf(os.Stderr, "library %s declares %d function blocks:\n", name, len(pages))
+		for _, p := range pages {
+			fmt.Fprintf(os.Stderr, "    %s\n", p.Block)
+		}
+		fmt.Fprintf(os.Stderr, "\nGenerate the pages with:\n"+
+			"    modcompile --document %s -o <directory>\n"+
+			"then read one with `man -l <directory>/%s.3`.\n", path, pages[0].Block)
+		return nil
+	}
+
+	if outDir == "" {
+		outDir = "."
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return err
+	}
+	for _, p := range pages {
+		out := filepath.Join(outDir, p.FileName)
+		f, err := os.Create(out)
+		if err != nil {
+			return err
+		}
+		err = doc.GenerateBlock(f, p.Block)
+		cerr := f.Close()
+		if err != nil {
+			return err
+		}
+		if cerr != nil {
+			return cerr
+		}
+	}
+	return nil
+}
+
 // stLibDirs are the directories shipped ST libraries live in, searched after
 // $STMAK_ST_LIB_PATH and the source's own directory.
 //
@@ -443,6 +494,15 @@ func processSTFile(path, mode, outputFile string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(file)
+	}
+
+	// A library is not a component and cannot be compiled into one, but it is
+	// the thing most worth looking up, so --document reads it rather than
+	// refusing it.
+	if mode == "--document" || mode == "--view-doc" {
+		if name, lib, lerr := stlib.OpenLibrary(path); lerr == nil {
+			return documentLibrary(name, lib, path, mode, outputFile)
+		}
 	}
 
 	// Resolve USING declarations before checking: sema sees one file and

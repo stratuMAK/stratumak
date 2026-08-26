@@ -550,10 +550,16 @@ throughout, as it did for every phase of the frontend.
   separate ed.3 feature that is also out of scope), so it is noted rather than
   planned.
 - **Binary libraries**, per §2, unless something later makes the case.
-- **Man pages for libraries.** `docgen` writes man9 for components, and a
-  library is not a component. Section 3 is the conventional home for library
-  documentation; the page would list each block with its inputs, outputs and
-  their docs, all of which sema already carries. Small, but unspecified here.
+- ~~**Man pages for libraries.**~~ Done. `modcompile --document` on a library
+  writes one man3 page per function block, installed to `docs/man/man3` by the
+  build, so `man 3 TON` answers the question somebody actually asks — a block
+  is the unit you use, not the library. This was the first of these items to
+  do, because shipping the standard library created the problem: 126 `doc`
+  pragmas on the blocks' interfaces, and no way to read one short of opening
+  the source. The pages are rendered from the syntax tree rather than a
+  checked package, because a library has no `PROGRAM` and so is not a
+  component — and because `PT : TIME` as the author spelled it is the answer
+  to "what do I pass", where the resolved kind is not.
 - **Whether `TIME` should reach a pin** after all, as `s32` nanoseconds. §5
   refuses it; if a real component wants a HAL-settable `PT` often enough, that
   is the thing to revisit first.

@@ -282,6 +282,24 @@ ST_LIB_TARGETS := $(patsubst hal/st-lib/%.st, ../cmod/st-lib/%.st, $(ST_LIBS))
 TARGETS += $(ST_LIB_TARGETS)
 modules: $(ST_LIB_TARGETS)
 
+# A library's man pages, one per function block, in section 3.  Section 3
+# rather than 9 because a block is not a HAL component -- it has no pins and
+# nothing loads it -- and `man 3 TON` is the question somebody actually asks.
+#
+# The recipe writes a whole directory at once, since one source produces many
+# pages, so the stamp file is what make tracks.
+ST_LIB_MANSTAMPS := $(patsubst hal/st-lib/%.st, ../docs/man/man3/.%.stamp, $(ST_LIBS))
+
+../docs/man/man3/.%.stamp: hal/st-lib/%.st ../bin/modcompile
+	@mkdir -p $(dir $@)
+	$(ECHO) Making ST library manpages from $(notdir $<)
+	$(Q)../bin/modcompile --document $< -o $(dir $@)
+	$(Q)touch $@
+
+TARGETS += $(ST_LIB_MANSTAMPS)
+manpages: $(ST_LIB_MANSTAMPS)
+GENERATED_MANPAGES += $(ST_LIB_MANSTAMPS)
+
 # ---------------------------------------------------------------------------
 # cmod native C components (hand-written .c files, not from .comp)
 # NOTE: These should use "modcompile --compile foo.c" (out-of-tree already can).

@@ -259,3 +259,23 @@ func IsLibrary(path string) bool {
 	_, ok := libraryName(f)
 	return ok
 }
+
+// OpenLibrary parses a library without merging anything, for the documentation
+// path.  Load refuses a library outright, which is right for compiling it and
+// wrong for reading it: a library's declarations are the one thing somebody
+// most needs to look up.
+func OpenLibrary(path string) (name string, file *st.File, err error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil, err
+	}
+	f, perr := st.Parse(path, string(src))
+	if perr != nil {
+		return "", nil, perr
+	}
+	n, ok := libraryName(f)
+	if !ok {
+		return "", nil, fmt.Errorf("%s is not a library: it has no {attribute 'library' := '...'}", path)
+	}
+	return n, f, nil
+}

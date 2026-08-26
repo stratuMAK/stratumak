@@ -19,6 +19,32 @@ man1/emccalib.1
 
 man3/hm2_pktuart.3
 
+# Generated from the Structured Text libraries in src/hal/st-lib by
+# `modcompile --document`, one page per function block.  Listed by name
+# rather than by pattern because man3 also holds hand-written pages.
+man3/.standard.stamp
+man3/BLINK.3
+man3/CTD.3
+man3/CTU.3
+man3/CTUD.3
+man3/DERIVATIVE.3
+man3/F_TRIG.3
+man3/HYSTERESIS.3
+man3/INTEGRAL.3
+man3/LIMITALARM.3
+man3/LIN_TRAFO.3
+man3/PID.3
+man3/RAMP.3
+man3/RS.3
+man3/RTC.3
+man3/R_TRIG.3
+man3/SEMA.3
+man3/SR.3
+man3/TOF.3
+man3/TON.3
+man3/TONR.3
+man3/TP.3
+
 man9/abs.9
 man9/abs_s32.9
 man9/abs_s64.9

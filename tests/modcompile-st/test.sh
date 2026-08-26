@@ -332,6 +332,45 @@ if ! grep -q 'Value to latch\.' documented.9; then
     exit 1
 fi
 
+# A library's documentation has to be reachable.  Every block carries doc
+# pragmas on its interface, and until --document understood a library those
+# were write-only: the source was the only place to read them.
+rm -rf libdoc && mkdir -p libdoc
+modcompile --document timers.st -o libdoc
+if [ $? -ne 0 ]; then
+    echo 'modcompile failed to document a library'
+    exit 1
+fi
+# One page per block, named for the block, in section 3 -- a block is not a
+# HAL component, and `man 3 TON` is the question somebody asks.
+if [ ! -f libdoc/TON.3 ]; then
+    echo 'modcompile --document produced no page for TON'
+    exit 1
+fi
+if ! grep -q '^\.TH TON "3"' libdoc/TON.3; then
+    echo 'TON.3 is not a section 3 man page'
+    exit 1
+fi
+# The interface, with the documentation that was stranded in the source.
+for want in 'USING timers;' 'How long IN must stay true' '^\.SH INPUTS' '^\.SH OUTPUTS'; do
+    if ! grep -q "$want" libdoc/TON.3; then
+        echo "TON.3 is missing: $want"
+        exit 1
+    fi
+done
+# A block the consumer never uses is still documented: pruning is about what
+# gets compiled, not about what can be looked up.
+if [ ! -f libdoc/TOF.3 ]; then
+    echo 'libdoc has no page for TOF, which nothing in this test uses'
+    exit 1
+fi
+# And the licence travels with it, because these are not GPL like the rest.
+if ! grep -q 'SEE ALSO' libdoc/TON.3; then
+    echo 'TON.3 does not point at the librarys other blocks'
+    exit 1
+fi
+rm -rf libdoc
+
 # --- these must fail ---
 rm -f bad_unbounded.c
 modcompile --preprocess bad_unbounded.st -o bad_unbounded.c
