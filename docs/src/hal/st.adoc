@@ -214,6 +214,33 @@ secs := TIME_TO_SECONDS(T#1s);   (* 1.0 *)
 pt   := SECONDS_TO_TIME(0.25);   (* T#250ms *)
 ----
 
+=== Points in time
+
+`DATE_AND_TIME` (`DT`) is a point in time, where `TIME` is a length of one:
+
+[source,pascal]
+----
+VAR
+  started : DATE_AND_TIME := DT#2026-08-26-08:30:00;
+  due     : DATE_AND_TIME;
+  taken   : TIME;
+END_VAR
+
+due   := started + T#1h30m;      (* a point moved by a duration *)
+taken := due - started;          (* the duration between two points *)
+late  := MONOTONIC > T#0s;
+----
+
+They are two types because the arithmetic differs: two points subtract to the
+duration between them, a point and a duration add to another point, and two
+points cannot be added at all — twice last Tuesday is not a time.
+
+`DT_TO_UDINT` and `UDINT_TO_DT` convert in seconds since 1970-01-01 UTC, as
+CODESYS does; `DT_TO_SECONDS` and `SECONDS_TO_DT` are the same in `LREAL`.
+
+`DATE` and `TIME_OF_DAY` on their own are not supported — use a
+`DATE_AND_TIME`.
+
 === Durations and HAL
 
 A duration cannot be a pin or a parameter: HAL has no duration type. Carry one
@@ -387,6 +414,7 @@ The IEC 61131-3 standard function blocks ship as one library, `standard`:
 |`RAMP` | slope limiter, at most `ASCEND` up and `DESCEND` down
 |`INTEGRAL` / `DERIVATIVE` | integrate and differentiate, over `CYCLE`
 |`PID` | a PID controller with anti-windup
+|`RTC` | a clock, set from `PDT` and running from there
 |===
 
 The analog blocks take the interval as a `CYCLE : TIME` input rather than

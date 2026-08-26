@@ -110,6 +110,13 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 		return nil
 	}
 	switch upper {
+	case "DT", "DATE_AND_TIME", "LDT", "LDATE_AND_TIME":
+		ns, err := parseDateTime(v.Body)
+		if err != nil {
+			c.errorf(v.Pos, "%s#%s: %s", v.Prefix, v.Body, err)
+			return nil
+		}
+		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeDateTime}}
 	case "T", "TIME", "LT", "LTIME":
 		ns, err := parseDuration(v.Body)
 		if err != nil {
@@ -119,8 +126,9 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeTime}}
 	}
 	if isDateTimePrefix(upper) {
-		c.errorf(v.Pos, "%s literals are not supported; "+
-			"stratuMAK has TIME but no date or time-of-day types", v.Prefix)
+		c.errorf(v.Pos, "%s literals are not supported; stratuMAK has TIME for a "+
+			"duration and DATE_AND_TIME for a point in time, but neither a bare "+
+			"date nor a bare time of day", v.Prefix)
 		return nil
 	}
 
@@ -532,6 +540,9 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
 	}
 
+	if xt.Kind == ast.TypeDateTime || yt.Kind == ast.TypeDateTime {
+		return c.checkDateTimeBinary(v, x, y, xt, yt)
+	}
 	if xt.Kind == ast.TypeTime || yt.Kind == ast.TypeTime {
 		return c.checkTimeBinary(v, x, y, xt, yt)
 	}

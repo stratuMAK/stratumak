@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st"
@@ -317,7 +318,10 @@ func other(xt, yt ast.Type) ast.Type {
 // float pin carrying a time -- so they get their own pair of names.
 // TIME_TO_SECONDS is not an IEC name and appears in no CODESYS source, which
 // is the point: there is no spelling that could be read as either.
-const nsPerMillisecond = 1e6
+const (
+	nsPerMillisecond = 1e6
+	nsPerSecond      = 1e9
+)
 
 // timeConv is one conversion between a duration and a number.
 type timeConv struct {
@@ -342,6 +346,16 @@ var timeConversions = map[string]timeConv{
 	"LREAL_TO_TIME":   {ast.TypeLReal, ast.TypeTime, nsPerMillisecond},
 	"TIME_TO_SECONDS": {ast.TypeTime, ast.TypeLReal, 1e9},
 	"SECONDS_TO_TIME": {ast.TypeLReal, ast.TypeTime, 1e9},
+
+	// A point in time converts in seconds since 1970, which is what CODESYS
+	// holds a DT in -- so DT_TO_UDINT gives the same number there and here.
+	// There is no millisecond form to disagree about.
+	"DT_TO_UDINT":   {ast.TypeDateTime, ast.TypeUDInt, nsPerSecond},
+	"UDINT_TO_DT":   {ast.TypeUDInt, ast.TypeDateTime, nsPerSecond},
+	"DT_TO_LINT":    {ast.TypeDateTime, ast.TypeLInt, nsPerSecond},
+	"LINT_TO_DT":    {ast.TypeLInt, ast.TypeDateTime, nsPerSecond},
+	"DT_TO_SECONDS": {ast.TypeDateTime, ast.TypeLReal, nsPerSecond},
+	"SECONDS_TO_DT": {ast.TypeLReal, ast.TypeDateTime, nsPerSecond},
 }
 
 // checkTimeConversion resolves one of the calls above, or reports that this is
@@ -368,9 +382,9 @@ func (c *checker) checkTimeConversion(v *st.CallExpr, name string) (ast.Expr, bo
 	if at := arg.ExprType(); at.Kind != conv.from {
 		// A number widens into the parameter as it would for any function; a
 		// duration has to be one already.
-		if conv.from == ast.TypeTime {
-			c.errorf(v.Args[0].Pos, "%s takes a duration, got %s",
-				strings.ToUpper(name), at)
+		if conv.from == ast.TypeTime || conv.from == ast.TypeDateTime {
+			c.errorf(v.Args[0].Pos, "%s takes %s, got %s",
+				strings.ToUpper(name), ast.Type{Kind: conv.from}, at)
 			return nil, true
 		}
 		arg = c.assign(v.Args[0].Pos, strings.ToUpper(name), from, arg)
@@ -380,4 +394,166 @@ func (c *checker) checkTimeConversion(v *st.CallExpr, name string) (ast.Expr, bo
 	}
 
 	return &ast.TimeConvExpr{Pos: v.Pos, X: arg, Unit: conv.unit, Typ: to}, true
+}
+
+// ---------------------------------------------------------------------------
+// DATE_AND_TIME
+// ---------------------------------------------------------------------------
+
+// A DT# literal is a point in time: DT#2026-08-26-08:30:00, with optional
+// fractional seconds.  It is held as nanoseconds since 1970-01-01 UTC, the
+// same unit a TIME is in, which is what lets one be added to the other without
+// a scale factor appearing from nowhere.
+//
+// The epoch matters only to the conversions.  Everything else works on
+// differences, where it cancels.
+
+// dtEpochGuard bounds the literals that fit in int64 nanoseconds, which runs
+// from 1677 to 2262.  A date outside it is a typo far more often than it is a
+// requirement.
+const (
+	dtMinYear = 1678
+	dtMaxYear = 2261
+)
+
+// parseDateTime converts the body of a DT# literal to nanoseconds since the
+// Unix epoch.
+func parseDateTime(body string) (int64, error) {
+	s := strings.TrimSpace(body)
+
+	// YYYY-MM-DD-hh:mm:ss -- the date and the time of day are separated by a
+	// third '-', which is IEC's spelling and not ISO's 'T'.
+	date, clock, ok := strings.Cut(s, "-")
+	if !ok {
+		return 0, fmt.Errorf("a date and time is written DT#2026-08-26-08:30:00")
+	}
+	year := date
+	rest := clock
+	month, rest2, ok := strings.Cut(rest, "-")
+	if !ok {
+		return 0, fmt.Errorf("a date and time is written DT#2026-08-26-08:30:00")
+	}
+	day, timePart, ok := strings.Cut(rest2, "-")
+	if !ok {
+		return 0, fmt.Errorf("a date and time needs a time of day, as in DT#2026-08-26-08:30:00")
+	}
+
+	y, err := strconv.Atoi(year)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a year", year)
+	}
+	mo, err := strconv.Atoi(month)
+	if err != nil || mo < 1 || mo > 12 {
+		return 0, fmt.Errorf("%q is not a month", month)
+	}
+	d, err := strconv.Atoi(day)
+	if err != nil || d < 1 || d > 31 {
+		return 0, fmt.Errorf("%q is not a day", day)
+	}
+	if y < dtMinYear || y > dtMaxYear {
+		return 0, fmt.Errorf("the year %d is outside %d to %d, which is what fits in "+
+			"nanoseconds since 1970", y, dtMinYear, dtMaxYear)
+	}
+
+	hh, mm, ss, ns, err := parseClock(timePart)
+	if err != nil {
+		return 0, err
+	}
+
+	t := time.Date(y, time.Month(mo), d, hh, mm, ss, ns, time.UTC)
+	// time.Date normalises out-of-range fields rather than refusing them, so
+	// 2026-02-30 would silently become 2026-03-02.  Reading them back is what
+	// catches that.
+	if t.Year() != y || int(t.Month()) != mo || t.Day() != d {
+		return 0, fmt.Errorf("%s-%s-%s is not a date", year, month, day)
+	}
+	return t.UnixNano(), nil
+}
+
+// parseClock reads hh:mm:ss with optional fractional seconds.
+func parseClock(s string) (hh, mm, ss, ns int, err error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0, 0, 0, 0, fmt.Errorf("%q is not a time of day; write hh:mm:ss", s)
+	}
+	if hh, err = strconv.Atoi(parts[0]); err != nil || hh < 0 || hh > 23 {
+		return 0, 0, 0, 0, fmt.Errorf("%q is not an hour", parts[0])
+	}
+	if mm, err = strconv.Atoi(parts[1]); err != nil || mm < 0 || mm > 59 {
+		return 0, 0, 0, 0, fmt.Errorf("%q is not a minute", parts[1])
+	}
+
+	sec, frac, hasFrac := strings.Cut(parts[2], ".")
+	if ss, err = strconv.Atoi(sec); err != nil || ss < 0 || ss > 59 {
+		return 0, 0, 0, 0, fmt.Errorf("%q is not a second", parts[2])
+	}
+	if hasFrac {
+		f, ferr := strconv.ParseFloat("0."+frac, 64)
+		if ferr != nil {
+			return 0, 0, 0, 0, fmt.Errorf("%q is not a fraction of a second", frac)
+		}
+		ns = int(f * 1e9)
+	}
+	return hh, mm, ss, ns, nil
+}
+
+// checkDateTimeBinary types an operator with a point in time on at least one
+// side.
+//
+// A point is not a duration, and the difference is the whole reason they are
+// two types: two points subtract to the time between them, a point and a
+// duration add to another point, and two points added together are nothing at
+// all -- what would twice last Tuesday be?
+func (c *checker) checkDateTimeBinary(v *st.BinaryExpr, x, y ast.Expr, xt, yt ast.Type) ast.Expr {
+	dt := ast.Type{Kind: ast.TypeDateTime}
+	time_ := ast.Type{Kind: ast.TypeTime}
+	both := xt.Kind == ast.TypeDateTime && yt.Kind == ast.TypeDateTime
+
+	if v.Op.IsComparison() {
+		if !both {
+			c.errorf(v.Pos, "a point in time can only be compared with another one, not with %s",
+				other2(xt, yt))
+			return nil
+		}
+		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
+	}
+
+	switch v.Op {
+	case ast.BinSub:
+		if both {
+			// How long between them.
+			return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: time_}
+		}
+		if xt.Kind == ast.TypeDateTime && yt.Kind == ast.TypeTime {
+			// Earlier by that much.
+			return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: dt}
+		}
+		c.errorf(v.Pos, "%s minus %s has no meaning; "+
+			"subtract two points in time for the duration between them, "+
+			"or a duration from a point for an earlier one", xt, yt)
+		return nil
+
+	case ast.BinAdd:
+		if both {
+			c.errorf(v.Pos, "two points in time cannot be added; "+
+				"add a duration to one to move it")
+			return nil
+		}
+		if xt.Kind == ast.TypeTime || yt.Kind == ast.TypeTime {
+			return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: dt}
+		}
+		c.errorf(v.Pos, "a point in time moves by a duration, not by %s", other2(xt, yt))
+		return nil
+	}
+
+	c.errorf(v.Pos, "%s cannot be applied to a point in time", v.Op)
+	return nil
+}
+
+// other2 names whichever of the two is not the point in time.
+func other2(xt, yt ast.Type) ast.Type {
+	if xt.Kind == ast.TypeDateTime {
+		return yt
+	}
+	return xt
 }

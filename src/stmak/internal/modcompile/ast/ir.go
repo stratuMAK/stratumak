@@ -63,8 +63,9 @@ const (
 	TypeReal  // 32-bit float
 	TypeLReal // 64-bit float
 
-	TypeTime   // duration, nanoseconds
-	TypeString // STRING[n]
+	TypeTime     // duration, nanoseconds
+	TypeDateTime // a point in time, nanoseconds since 1970-01-01 UTC
+	TypeString   // STRING[n]
 
 	TypeEnum   // named enumeration; Ref is the TypeDef name
 	TypeStruct // named struct; Ref is the TypeDef name
@@ -73,24 +74,25 @@ const (
 )
 
 var typeKindNames = map[TypeKind]string{
-	TypeInvalid: "<invalid>",
-	TypeBool:    "BOOL",
-	TypeSInt:    "SINT",
-	TypeInt:     "INT",
-	TypeDInt:    "DINT",
-	TypeLInt:    "LINT",
-	TypeUSInt:   "USINT",
-	TypeUInt:    "UINT",
-	TypeUDInt:   "UDINT",
-	TypeULInt:   "ULINT",
-	TypeReal:    "REAL",
-	TypeLReal:   "LREAL",
-	TypeTime:    "TIME",
-	TypeString:  "STRING",
-	TypeEnum:    "<enum>",
-	TypeStruct:  "<struct>",
-	TypeArray:   "<array>",
-	TypeFB:      "<function block>",
+	TypeInvalid:  "<invalid>",
+	TypeBool:     "BOOL",
+	TypeSInt:     "SINT",
+	TypeInt:      "INT",
+	TypeDInt:     "DINT",
+	TypeLInt:     "LINT",
+	TypeUSInt:    "USINT",
+	TypeUInt:     "UINT",
+	TypeUDInt:    "UDINT",
+	TypeULInt:    "ULINT",
+	TypeReal:     "REAL",
+	TypeLReal:    "LREAL",
+	TypeTime:     "TIME",
+	TypeDateTime: "DATE_AND_TIME",
+	TypeString:   "STRING",
+	TypeEnum:     "<enum>",
+	TypeStruct:   "<struct>",
+	TypeArray:    "<array>",
+	TypeFB:       "<function block>",
 }
 
 func (k TypeKind) String() string {
@@ -222,7 +224,7 @@ func (t Type) IsNumeric() bool { return t.IsInteger() || t.IsFloat() }
 // can appear on a HAL pin, before the HAL representability question.
 func (t Type) IsScalar() bool {
 	switch t.Kind {
-	case TypeBool, TypeEnum, TypeTime:
+	case TypeBool, TypeEnum, TypeTime, TypeDateTime:
 		return true
 	}
 	return t.IsNumeric()
@@ -239,7 +241,7 @@ func (t Type) Bits() int {
 		return 16
 	case TypeDInt, TypeUDInt, TypeReal, TypeEnum:
 		return 32
-	case TypeLInt, TypeULInt, TypeLReal, TypeTime:
+	case TypeLInt, TypeULInt, TypeLReal, TypeTime, TypeDateTime:
 		return 64
 	}
 	return 0
@@ -273,7 +275,7 @@ func (t Type) CType() string {
 		return "float"
 	case TypeLReal:
 		return "double"
-	case TypeTime:
+	case TypeTime, TypeDateTime:
 		return "int64_t"
 	case TypeString:
 		return "char"
@@ -353,7 +355,7 @@ func (t Type) HALType() (HALType, HALFit) {
 		return t.Elem.HALType()
 	}
 	// LINT, ULINT: no 64-bit HAL type.
-	// TIME, STRING, STRUCT, FB: no HAL representation at all.
+	// TIME, DATE_AND_TIME, STRING, STRUCT, FB: no HAL representation at all.
 	return 0, HALFitNone
 }
 

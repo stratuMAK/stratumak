@@ -442,10 +442,31 @@ second, so unlike the timers the numbers are arithmetic rather than a
 measurement and the expected file can be exact. Verified by breaking
 `DERIVATIVE`'s constant and by turning `HYSTERESIS` into a plain comparator.
 
-`RTC` is **deferred** and belongs in §9: it needs wall-clock date and time, not
-a monotonic count, so it needs both a `DATE_AND_TIME` type and a runtime source
-that does not exist yet. `get_time()` is explicitly monotonic and is the wrong
-clock for it.
+**`RTC` — done, and the reason it was deferred was wrong.** The note said it
+needed a wall-clock source that does not exist. It does not: IEC's `RTC` is
+seeded from its own `PDT` input on a rising edge of `EN` and counts forward
+from there, so the only thing it measures is how long it has been running, and
+`MONOTONIC` is exactly that. Where `PDT` comes from is the caller's problem,
+and rightly — a machine with an RTC chip, an NTP client or nothing at all all
+look the same from inside the block.
+
+What it did need was the type. `DATE_AND_TIME` (`DT`) is now implemented,
+held as nanoseconds since 1970-01-01 UTC — the same unit as `TIME`, which is
+what lets one be added to the other without a scale factor appearing from
+nowhere. It is a separate type from `TIME` on purpose, and the arithmetic is
+what makes the distinction earn its keep: two points subtract to the duration
+between them, a point and a duration add to another point, and two points
+added together are refused, because what would twice last Tuesday be?
+
+`DT#2026-08-26-08:30:00` is the literal. Dates are validated by constructing
+and reading back, because Go's `time.Date` normalises `2026-02-30` into
+March 2 rather than refusing it. The conversions are seconds since the epoch,
+which is the unit CODESYS holds a `DT` in, so there is no millisecond form of
+them to disagree about — the split that `TIME` needed does not arise here.
+
+`DATE` and `TIME_OF_DAY` are still not implemented. They carve a point in time
+into halves, and the message for each now points at the whole rather than
+claiming the family is missing.
 
 ## 7a. Ahead: GMI in Structured Text
 

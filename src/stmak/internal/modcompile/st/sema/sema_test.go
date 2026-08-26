@@ -936,11 +936,11 @@ func TestDiagnostics(t *testing.T) {
 		},
 
 		{
-			// TIME is implemented; the date and time-of-day types that share
-			// its literal syntax are not, and say so by name.
+			// TIME and DATE_AND_TIME are implemented; the two that carve a
+			// point in time into halves are not, and point at the whole.
 			name: "date types are named, not merely unknown",
 			src:  wrap("VAR\n d : DATE;\nEND_VAR", "q := TRUE;"),
-			want: "date and time-of-day types are not implemented",
+			want: "use DATE_AND_TIME, which is a point in time",
 		},
 		{
 			name: "bit-string types are named",
@@ -1287,7 +1287,7 @@ func TestTimeDiagnostics(t *testing.T) {
 	}, {
 		name: "a conversion given the wrong type",
 		src:  wrap(decls, "n := TIME_TO_DINT(n);"),
-		want: "TIME_TO_DINT takes a duration",
+		want: "TIME_TO_DINT takes TIME",
 	}, {
 		// A divisor written out as zero is a mistake, not something the RT
 		// guard exists for.  A duration would otherwise slip past that rule.
@@ -1295,9 +1295,9 @@ func TestTimeDiagnostics(t *testing.T) {
 		src:  wrap(decls, "pt := pt / 0;"),
 		want: "division by zero",
 	}, {
-		name: "date types are still refused",
+		name: "bare date literals are still refused",
 		src:  wrap(decls, "q := D#2026-01-01 = D#2026-01-01;"),
-		want: "no date or time-of-day types",
+		want: "D literals are not supported",
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := check(t, "p", tt.src)

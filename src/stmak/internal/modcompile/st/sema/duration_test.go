@@ -139,6 +139,15 @@ func TestDurationMillisecondBridge(t *testing.T) {
 		if strings.Contains(name, "SECONDS") {
 			continue
 		}
+		if strings.Contains(name, "DT") {
+			// A point in time converts in seconds, which is the unit CODESYS
+			// holds a DT in.  There is no millisecond form of it to disagree
+			// with.
+			if conv.unit != nsPerSecond {
+				t.Errorf("%s scales by %v, want seconds", name, conv.unit)
+			}
+			continue
+		}
 		if conv.unit != nsPerMillisecond {
 			t.Errorf("%s scales by %v; every IEC-named conversion must be milliseconds "+
 				"to agree with CODESYS", name, conv.unit)

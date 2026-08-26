@@ -825,3 +825,52 @@ FUNCTION_BLOCK PID
     END_IF;
   END_IF;
 END_FUNCTION_BLOCK
+
+(* ------------------------------------------------------------------------ *)
+(* Clock                                                                     *)
+(* ------------------------------------------------------------------------ *)
+
+{attribute 'doc' := 'A running clock, set from PDT on a rising edge of EN.'}
+FUNCTION_BLOCK RTC
+  VAR_INPUT
+    {attribute 'doc' := 'A rising edge sets the clock to PDT; false stops it.'}
+    EN  : BOOL;
+    {attribute 'doc' := 'The time to start from.'}
+    PDT : DATE_AND_TIME;
+  END_VAR
+  VAR_OUTPUT
+    {attribute 'doc' := 'Follows EN: true while the clock is running.'}
+    Q   : BOOL;
+    {attribute 'doc' := 'PDT plus the time since EN rose. The epoch while stopped.'}
+    CDT : DATE_AND_TIME;
+  END_VAR
+  VAR
+    edge  : R_TRIG;
+    base  : DATE_AND_TIME;
+    start : TIME;
+    now   : TIME;
+  END_VAR
+
+  (* This reads no wall clock, and needs none.  IEC's RTC is seeded from its
+     own PDT input and counts forward from there, so the only thing it has to
+     measure is how long it has been running -- which is what MONOTONIC is
+     for, and why this block needed a type rather than a clock source.
+
+     Where PDT comes from is the caller's problem, and rightly: a machine that
+     has an RTC chip, an NTP client or nothing at all all look the same from
+     in here. *)
+  now := MONOTONIC;
+  edge(CLK := EN);
+
+  IF edge.Q THEN
+    base  := PDT;
+    start := now;
+  END_IF;
+
+  Q := EN;
+  IF EN THEN
+    CDT := base + (now - start);
+  ELSE
+    CDT := DT#1970-01-01-00:00:00;
+  END_IF;
+END_FUNCTION_BLOCK

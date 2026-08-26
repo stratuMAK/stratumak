@@ -1,0 +1,19 @@
+# The RTC block at a 10 ms cycle.  It is seeded from its own PDT input and
+# counts forward with the monotonic clock, so what is captured is how far it
+# has advanced past the preset -- which is the only thing it claims to know.
+
+newthread slow 10000000
+
+load ./rtcblock.so <r.0>
+
+load filestream stream_cfg=b infile=in.txt sample_cfg=bff outfile=out.txt depth=1000 samples=12
+
+net en filestream.stream.0 r.0.en
+
+net running r.0.running filestream.sample.0
+net since   r.0.since   filestream.sample.1
+net at_s    r.0.at-s    filestream.sample.2
+
+addf filestream.write slow
+addf r.0 slow
+addf filestream.read slow

@@ -1180,10 +1180,11 @@ func (e *stEmitter) binary(v *ast.BinaryExpr) string {
 func intLiteral(v int64, t ast.Type) string {
 	s := strconv.FormatInt(v, 10)
 	switch {
-	case t.Kind == ast.TypeTime:
-		// A duration is a signed 64-bit count of nanoseconds, and is neither
-		// IsSigned nor IsInteger -- it is not on the numeric lattice at all --
-		// so it would otherwise fall through to the unsigned 64-bit case.
+	case t.Kind == ast.TypeTime, t.Kind == ast.TypeDateTime:
+		// A duration, and a point in time, are signed 64-bit counts of
+		// nanoseconds, and neither is IsSigned or IsInteger -- they are not on
+		// the numeric lattice at all -- so they would otherwise fall through
+		// to the unsigned 64-bit case.
 		return s + "LL"
 	case t.Bits() == 64 && t.IsSigned():
 		return s + "LL"

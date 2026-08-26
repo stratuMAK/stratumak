@@ -1,0 +1,38 @@
+#!/bin/bash
+# Columns: running, seconds since the preset, and the absolute time as seconds
+# past 1787000000.  en is off for 2 cycles, on for 8, off for 2.
+#
+# No expected file: how far the clock advances between samples is real time,
+# and pinning it would fail on a loaded machine rather than on a broken block.
+# What is asserted is exact anyway -- where the clock starts, that it moves,
+# and where it goes when stopped.
+fail() { echo "$1"; exit 1; }
+col() { awk -v r="$1" -v c="$2" 'NR==r {print $c}' "$3"; }
+
+[ "$(wc -l < "$1")" -ge 12 ] || fail "captured $(wc -l < "$1") cycles, want 12"
+
+# Q follows EN, with no delay of its own.
+[ "$(col 1 1 "$1")"  = "0" ] || fail 'RTC.Q is true with EN false'
+[ "$(col 3 1 "$1")"  = "1" ] || fail 'RTC.Q did not follow EN up'
+[ "$(col 11 1 "$1")" = "0" ] || fail 'RTC.Q did not follow EN down'
+
+# The whole point: on the rising edge the clock reads exactly PDT.  A block
+# that read the system clock, or started from the epoch, would not.
+[ "$(col 3 2 "$1")" = "0.000000" ] || fail "RTC started $(col 3 2 "$1") s from PDT, want 0 -- it is not seeded from its input"
+# And the absolute value is PDT itself: DT#2026-08-26-08:30:00 is 1787733000
+# seconds past the epoch, so 733000 past the offset this column subtracts.
+[ "$(col 3 3 "$1")" = "733000.000000" ] || fail "RTC.CDT is $(col 3 3 "$1") + 1787000000 on the edge, want the preset"
+
+# It advances with real time.  Which cycle reaches what is not asserted; that
+# it moves at all, and forward, is.
+awk 'NR==4 {a=$2} NR==10 {b=$2} END {exit !(b > a && a >= 0)}' "$1" ||
+    fail 'RTC.CDT did not advance while running'
+# ...and by something in the region of the 70 ms of thread time between those
+# samples.  A very wide window: this is a sanity bound, not a measurement.
+awk 'NR==10 {exit !($2 > 0.005 && $2 < 1.0)}' "$1" ||
+    fail "RTC advanced $(col 10 2 "$1") s over ~70 ms of cycles; that is not real time"
+
+# Stopped, CDT is the epoch, which is what CODESYS does and what makes a
+# stopped clock obviously stopped rather than merely stale.
+[ "$(col 1 3 "$1")"  = "-1787000000.000000" ] || fail 'RTC.CDT is not the epoch before EN has ever risen'
+[ "$(col 12 3 "$1")" = "-1787000000.000000" ] || fail 'RTC.CDT did not return to the epoch when EN went false'
