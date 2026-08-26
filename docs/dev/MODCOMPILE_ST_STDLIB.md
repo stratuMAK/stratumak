@@ -627,9 +627,21 @@ throughout, as it did for every phase of the frontend.
   means a bounded copy and a rule for what happens when it does not fit, which
   is a decision to make deliberately rather than in a thunk. Consuming an
   interface that takes strings is unaffected, which is the common direction.
-- **`THIS`.** A method cannot call a sibling method, because there is no name
-  for the instance inside one. Refused with that reason rather than "not
-  declared".
+- ~~**`THIS`.**~~ Done, and not by making `THIS` a value. A method needs an
+  instance and there is always one in scope — `__self`, already a parameter of
+  the generated function — so a bare `helper(x := 1)` inside a block's body,
+  action or method resolves to a call on it, which is what CODESYS accepts.
+  `THIS^.helper()` reaches the same call, because that is how IEC spells it.
+
+  `THIS` stays refused everywhere else: it is a pointer there and `THIS^`
+  dereferences it, so letting it be a value would put pointers back, which §8
+  of the frontend note declines on purpose. As the base of a call it need not
+  be one.
+
+  What this cost is the interesting part. Methods could not recurse before —
+  reaching a sibling needed `THIS` and reaching another block's method needed
+  containment, which is refused — so the cycle check had no method edges. It
+  has them now, and the diagnostic names the block: `R.a can reach itself`.
 - **The LGPL text is not bundled.** `src/hal/st-lib/COPYING` points at the
   licence; a `COPYING.LIB` belongs beside the existing `COPYING` before the
   libraries are distributed.

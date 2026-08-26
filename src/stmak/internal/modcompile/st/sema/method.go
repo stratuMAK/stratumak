@@ -4,6 +4,8 @@
 package sema
 
 import (
+	"strings"
+
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st"
 )
@@ -125,8 +127,8 @@ func (c *checker) checkMethodBodies(b *st.FunctionBlockDecl, def *ast.FunctionBl
 
 		c.push()
 		c.declarePeriod(m.Pos)
-		prev := c.methodOwner
-		c.methodOwner = def
+		prev := c.blockOwner
+		c.blockOwner = def
 
 		// The block's own members, reached through the instance.
 		for _, set := range [][]ast.VarDecl{def.Inputs, def.Outputs, def.InOuts, def.Vars} {
@@ -167,7 +169,7 @@ func (c *checker) checkMethodBodies(b *st.FunctionBlockDecl, def *ast.FunctionBl
 		}
 
 		out.Body = c.checkStmts(m.Body)
-		c.methodOwner = prev
+		c.blockOwner = prev
 		c.pop()
 		c.pop()
 	}
@@ -196,6 +198,12 @@ func (c *checker) checkMethodCall(inst ast.Expr, pos ast.Pos, name string, args 
 		return nil
 	}
 
+	return c.buildMethodCall(inst, def, m, pos, args)
+}
+
+// buildMethodCall checks the arguments and builds the call.  inst is nil for a
+// call on the instance already in scope.
+func (c *checker) buildMethodCall(inst ast.Expr, def *ast.FunctionBlock, m *ast.Method, pos ast.Pos, args []st.Arg) *ast.MethodCallExpr {
 	out := &ast.MethodCallExpr{
 		Pos: pos, Inst: inst, Owner: def.Name, Method: m.Name, Typ: m.Result,
 	}
@@ -232,25 +240,64 @@ func (c *checker) checkMethodCall(inst ast.Expr, pos ast.Pos, name string, args 
 	return out
 }
 
-// reportSiblingMethod names a bare method name used inside another method of
-// the same block, and reports whether it did.
+// ownMethod finds a method of the block currently being checked.
 //
-// A method needs an instance to run on, and inside a method there is no name
-// for this one: IEC spells that THIS, which is not implemented.  Saying so
-// beats "not declared", which sends the reader looking for a typo.
-func (c *checker) reportSiblingMethod(name string, pos ast.Pos) bool {
-	if c.methodOwner == nil {
-		return false
+// Anywhere blockOwner is set -- the block's body, one of its actions, one of
+// its methods -- there is an instance in scope, so a bare method name is a
+// call on it.  IEC spells that THIS^.name(); the bare form is what CODESYS
+// accepts and what reads best, and both reach here.
+func (c *checker) ownMethod(name string) *ast.Method {
+	if c.blockOwner == nil {
+		return nil
 	}
-	for i := range c.methodOwner.Methods {
-		if !ast.EqualName(c.methodOwner.Methods[i].Name, name) {
-			continue
+	for i := range c.blockOwner.Methods {
+		if ast.EqualName(c.blockOwner.Methods[i].Name, name) {
+			return &c.blockOwner.Methods[i]
 		}
-		c.errorf(pos, "%s is a method of %s, and a method cannot call a sibling: "+
-			"there is no name here for the instance to call it on. "+
-			"Use an ACTION, which shares the block's variables, or a FUNCTION",
-			name, c.methodOwner.Name)
-		return true
 	}
-	return false
+	return nil
+}
+
+// checkOwnMethodCall resolves a call on the instance in scope, with no name
+// for it: `helper(x := 1)` inside the same block, or THIS^.helper(x := 1).
+func (c *checker) checkOwnMethodCall(pos ast.Pos, name string, args []st.Arg) *ast.MethodCallExpr {
+	m := c.ownMethod(name)
+	if m == nil {
+		return nil
+	}
+	// Inst nil means the instance in scope: the backend has __self and needs
+	// no expression to reach it.
+	return c.buildMethodCall(nil, c.blockOwner, m, pos, args)
+}
+
+// checkThisCall resolves `THIS^.name(args)`, IEC's spelling for a call on the
+// instance in scope.  It reports whether the expression was a THIS call at
+// all, so an ordinary member access falls through untouched.
+//
+// THIS is accepted here and nowhere else.  In IEC it is a pointer and THIS^
+// dereferences it, and stratuMAK has no pointers -- letting THIS be a value
+// would put one back, which §8 of the frontend note refuses on purpose.  As
+// the base of a call it needs to be no such thing: the instance is already a
+// parameter of the generated function.
+func (c *checker) checkThisCall(fld *st.FieldExpr, pos ast.Pos, args []st.Arg) (*ast.MethodCallExpr, bool) {
+	deref, ok := fld.Base.(*st.DerefExpr)
+	if !ok {
+		return nil, false
+	}
+	id, ok := deref.Base.(*st.Ident)
+	if !ok || !strings.EqualFold(id.Name, "THIS") {
+		return nil, false
+	}
+
+	if c.blockOwner == nil {
+		c.errorf(pos, "THIS names the function block instance a body is running on, "+
+			"and there is none here: only a FUNCTION_BLOCK's body, action or method has one")
+		return nil, true
+	}
+	call := c.checkOwnMethodCall(pos, fld.Name, args)
+	if call == nil {
+		c.errorf(pos, "%s has no method %s", c.blockOwner.Name, fld.Name)
+		return nil, true
+	}
+	return call, true
 }

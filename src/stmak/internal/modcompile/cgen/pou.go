@@ -392,6 +392,13 @@ func (e *stEmitter) methodCall(v *ast.MethodCallExpr) string {
 	for _, a := range v.Args {
 		args += ", " + e.expr(a)
 	}
+	if v.Inst == nil {
+		// A call on the instance in scope, with no name for it: the body this
+		// is emitted into already has __self as a parameter, which is why ST
+		// needs no name and why IEC's THIS need not be a value here.
+		return fmt.Sprintf("%s(__comp_inst, %s%s)",
+			fbMethodCName(v.Owner, v.Method), e.self, args)
+	}
 	return fmt.Sprintf("%s(__comp_inst, &(%s)%s)",
 		fbMethodCName(v.Owner, v.Method), e.expr(v.Inst), args)
 }

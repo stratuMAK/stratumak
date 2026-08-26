@@ -19,6 +19,11 @@ FUNCTION_BLOCK Accumulator
 
   calls := calls + 1;
 
+  (* The block's own body reaching one of its methods, IEC's way round. *)
+  IF calls = 1 THEN
+    THIS^.clear();
+  END_IF;
+
 {attribute 'doc' := 'Add a weighted value and report the new total.'}
 METHOD add : DINT
   VAR_INPUT
@@ -34,6 +39,13 @@ METHOD add : DINT
   scaled := n * weight;
   total  := total + scaled;
   add    := total;
+END_METHOD
+
+{attribute 'doc' := 'Add one, at the standard weight.'}
+METHOD tick : DINT
+  (* A sibling method, called with no name for the instance: there is one in
+     scope either way, and the generated function already has it. *)
+  tick := add(n := 1, weight := 1);
 END_METHOD
 
 {attribute 'doc' := 'Start again.'}

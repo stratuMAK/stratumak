@@ -216,9 +216,15 @@ func (c *checker) checkBlockBody(b *st.FunctionBlockDecl) {
 		}
 	}
 
+	// The block's own body and its actions run on an instance too, so a bare
+	// method name resolves there as it does inside a method.
+	prevOwner := c.blockOwner
+	c.blockOwner = def
+
 	c.declareActions(b.Actions, "FUNCTION_BLOCK", b.Name)
 	def.Body = c.checkStmts(b.Body)
 	def.Actions = c.checkActions(b.Actions, "FUNCTION_BLOCK", b.Name)
+	c.blockOwner = prevOwner
 
 	// Methods get a scope of their own rather than the block body's: they have
 	// their own parameters and locals, which the body has no business seeing.
@@ -403,6 +409,10 @@ func (c *checker) checkInvoke(v *st.CallStmt) ast.Stmt {
 	// target is resolved as a value, since neither is one and that message
 	// would win over the useful one.
 	if ref, ok := v.Target.(*st.Ident); ok {
+		// A method of the block in scope, called for its effect.
+		if call := c.checkOwnMethodCall(v.Pos, ref.Name, v.Args); call != nil {
+			return &ast.MethodCallStmt{Pos: v.Pos, Call: call}
+		}
 		if sym := c.scope.lookup(ref.Name); sym != nil {
 			switch sym.Kind {
 			case symAction:
@@ -420,6 +430,12 @@ func (c *checker) checkInvoke(v *st.CallStmt) ast.Stmt {
 	// field lookup would fail first, and "Motor has no member stop" is a poor
 	// way to learn that stop is an action.
 	if fld, ok := v.Target.(*st.FieldExpr); ok {
+		if call, handled := c.checkThisCall(fld, v.Pos, v.Args); handled {
+			if call == nil {
+				return nil
+			}
+			return &ast.MethodCallStmt{Pos: v.Pos, Call: call}
+		}
 		if base, ok := fld.Base.(*st.Ident); ok {
 			if call, handled := c.checkAPICall(base, v.Pos, fld.Name, v.Args); handled {
 				if e, ok := call.(*ast.APICallExpr); ok {
@@ -560,6 +576,17 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 	// used.  Resolved before the plain-name path, since that one has nothing
 	// to say about a qualified call.
 	if fld, ok := v.Func.(*st.FieldExpr); ok {
+		if call, handled := c.checkThisCall(fld, v.Pos, v.Args); handled {
+			if call == nil {
+				return nil
+			}
+			if call.Typ.Kind == ast.TypeInvalid {
+				c.errorf(v.Pos, "%s.%s returns nothing, so it cannot be used as a value; "+
+					"call it as a statement", call.Owner, call.Method)
+				return nil
+			}
+			return call
+		}
 		if id, ok := fld.Base.(*st.Ident); ok {
 			if call, handled := c.checkAPICall(id, v.Pos, fld.Name, v.Args); handled {
 				e, _ := call.(*ast.APICallExpr)
@@ -607,11 +634,22 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 	if e, handled := c.checkTimeConversion(v, name.Name); handled {
 		return e
 	}
+	// A bare name that is a method of the block in scope: `helper(x := 1)`
+	// from that block's body, one of its actions, or another of its methods.
+	// There is an instance either way -- __self -- so no name for it is
+	// needed, which is what IEC's THIS^ spells out and CODESYS lets you omit.
+	if call := c.checkOwnMethodCall(v.Pos, name.Name, v.Args); call != nil {
+		if call.Typ.Kind == ast.TypeInvalid {
+			c.errorf(v.Pos, "%s.%s returns nothing, so it cannot be used as a value; "+
+				"call it as a statement", call.Owner, call.Method)
+			return nil
+		}
+		return call
+	}
+
 	sym := c.scope.lookup(name.Name)
 	if sym == nil {
-		if !c.reportSiblingMethod(name.Name, v.Pos) {
-			c.errorf(v.Pos, "%s is not declared", name.Name)
-		}
+		c.errorf(v.Pos, "%s is not declared", name.Name)
 		return nil
 	}
 	if sym.Kind == symBlock {
@@ -746,10 +784,20 @@ func (c *checker) checkCallCycles() {
 			refs = append(refs, calleesOf(b.Actions[i].Body)...)
 			refs = append(refs, actionEdges(b.Name, b.Actions[i].Body)...)
 		}
+		for i := range b.Methods {
+			refs = append(refs, calleesOf(b.Methods[i].Body)...)
+		}
 		edges[key(b.Name)] = refs
 		for i := range b.Actions {
 			edges[actionKey(b.Name, b.Actions[i].Name)] =
 				append(calleesOf(b.Actions[i].Body), actionEdges(b.Name, b.Actions[i].Body)...)
+		}
+		// Methods share the action namespace, in this graph as in sema, so one
+		// key scheme serves both and a method cannot be confused with an
+		// action of the same name -- there cannot be one.
+		for i := range b.Methods {
+			edges[actionKey(b.Name, b.Methods[i].Name)] =
+				append(calleesOf(b.Methods[i].Body), actionEdges(b.Name, b.Methods[i].Body)...)
 		}
 	}
 	for i := range c.pkg.Functions {
@@ -781,6 +829,9 @@ func (c *checker) checkCallCycles() {
 		b := &c.pkg.Blocks[i]
 		for j := range b.Actions {
 			at[actionKey(b.Name, b.Actions[j].Name)] = b.Actions[j].Pos
+		}
+		for j := range b.Methods {
+			at[actionKey(b.Name, b.Methods[j].Name)] = b.Methods[j].Pos
 		}
 	}
 
@@ -820,8 +871,14 @@ func (c *checker) checkCallCycles() {
 // displayName renders a call-graph key for a diagnostic.  An action's key is
 // qualified and upper-cased for lookup; the message wants the action's name.
 func displayName(k string) string {
-	if i := strings.LastIndexByte(k, '.'); i >= 0 {
-		return k[i+1:]
+	// Qualified names stay qualified: "R.helper can reach itself" says which
+	// block, where "helper" alone leaves the reader looking for it.
+	//
+	// Except the one qualifier that is not a name.  A PROGRAM sharing the
+	// component's name is called "_" internally, and "_.spin" tells a reader
+	// nothing they can look up.
+	if strings.HasPrefix(k, "_.") {
+		return k[2:]
 	}
 	return k
 }
@@ -849,12 +906,51 @@ func calleesOf(body []ast.Stmt) []namedRef {
 				out = append(out, namedRef{t.Ref, inv.Pos})
 			}
 		}
+		// `motor.stop()` reaches Motor without invoking it, and reaches that
+		// one action of it.  Both are edges: the first keeps the block for the
+		// reachability pass, the second is what makes a ring of external
+		// action calls a cycle rather than something that runs forever.
+		if call, ok := s.(*ast.ActionCall); ok && call.Inst != nil {
+			out = append(out, namedRef{call.Owner, call.Pos})
+			out = append(out, namedRef{call.Owner + "." + call.Action, call.Pos})
+		}
+		// A method call is the same in both respects, and matters more: a
+		// method may now call a sibling, so two of them can reach each other,
+		// which containment alone used to make impossible.
+		if call, ok := s.(*ast.MethodCallStmt); ok {
+			out = append(out, methodRefs(call.Call)...)
+		}
 	})
 	walkStmtExprs(body, func(e ast.Expr) {
 		if call, ok := e.(*ast.CallExpr); ok {
 			out = append(out, namedRef{call.Func, call.Pos})
 		}
+		// A method used for its result: the other half of the same edge, and
+		// the form mutual recursion between two methods actually takes.
+		if call, ok := e.(*ast.MethodCallExpr); ok {
+			out = append(out, methodRefs(call)...)
+		}
 	})
+	return out
+}
+
+// methodRefs are the graph edges one method call adds.
+//
+// The method itself always: that is what the recursion check follows, and the
+// only edge a call on the instance in scope needs -- the block is plainly
+// reachable, since this is inside it, and claiming otherwise would make every
+// block that calls its own method reach itself.
+//
+// The block as well, but only for a call naming another instance, where the
+// reachability pass has to be told to keep it.
+func methodRefs(call *ast.MethodCallExpr) []namedRef {
+	// Named as the source spells it.  key() folds the whole string, so
+	// `R.helper` and the stored `R.HELPER` are the same key -- and the
+	// diagnostic reads as what was written rather than as a fragment of it.
+	out := []namedRef{{call.Owner + "." + call.Method, call.Pos}}
+	if call.Inst != nil {
+		out = append(out, namedRef{call.Owner, call.Pos})
+	}
 	return out
 }
 

@@ -211,7 +211,23 @@ func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 				"Take the cycle time as an input, as IEC's own DERIVATIVE and INTEGRAL do")
 			return nil
 		}
-		if c.reportSiblingMethod(v.Name, v.Pos) {
+		if m := c.ownMethod(v.Name); m != nil {
+			// Named without being called.  A method is not a value, and the
+			// likely intent is a call with no arguments.
+			c.errorf(v.Pos, "%s is a method of %s; write %s() to call it",
+				v.Name, c.blockOwner.Name, v.Name)
+			return nil
+		}
+		if strings.EqualFold(v.Name, "THIS") {
+			// Accepted as the base of a call and nowhere else.  In IEC it is a
+			// pointer that THIS^ dereferences, and stratuMAK has none -- so
+			// letting it be a value would put one back, which the frontend
+			// note refuses on purpose.  As a call's base it need not be one:
+			// the instance is already a parameter of the generated function.
+			c.errorf(v.Pos, "THIS is not a value: it names the instance a body is running "+
+				"on, and stratuMAK has no pointers for it to be one of. "+
+				"Write THIS^.name() to call a method on it, or name the block's "+
+				"variables directly, which a method can already reach")
 			return nil
 		}
 		if strings.EqualFold(v.Name, "MONOTONIC") {

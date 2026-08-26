@@ -348,6 +348,41 @@ restructuring what that body operates on.
 `advance(count := 0)` is shorthand for setting one of the POU's own variables
 before running the action — not a parameter, since an action has none.
 
+A function block can also have `METHOD`s, which differ from an action in
+having an interface of their own:
+
+[source,pascal]
+----
+FUNCTION_BLOCK Accumulator
+  VAR_OUTPUT
+    total : DINT;
+  END_VAR
+
+  (* one of its own methods, on the instance already in scope *)
+  add(n := 1, weight := 1);
+
+METHOD add : DINT
+  VAR_INPUT
+    n      : DINT;
+    weight : DINT;
+  END_VAR
+  total := total + n * weight;
+  add   := total;
+END_METHOD
+
+END_FUNCTION_BLOCK
+----
+
+Calling one on an instance is `acc.add(n := 5, weight := 2)`. Inside the block
+— in its body, an action or another method — no name for the instance is
+needed, because there is only one it could be; `THIS^.add(...)` says the same
+thing in IEC's spelling. `THIS` is not a value: it is a pointer in IEC, and
+stratuMAK has none.
+
+A method that returns nothing simply declares no result type, and is called as
+a statement. Methods and actions share one namespace within a block, so a name
+is one or the other.
+
 An action of a function block can also be called on an instance from outside
 it, which is how a block gets commands:
 

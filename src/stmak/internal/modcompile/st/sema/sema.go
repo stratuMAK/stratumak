@@ -106,9 +106,11 @@ type checker struct {
 	// type alive whether or not any statement invokes it.
 	allInstances []instanceVar
 
-	// methodOwner is the block whose method is being checked, so that a bare
-	// sibling method name can be reported as what it is.
-	methodOwner *ast.FunctionBlock
+	// blockOwner is the function block whose body, action or method is being
+	// checked.  Anywhere it is set there is an instance in scope -- __self in
+	// the generated C -- so a bare method name of that block resolves to a
+	// call on it.
+	blockOwner *ast.FunctionBlock
 
 	// apis are the GMI interfaces this file provides or consumes, loaded
 	// before checking and keyed by lower-cased name.

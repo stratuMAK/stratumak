@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations uselib; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations uselib methods; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -315,6 +315,27 @@ if [ $? -eq 0 ]; then
     exit 1
 fi
 
+# A METHOD is an operation on an instance, with its own interface and its own
+# locals, reaching the instance's variables.  Calling one on the instance
+# already in scope needs no name for it: the generated function has __self.
+if ! grep -q 'static int32_t Accumulator_add(inst_t \*__comp_inst, Accumulator_t \*__self, int32_t n, int32_t weight)' methods.c; then
+    echo 'methods.c did not emit a method over the instance'
+    exit 1
+fi
+if ! grep -q 'Accumulator_add(__comp_inst, __self, 1, 1)' methods.c; then
+    echo 'methods.c did not pass __self through a bare sibling call'
+    exit 1
+fi
+if ! grep -q 'Accumulator_clear(__comp_inst, __self)' methods.c; then
+    echo 'methods.c did not resolve THIS^ to the instance in scope'
+    exit 1
+fi
+# A method returning nothing is void, not a type ST would have to invent.
+if ! grep -q 'static void Accumulator_clear' methods.c; then
+    echo 'methods.c gave a result to a method that declares none'
+    exit 1
+fi
+
 # A man page generated from an .st carries what one generated from a .comp
 # does.  docgen is shared, so this really checks that every field it reads is
 # reachable from ST.
@@ -462,6 +483,13 @@ rm -f bad_pinlen.c
 modcompile --preprocess bad_pinlen.st -o bad_pinlen.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted a pin name HAL would have to truncate'
+    exit 1
+fi
+
+rm -f bad_thisrec.c
+modcompile --preprocess bad_thisrec.st -o bad_thisrec.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted two methods calling each other'
     exit 1
 fi
 

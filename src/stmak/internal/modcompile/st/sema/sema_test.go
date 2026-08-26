@@ -1631,3 +1631,120 @@ func TestStringVariableIsSized(t *testing.T) {
 		t.Errorf("label has room for %d characters, want 33 -- the declared length plus the terminator", v.Array)
 	}
 }
+
+// TestOwnMethodCall covers calling a method on the instance already in scope.
+//
+// A method needs an instance, and inside a block's own body, action or method
+// there is one -- __self in the generated function -- so no name for it is
+// needed. IEC spells that THIS^.name(); the bare form is what CODESYS accepts.
+// Both reach the same call.
+func TestOwnMethodCall(t *testing.T) {
+	const block = "{attribute 'summary' := 'x'}\n" +
+		"FUNCTION_BLOCK B\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+		"VAR\n n : DINT;\nEND_VAR\n" +
+		"o := twice();\nTHIS^.bump();\n" +
+		"METHOD twice : DINT\n twice := n * 2;\nEND_METHOD\n" +
+		"METHOD bump\n n := n + 1;\nEND_METHOD\n" +
+		"END_FUNCTION_BLOCK\n"
+
+	pkg := mustCheck(t, "p", block+progWith("VAR\n b : B;\nEND_VAR", "b();\nq := b.o > 0;"))
+
+	var bare, viaThis *ast.MethodCallExpr
+	walkStmtsFor(pkg.Blocks[0].Body, func(s ast.Stmt) {
+		if c, ok := s.(*ast.MethodCallStmt); ok {
+			viaThis = c.Call
+		}
+	})
+	walkStmtExprs(pkg.Blocks[0].Body, func(e ast.Expr) {
+		if c, ok := e.(*ast.MethodCallExpr); ok && c.Method == "twice" {
+			bare = c
+		}
+	})
+	if bare == nil {
+		t.Fatal("the bare sibling call did not resolve")
+	}
+	if viaThis == nil {
+		t.Fatal("THIS^.bump() did not resolve")
+	}
+	// Both name no instance: the one in scope needs no expression to reach.
+	if bare.Inst != nil || viaThis.Inst != nil {
+		t.Error("a call on the instance in scope should carry no instance expression")
+	}
+	if viaThis.Method != "bump" || viaThis.Owner != "B" {
+		t.Errorf("THIS^ resolved to %s.%s", viaThis.Owner, viaThis.Method)
+	}
+}
+
+// TestMethodRecursion covers what allowing sibling calls made possible.
+//
+// Until a method could reach a sibling, methods could not recurse at all:
+// reaching one needed THIS, and reaching another block's needed containment,
+// which is refused. Both routes now exist, so the cycle check has to see them.
+func TestMethodRecursion(t *testing.T) {
+	for _, tt := range []struct{ name, src, want string }{{
+		name: "two methods calling each other",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK R\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+			"o := a();\nMETHOD a : DINT\n a := b();\nEND_METHOD\n" +
+			"METHOD b : DINT\n b := a();\nEND_METHOD\nEND_FUNCTION_BLOCK\n" +
+			progWith("VAR\n r : R;\nEND_VAR", "r();\nq := r.o > 0;"),
+		// Qualified, so the reader knows which block to look in.
+		want: "R.a can reach itself",
+	}, {
+		name: "a method calling itself",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK R\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+			"o := a();\nMETHOD a : DINT\n a := a() + 1;\nEND_METHOD\nEND_FUNCTION_BLOCK\n" +
+			progWith("VAR\n r : R;\nEND_VAR", "r();\nq := r.o > 0;"),
+		want: "R.a can reach itself",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatal("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+
+	// A block calling its own method is not recursion, and used to be reported
+	// as such: the call added an edge to the block as well as to the method,
+	// so every block that used one reached itself.
+	mustCheck(t, "p", "{attribute 'summary' := 'x'}\n"+
+		"FUNCTION_BLOCK R\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n"+
+		"o := a();\nMETHOD a : DINT\n a := 1;\nEND_METHOD\nEND_FUNCTION_BLOCK\n"+
+		progWith("VAR\n r : R;\nEND_VAR", "r();\nq := r.o > 0;"))
+}
+
+// TestThisIsNotAValue covers the half of THIS that stays refused.
+//
+// In IEC it is a pointer and THIS^ dereferences it. stratuMAK has no pointers,
+// so letting THIS be a value would put one back; as the base of a call it need
+// not be one, since the instance is already a parameter of the function.
+func TestThisIsNotAValue(t *testing.T) {
+	for _, tt := range []struct{ name, src, want string }{{
+		name: "used as a value",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+			"o := THIS;\nEND_FUNCTION_BLOCK\n" + progWith("VAR\n b : B;\nEND_VAR", "b();"),
+		want: "THIS is not a value",
+	}, {
+		name: "outside any function block",
+		src:  wrap("", "q := THIS^.nosuch();"),
+		want: "there is none here",
+	}, {
+		name: "naming a method that does not exist",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+			"THIS^.nosuch();\nEND_FUNCTION_BLOCK\n" + progWith("VAR\n b : B;\nEND_VAR", "b();"),
+		want: "B has no method nosuch",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatal("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+}
