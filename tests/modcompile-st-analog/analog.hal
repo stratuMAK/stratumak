@@ -1,0 +1,28 @@
+# The analog blocks with a fixed CYCLE, so what is captured is arithmetic and
+# not a measurement of the thread.  x is a ramp, which is the input that makes
+# DERIVATIVE's coefficients checkable: its four-point form is exact on one.
+
+newthread fast 1000000
+
+load ./analog.so <a.0>
+
+load filestream stream_cfg=fbb infile=in.txt sample_cfg=ffbbbbbfff outfile=out.txt depth=1000 samples=12
+
+net x   filestream.stream.0 a.0.x
+net run filestream.stream.1 a.0.run
+net rst filestream.stream.2 a.0.rst
+
+net integ a.0.integ filestream.sample.0
+net deriv a.0.deriv filestream.sample.1
+net over  a.0.over  filestream.sample.2
+net under a.0.under filestream.sample.3
+net inlim a.0.inlim filestream.sample.4
+net busy  a.0.busy  filestream.sample.5
+net hyst   a.0.hyst   filestream.sample.6
+net scaled a.0.scaled filestream.sample.7
+net ramped a.0.ramped filestream.sample.8
+net pidy   a.0.pidy   filestream.sample.9
+
+addf filestream.write fast
+addf a.0 fast
+addf filestream.read fast

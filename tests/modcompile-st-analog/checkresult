@@ -1,0 +1,68 @@
+#!/bin/bash
+# Columns: integ deriv over under inlim busy, one line per call, against the
+# x/run/rst pattern in test.sh.
+#
+# Unlike the timers, these numbers are deterministic: CYCLE is a fixed T#1s,
+# so nothing here depends on how long a cycle really took.  The diff can
+# therefore be exact, and the assertions after it name which block broke.
+here=$(dirname "$0")
+diff -u "$here/expected" "$1" || exit 1
+
+fail() { echo "$1"; exit 1; }
+col() { awk -v r="$1" -v c="$2" 'NR==r {print $c}' "$3"; }
+
+# --- INTEGRAL: a running sum, since CYCLE is one second ------------------
+[ "$(col 1 1 "$1")"  = "0.000000" ]  || fail 'INTEGRAL did not load X0 on R1'
+[ "$(col 5 1 "$1")"  = "12.000000" ] || fail "INTEGRAL summed to $(col 5 1 "$1"), want 0+2+4+6 = 12"
+[ "$(col 9 1 "$1")"  = "56.000000" ] || fail "INTEGRAL summed to $(col 9 1 "$1"), want 56"
+[ "$(col 12 1 "$1")" = "0.000000" ]  || fail 'INTEGRAL did not reset on R1'
+
+# --- DERIVATIVE: the four-point form is exact on a ramp ------------------
+# x rises by 2.0 per one-second call, so the answer is 2.0 and nothing else.
+# A wrong coefficient shows up here as a wrong number, not as noise: the
+# denominator is 10*CYCLE precisely because the numerator sums to 10d.
+[ "$(col 5 2 "$1")" = "2.000000" ] || fail "DERIVATIVE reads $(col 5 2 "$1") on a ramp of 2.0/s; its coefficients are wrong"
+[ "$(col 8 2 "$1")" = "2.000000" ] || fail 'DERIVATIVE did not hold the ramp slope'
+# RUN false clears the history rather than leaving the last slope standing.
+[ "$(col 1 2 "$1")"  = "0.000000" ] || fail 'DERIVATIVE is non-zero with RUN false'
+[ "$(col 12 2 "$1")" = "0.000000" ] || fail 'DERIVATIVE did not clear when RUN went false'
+# And it follows the input down: x drops from 14 to 2 on call 10.
+case "$(col 10 2 "$1")" in -*) ;; *) fail 'DERIVATIVE did not go negative when x fell' ;; esac
+
+# --- LIMITALARM: HIGH = 3.0, LOW = 1.0 -----------------------------------
+[ "$(col 4 3 "$1")" = "1" ] || fail 'LIMITALARM.O is false with x = 4.0 above HIGH = 3.0'
+[ "$(col 1 4 "$1")" = "1" ] || fail 'LIMITALARM.U is false with x = 0.0 below LOW = 1.0'
+[ "$(col 3 5 "$1")" = "1" ] || fail 'LIMITALARM.IL is false with x = 2.0 between the limits'
+[ "$(col 4 5 "$1")" = "0" ] || fail 'LIMITALARM.IL is true while O is'
+
+# --- SEMA: the whole contract is that the first claimant can tell ---------
+[ "$(col 2 6 "$1")" = "0" ] || fail 'SEMA.BUSY was true for the first claim; nobody held it yet'
+[ "$(col 3 6 "$1")" = "1" ] || fail 'SEMA.BUSY was false for a second claim; it was already held'
+[ "$(col 12 6 "$1")" = "0" ] || fail 'SEMA.BUSY stayed true after RELEASE'
+
+# --- HYSTERESIS: HIGH = 10.0, LOW = 2.0 ----------------------------------
+[ "$(col 5 7 "$1")"  = "0" ] || fail 'HYSTERESIS turned on at x = 6.0, below HIGH'
+[ "$(col 7 7 "$1")"  = "1" ] || fail 'HYSTERESIS did not turn on at x = 10.0 = HIGH'
+# The one that makes it a Schmitt trigger rather than a comparator: x is back
+# to 6.0, between the thresholds, and the state has to hold.
+[ "$(col 10 7 "$1")" = "1" ] || fail 'HYSTERESIS dropped at x = 6.0 between the thresholds; it is comparing, not latching'
+[ "$(col 11 7 "$1")" = "0" ] || fail 'HYSTERESIS did not turn off at x = 0.5, below LOW'
+
+# --- LIN_TRAFO: 0..10 onto 0..100 -----------------------------------------
+[ "$(col 3 8 "$1")" = "20.000000" ]  || fail "LIN_TRAFO maps 2.0 to $(col 3 8 "$1"), want 20"
+# Outside the input range it keeps going rather than clamping, which is what a
+# linear transform is; clamping is LIMIT's job.
+[ "$(col 9 8 "$1")" = "140.000000" ] || fail "LIN_TRAFO maps 14.0 to $(col 9 8 "$1"), want 140 -- it should extrapolate, not clamp"
+
+# --- RAMP: 3.0 per second, one second a call ------------------------------
+[ "$(col 9 9 "$1")"  = "14.000000" ] || fail 'RAMP did not keep up with an input rising slower than its limit'
+# x falls 14 -> 6 in one call, and the limit is 3.0: the output may only reach 11.
+[ "$(col 10 9 "$1")" = "11.000000" ] || fail "RAMP moved to $(col 10 9 "$1") in one call, want 11 -- it is not limiting the slope"
+[ "$(col 12 9 "$1")" = "0.500000" ]  || fail 'RAMP did not snap to IN when ENABLE went false'
+
+# --- PID: proportional only (TN and TV zero), KP = 2, clamped to +-8 -------
+[ "$(col 2 10 "$1")"  = "8.000000" ]  || fail 'PID did not clamp an output of 12 to Y_MAX = 8'
+[ "$(col 5 10 "$1")"  = "0.000000" ]  || fail 'PID output is non-zero with no error'
+[ "$(col 6 10 "$1")"  = "-4.000000" ] || fail "PID reads $(col 6 10 "$1") for an error of -2 at KP = 2, want -4"
+[ "$(col 8 10 "$1")"  = "-8.000000" ] || fail 'PID did not clamp a negative output to Y_MIN'
+[ "$(col 12 10 "$1")" = "0.000000" ]  || fail 'PID did not return to Y_OFFSET on RESET'

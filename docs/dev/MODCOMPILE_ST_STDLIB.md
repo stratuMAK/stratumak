@@ -20,9 +20,18 @@ Counting standard block instantiations across the three CODESYS projects:
 | `TP` | 2 | 2 | — | 4 |
 | `F_TRIG` | — | — | 2 | 2 |
 | `RTC` | 2 | — | — | 2 |
-| `BLINK` | 2 | — | — | 2 |
 | `SR` | 1 | — | — | 1 |
-| `SEMA` | 1 | — | — | 1 |
+
+Two rows of an earlier version of this table were wrong and are gone: `BLINK`
+matched `fbBlinkDelay`, which is a `TON`, and a comment; `SEMA` matched a line
+of configuration that is not ST at all. Nothing in the three projects
+instantiates either, nor `DERIVATIVE`, `INTEGRAL` or `PID` — those three match
+only comments, in a file where somebody wrote a PID by hand.
+
+**And the table is not the specification.** It says what these three projects
+needed, which is a sample of three. A standard library is judged by what a PLC
+programmer reaches for, so §7 builds blocks with no row here at all — and the
+hand-written PID is evidence *for* shipping one, not against.
 
 Timers are 60 of the 79 instantiations. `T#` literals appear over a hundred
 times, and `PT` is usually a struct member rather than a literal:
@@ -393,10 +402,45 @@ one-sided on purpose, because a late thread means more real time per cycle and
 so a timer that fires in *fewer* cycles, never more. Verified by making `TP`
 retriggerable, which the check names rather than reporting as a diff.
 
-**Phase 5 — the CODESYS blocks the projects use**, which are `Standard`/`Util`
-rather than IEC core but appear in the sources regardless: `BLINK`, `SEMA`, and
-the analog blocks with an explicit `CYCLE : TIME` input (`DERIVATIVE`,
-`INTEGRAL`, `HYSTERESIS`, `LIMITALARM`, `RAMP`).
+**Phase 5 — the rest of a usable library — done.** `SEMA`, `INTEGRAL`,
+`DERIVATIVE` and `BLINK`, plus `LIMITALARM`, `HYSTERESIS`, `LIN_TRAFO`, `RAMP`
+and `PID`.
+
+The plan said "the CODESYS blocks the projects use", and that premise turned
+out to be false — see §1. The criterion is what a PLC programmer reaches for,
+not what three files happened to contain, so these were built anyway.
+
+**The analog blocks take `CYCLE : TIME`** rather than reading `fperiod`, which
+is IEC's own arrangement and the right one: the caller decides what interval
+the block integrates or differentiates over, and passing `fperiod` is only the
+common case. The timers are different because elapsed real time is the whole
+of what they measure; here the cycle is a coefficient.
+
+**`DERIVATIVE` uses IEC's four-point form**, not a difference of the last two
+samples. A backward difference amplifies noise by `1/CYCLE` — a thousandfold
+at a 1 kHz servo rate — and this block's output usually goes somewhere that
+acts on it. The coefficients are what make it exact on a ramp, and the test
+asserts exactly that: for an input rising 2.0 per one-second call the output
+must read `2.000000` and nothing else, so a wrong constant is a wrong number
+rather than noise.
+
+**`PID` is the one with real choices in it**, all documented in the block: the
+classic gain / reset-time / rate-time parameterisation because that is what
+tuning procedures are written in; derivative on the measurement rather than
+the error, so a setpoint step does not arrive as a spike of `TV/CYCLE` times
+its size; and clamping anti-windup, without which a long excursion leaves the
+controller saturated well after the error reverses. It is not a bit-exact
+clone of any vendor's, and says so.
+
+**`HYSTERESIS` takes two explicit thresholds** rather than CODESYS's
+centre-and-width. The signature differs, so a ported source fails to compile
+instead of running with the polarity inverted — the right way round to be
+wrong.
+
+`tests/modcompile-st-analog` drives all of these with a fixed `CYCLE` of one
+second, so unlike the timers the numbers are arithmetic rather than a
+measurement and the expected file can be exact. Verified by breaking
+`DERIVATIVE`'s constant and by turning `HYSTERESIS` into a plain comparator.
 
 `RTC` is **deferred** and belongs in §9: it needs wall-clock date and time, not
 a monotonic count, so it needs both a `DATE_AND_TIME` type and a runtime source

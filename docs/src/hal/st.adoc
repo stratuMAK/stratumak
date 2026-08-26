@@ -379,7 +379,29 @@ The IEC 61131-3 standard function blocks ship as one library, `standard`:
 |`TON` / `TOF` | delay on and delay off
 |`TP` | a fixed-length pulse on a rising edge
 |`TONR` | retentive delay on, cleared by `R`
+|`SEMA` | a semaphore; `BUSY` says whether the claim was already held
+|`BLINK` | a square wave while `ENABLE`
+|`LIMITALARM` | above `HIGH`, below `LOW`, or between
+|`HYSTERESIS` | a Schmitt trigger with explicit thresholds
+|`LIN_TRAFO` | scale linearly from one range onto another
+|`RAMP` | slope limiter, at most `ASCEND` up and `DESCEND` down
+|`INTEGRAL` / `DERIVATIVE` | integrate and differentiate, over `CYCLE`
+|`PID` | a PID controller with anti-windup
 |===
+
+The analog blocks take the interval as a `CYCLE : TIME` input rather than
+reading `fperiod` themselves, which is IEC's arrangement: you decide what
+interval the block works over, and `SECONDS_TO_TIME(fperiod)` is the usual
+answer.
+
+[source,pascal]
+----
+dt : TIME;
+...
+dt := SECONDS_TO_TIME(fperiod);
+slope(RUN := TRUE, XIN := position, CYCLE := dt);
+velocity := slope.XOUT;
+----
 
 The timers take `PT` as a `TIME` and report `ET`, which stops at `PT`:
 
