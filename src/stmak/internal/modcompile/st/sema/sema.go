@@ -5,6 +5,7 @@ package sema
 
 import (
 	"fmt"
+	gmiast "github.com/stratuMAK/stratumak/src/stmak/internal/gmicompile/ast"
 	"sort"
 	"strings"
 
@@ -46,10 +47,18 @@ func (l ErrorList) Error() string {
 // It reports as many problems as it can rather than stopping at the first: a
 // component with three type errors should take one compile to find them.
 func Check(component string, file *st.File) (*ast.Package, error) {
+	return CheckWith(component, file, nil)
+}
+
+// CheckWith is Check with the GMI interfaces the file provides or consumes
+// already loaded.  They are read before checking, because a call through one
+// is type-checked against the interface rather than trusted.
+func CheckWith(component string, file *st.File, apis map[string]*gmiast.API) (*ast.Package, error) {
 	c := &checker{
 		component: component,
 		file:      file,
 		pkg:       &ast.Package{},
+		apis:      apis,
 	}
 	c.run()
 	if len(c.errs) > 0 {
@@ -100,6 +109,10 @@ type checker struct {
 	// methodOwner is the block whose method is being checked, so that a bare
 	// sibling method name can be reported as what it is.
 	methodOwner *ast.FunctionBlock
+
+	// apis are the GMI interfaces this file provides or consumes, loaded
+	// before checking and keyed by lower-cased name.
+	apis map[string]*gmiast.API
 }
 
 func (c *checker) errorf(pos ast.Pos, format string, args ...interface{}) {
@@ -179,6 +192,39 @@ func (c *checker) run() {
 	// And into an order the backend can emit: a block's struct names the
 	// types of the blocks it holds, so those have to come first.
 	c.orderBlocks()
+}
+
+// noteGMI records a gmi_provide or gmi_consume pragma on the component, in
+// the same shape the .comp directives produce -- so everything downstream, the
+// header includes, the inst_t members, the api_get lookups and the
+// registration, is what already exists.
+func (c *checker) noteGMI(which string, a st.Attribute) {
+	for _, entry := range splitAttrList(a.Value) {
+		if which == "gmi_provide" {
+			c.pkg.Component.GMIProvide = append(c.pkg.Component.GMIProvide, entry)
+			continue
+		}
+		// `home from homing` names the provider instance to look up; without
+		// it the lookup falls back to the component's own name, as it does
+		// for a .comp.
+		api, from, _ := strings.Cut(entry, " from ")
+		c.pkg.Component.GMIConsume = append(c.pkg.Component.GMIConsume,
+			ast.GMIConsumeEntry{
+				API:  strings.TrimSpace(api),
+				From: strings.TrimSpace(from),
+			})
+	}
+}
+
+// splitAttrList splits a comma-separated pragma value.
+func splitAttrList(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // declarePeriod declares fperiod, the period in seconds of the thread this
@@ -286,6 +332,12 @@ func (c *checker) checkFileAttributes() {
 	seen := make(map[string]ast.Pos)
 	for _, a := range c.file.Attrs {
 		name := strings.ToLower(a.Name)
+		if name == "gmi_provide" || name == "gmi_consume" {
+			// These may repeat: a component may provide or consume more than
+			// one interface, and one pragma per is clearer than a list.
+			c.noteGMI(name, a)
+			continue
+		}
 		if prev, dup := seen[name]; dup {
 			c.errorf(a.Pos, "attribute %q is already set at %s", a.Name, prev)
 			continue
@@ -326,6 +378,7 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	defer c.pop()
 
 	c.declarePeriod(p.Pos)
+	c.declareConsumedAPIs(p.Pos)
 
 	firstPin := len(c.pkg.Component.Pins)
 	c.instances = nil

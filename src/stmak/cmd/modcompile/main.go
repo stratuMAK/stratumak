@@ -461,6 +461,20 @@ func documentLibrary(name string, lib *st.File, path, mode, outDir string) error
 	return nil
 }
 
+// gmiIdlDirs are the directories shipped GMI interfaces live in, searched
+// after $STMAK_GMI_IDL_PATH and the source's own directory.
+//
+// They are installed beside the ST libraries for the same reason: an
+// out-of-tree component consuming a shipped interface should find it without
+// being told where the source tree was.
+func gmiIdlDirs() []string {
+	var dirs []string
+	if d := config.EMC2CmodDir; d != "" {
+		dirs = append(dirs, filepath.Join(d, "gmi-idl"))
+	}
+	return dirs
+}
+
 // stLibDirs are the directories shipped ST libraries live in, searched after
 // $STMAK_ST_LIB_PATH and the source's own directory.
 //
@@ -514,8 +528,16 @@ func processSTFile(path, mode, outputFile string) error {
 	if err != nil {
 		return err
 	}
+	// The GMI interfaces this file provides or consumes, read before checking
+	// so that calls through one are checked against it rather than trusted --
+	// which is also what lets a non-rt_safe call be refused.
+	apis, err := stlib.APIsUsedBy(file, stlib.GMIDirs(path, gmiIdlDirs()...))
+	if err != nil {
+		return err
+	}
+
 	component := componentNameFor(path)
-	pkg, err := sema.Check(component, file)
+	pkg, err := sema.CheckWith(component, file, apis)
 	if err != nil {
 		return err
 	}

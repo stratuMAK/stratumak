@@ -448,7 +448,7 @@ func TestSTFunctionBlocks(t *testing.T) {
 		t.Error("the instance is not a member of inst_t")
 	}
 
-	if !strings.Contains(out, "static void Ramp_body(inst_t *__comp_inst, Ramp_t *__self)") {
+	if !strings.Contains(out, "static void __fb_body_Ramp(inst_t *__comp_inst, Ramp_t *__self)") {
 		t.Errorf("block body not emitted with the expected signature:\n%s", out)
 	}
 
@@ -457,7 +457,7 @@ func TestSTFunctionBlocks(t *testing.T) {
 		"(__comp_inst->r).target = __pin_target;",
 		"(__comp_inst->r).rate = __pin_max_rate;",
 		"(__comp_inst->r).dt = fperiod;",
-		"Ramp_body(__comp_inst, &(__comp_inst->r));",
+		"__fb_body_Ramp(__comp_inst, &(__comp_inst->r));",
 		"__pin_out = (__comp_inst->r).out;",
 	} {
 		if !strings.Contains(out, want) {
@@ -497,12 +497,12 @@ func TestSTNestedAndArrayedInstances(t *testing.T) {
 		t.Errorf("array of instances not emitted:\n%s", out)
 	}
 	// Each element is initialised, not just the first.
-	if !strings.Contains(out, "for (__i = 0; __i < 4; __i++) Averager_init(&inst->avg[__i]);") {
+	if !strings.Contains(out, "for (__i = 0; __i < 4; __i++) __fb_init_Averager(&inst->avg[__i]);") {
 		t.Error("array of instances is not initialised element by element")
 	}
 	// Invoking through a subscript works like any other reference, and the
 	// subscript is clamped like any other.
-	if !strings.Contains(out, "Averager_body(__comp_inst, &(__comp_inst->avg)[") {
+	if !strings.Contains(out, "__fb_body_Averager(__comp_inst, &(__comp_inst->avg)[") {
 		t.Errorf("invocation through a subscript not emitted:\n%s", out)
 	}
 }

@@ -20,12 +20,19 @@ import (
 // fbStructName is the C type of a function block's instance.
 func fbStructName(name string) string { return toC(name) + "_t" }
 
+// fbBodyName and fbInitName carry a prefix ST cannot produce, rather than the
+// suffix they used to.  A block's methods and actions share a namespace and
+// emit as `Block_name`, so a method or action called `init` collided with the
+// block's own initialiser -- and the error was a conflicting declaration in
+// generated C, a long way from the name that caused it.  A leading double
+// underscore is refused for every ST name, so nothing can reach these.
+//
 // fbBodyName is the C function that runs one cycle of a block.
-func fbBodyName(name string) string { return toC(name) + "_body" }
+func fbBodyName(name string) string { return "__fb_body_" + toC(name) }
 
 // fbInitName is the C function that puts one instance into its declared
 // starting state.
-func fbInitName(name string) string { return toC(name) + "_init" }
+func fbInitName(name string) string { return "__fb_init_" + toC(name) }
 
 // fnName is the C name of a pure function.  The st_ prefix keeps an ST
 // function called Clamp or Round from colliding with the C library, which is

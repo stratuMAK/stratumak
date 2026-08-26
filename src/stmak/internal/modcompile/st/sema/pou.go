@@ -223,6 +223,9 @@ func (c *checker) checkBlockBody(b *st.FunctionBlockDecl) {
 	// Methods get a scope of their own rather than the block body's: they have
 	// their own parameters and locals, which the body has no business seeing.
 	c.checkMethodBodies(b, def)
+
+	// And once they exist, whether they add up to the interface claimed.
+	c.checkImplements(b, def)
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +420,14 @@ func (c *checker) checkInvoke(v *st.CallStmt) ast.Stmt {
 	// field lookup would fail first, and "Motor has no member stop" is a poor
 	// way to learn that stop is an action.
 	if fld, ok := v.Target.(*st.FieldExpr); ok {
+		if base, ok := fld.Base.(*st.Ident); ok {
+			if call, handled := c.checkAPICall(base, v.Pos, fld.Name, v.Args); handled {
+				if e, ok := call.(*ast.APICallExpr); ok {
+					return &ast.APICallStmt{Pos: v.Pos, Call: e}
+				}
+				return nil
+			}
+		}
 		if stmt, handled := c.checkExternalActionCall(v, fld); handled {
 			return stmt
 		}
@@ -549,6 +560,20 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 	// used.  Resolved before the plain-name path, since that one has nothing
 	// to say about a qualified call.
 	if fld, ok := v.Func.(*st.FieldExpr); ok {
+		if id, ok := fld.Base.(*st.Ident); ok {
+			if call, handled := c.checkAPICall(id, v.Pos, fld.Name, v.Args); handled {
+				e, _ := call.(*ast.APICallExpr)
+				if e == nil {
+					return nil
+				}
+				if e.Typ.Kind == ast.TypeInvalid {
+					c.errorf(v.Pos, "%s.%s returns nothing, so it cannot be used as a value; "+
+						"call it as a statement", e.API, e.Func)
+					return nil
+				}
+				return e
+			}
+		}
 		base := c.checkExpr(fld.Base, ast.Type{})
 		if base == nil {
 			return nil

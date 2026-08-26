@@ -642,6 +642,25 @@ type TimeConvExpr struct {
 	Typ  Type
 }
 
+// APICallExpr calls one function of a consumed GMI interface.
+//
+// The callbacks table and its context both live in inst_t, put there by the
+// existing gmi_consume machinery, so the call site needs only the API's name
+// and the function's.
+type APICallExpr struct {
+	Pos  Pos
+	API  string
+	Func string
+	Args []Expr
+	Typ  Type
+}
+
+// APICallStmt is such a call whose result is not used.
+type APICallStmt struct {
+	Pos  Pos
+	Call *APICallExpr
+}
+
 // MethodCallExpr calls a METHOD on a function block instance.
 //
 // It is an expression because a method may return a value; one that returns
@@ -689,6 +708,7 @@ func (e *UnaryExpr) Position() Pos      { return e.Pos }
 func (e *ConvExpr) Position() Pos       { return e.Pos }
 func (e *TimeConvExpr) Position() Pos   { return e.Pos }
 func (e *MethodCallExpr) Position() Pos { return e.Pos }
+func (e *APICallExpr) Position() Pos    { return e.Pos }
 func (e *CallExpr) Position() Pos       { return e.Pos }
 
 func (e *IntLit) ExprType() Type         { return e.Typ }
@@ -704,6 +724,7 @@ func (e *UnaryExpr) ExprType() Type      { return e.Typ }
 func (e *ConvExpr) ExprType() Type       { return e.Typ }
 func (e *TimeConvExpr) ExprType() Type   { return e.Typ }
 func (e *MethodCallExpr) ExprType() Type { return e.Typ }
+func (e *APICallExpr) ExprType() Type    { return e.Typ }
 func (e *CallExpr) ExprType() Type       { return e.Typ }
 
 func (*IntLit) exprNode()         {}
@@ -718,6 +739,7 @@ func (*BinaryExpr) exprNode()     {}
 func (*UnaryExpr) exprNode()      {}
 func (*TimeConvExpr) exprNode()   {}
 func (*MethodCallExpr) exprNode() {}
+func (*APICallExpr) exprNode()    {}
 func (*ConvExpr) exprNode()       {}
 func (*CallExpr) exprNode()       {}
 
@@ -889,8 +911,10 @@ type ActionCall struct {
 
 func (s *ActionCall) Position() Pos     { return s.Pos }
 func (s *MethodCallStmt) Position() Pos { return s.Pos }
+func (s *APICallStmt) Position() Pos    { return s.Pos }
 func (*ActionCall) stmtNode()           {}
 func (*MethodCallStmt) stmtNode()       {}
+func (*APICallStmt) stmtNode()          {}
 
 // InvokeStmt calls a function block instance: `inst(a := x, b := y);`.  It is a
 // statement rather than an expression because it mutates the instance; reading

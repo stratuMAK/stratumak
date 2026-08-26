@@ -296,6 +296,20 @@ ST_LIB_MANSTAMPS := $(patsubst hal/st-lib/%.st, ../docs/man/man3/.%.stamp, $(ST_
 	$(Q)../bin/modcompile --document $< -o $(dir $@)
 	$(Q)touch $@
 
+# GMI interfaces, copied where modcompile looks for them.  A .comp consuming
+# an API never reads the .gmi -- cgen includes the generated header and the C
+# compiler does the rest -- but Structured Text type-checks the calls itself,
+# so it needs the interface, not just the header.
+GMI_IDLS := $(wildcard gmi/idl/*.gmi)
+GMI_IDL_TARGETS := $(patsubst gmi/idl/%.gmi, ../cmod/gmi-idl/%.gmi, $(GMI_IDLS))
+
+../cmod/gmi-idl/%.gmi: gmi/idl/%.gmi
+	@mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+TARGETS += $(GMI_IDL_TARGETS)
+modules: $(GMI_IDL_TARGETS)
+
 TARGETS += $(ST_LIB_MANSTAMPS)
 manpages: $(ST_LIB_MANSTAMPS)
 GENERATED_MANPAGES += $(ST_LIB_MANSTAMPS)

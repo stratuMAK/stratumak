@@ -524,9 +524,69 @@ also exactly what a method call looks like. Refusing it means
 `inst.name(a := 1)` is a method call and nothing else whenever methods arrive,
 rather than something whose meaning depends on what `name` turned out to be.
 
-`inst.Action()` is implemented on that basis. Methods are still not, and are
-GMI's business. None of `INTERFACE`, `METHOD`, `IMPLEMENTS`, `EXTENDS` or
-`THIS` is reserved yet, so nothing there is spent.
+`inst.Action()` and `METHOD` are both implemented on that basis, and so is
+GMI itself.
+
+**What was built.** A consumed interface is named by a pragma and reads as an
+instance with methods, because that is what it is — a table of functions and a
+context:
+
+```
+{attribute 'gmi_consume' := 'home from gmiprovider'}
+...
+homing := home.get_homing();
+```
+
+A provided one is a `FUNCTION_BLOCK` that `IMPLEMENTS` it, whose methods are
+its functions:
+
+```
+{attribute 'gmi_provide' := 'home'}
+
+FUNCTION_BLOCK Homing IMPLEMENTS home
+  METHOD get_homing : DINT
+    get_homing := homing_flag;
+  END_METHOD
+  ...
+END_FUNCTION_BLOCK
+```
+
+**Almost no new backend.** The header includes, the `inst_t` members holding a
+consumed API's callbacks, the `api_get` lookups and the registration of a
+provided one already existed for `.comp`, driven by `Component.GMIConsume` and
+`GMIProvide` — sema now fills those from pragmas and everything downstream is
+what was already there. What is new is the call itself, and the thunks a
+provider needs, since the generated header's `GMI_<API>_CALLBACKS` macro names
+free functions taking `void *ctx`. That ctx is the component instance, so each
+thunk casts it back and calls the method on the instance implementing the
+interface.
+
+**Structured Text reads the `.gmi`, where `.comp` never does.** A `.comp`
+consumer needs only the generated header; ST type-checks the calls itself, so
+the interfaces are installed to `<cmod-dir>/gmi-idl` and found the way
+libraries are. That is what pays for itself twice over: it is also where the
+`@rt_safe` check lives, which nothing enforced before — the header carries
+`STMAK_API_NONBLOCKING`, which needs clang 20, so a gcc build had none at all.
+
+**A half-implemented interface is refused by name.** Every rt-safe function of
+a claimed interface must have a method of matching shape. Without that the
+registration installs a null callback, and it fires in the RT thread of
+whoever consumes it, a long way from the block that forgot it.
+
+**Scalars only, so far.** A GMI enumeration maps to `DINT` — an integer with
+names on it — with the thunk keeping the C typedef so the callback still
+matches. A string is a pointer in the callback, a `ptr` is opaque, and a
+struct would be a second copy of the interface kept in step by hand; each is
+refused by name.
+
+### 7b. What GMI cost elsewhere
+
+A block's methods and actions emit as `Block_name`, and the block's own
+initialiser was `Block_init` — so a method or action named `init` collided with
+it, and the error was a conflicting declaration in generated C rather than
+anything against the name that caused it. The generated helpers are now
+`__fb_init_Block` and `__fb_body_Block`: a leading double underscore is
+refused for every ST name, so nothing the author writes can reach them.
 
 ## 8. Testing
 

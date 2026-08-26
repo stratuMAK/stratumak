@@ -1,0 +1,34 @@
+# Two Structured Text modules talking over GMI: one provides the `home`
+# interface, the other consumes it and drives it.  Nothing here connects them
+# by a HAL signal -- the consumer looks the provider up by name through the API
+# registry, and the pins exist only so the test can watch what happened.
+
+newthread fast 1000000
+
+# The provider registers `home` under its own instance name, which is what the
+# consumer's `gmi_consume home from gmiprovider` looks for.
+load ./gmiprovider.so <gmiprovider>
+load ./gmiconsumer.so <gmiconsumer>
+
+load filestream stream_cfg=bbb infile=in.txt sample_cfg=ssssss outfile=out.txt depth=1000 samples=10
+
+net start  filestream.stream.0 gmiconsumer.start
+net step   filestream.stream.1 gmiconsumer.step
+net cancel filestream.stream.2 gmiconsumer.cancel
+
+# What the consumer read back across the interface...
+net c_homing gmiconsumer.homing filestream.sample.0
+net c_homed  gmiconsumer.homed  filestream.sample.1
+net c_idle   gmiconsumer.idle   filestream.sample.2
+
+# ...and what the provider's own state actually is, so the two can be compared.
+net p_homing gmiprovider.is-homing filestream.sample.3
+net p_homed  gmiprovider.is-homed  filestream.sample.4
+net p_calls  gmiprovider.calls     filestream.sample.5
+
+addf filestream.write fast
+# The provider runs first so its instance exists and its own body has run
+# before the consumer calls into it.
+addf gmiprovider fast
+addf gmiconsumer fast
+addf filestream.read fast

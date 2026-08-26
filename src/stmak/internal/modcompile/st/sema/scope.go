@@ -27,6 +27,9 @@ const (
 	symFunc
 	symAction
 	symBuiltin
+	// symAPI is a consumed GMI interface, which reads as an instance with
+	// methods because that is what it is: a table of functions and a context.
+	symAPI
 )
 
 var symKindNames = map[symKind]string{
@@ -37,6 +40,7 @@ var symKindNames = map[symKind]string{
 	symFunc:      "function",
 	symAction:    "action",
 	symBuiltin:   "built-in",
+	symAPI:       "GMI interface",
 }
 
 func (k symKind) String() string { return symKindNames[k] }

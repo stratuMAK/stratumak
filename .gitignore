@@ -104,6 +104,14 @@ share/bash-completion/
 /tests/modcompile-st-rtc/*.c
 /tests/modcompile-st-rtc/in.txt
 /tests/modcompile-st-rtc/out.txt
+/tests/modcompile-st-gmi/*.c
+/tests/modcompile-st-gmi/in.txt
+/tests/modcompile-st-gmi/out.txt
+
+# Structured Text libraries and GMI interfaces are source, not modules: the
+# build copies them where modcompile looks rather than compiling them, so the
+# usual *.so rule does not cover the result.
+/cmod/gmi-idl/
 
 # Structured Text libraries are source, not modules: the build copies them
 # into the directory modcompile searches rather than compiling them, so the

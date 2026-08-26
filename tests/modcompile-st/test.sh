@@ -74,7 +74,7 @@ if ! grep -q 'Ramp_t r;' ramplimit.c; then
     echo 'ramplimit.c does not hold its function block instance in inst_t'
     exit 1
 fi
-if ! grep -q 'Ramp_body(__comp_inst, &(__comp_inst->r));' ramplimit.c; then
+if ! grep -q '__fb_body_Ramp(__comp_inst, &(__comp_inst->r));' ramplimit.c; then
     echo 'ramplimit.c does not invoke its function block'
     exit 1
 fi
@@ -291,7 +291,7 @@ fi
 # PROGRAM, named by USING.  What it declares is generated into the consumer's
 # own module: no shared object, no ABI, and the call is a static function in
 # the same translation unit.
-if ! grep -q 'static void TON_body' uselib.c; then
+if ! grep -q 'static void __fb_body_TON' uselib.c; then
     echo 'uselib.c did not generate the library block it uses'
     exit 1
 fi

@@ -547,6 +547,15 @@ type Method struct {
 	Vars   []VarDecl
 
 	Body []Stmt
+
+	// ResultCType and ParamCTypes are the C spellings the GMI header declares
+	// for a method implementing an interface function, where those differ from
+	// the ST type's own -- an interface enumeration is a DINT here and a
+	// typedef there.  Empty means the declared type's C name is right.  The
+	// thunk needs them, or the callback's function pointer type will not
+	// match and the compiler will say so a long way from the cause.
+	ResultCType string
+	ParamCTypes []string
 }
 
 // LookupVar finds any declared name of the block, case-insensitively, and

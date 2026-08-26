@@ -96,6 +96,7 @@ func (g *generator) generate() error {
 		g.emitActionForwards()
 		g.emitPOUBodies()
 		g.emitMethodBodies()
+		g.emitGMIThunks()
 		g.emitActionBodies()
 		g.emitSTBodies()
 	} else {
