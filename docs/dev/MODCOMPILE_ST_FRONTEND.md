@@ -941,5 +941,10 @@ field.
 
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding
-pin names. Check at compile time and fail with the offending name. Small, but it
-belongs in phase 3 rather than being discovered on a machine.
+pin names. Check at compile time and fail with the offending name.
+
+Half done, and the half that is missing is the more likely one. `publishOne`
+checks it for a pin published along an instance path — the case that grows
+without anyone noticing — but `declarePin` does not check a PROGRAM's own,
+so a long array pin declared directly still passes and is truncated on the
+machine.

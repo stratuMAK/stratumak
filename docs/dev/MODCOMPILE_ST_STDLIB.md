@@ -610,7 +610,23 @@ throughout, as it did for every phase of the frontend.
 
 - **Qualified names** (`timers.TON`) and namespaces. Flat plus a collision
   error first.
-- **`RTC`** and the date and time types, which need a wall clock.
+- **`DATE` and `TIME_OF_DAY`** on their own. They carve a point in time into
+  halves, and `DATE_AND_TIME` covers what has been asked for. (`RTC` itself is
+  done — see §7 — and needed no wall clock.)
+- **GMI beyond scalars.** A string is a pointer in the callback, a `ptr` is
+  opaque, and a struct would be a second copy of the interface kept in step by
+  hand. This is the largest functional limit: `home` is nearly all scalars, but
+  `hm2_serial`, `mot` and `tp` are not, so most shipped interfaces are still
+  out of reach from ST.
+- **`THIS`.** A method cannot call a sibling method, because there is no name
+  for the instance inside one. Refused with that reason rather than "not
+  declared".
+- **The LGPL text is not bundled.** `src/hal/st-lib/COPYING` points at the
+  licence; a `COPYING.LIB` belongs beside the existing `COPYING` before the
+  libraries are distributed.
+- **Generated names can collide across blocks.** A block `A` with a method
+  `b_c` and a block `A_b` with a method `c` both emit `A_b_c`. Loud — a C
+  redefinition — rather than silent, and contrived, but real.
 - **Library versioning.** Nothing is checked today; a library is whatever the
   search path found. A version pragma and a `USING timers >= 1.2` constraint is
   the obvious next step and deliberately not in this plan.
