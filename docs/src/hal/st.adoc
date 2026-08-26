@@ -521,8 +521,10 @@ qualifier — an input that silently becomes a one-cycle pulse is invisible when
 you read the body. The counters detect the edge themselves, so `CU` is an
 ordinary input and counts one per rising edge either way.
 
-The standard library is LGPL with an added permission, not GPL, so a
-proprietary component may use it. See `src/hal/st-lib/COPYING`.
+The standard library is LGPL v2.1 or later with an added permission, not GPL,
+so a proprietary component may use it. The permission matters: `USING` compiles
+the blocks into your own module rather than linking against a separate one, and
+the LGPL is written around linking. See `src/hal/st-lib/COPYING`.
 
 `modcompile` looks for `timers.st` in `$STMAK_ST_LIB_PATH` first, then beside
 the file being compiled, then in the shipped library directory — so keeping

@@ -356,15 +356,18 @@ asserts the properties by name — which latch wins when both inputs are true,
 that an edge lasts one cycle, that a counter counts edges and not levels — so
 a broken block is named rather than showing up as a diff line.
 
-**Licensing.** The libraries are LGPL-2.1-or-later with an added permission,
-not GPL, so a proprietary module may use them. The permission is not
+**Licensing.** The libraries are LGPL v2.1 or later with an added permission,
+not GPL, so a proprietary module may use them. The label is plain text rather
+than an SPDX expression on purpose: SPDX's `WITH` takes a registered exception
+identifier, and this permission is not one, so `LGPL-2.1-or-later WITH
+stratuMAK-module-exception` would look like a well-formed identifier while
+naming nothing that exists. The permission is not
 ceremonial: the LGPL is written around linking against a work that stays
 separate, and nothing here is separate — `USING` compiles the declarations into
 the consumer's own module, which is closer to including a header than to
 linking, and §6's relink obligations make no sense for it. `src/hal/st-lib/COPYING`
 says so explicitly rather than leaving the intent to a later reading. The LGPL
-text itself is not yet bundled; a `COPYING.LIB` belongs beside the existing
-`COPYING` before these are distributed.
+text itself is already in the tree, in the top-level `COPYING.more`.
 
 **Phase 4 — the timers — done.** `TON`, `TOF`, `TP` and `TONR`, in the same
 `standard` library. 60 of the 79 measured instantiations.
@@ -642,9 +645,11 @@ throughout, as it did for every phase of the frontend.
   reaching a sibling needed `THIS` and reaching another block's method needed
   containment, which is refused — so the cycle check had no method edges. It
   has them now, and the diagnostic names the block: `R.a can reach itself`.
-- **The LGPL text is not bundled.** `src/hal/st-lib/COPYING` points at the
-  licence; a `COPYING.LIB` belongs beside the existing `COPYING` before the
-  libraries are distributed.
+- ~~**The LGPL text is not bundled.**~~ It already was: the top-level
+  `COPYING.more` carries both licences in full and says so in its first
+  paragraph. No `COPYING.LIB` is needed and none was added. The note in
+  `src/hal/st-lib/COPYING` that claimed otherwise was wrong and now says where
+  the text is.
 - **Generated names can collide across blocks.** A block `A` with a method
   `b_c` and a block `A_b` with a method `c` both emit `A_b_c`. Loud — a C
   redefinition — rather than silent, and contrived, but real.

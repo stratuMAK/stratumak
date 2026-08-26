@@ -49,8 +49,25 @@ is written out:
 In short: use these blocks in whatever module you like; improvements to the
 blocks themselves come back.
 
-The full text of the LGPL v2.1 is at
-<https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>.
+Where the licence text is
+-------------------------
 
-It is not yet bundled: the tree ships COPYING (GPL v2) and COPYING.more, and a
-COPYING.LIB should be added beside them before these libraries are distributed.
+The full text of the LGPL v2.1 is already in this tree, in the top-level
+COPYING.more, which carries both licences in their entirety and says so in its
+first paragraph.  There is no separate COPYING.LIB and none is needed.
+
+It is also at <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>.
+
+A note on the label
+-------------------
+
+The `license` pragma on these files reads
+
+    LGPL v2.1 or later, with an added permission; see st-lib/COPYING
+
+and deliberately not an SPDX expression.  SPDX's `WITH` operator takes a
+registered exception identifier, and this permission is not one -- writing
+`LGPL-2.1-or-later WITH stratuMAK-module-exception` would look like a
+well-formed identifier while naming nothing that exists.  The field is free
+text rendered into a man page for a person to read, as every other component's
+is, so it says what it means and points at this file.

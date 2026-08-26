@@ -1,7 +1,7 @@
 {attribute 'library' := 'standard'}
 {attribute 'summary' := 'The IEC 61131-3 standard function blocks'}
 {attribute 'author'  := 'Sascha Ittner'}
-{attribute 'license' := 'LGPL-2.1-or-later WITH stratuMAK-module-exception'}
+{attribute 'license' := 'LGPL v2.1 or later, with an added permission; see st-lib/COPYING'}
 
 (* The standard function blocks of IEC 61131-3, written in Structured Text and
    compiled by the same frontend as any component.  Nothing here is a compiler
@@ -25,7 +25,8 @@
    including a header than to linking.  The exception below says so, so that
    the intent does not rest on how anyone reads section 6 afterwards.
 
-   See docs/dev/MODCOMPILE_ST_STDLIB.md, and COPYING in this directory. *)
+   See docs/dev/MODCOMPILE_ST_STDLIB.md, and COPYING in this directory for the
+   permission and where the licence text lives. *)
 
 (* ------------------------------------------------------------------------ *)
 (* Bistables                                                                 *)
