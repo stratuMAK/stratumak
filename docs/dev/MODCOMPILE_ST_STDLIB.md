@@ -331,6 +331,54 @@ a monotonic count, so it needs both a `DATE_AND_TIME` type and a runtime source
 that does not exist yet. `get_time()` is explicitly monotonic and is the wrong
 clock for it.
 
+## 7a. Ahead: GMI in Structured Text
+
+Not part of this plan, recorded because it constrains one decision that would
+otherwise be made carelessly.
+
+A `.gmi` API maps onto IEC 61131-3 ed.3 almost one-to-one, so the idiomatic
+spelling is the standard's own rather than anything invented:
+
+| GMI | ed.3 |
+|---|---|
+| `.gmi` API | `INTERFACE` |
+| `func pktuart_config(...) -> i32` | `METHOD pktuart_config : DINT` |
+| `gmi_provide home` | `FUNCTION_BLOCK X IMPLEMENTS home` |
+| `gmi_consume hm2_serial from hostmot2` | `VAR s : hm2_serial;`, bound at load |
+
+Three things make it fit.
+
+**The `ctx` disappears.** Every GMI callback takes `void *ctx` first, and on
+the provider side that ctx is the instance — so a method on a function block is
+the shape the callback already has, minus the plumbing. On the consumer side it
+is bound into the handle, where today a `.comp` writes
+`HM2_SERIAL->pktuart_config(HM2_SERIAL->ctx, ...)` by hand.
+
+**It does not reopen pointers.** An interface reference resembles the
+`REFERENCE TO` that §8 of the frontend note refuses, but a consumer handle is
+resolved once in `New()` and never reassigned or offset. A bound handle is not
+a pointer, and the difference is enforceable.
+
+**`@rt_safe` becomes a compile-time check.** The IDL already marks each method,
+and the only thing enforcing it today is `STMAK_API_NONBLOCKING`, which needs
+clang 20 — a gcc build gets nothing, and a `.comp` body may call anything. An
+ST body running in a HAL thread could be refused by name for calling a method
+the IDL does not mark rt-safe.
+
+**Lookup should be `USING`.** Phase 2 built one mechanism for bringing outside
+declarations in; a `.gmi` surfaced as a synthesised library reuses it rather
+than adding a second.
+
+**The decision this forecloses.** All of the above needs methods —
+`inst.m(args)` with a result — which do not exist. The syntax is currently
+unclaimed: `b.compute(2)` is refused with "only a plain function name may be
+called in an expression", and none of `INTERFACE`, `METHOD`, `IMPLEMENTS`,
+`EXTENDS` or `THIS` is reserved. But §9 notes that a function block's `ACTION`
+cannot be called from outside it, which CODESYS allows — and adding that would
+claim exactly the `inst.something()` syntax methods need. Whether actions and
+methods unify or stay distinct has to be settled before either lands, not
+after.
+
 ## 8. Testing
 
 Three layers, all of which already have a harness:
@@ -358,7 +406,8 @@ throughout, as it did for every phase of the frontend.
   search path found. A version pragma and a `USING timers >= 1.2` constraint is
   the obvious next step and deliberately not in this plan.
 - **Calling a function block's action from outside it** — `inst.Action()`,
-  which CODESYS allows. Found while writing the phase 0 fixture: an action is
+  which CODESYS allows. See §7a: this claims the syntax ed.3 methods need, so
+  it is not an independent choice. Found while writing the phase 0 fixture: an action is
   currently reachable only from the POU that declares it. None of the three
   projects rely on it (their `inst.Name()` calls are CODESYS *methods*, a
   separate ed.3 feature that is also out of scope), so it is noted rather than
