@@ -293,3 +293,98 @@ func instanceBlock(g *generator, v ast.Variable) (string, bool) {
 	}
 	return "", false
 }
+
+// fbMethodCName is the C name of one method of a function block.  Methods and
+// actions share a namespace within a block -- sema refuses a collision -- so
+// one scheme serves both.
+func fbMethodCName(block, method string) string {
+	return toC(block) + "_" + toC(method)
+}
+
+// methodParams is the parameter list a method takes: the component instance,
+// the block instance, then its own declared inputs.
+func methodParams(block string, m *ast.Method) string {
+	s := fmt.Sprintf("inst_t *__comp_inst, %s *__self", fbStructName(block))
+	for _, p := range m.Params {
+		s += fmt.Sprintf(", %s %s%s", p.Typ.CType(), toC(p.Name), cTypeDims(p.Typ))
+	}
+	return s
+}
+
+// methodReturn is the C return type: void for a method that returns nothing.
+func methodReturn(m *ast.Method) string {
+	if m.Result.Kind == ast.TypeInvalid {
+		return "void"
+	}
+	return m.Result.CType()
+}
+
+// emitMethodForwards declares every method before the first is defined, so a
+// body may call one written after it.
+func (g *generator) emitMethodForwards() {
+	for i := range g.pkg.Blocks {
+		b := &g.pkg.Blocks[i]
+		for j := range b.Methods {
+			m := &b.Methods[j]
+			g.printf("static %s %s(%s) STMAK_NONBLOCKING __attribute__((unused));\n",
+				methodReturn(m), fbMethodCName(b.Name, m.Name), methodParams(b.Name, m))
+		}
+	}
+}
+
+// emitMethodBodies emits each method as a function over the instance.
+//
+// It is the two halves of what already exists: a block body, which reaches its
+// members through __self, and a pure function, which has parameters, locals
+// and a result assigned by name.
+func (g *generator) emitMethodBodies() {
+	for i := range g.pkg.Blocks {
+		b := &g.pkg.Blocks[i]
+		for j := range b.Methods {
+			m := &b.Methods[j]
+			e := &stEmitter{g: g, self: "__self", owner: b.Name}
+
+			g.printf("static %s %s(%s) {\n",
+				methodReturn(m), fbMethodCName(b.Name, m.Name), methodParams(b.Name, m))
+			g.printf("    (void)__comp_inst; (void)__self;\n")
+
+			if m.Result.Kind != ast.TypeInvalid {
+				// Zeroed, so a body that returns without assigning it does
+				// not return whatever was on the stack.
+				g.printf("    %s %s = 0;\n", m.Result.CType(), toC(m.Name))
+			}
+			for _, v := range m.Vars {
+				if v.FoldsAway() {
+					continue
+				}
+				init := "0"
+				if v.Init != nil {
+					init = e.expr(v.Init)
+				}
+				if v.Typ.Kind == ast.TypeArray || v.Typ.Kind == ast.TypeStruct {
+					g.printf("    %s %s%s;\n", v.Typ.CType(), toC(v.Name), cTypeDims(v.Typ))
+					g.printf("    memset(&%s, 0, sizeof(%s));\n", toC(v.Name), toC(v.Name))
+					continue
+				}
+				g.printf("    %s %s = %s;\n", v.Typ.CType(), toC(v.Name), init)
+			}
+
+			e.emitStmts(m.Body, 1)
+			e.lineBackToOutput()
+			if m.Result.Kind != ast.TypeInvalid {
+				g.printf("    return %s;\n", toC(m.Name))
+			}
+			g.printf("}\n\n")
+		}
+	}
+}
+
+// methodCall renders a call to a method on an instance.
+func (e *stEmitter) methodCall(v *ast.MethodCallExpr) string {
+	args := ""
+	for _, a := range v.Args {
+		args += ", " + e.expr(a)
+	}
+	return fmt.Sprintf("%s(__comp_inst, &(%s)%s)",
+		fbMethodCName(v.Owner, v.Method), e.expr(v.Inst), args)
+}

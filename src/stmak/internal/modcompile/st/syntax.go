@@ -192,6 +192,26 @@ type FunctionBlockDecl struct {
 	Vars    []*VarBlock
 	Body    []Stmt
 	Actions []*ActionDecl
+	Methods []*MethodDecl
+
+	// Implements names the GMI APIs this block provides, from
+	// `FUNCTION_BLOCK X IMPLEMENTS api`.
+	Implements []string
+}
+
+// MethodDecl is a METHOD: an operation on a function block instance, with its
+// own interface and its own locals, able to reach the instance's variables.
+//
+// It is not an ACTION, which shares the POU's variables and has no interface
+// of its own; the two are different constructs that share the `inst.name()`
+// call syntax.  See docs/dev/MODCOMPILE_ST_STDLIB.md §7a.
+type MethodDecl struct {
+	Pos    ast.Pos
+	Attrs  []Attribute
+	Name   string
+	Result *TypeRef // nil for a method that returns nothing
+	Vars   []*VarBlock
+	Body   []Stmt
 }
 
 // FunctionDecl is a FUNCTION: stateless, returns a value, callable from an

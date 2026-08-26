@@ -60,6 +60,8 @@ const (
 	keywordBase // marker: every constant past here is a keyword
 
 	// Declarations.
+	KwMethod
+	KwEndMethod
 	KwUsing
 	KwProgram
 	KwEndProgram
@@ -168,6 +170,8 @@ var kindNames = map[Kind]string{
 // keeps `TYPE Celsius : LREAL` and `TYPE Motor : SomeFB` on one path and
 // leaves sema to decide what a name means.
 var keywords = map[string]Kind{
+	"METHOD":             KwMethod,
+	"END_METHOD":         KwEndMethod,
 	"USING":              KwUsing,
 	"PROGRAM":            KwProgram,
 	"END_PROGRAM":        KwEndProgram,

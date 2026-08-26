@@ -61,6 +61,10 @@ func (l ErrorList) Error() string {
 const maxErrors = 25
 
 type parser struct {
+	// pendingAttrs holds a pragma the statement list read before finding a
+	// METHOD or ACTION behind it, for the declaration parser to take.
+	pendingAttrs []Attribute
+
 	sc   *Scanner
 	file string
 	tok  Token
@@ -874,6 +878,32 @@ func (p *parser) parseProgram(attrs []Attribute) *ProgramDecl {
 }
 
 // parseActions consumes the ACTION blocks that follow a POU's body.
+// acceptIdent consumes an identifier with this spelling, if it is next.
+// IMPLEMENTS is recognised this way rather than as a keyword so that a file
+// which uses the word as a name keeps working.
+func (p *parser) acceptIdent(word string) bool {
+	if p.tok.Kind == TokIdent && strings.EqualFold(p.tok.Text, word) {
+		p.next()
+		return true
+	}
+	return false
+}
+
+// parseActionsWith parses one ACTION whose attributes have already been read.
+func (p *parser) parseActionsWith(attrs []Attribute) []*ActionDecl {
+	if !p.at(KwAction) {
+		return nil
+	}
+	a := &ActionDecl{Pos: p.tok.Pos, Attrs: attrs}
+	p.next()
+	a.Name = p.expectName("an action name")
+	p.expect(Colon)
+	a.Body = p.parseStmtList(KwEndAction)
+	p.expect(KwEndAction)
+	p.accept(Semicolon)
+	return []*ActionDecl{a}
+}
+
 func (p *parser) parseActions() []*ActionDecl {
 	var out []*ActionDecl
 	for p.at(KwAction) || p.at(Pragma) {
@@ -910,10 +940,79 @@ func (p *parser) parseFunctionBlock(attrs []Attribute) *FunctionBlockDecl {
 		p.accept(KwEndFunctionBlock)
 		return nil
 	}
+	// `FUNCTION_BLOCK X IMPLEMENTS api, api2` -- the GMI APIs this block
+	// provides.  IEC ed.3 spells implementing an INTERFACE this way, and a
+	// .gmi is one; see docs/dev/MODCOMPILE_ST_STDLIB.md §7a.
+	if p.acceptIdent("IMPLEMENTS") {
+		for {
+			name := p.expectName("an interface name")
+			if name == "" {
+				break
+			}
+			d.Implements = append(d.Implements, name)
+			if !p.accept(Comma) {
+				break
+			}
+		}
+	}
+
 	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndFunctionBlock)
-	d.Actions = p.parseActions()
+
+	// Methods and actions may be interleaved, and either may come first.
+	for p.at(KwAction) || p.at(KwMethod) || p.at(Pragma) || len(p.pendingAttrs) > 0 {
+		if p.at(Pragma) || len(p.pendingAttrs) > 0 {
+			// A pragma here belongs to whichever of the two follows it.  It
+			// may already have been read: the body's statement list stops at
+			// a pragma that precedes one of these and hands it over.
+			attrs := p.pendingAttrs
+			p.pendingAttrs = nil
+			attrs = append(attrs, p.parseAttributes()...)
+			switch {
+			case p.at(KwMethod):
+				if m := p.parseMethod(attrs); m != nil {
+					d.Methods = append(d.Methods, m)
+				}
+			case p.at(KwAction):
+				d.Actions = append(d.Actions, p.parseActionsWith(attrs)...)
+			default:
+				p.errorAt(p.tok.Pos, "attribute %q precedes no METHOD or ACTION", attrs[0].Name)
+				return d
+			}
+			continue
+		}
+		if p.at(KwMethod) {
+			if m := p.parseMethod(nil); m != nil {
+				d.Methods = append(d.Methods, m)
+			}
+			continue
+		}
+		d.Actions = append(d.Actions, p.parseActionsWith(nil)...)
+	}
+
 	p.expect(KwEndFunctionBlock)
+	return d
+}
+
+// parseMethod parses `METHOD name : TYPE ... END_METHOD`.  The result type is
+// optional: a method that only acts on the instance returns nothing, and
+// writing `: VOID` for that would be a type ST does not have.
+func (p *parser) parseMethod(attrs []Attribute) *MethodDecl {
+	d := &MethodDecl{Pos: p.tok.Pos, Attrs: attrs}
+	p.expect(KwMethod)
+	d.Name = p.expectName("a method name")
+	if d.Name == "" {
+		p.syncTo(KwEndMethod)
+		p.accept(KwEndMethod)
+		return nil
+	}
+	if p.accept(Colon) {
+		d.Result = p.parseTypeRef()
+	}
+	d.Vars = p.parseVarSections(&d.Attrs)
+	d.Body = p.parseStmtList(KwEndMethod)
+	p.expect(KwEndMethod)
+	p.accept(Semicolon)
 	return d
 }
 
@@ -965,7 +1064,7 @@ var stmtEnd = []Kind{
 	KwEndRepeat, KwUntil,
 	// An ACTION ends the body it follows: the actions of a POU come after its
 	// statements, not among them.
-	KwAction, KwEndAction,
+	KwAction, KwEndAction, KwMethod, KwEndMethod,
 }
 
 func atStmtEnd(k Kind) bool {
@@ -1000,6 +1099,14 @@ func (p *parser) parseStmt() Stmt {
 	// A pragma here belongs to the statement that follows -- which is how a
 	// loop receives its max_iterations bound.
 	attrs := p.parseAttributes()
+
+	// ...unless what follows is not a statement at all.  A METHOD or an
+	// ACTION ends the body, and a pragma before one documents it, so the
+	// attributes are handed back for the declaration parser to take.
+	if len(attrs) > 0 && (p.at(KwMethod) || p.at(KwAction)) {
+		p.pendingAttrs = attrs
+		return nil
+	}
 
 	switch p.tok.Kind {
 	case KwIf:

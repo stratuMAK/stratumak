@@ -523,6 +523,30 @@ type FunctionBlock struct {
 
 	// Actions are the named pieces of this block's body, sharing its instance.
 	Actions []Action
+
+	// Methods are operations on an instance, each with its own interface and
+	// its own locals.  Distinct from an Action, which has neither; the two
+	// share the `inst.name()` call syntax and nothing else.
+	Methods []Method
+
+	// Implements names the GMI APIs this block provides.
+	Implements []string
+}
+
+// Method is an operation on a function block instance.
+type Method struct {
+	Pos  Pos
+	Name string
+	Doc  string
+
+	// Result is the declared return type, zero for a method returning
+	// nothing.
+	Result Type
+
+	Params []VarDecl
+	Vars   []VarDecl
+
+	Body []Stmt
 }
 
 // LookupVar finds any declared name of the block, case-insensitively, and

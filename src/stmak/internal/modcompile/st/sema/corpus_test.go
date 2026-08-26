@@ -58,6 +58,7 @@ var corpusStatus = map[string]string{
 	"params":    "",
 	"period":    "",
 	"durations": "",
+	"methods":   "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.

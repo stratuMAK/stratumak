@@ -35,6 +35,7 @@ var stLowers = []string{
 	"params",      // HAL parameters, top level and inside a block
 	"period",      // fperiod in each kind of body
 	"durations",   // the TIME type
+	"methods",     // methods on an instance
 }
 
 // compile turns one fixture into C.

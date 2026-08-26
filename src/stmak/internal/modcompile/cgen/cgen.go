@@ -92,8 +92,10 @@ func (g *generator) generate() error {
 		// call each other whatever order they were written in.
 		g.emitPinStructs()
 		g.emitPOUForwards()
+		g.emitMethodForwards()
 		g.emitActionForwards()
 		g.emitPOUBodies()
+		g.emitMethodBodies()
 		g.emitActionBodies()
 		g.emitSTBodies()
 	} else {

@@ -212,6 +212,11 @@ func walkExpr(e ast.Expr, onExpr func(ast.Expr)) {
 		walkExpr(v.X, onExpr)
 	case *ast.TimeConvExpr:
 		walkExpr(v.X, onExpr)
+	case *ast.MethodCallExpr:
+		walkExpr(v.Inst, onExpr)
+		for _, a := range v.Args {
+			walkExpr(a, onExpr)
+		}
 	case *ast.IndexExpr:
 		walkExpr(v.Base, onExpr)
 		for _, ix := range v.Indices {
@@ -706,6 +711,11 @@ func (e *stEmitter) emitStmt(s ast.Stmt, depth int) {
 	case *ast.ActionCall:
 		e.emitActionCall(v, depth)
 
+	case *ast.MethodCallStmt:
+		e.lineTo(v.Pos)
+		g := e.g
+		g.printf("%s(void)%s;\n", indent(depth), e.methodCall(v.Call))
+
 	case *ast.ForStmt:
 		e.emitFor(v, depth)
 
@@ -937,6 +947,9 @@ func (e *stEmitter) expr(x ast.Expr) string {
 
 	case *ast.TimeConvExpr:
 		return e.timeConv(v)
+
+	case *ast.MethodCallExpr:
+		return e.methodCall(v)
 
 	case *ast.IntLit:
 		return intLiteral(v.Value, v.Typ)

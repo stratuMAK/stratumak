@@ -96,6 +96,10 @@ type checker struct {
 	// reachability pass needs the whole set: a declared instance keeps its
 	// type alive whether or not any statement invokes it.
 	allInstances []instanceVar
+
+	// methodOwner is the block whose method is being checked, so that a bare
+	// sibling method name can be reported as what it is.
+	methodOwner *ast.FunctionBlock
 }
 
 func (c *checker) errorf(pos ast.Pos, format string, args ...interface{}) {

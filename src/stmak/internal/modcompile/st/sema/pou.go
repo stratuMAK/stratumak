@@ -169,6 +169,7 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 		}
 	}
 
+	c.declareMethodSignatures(b, &def)
 	c.pkg.Blocks = append(c.pkg.Blocks, def)
 }
 
@@ -218,6 +219,10 @@ func (c *checker) checkBlockBody(b *st.FunctionBlockDecl) {
 	c.declareActions(b.Actions, "FUNCTION_BLOCK", b.Name)
 	def.Body = c.checkStmts(b.Body)
 	def.Actions = c.checkActions(b.Actions, "FUNCTION_BLOCK", b.Name)
+
+	// Methods get a scope of their own rather than the block body's: they have
+	// their own parameters and locals, which the body has no business seeing.
+	c.checkMethodBodies(b, def)
 }
 
 // ---------------------------------------------------------------------------
@@ -415,6 +420,13 @@ func (c *checker) checkInvoke(v *st.CallStmt) ast.Stmt {
 		if stmt, handled := c.checkExternalActionCall(v, fld); handled {
 			return stmt
 		}
+		// A method call as a statement: the result, if any, is discarded.
+		if base := c.checkExpr(fld.Base, ast.Type{}); base != nil &&
+			base.ExprType().Kind == ast.TypeFB {
+			if call := c.checkMethodCall(base, v.Pos, fld.Name, v.Args); call != nil {
+				return &ast.MethodCallStmt{Pos: v.Pos, Call: call}
+			}
+		}
 	}
 
 	// A function block instance is a value: resolve it as one, so
@@ -533,6 +545,32 @@ func lookupIO(def *ast.FunctionBlock, name string, kind st.VarKind) (ast.VarDecl
 
 // checkCall resolves a call used as an expression, which must be a FUNCTION.
 func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
+	// `inst.method(args)` in an expression, which is how a method's result is
+	// used.  Resolved before the plain-name path, since that one has nothing
+	// to say about a qualified call.
+	if fld, ok := v.Func.(*st.FieldExpr); ok {
+		base := c.checkExpr(fld.Base, ast.Type{})
+		if base == nil {
+			return nil
+		}
+		if base.ExprType().Kind != ast.TypeFB {
+			c.errorf(v.Pos, "%s is not a function block instance, so it has no methods",
+				exprName(base, base.ExprType()))
+			return nil
+		}
+		call := c.checkMethodCall(base, v.Pos, fld.Name, v.Args)
+		if call == nil {
+			c.errorf(v.Pos, "%s has no method %s", base.ExprType().Ref, fld.Name)
+			return nil
+		}
+		if call.Typ.Kind == ast.TypeInvalid {
+			c.errorf(v.Pos, "%s.%s returns nothing, so it cannot be used as a value; "+
+				"call it as a statement", call.Owner, call.Method)
+			return nil
+		}
+		return call
+	}
+
 	name, ok := v.Func.(*st.Ident)
 	if !ok {
 		c.errorf(v.Pos, "only a plain function name may be called in an expression")
@@ -546,7 +584,9 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 	}
 	sym := c.scope.lookup(name.Name)
 	if sym == nil {
-		c.errorf(v.Pos, "%s is not declared", name.Name)
+		if !c.reportSiblingMethod(name.Name, v.Pos) {
+			c.errorf(v.Pos, "%s is not declared", name.Name)
+		}
 		return nil
 	}
 	if sym.Kind == symBlock {

@@ -211,6 +211,9 @@ func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 				"Take the cycle time as an input, as IEC's own DERIVATIVE and INTEGRAL do")
 			return nil
 		}
+		if c.reportSiblingMethod(v.Name, v.Pos) {
+			return nil
+		}
 		if strings.EqualFold(v.Name, "MONOTONIC") {
 			c.errorf(v.Pos, "MONOTONIC is not available in a FUNCTION: a function that returned "+
 				"something different each time it was called would not be one. "+

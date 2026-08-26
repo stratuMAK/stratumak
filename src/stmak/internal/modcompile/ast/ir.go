@@ -642,6 +642,31 @@ type TimeConvExpr struct {
 	Typ  Type
 }
 
+// MethodCallExpr calls a METHOD on a function block instance.
+//
+// It is an expression because a method may return a value; one that returns
+// nothing is wrapped in a MethodCallStmt instead, so the backend never has to
+// decide whether to discard a result.
+type MethodCallExpr struct {
+	Pos Pos
+
+	// Inst is the instance the method runs on.
+	Inst Expr
+	// Owner is the block Inst is an instance of, which names the C function.
+	Owner  string
+	Method string
+
+	Args []Expr
+	Typ  Type
+}
+
+// MethodCallStmt is a method call whose result is not used, which is the only
+// form a method returning nothing may take.
+type MethodCallStmt struct {
+	Pos  Pos
+	Call *MethodCallExpr
+}
+
 // CallExpr calls a stateless FUNCTION.  A function block invocation is a
 // statement (InvokeStmt), not an expression, because it mutates instance state.
 type CallExpr struct {
@@ -651,47 +676,50 @@ type CallExpr struct {
 	Typ  Type
 }
 
-func (e *IntLit) Position() Pos       { return e.Pos }
-func (e *RealLit) Position() Pos      { return e.Pos }
-func (e *BoolLit) Position() Pos      { return e.Pos }
-func (e *StringLit) Position() Pos    { return e.Pos }
-func (e *EnumLit) Position() Pos      { return e.Pos }
-func (e *VarRef) Position() Pos       { return e.Pos }
-func (e *IndexExpr) Position() Pos    { return e.Pos }
-func (e *FieldExpr) Position() Pos    { return e.Pos }
-func (e *BinaryExpr) Position() Pos   { return e.Pos }
-func (e *UnaryExpr) Position() Pos    { return e.Pos }
-func (e *ConvExpr) Position() Pos     { return e.Pos }
-func (e *TimeConvExpr) Position() Pos { return e.Pos }
-func (e *CallExpr) Position() Pos     { return e.Pos }
+func (e *IntLit) Position() Pos         { return e.Pos }
+func (e *RealLit) Position() Pos        { return e.Pos }
+func (e *BoolLit) Position() Pos        { return e.Pos }
+func (e *StringLit) Position() Pos      { return e.Pos }
+func (e *EnumLit) Position() Pos        { return e.Pos }
+func (e *VarRef) Position() Pos         { return e.Pos }
+func (e *IndexExpr) Position() Pos      { return e.Pos }
+func (e *FieldExpr) Position() Pos      { return e.Pos }
+func (e *BinaryExpr) Position() Pos     { return e.Pos }
+func (e *UnaryExpr) Position() Pos      { return e.Pos }
+func (e *ConvExpr) Position() Pos       { return e.Pos }
+func (e *TimeConvExpr) Position() Pos   { return e.Pos }
+func (e *MethodCallExpr) Position() Pos { return e.Pos }
+func (e *CallExpr) Position() Pos       { return e.Pos }
 
-func (e *IntLit) ExprType() Type       { return e.Typ }
-func (e *RealLit) ExprType() Type      { return e.Typ }
-func (e *BoolLit) ExprType() Type      { return Type{Kind: TypeBool} }
-func (e *StringLit) ExprType() Type    { return e.Typ }
-func (e *EnumLit) ExprType() Type      { return e.Typ }
-func (e *VarRef) ExprType() Type       { return e.Typ }
-func (e *IndexExpr) ExprType() Type    { return e.Typ }
-func (e *FieldExpr) ExprType() Type    { return e.Typ }
-func (e *BinaryExpr) ExprType() Type   { return e.Typ }
-func (e *UnaryExpr) ExprType() Type    { return e.Typ }
-func (e *ConvExpr) ExprType() Type     { return e.Typ }
-func (e *TimeConvExpr) ExprType() Type { return e.Typ }
-func (e *CallExpr) ExprType() Type     { return e.Typ }
+func (e *IntLit) ExprType() Type         { return e.Typ }
+func (e *RealLit) ExprType() Type        { return e.Typ }
+func (e *BoolLit) ExprType() Type        { return Type{Kind: TypeBool} }
+func (e *StringLit) ExprType() Type      { return e.Typ }
+func (e *EnumLit) ExprType() Type        { return e.Typ }
+func (e *VarRef) ExprType() Type         { return e.Typ }
+func (e *IndexExpr) ExprType() Type      { return e.Typ }
+func (e *FieldExpr) ExprType() Type      { return e.Typ }
+func (e *BinaryExpr) ExprType() Type     { return e.Typ }
+func (e *UnaryExpr) ExprType() Type      { return e.Typ }
+func (e *ConvExpr) ExprType() Type       { return e.Typ }
+func (e *TimeConvExpr) ExprType() Type   { return e.Typ }
+func (e *MethodCallExpr) ExprType() Type { return e.Typ }
+func (e *CallExpr) ExprType() Type       { return e.Typ }
 
-func (*IntLit) exprNode()       {}
-func (*RealLit) exprNode()      {}
-func (*BoolLit) exprNode()      {}
-func (*StringLit) exprNode()    {}
-func (*EnumLit) exprNode()      {}
-func (*VarRef) exprNode()       {}
-func (*IndexExpr) exprNode()    {}
-func (*FieldExpr) exprNode()    {}
-func (*BinaryExpr) exprNode()   {}
-func (*UnaryExpr) exprNode()    {}
-func (*TimeConvExpr) exprNode() {}
-func (*ConvExpr) exprNode()     {}
-func (*CallExpr) exprNode()     {}
+func (*IntLit) exprNode()         {}
+func (*RealLit) exprNode()        {}
+func (*BoolLit) exprNode()        {}
+func (*StringLit) exprNode()      {}
+func (*EnumLit) exprNode()        {}
+func (*VarRef) exprNode()         {}
+func (*IndexExpr) exprNode()      {}
+func (*FieldExpr) exprNode()      {}
+func (*BinaryExpr) exprNode()     {}
+func (*UnaryExpr) exprNode()      {}
+func (*TimeConvExpr) exprNode()   {}
+func (*MethodCallExpr) exprNode() {}
+func (*ConvExpr) exprNode()       {}
+func (*CallExpr) exprNode()       {}
 
 // IsLValue reports whether e may appear on the left of an assignment.  Only a
 // reference chain qualifies: a name, a subscript of one, or a field of one.
@@ -859,8 +887,10 @@ type ActionCall struct {
 	Owner string
 }
 
-func (s *ActionCall) Position() Pos { return s.Pos }
-func (*ActionCall) stmtNode()       {}
+func (s *ActionCall) Position() Pos     { return s.Pos }
+func (s *MethodCallStmt) Position() Pos { return s.Pos }
+func (*ActionCall) stmtNode()           {}
+func (*MethodCallStmt) stmtNode()       {}
 
 // InvokeStmt calls a function block instance: `inst(a := x, b := y);`.  It is a
 // statement rather than an expression because it mutates the instance; reading
