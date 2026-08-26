@@ -226,3 +226,204 @@ FUNCTION_BLOCK CTUD
   QU := CV >= PV;
   QD := CV <= 0;
 END_FUNCTION_BLOCK
+
+(* ------------------------------------------------------------------------ *)
+(* Timers                                                                    *)
+(* ------------------------------------------------------------------------ *)
+
+(* These are built on MONOTONIC, the RT clock, and not on fperiod.
+
+   IEC's TON(IN, PT) exposes no cycle input, because its semantics are elapsed
+   real time rather than a count of cycles.  A timer that added fperiod each
+   cycle would measure cycles times the nominal period, so it would run slow by
+   whatever the thread lost to jitter or an overrun, and it would disagree with
+   itself if two threads ever drove the same instance.  Reading the clock costs
+   one call and has neither problem.
+
+   Each body reads the clock once, into `now`, so that a reading taken and used
+   in the same cycle cannot differ from itself by the handful of nanoseconds
+   between two calls.  There is no VAR_TEMP here, so `now` is a member; eight
+   bytes per instance is the price of the reading being consistent. *)
+
+{attribute 'doc' := 'Delay on: Q follows IN, but only after IN has been true for PT.'}
+FUNCTION_BLOCK TON
+  VAR_INPUT
+    {attribute 'doc' := 'The signal to delay.'}
+    IN : BOOL;
+    {attribute 'doc' := 'How long IN must stay true before Q follows.'}
+    PT : TIME;
+  END_VAR
+  VAR_OUTPUT
+    {attribute 'doc' := 'True once IN has been true for PT.'}
+    Q  : BOOL;
+    {attribute 'doc' := 'How long IN has been true, stopping at PT.'}
+    ET : TIME;
+  END_VAR
+  VAR
+    running : BOOL;
+    start   : TIME;
+    now     : TIME;
+  END_VAR
+
+  now := MONOTONIC;
+
+  IF NOT IN THEN
+    running := FALSE;
+    Q  := FALSE;
+    ET := T#0s;
+  ELSE
+    IF NOT running THEN
+      running := TRUE;
+      start := now;
+    END_IF;
+    ET := now - start;
+    IF ET >= PT THEN
+      (* IEC holds ET at PT rather than letting it run on, so a reader can
+         compare it with PT instead of having to remember which is larger. *)
+      ET := PT;
+      Q := TRUE;
+    END_IF;
+  END_IF;
+END_FUNCTION_BLOCK
+
+{attribute 'doc' := 'Delay off: Q follows IN up, and drops PT after IN drops.'}
+FUNCTION_BLOCK TOF
+  VAR_INPUT
+    {attribute 'doc' := 'The signal to hold.'}
+    IN : BOOL;
+    {attribute 'doc' := 'How long Q stays true after IN goes false.'}
+    PT : TIME;
+  END_VAR
+  VAR_OUTPUT
+    {attribute 'doc' := 'True while IN is true, and for PT after it goes false.'}
+    Q  : BOOL;
+    {attribute 'doc' := 'How long IN has been false, stopping at PT.'}
+    ET : TIME;
+  END_VAR
+  VAR
+    running : BOOL;
+    start   : TIME;
+    now     : TIME;
+  END_VAR
+
+  now := MONOTONIC;
+
+  IF IN THEN
+    running := FALSE;
+    Q  := TRUE;
+    ET := T#0s;
+  ELSIF Q THEN
+    (* Only while Q is still true: once it has dropped there is nothing left
+       to time, and an instance that has never seen IN starts with Q false and
+       so never starts timing at all. *)
+    IF NOT running THEN
+      running := TRUE;
+      start := now;
+    END_IF;
+    ET := now - start;
+    IF ET >= PT THEN
+      ET := PT;
+      Q := FALSE;
+    END_IF;
+  END_IF;
+END_FUNCTION_BLOCK
+
+{attribute 'doc' := 'Pulse: a rising edge of IN makes Q true for exactly PT.'}
+FUNCTION_BLOCK TP
+  VAR_INPUT
+    {attribute 'doc' := 'A rising edge starts the pulse.'}
+    IN : BOOL;
+    {attribute 'doc' := 'How long the pulse lasts.'}
+    PT : TIME;
+  END_VAR
+  VAR_OUTPUT
+    {attribute 'doc' := 'True for PT after a rising edge of IN.'}
+    Q  : BOOL;
+    {attribute 'doc' := 'How far into the pulse, stopping at PT.'}
+    ET : TIME;
+  END_VAR
+  VAR
+    edge    : R_TRIG;
+    running : BOOL;
+    start   : TIME;
+    now     : TIME;
+  END_VAR
+
+  now := MONOTONIC;
+  edge(CLK := IN);
+
+  IF edge.Q AND NOT running THEN
+    (* An edge during a pulse is ignored, which is what makes the pulse a
+       fixed length rather than a retriggerable one. *)
+    running := TRUE;
+    start := now;
+    Q := TRUE;
+  END_IF;
+
+  IF running THEN
+    ET := now - start;
+    IF ET >= PT THEN
+      ET := PT;
+      Q := FALSE;
+      IF NOT IN THEN
+        (* Re-armed only once IN has gone away: holding IN high after a pulse
+           must not start another. *)
+        running := FALSE;
+        ET := T#0s;
+      END_IF;
+    END_IF;
+  END_IF;
+END_FUNCTION_BLOCK
+
+{attribute 'doc' := 'Retentive delay on: accumulates the time IN is true, until reset.'}
+FUNCTION_BLOCK TONR
+  VAR_INPUT
+    {attribute 'doc' := 'Accumulates elapsed time while true.'}
+    IN : BOOL;
+    {attribute 'doc' := 'Clears the accumulated time.'}
+    R  : BOOL;
+    {attribute 'doc' := 'The total at which Q becomes true.'}
+    PT : TIME;
+  END_VAR
+  VAR_OUTPUT
+    {attribute 'doc' := 'True once the accumulated time reaches PT.'}
+    Q  : BOOL;
+    {attribute 'doc' := 'The accumulated time, stopping at PT.'}
+    ET : TIME;
+  END_VAR
+  VAR
+    running : BOOL;
+    start   : TIME;
+    acc     : TIME;
+    now     : TIME;
+  END_VAR
+
+  now := MONOTONIC;
+
+  IF R THEN
+    acc     := T#0s;
+    running := FALSE;
+    Q       := FALSE;
+    ET      := T#0s;
+  ELSE
+    IF IN THEN
+      IF NOT running THEN
+        running := TRUE;
+        start := now;
+      END_IF;
+      ET := acc + (now - start);
+    ELSE
+      IF running THEN
+        (* Fold the run that just ended into the total, so the time IN was
+           true survives IN going false.  That is what retentive means. *)
+        acc := acc + (now - start);
+        running := FALSE;
+      END_IF;
+      ET := acc;
+    END_IF;
+    IF ET >= PT THEN
+      ET := PT;
+      Q  := TRUE;
+    END_IF;
+  END_IF;
+END_FUNCTION_BLOCK

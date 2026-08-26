@@ -357,8 +357,41 @@ says so explicitly rather than leaving the intent to a later reading. The LGPL
 text itself is not yet bundled; a `COPYING.LIB` belongs beside the existing
 `COPYING` before these are distributed.
 
-**Phase 4 — the timers**, on `TIME` and the monotonic clock: `TP`, `TON`,
-`TOF`, and `TONR` from ed.3. This is 60 of the 79 measured instantiations.
+**Phase 4 — the timers — done.** `TON`, `TOF`, `TP` and `TONR`, in the same
+`standard` library. 60 of the 79 measured instantiations.
+
+They needed one new thing: ST could not read the clock. `MONOTONIC` is now a
+builtin of type `TIME`, alongside `fperiod`, and reads
+`env->rtapi->get_time()` — a duration since an origin the runtime does not
+define, so only differences between two readings mean anything, which is what
+a timer needs and all it needs. It is emitted inline rather than through a
+helper: one expression, so there is no static function that could go uncalled
+and no use-scan to keep in step with it. Like `fperiod` it is refused in a
+`FUNCTION`, for the sharper reason that a function returning something
+different on each call would not be one.
+
+**Why not `fperiod`.** §3 argued this before the timers existed and the
+implementation did not change it: IEC's `TON(IN, PT)` exposes no cycle input
+because its semantics are elapsed real time. A timer adding `fperiod` each
+cycle measures cycles times the *nominal* period, so it runs slow by whatever
+the thread loses to jitter or an overrun, and two threads driving one instance
+would disagree. Reading the clock costs one call and has neither problem.
+
+Each body reads the clock once into a member `now`, so a reading taken and
+used in the same cycle cannot differ from itself. There is no `VAR_TEMP` here,
+so that member costs eight bytes per instance — the price of the reading being
+consistent.
+
+**Testing them is not like testing the counters.** Which cycle a transition
+lands on depends on how long a cycle actually took, so
+`tests/modcompile-st-timers` has no `expected` file to diff: pinning the
+transition would fail on a loaded machine rather than on a broken timer. It
+asserts what holds at any rate — the state well before a deadline, the state
+well after, and the two things that are exact regardless of timing: that `ET`
+stops at `PT`, and that a pulse does not follow its input. The margins are
+one-sided on purpose, because a late thread means more real time per cycle and
+so a timer that fires in *fewer* cycles, never more. Verified by making `TP`
+retriggerable, which the check names rather than reporting as a diff.
 
 **Phase 5 — the CODESYS blocks the projects use**, which are `Standard`/`Util`
 rather than IEC core but appear in the sources regardless: `BLINK`, `SEMA`, and

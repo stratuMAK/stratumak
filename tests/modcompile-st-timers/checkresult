@@ -1,0 +1,51 @@
+#!/bin/bash
+# Columns: ton_q tof_q tp_q tonr_q ton_et, one line per 1 ms cycle, against
+# `go` low for cycles 1-4, high for 5-24, low for 25-40.
+#
+# There is no expected file to diff against, deliberately.  These timers read
+# the clock, so which cycle a transition lands on depends on how long a cycle
+# actually took, and pinning that would make the test fail on a loaded machine
+# rather than on a broken timer.  What is asserted instead holds at any rate:
+# the state well before a deadline, the state well after it, and the two
+# things that are exact regardless of timing -- that ET stops at PT, and that
+# a pulse does not follow its input.
+#
+# The margins are one-sided on purpose.  A late thread means more real time
+# per cycle, so a timer fires in *fewer* cycles, never more; the "not yet"
+# checks therefore sit on the first cycle of the window, where no time has
+# passed at all.
+fail() { echo "$1"; exit 1; }
+col() { awk -v r="$1" -v c="$2" 'NR==r {print $c}' "$3"; }
+
+[ "$(wc -l < "$1")" -ge 40 ] || fail "captured $(wc -l < "$1") cycles, want 40"
+
+# --- TON: PT = 5 ms -------------------------------------------------------
+[ "$(col 1 1 "$1")"  = "0" ] || fail 'TON.Q is true while IN is false'
+[ "$(col 5 1 "$1")"  = "0" ] || fail 'TON.Q went true on the cycle IN rose; it must wait PT'
+[ "$(col 20 1 "$1")" = "1" ] || fail 'TON.Q never went true after 15 ms of a 5 ms delay'
+[ "$(col 30 1 "$1")" = "0" ] || fail 'TON.Q stayed true after IN went false'
+# ET stops at PT rather than running on, so a reader can compare it with PT.
+[ "$(col 20 5 "$1")" = "0.005000" ] || fail "TON.ET is $(col 20 5 "$1"), want it held at PT = 0.005000"
+[ "$(col 1 5 "$1")"  = "0.000000" ] || fail 'TON.ET is not zero while IN is false'
+[ "$(col 40 5 "$1")" = "0.000000" ] || fail 'TON.ET did not clear when IN went false'
+
+# --- TOF: PT = 5 ms -------------------------------------------------------
+# An instance that has never seen IN starts off, rather than timing out from
+# a state it was never in.
+[ "$(col 1 2 "$1")"  = "0" ] || fail 'TOF.Q started true, before IN was ever true'
+[ "$(col 10 2 "$1")" = "1" ] || fail 'TOF.Q is not true while IN is true'
+[ "$(col 25 2 "$1")" = "1" ] || fail 'TOF.Q dropped on the cycle IN fell; it must hold for PT'
+[ "$(col 40 2 "$1")" = "0" ] || fail 'TOF.Q never dropped, 16 ms after a 5 ms hold'
+
+# --- TP: PT = 5 ms --------------------------------------------------------
+[ "$(col 5 3 "$1")"  = "1" ] || fail 'TP.Q did not start on the rising edge of IN'
+# The one that matters: IN is still high on cycle 20, and a pulse is not a
+# level.  A TP that followed its input would read 1 here.
+[ "$(col 20 3 "$1")" = "0" ] || fail 'TP.Q is still true 15 ms into a 5 ms pulse; it is following IN, not pulsing'
+[ "$(col 40 3 "$1")" = "0" ] || fail 'TP.Q is true with IN long gone'
+
+# --- TONR: PT = 10 ms, never reset ----------------------------------------
+[ "$(col 5 4 "$1")"  = "0" ] || fail 'TONR.Q went true on the cycle IN rose'
+[ "$(col 24 4 "$1")" = "1" ] || fail 'TONR.Q never went true after 20 ms of a 10 ms total'
+# Retentive: what it accumulated survives IN going away, and only R clears it.
+[ "$(col 40 4 "$1")" = "1" ] || fail 'TONR.Q dropped when IN went false; a retentive timer holds until R'

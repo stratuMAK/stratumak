@@ -1070,6 +1070,11 @@ func (e *stEmitter) varRef(v *ast.VarRef) string {
 		return fmt.Sprintf("(%s->%s)", e.self, toC(v.Name))
 	case ast.StorageLocal:
 		return toC(v.Name)
+	case ast.StorageClock:
+		// Read inline rather than through a helper: it is one expression, so
+		// there is no static function that could go uncalled and no scan to
+		// keep in step with it.
+		return "(__comp_inst->env->rtapi->get_time(__comp_inst->env->rtapi->ctx))"
 	case ast.StoragePeriod:
 		if e.periodArg {
 			// The macro cgen already emits for .comp, over the argument the

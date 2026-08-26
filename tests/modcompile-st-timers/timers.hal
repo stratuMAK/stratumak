@@ -1,0 +1,25 @@
+# The standard library's timers, driven from a file at a 1 ms cycle.
+#
+# 1 ms rather than the 100 us the other tests use, because these read the
+# clock: how many cycles a timer takes depends on how long a cycle actually
+# lasts, and a slower thread leaves far more room for that to vary without the
+# answer changing.  The checks are written in the same spirit -- properties
+# that hold at any rate, with wide margins on the ones that cannot be.
+
+newthread slow 1000000
+
+load ./timers.so <t.0>
+
+load filestream stream_cfg=b infile=in.txt sample_cfg=bbbbf outfile=out.txt depth=1000 samples=40
+
+net go filestream.stream.0 t.0.go
+
+net ton_q  t.0.ton-q  filestream.sample.0
+net tof_q  t.0.tof-q  filestream.sample.1
+net tp_q   t.0.tp-q   filestream.sample.2
+net tonr_q t.0.tonr-q filestream.sample.3
+net ton_et t.0.ton-et filestream.sample.4
+
+addf filestream.write slow
+addf t.0 slow
+addf filestream.read slow

@@ -388,6 +388,10 @@ const (
 	// -- from the HAL function's own argument where that is in scope, and
 	// from the RT task otherwise -- and this is what tells it which.
 	StoragePeriod
+	// StorageClock: MONOTONIC, the RT monotonic clock.  Like StoragePeriod it
+	// is not storage; it tells the backend to read the clock rather than to
+	// look a name up anywhere.
+	StorageClock
 )
 
 var storageNames = map[Storage]string{
@@ -398,6 +402,7 @@ var storageNames = map[Storage]string{
 	StorageGlobal: "global",
 	StorageField:  "field",
 	StoragePeriod: "period",
+	StorageClock:  "clock",
 }
 
 func (s Storage) String() string {

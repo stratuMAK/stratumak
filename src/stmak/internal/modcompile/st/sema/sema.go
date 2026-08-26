@@ -193,6 +193,22 @@ func (c *checker) declarePeriod(pos ast.Pos) {
 		Pos:   pos,
 		Const: true,
 	})
+	// MONOTONIC is the RT monotonic clock, as a duration since an origin the
+	// runtime does not define.  Only differences between two readings mean
+	// anything, which is what a timer needs and all it needs.
+	//
+	// It is what the standard library's timers are built on, and why they do
+	// not use fperiod: IEC's TON(IN, PT) exposes no cycle input because its
+	// semantics are elapsed real time, so a timer that counted cycles would
+	// drift whenever the thread did.  See MODCOMPILE_ST_STDLIB.md §3.
+	c.scope.declare(&symbol{
+		Name:  "MONOTONIC",
+		Kind:  symBuiltin,
+		Type:  ast.Type{Kind: ast.TypeTime},
+		Store: ast.StorageClock,
+		Pos:   pos,
+		Const: true,
+	})
 }
 
 // declareGlobals resolves VAR_GLOBAL, which becomes per-instance state shared

@@ -94,6 +94,9 @@ share/bash-completion/
 /tests/modcompile-st-standard/*.c
 /tests/modcompile-st-standard/in.txt
 /tests/modcompile-st-standard/out.txt
+/tests/modcompile-st-timers/*.c
+/tests/modcompile-st-timers/in.txt
+/tests/modcompile-st-timers/out.txt
 
 # Structured Text libraries are source, not modules: the build copies them
 # into the directory modcompile searches rather than compiling them, so the

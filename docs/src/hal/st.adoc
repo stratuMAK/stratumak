@@ -265,6 +265,10 @@ r(target := setpoint, rate := 10.0, dt := fperiod);
 position := r.out;
 ----
 
+`MONOTONIC` is the real-time clock, as a `TIME`. Its origin is not defined, so
+only the difference between two readings means anything — which is what the
+standard library's timers are built on.
+
 `fperiod` is the period in seconds of the thread the body is running in. It is
 available in a `PROGRAM`, in a `FUNCTION_BLOCK` and in an `ACTION`, and a block
 that uses it sees whichever thread it is actually running in — so the same
@@ -372,7 +376,24 @@ The IEC 61131-3 standard function blocks ship as one library, `standard`:
 |`SR` / `RS` | set-dominant and reset-dominant latches
 |`R_TRIG` / `F_TRIG` | rising and falling edge, true for one cycle
 |`CTU` / `CTD` / `CTUD` | up, down and up-down counters
+|`TON` / `TOF` | delay on and delay off
+|`TP` | a fixed-length pulse on a rising edge
+|`TONR` | retentive delay on, cleared by `R`
 |===
+
+The timers take `PT` as a `TIME` and report `ET`, which stops at `PT`:
+
+[source,pascal]
+----
+delay(IN := start, PT := T#500ms);
+running   := delay.Q;
+so_far_s  := TIME_TO_SECONDS(delay.ET);
+----
+
+They measure elapsed real time, not cycles, so a timer set to 500 ms takes
+500 ms whatever thread it runs in and whatever that thread does. If you need
+the cycle time itself — for a filter or an integrator — take it as an input the
+way IEC's own `DERIVATIVE` and `INTEGRAL` do, and pass `fperiod`.
 
 [source,pascal]
 ----
