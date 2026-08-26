@@ -219,7 +219,7 @@ walker, so the `fperiod` use-scan missed a reference inside a conversion and
 the helper went unemitted. The generated C then failed to compile, which is how
 it was caught.
 
-## 6. Phase 2: the library mechanism
+## 6. Phase 2: the library mechanism — **done**
 
 **A library file** is a `.st` declaring `TYPE`, `FUNCTION` and
 `FUNCTION_BLOCK` and no `PROGRAM`, marked by a file-level pragma:
@@ -251,10 +251,14 @@ END_PROGRAM
 ```
 
 **Search path**, in order: `$STMAK_ST_LIB_PATH` (colon-separated), the
-directory of the file being compiled, then the shipped directory — printed by a
-new `modcompile --st-lib-dir`, beside the existing `--cmod-dir` and
-`--include-dir`. A library found earlier shadows one found later, and
-`--verbose` says which file was taken.
+directory of the file being compiled, then `<cmod-dir>/st-lib`. A library found
+earlier shadows one found later, which is what lets a project override a
+shipped one without moving anything.
+
+Not built: `--st-lib-dir` and the `--verbose` report of which file was taken.
+modcompile has no `--verbose` flag to hang the latter on, and inventing one was
+not worth it — the case where the question is actually asked is a library that
+was *not* found, and that message lists every directory searched.
 
 **Names are flat within a library.** Two `USING` libraries both exporting
 `Timer` is a compile error naming both files, not a silent win for one.
@@ -265,18 +269,44 @@ rather than built now.
 already has the shape of — `checkContainmentCycles` and `checkCallCycles` in
 `st/sema/pou.go`.
 
-**Reachability pruning is mandatory, not an optimisation.** Only blocks and
-functions the component actually reaches may be generated. This is not about
-binary size: every generated block body is a `static` function, and cmods build
-with `-Werror`, so an unreached one is `-Werror=unused-function` and the
-component fails to compile. The same trap already cost a fix once, for the
-division guards — `guardName()` exists as a single source of truth precisely
-because of it.
+**Reachability pruning**, and one thing it cannot express. Only blocks and
+functions the component reaches are generated. This was not new with libraries:
+a component's own unused `FUNCTION_BLOCK` already failed the build, because a
+block body is a `static` function and cmods build with `-Werror`. Pruning fixes
+that too, and it is what keeps a 30-block library from costing every consumer
+30 compiled function bodies to use one of them.
+
+The obvious alternative is `-Wno-unused-function`, and it was considered. It is
+a global loosening of a warning that is genuinely useful in hand-written
+`.comp` C, where a stranded static function usually is a mistake — and it would
+not save the compile time.
+
+But reachability has two levels and pruning only has one. `VAR s : Held;
+END_VAR` puts a `Held_t` in `inst_t`, so the *type* is needed, while no
+statement invokes it, so the *body* is not. Splitting the pass in two to
+express that would be a lot of machinery for a narrow case, so the generated
+block body and init carry `__attribute__((unused))` — the same attribute the
+cmod headers already use for a static inline a given module may not call. That
+is the surgical form of the flag idea: scoped to generated code, where "unused"
+is not a mistake, and leaving `-Werror` intact everywhere else.
+
+A related hole showed up on the way: a `VAR_GLOBAL` instance never went through
+`noteInstance`, so pruning dropped its block and the generated C named a type
+that was no longer there. Globals now count as reachability roots.
 
 **Diagnostics point at the library source.** A type error in a call to a
 library block reports the library's file and line for the declaration and the
 consumer's for the call, and `#line` in the generated C names the library file,
-so a fault in `TON` maps to `timers.st`.
+so a fault in `TON` maps to `timers.st`. That last part needed a fix: `lineTo`
+named one file for the whole generation, which was true while every position
+came from one file and stopped being true here.
+
+**Also refused, each by name:** compiling a library directly, a `USING` that
+names no library, a file whose `library` attribute disagrees with its
+filename, a library declaring a `PROGRAM` or a `VAR_GLOBAL`, and a ring of
+libraries — reported as the ring, `la -> lb -> la`. A name declared by both a
+component and a library is an ordinary redeclaration, which already names both
+files and needed nothing new.
 
 ## 7. Phases 3–5: the library contents
 

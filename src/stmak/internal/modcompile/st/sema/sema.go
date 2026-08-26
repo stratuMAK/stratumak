@@ -90,6 +90,12 @@ type checker struct {
 	// checked, so their published pins can be named by the path that reaches
 	// them.
 	instances []instanceVar
+
+	// allInstances is every function block instance the component declares,
+	// across all its programs.  instances is reset per program, but the
+	// reachability pass needs the whole set: a declared instance keeps its
+	// type alive whether or not any statement invokes it.
+	allInstances []instanceVar
 }
 
 func (c *checker) errorf(pos ast.Pos, format string, args ...interface{}) {
@@ -152,6 +158,11 @@ func (c *checker) run() {
 	// Last, because a program's actions are part of the call graph and do not
 	// exist until the program has been checked.
 	c.checkCallCycles()
+
+	// After every check, so a type error in a block nobody calls is still
+	// reported -- but before the backend, which would otherwise emit a static
+	// function nothing calls and fail the build under -Werror.
+	c.pruneUnreachable()
 }
 
 // declarePeriod declares fperiod, the period in seconds of the thread this
@@ -204,6 +215,11 @@ func (c *checker) declareGlobals() {
 					continue
 				}
 				c.declareLocal(d, name, typ, ast.StorageGlobal, b.Constant)
+				// A global instance is laid out in inst_t like any other, so
+				// its type is reachable whether or not a statement invokes
+				// it.  Without this the reachability pass drops the block and
+				// the generated C names a type that is no longer there.
+				c.noteGlobalInstance(name, typ, d.Pos)
 			}
 		}
 	}
@@ -372,6 +388,23 @@ func (c *checker) noteInstance(name string, typ ast.Type, pos ast.Pos) {
 		return
 	}
 	c.instances = append(c.instances, instanceVar{name: name, typ: typ, pos: pos})
+	c.allInstances = append(c.allInstances, instanceVar{name: name, typ: typ, pos: pos})
+}
+
+// noteGlobalInstance records a VAR_GLOBAL instance for the reachability pass
+// only.  It is deliberately not noteInstance: a global publishes no pins --
+// sema refuses one that would -- so it has no owning function to load and
+// store them, and adding it to c.instances would give whichever program was
+// being checked a pin path it does not own.
+func (c *checker) noteGlobalInstance(name string, typ ast.Type, pos ast.Pos) {
+	t := typ
+	for t.Kind == ast.TypeArray && t.Elem != nil {
+		t = *t.Elem
+	}
+	if t.Kind != ast.TypeFB {
+		return
+	}
+	c.allInstances = append(c.allInstances, instanceVar{name: name, typ: typ, pos: pos})
 }
 
 // bodyUsesFloat reports whether one function's body touches floating point,

@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations uselib; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -278,6 +278,34 @@ if ! grep -q 'axes_position' atmap.c; then
     exit 1
 fi
 
+# A library is a .st of TYPE/FUNCTION/FUNCTION_BLOCK declarations and no
+# PROGRAM, named by USING.  What it declares is generated into the consumer's
+# own module: no shared object, no ABI, and the call is a static function in
+# the same translation unit.
+if ! grep -q 'static void TON_body' uselib.c; then
+    echo 'uselib.c did not generate the library block it uses'
+    exit 1
+fi
+# ...but only what is used.  A block body is a static function and cmods build
+# with -Werror, so a library's unused half would fail the build outright.
+if grep -q 'TOF' uselib.c; then
+    echo 'uselib.c generated a library block nothing uses; -Werror=unused-function'
+    exit 1
+fi
+# A fault inside a library block maps back to the library's own source, not to
+# the component that happened to use it.
+if ! grep -q '^#line [0-9]* "timers.st"' uselib.c; then
+    echo 'uselib.c does not map the library body back to timers.st'
+    exit 1
+fi
+# Pointing modcompile at a library is refused: making a component of it would
+# export nothing at all.
+modcompile --preprocess timers.st -o /dev/null
+if [ $? -eq 0 ]; then
+    echo 'modcompile tried to make a component out of a library'
+    exit 1
+fi
+
 # A man page generated from an .st carries what one generated from a .comp
 # does.  docgen is shared, so this really checks that every field it reads is
 # reachable from ST.
@@ -365,6 +393,13 @@ rm -f bad_cname.c
 modcompile --preprocess bad_cname.st -o bad_cname.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted a variable named for a C keyword'
+    exit 1
+fi
+
+rm -f bad_library.c
+modcompile --preprocess bad_library.st -o bad_library.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted USING a library that does not exist'
     exit 1
 fi
 

@@ -346,6 +346,10 @@ type stEmitter struct {
 	// fn is the exported function being emitted, for naming its actions.
 	fn *ast.Function
 
+	// lastFile is the file the last #line named, so a directive is skipped
+	// only when both the line and the file are unchanged.
+	lastFile string
+
 	// periodArg records that the HAL function's `long period` argument is in
 	// scope, which it is in an exported body and nowhere else -- a block body
 	// and an action are each their own C function.  fperiod resolves through
@@ -624,11 +628,24 @@ func (g *generator) stLineDirectives() bool {
 
 // lineTo names a .st line as the source of what follows.
 func (e *stEmitter) lineTo(pos ast.Pos) {
-	if !e.g.stLineDirectives() || pos.Line == 0 || pos.Line == e.lastLine {
+	if !e.g.stLineDirectives() || pos.Line == 0 {
 		return
 	}
-	e.g.printf("#line %d %s\n", pos.Line, cStringLiteral(e.g.stFile()))
+	// A position carries the file it came from, which is not always the file
+	// being compiled: a library's declarations are merged into it, and a
+	// fault inside a library block has to map to the library's own source.
+	// The line alone is not enough to tell two of them apart, so the file is
+	// part of what makes a directive redundant.
+	file := pos.File
+	if file == "" {
+		file = e.g.stFile()
+	}
+	if pos.Line == e.lastLine && file == e.lastFile {
+		return
+	}
+	e.g.printf("#line %d %s\n", pos.Line, cStringLiteral(file))
 	e.lastLine = pos.Line
+	e.lastFile = file
 }
 
 // lineBackToOutput returns attribution to the generated file, for the epilogue
@@ -641,6 +658,7 @@ func (e *stEmitter) lineBackToOutput() {
 	// g.line+2.  g.line is read before printf updates it.
 	e.g.printf("#line %d %s\n", e.g.line+2, cStringLiteral(e.g.outName))
 	e.lastLine = 0
+	e.lastFile = ""
 }
 
 // ---------------------------------------------------------------------------

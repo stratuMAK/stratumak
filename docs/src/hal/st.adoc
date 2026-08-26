@@ -68,6 +68,7 @@ The component's name comes from the filename, as it does for a `.comp`. Inside:
 |`FUNCTION` | a stateless helper, callable from an expression
 |`TYPE` | enumerations, structures and aliases
 |`ACTION` | a named piece of a POU's body, sharing its variables
+|`USING` | make another `.st` file's declarations visible
 |===
 
 An underscore in a name becomes a hyphen on the pin, so `max_rate` is
@@ -321,6 +322,56 @@ Actions may also be written after the POU's `END_PROGRAM` or
 Both placements mean the same thing.
 
 An action that can reach itself is refused, for the reason any recursion is.
+
+== Libraries
+
+A library is a `.st` holding `TYPE`, `FUNCTION` and `FUNCTION_BLOCK`
+declarations and no `PROGRAM`, marked by one pragma:
+
+[source,pascal]
+----
+{attribute 'library' := 'timers'}
+{attribute 'summary' := 'IEC 61131-3 delay timers'}
+
+FUNCTION_BLOCK TON
+  ...
+END_FUNCTION_BLOCK
+----
+
+Name it with `USING`, and what it declares becomes visible:
+
+[source,pascal]
+----
+USING timers;
+
+PROGRAM mycomp
+  VAR
+    delay : TON;
+  END_VAR
+
+  delay(IN := start, PT := T#500ms);
+  running := delay.Q;
+END_PROGRAM
+----
+
+The file must be `timers.st`, and its `library` attribute has to agree with
+that name. A library may `USING` another; a ring of them is refused.
+
+Nothing is dynamically linked. What a library declares is compiled into your
+component's own module, so a call to `TON` is an ordinary function call in the
+same file, checked against the real declaration, and a fault inside it maps
+back to the library's source rather than to yours. Only what you use is
+generated, so a library may declare as much as it likes.
+
+`modcompile` looks for `timers.st` in `$STMAK_ST_LIB_PATH` first, then beside
+the file being compiled, then in the shipped library directory — so keeping
+your libraries next to your components needs no configuration at all. The first
+match wins, which is how you override a shipped library with your own copy.
+
+A library cannot declare a `PROGRAM` — there is no component to export a HAL
+function from — nor a `VAR_GLOBAL`, which would become per-instance state of
+whatever used it. Pointing `modcompile` at a library is refused for the same
+reason: there would be nothing to load.
 
 == Several functions in one component
 

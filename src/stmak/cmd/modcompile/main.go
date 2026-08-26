@@ -59,6 +59,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/docgen"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st/sema"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/stlib"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pkgreg"
 )
 
@@ -409,6 +410,20 @@ func componentNameFor(path string) string {
 	return strings.ReplaceAll(base, "-", "_")
 }
 
+// stLibDirs are the directories shipped ST libraries live in, searched after
+// $STMAK_ST_LIB_PATH and the source's own directory.
+//
+// The standard library lands here when it exists (phase 3 of
+// docs/dev/MODCOMPILE_ST_STDLIB.md).  Until then a project keeps its libraries
+// beside its components, which needs no configuration at all.
+func stLibDirs() []string {
+	var dirs []string
+	if d := config.EMC2CmodDir; d != "" {
+		dirs = append(dirs, filepath.Join(d, "st-lib"))
+	}
+	return dirs
+}
+
 // processSTFile handles an .st source.  Structured Text support is being built
 // in stages; today the frontend can parse, so --parse prints the syntax tree
 // and every other mode says plainly what is missing rather than failing in an
@@ -430,7 +445,12 @@ func processSTFile(path, mode, outputFile string) error {
 		return enc.Encode(file)
 	}
 
-	file, err := st.Parse(path, string(src))
+	// Resolve USING declarations before checking: sema sees one file and
+	// neither knows nor cares that part of it came from a library.  Positions
+	// carry the file they came from, so a diagnostic against a library
+	// declaration names the library.
+	loader := &stlib.Loader{Dirs: stlib.DefaultDirs(path, stLibDirs()...)}
+	file, err := loader.Load(path)
 	if err != nil {
 		return err
 	}

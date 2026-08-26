@@ -199,7 +199,7 @@ func (p *parser) syncTo(kinds ...Kind) {
 // ---------------------------------------------------------------------------
 
 var declStarters = []Kind{
-	KwType, KwProgram, KwFunction, KwFunctionBlock, KwVarGlobal, KwAction,
+	KwType, KwProgram, KwFunction, KwFunctionBlock, KwVarGlobal, KwAction, KwUsing,
 }
 
 func (p *parser) parseFile() *File {
@@ -266,6 +266,28 @@ func (p *parser) parseFile() *File {
 				lastKind = KwFunction
 			}
 			attrs = nil
+		case KwUsing:
+			// `USING a, b;` names libraries whose declarations this file may
+			// see.  The parser only records the names.
+			p.next()
+			for {
+				pos := p.tok.Pos
+				name := p.expectName("a library name")
+				if name == "" {
+					break
+				}
+				f.Uses = append(f.Uses, &UseDecl{Pos: pos, Name: name})
+				if !p.accept(Comma) {
+					break
+				}
+			}
+			p.expect(Semicolon)
+			if len(attrs) > 0 {
+				p.errorAt(attrs[0].Pos, "attribute %q does not belong to a USING declaration",
+					attrs[0].Name)
+			}
+			attrs = nil
+
 		case KwAction:
 			// CODESYS 2.3 exports write a POU's actions after its END_
 			// keyword rather than inside it, so an ACTION here belongs to

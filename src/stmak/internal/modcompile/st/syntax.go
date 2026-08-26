@@ -31,11 +31,22 @@ type File struct {
 	// the component's own metadata: summary, licence, author.
 	Attrs []Attribute
 
+	// Uses are the `USING <library>;` declarations, in the order written.
+	// Resolving them is not the parser's job: it records the names, and the
+	// loader finds the files and merges what they declare.
+	Uses []*UseDecl
+
 	Types    []*TypeDecl
 	Globals  []*VarBlock
 	Blocks   []*FunctionBlockDecl
 	Funcs    []*FunctionDecl
 	Programs []*ProgramDecl
+}
+
+// UseDecl is one `USING <library>;`.
+type UseDecl struct {
+	Pos  ast.Pos
+	Name string
 }
 
 // Attribute is one `{attribute 'name' := 'value'}` pragma.

@@ -91,9 +91,18 @@ func (g *generator) emitPOUForwards() {
 	}
 	for i := range g.pkg.Blocks {
 		b := &g.pkg.Blocks[i]
-		g.printf("static void %s(inst_t *__comp_inst, %s *__self) STMAK_NONBLOCKING;\n",
+		// Marked unused because a block whose type is needed may still have a
+		// body nothing calls: `VAR s : Held; END_VAR` puts a Held_t in inst_t
+		// and so keeps the type alive, while no statement ever invokes it.
+		// Sema prunes the blocks nothing reaches at all, which is what keeps
+		// a library's unused half out of the build; this covers the residue,
+		// where the type is genuinely wanted and the body is not.  The same
+		// attribute the cmod headers already use for a static inline a given
+		// module may not call.
+		g.printf("static void %s(inst_t *__comp_inst, %s *__self) STMAK_NONBLOCKING __attribute__((unused));\n",
 			fbBodyName(b.Name), fbStructName(b.Name))
-		g.printf("static void %s(%s *__self);\n", fbInitName(b.Name), fbStructName(b.Name))
+		g.printf("static void %s(%s *__self) __attribute__((unused));\n",
+			fbInitName(b.Name), fbStructName(b.Name))
 	}
 	for i := range g.pkg.Functions {
 		f := &g.pkg.Functions[i]
