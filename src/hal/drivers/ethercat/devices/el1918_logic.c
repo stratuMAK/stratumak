@@ -62,11 +62,15 @@
 /**
  * @brief Transparency data for one FSoE data channel within a slave connection.
  *
- * The safety data is what the safety application actually exchanges, so both
- * directions are published: they normally agree, and the bit that differs is
- * the one to chase on a stuck connection.  It is deliberately a raw word - the
- * logic device cannot know what the bits mean, which is the business of the
- * driver at the far end of the connection.
+ * The safety data is what the safety application actually exchanges, and both
+ * directions are published because they are independent: the master word is
+ * what is being asked of the slave, the slave word is the state it is actually
+ * in, and the two can differ in either direction.  A bit is only meaningful
+ * next to its counterpart.
+ *
+ * It is deliberately a raw word, passed through unaltered.  The logic device
+ * cannot know what the bits mean - that is the business of the driver at the
+ * far end of the connection - so nothing here is inverted or interpreted.
  */
 typedef struct {
   stmak_hal_u32_t *fsoe_master_data; /**< HAL output: commanded FSoE safety data for this channel. */

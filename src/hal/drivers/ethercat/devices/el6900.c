@@ -41,14 +41,17 @@ typedef struct {
  * @brief Transparency data for one FsoE data channel.
  *
  * Each FsoE data channel carries a safety data field and a 16-bit CRC in both
- * directions.  All four are exposed read-only for diagnostic purposes.  The
- * safety data is what the safety application actually exchanges, so seeing both
- * directions is usually what identifies a stuck connection: the two normally
- * agree, and the bit that differs is the one to chase.
+ * directions.  All four are exposed read-only for diagnostic purposes.
  *
- * The logic device deliberately publishes the payload as a raw word.  It has no
- * way to know what the bits mean - that belongs to whichever device driver sits
- * at the far end of the connection.
+ * The safety data is what the safety application actually exchanges, and both
+ * directions are published because they are independent: the master word is
+ * what is being asked of the slave, the slave word is the state it is actually
+ * in, and the two can differ in either direction.  A bit is only meaningful
+ * next to its counterpart.
+ *
+ * It is deliberately a raw word, passed through unaltered.  The logic device
+ * cannot know what the bits mean - that is the business of the driver at the
+ * far end of the connection - so nothing here is inverted or interpreted.
  */
 typedef struct {
   stmak_hal_u32_t *fsoe_master_data;    /**< Master-side (commanded) safety data for this channel */

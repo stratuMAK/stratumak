@@ -11,10 +11,17 @@
  *   - fsoe-sts-data-N / fsoe-sts-sto-N / fsoe-sts-err-N       (reported,  per axis)
  * The read callback copies FSoE data and updates all HAL pin values.
  *
- * Both directions of the safety payload are published deliberately.  They
- * normally agree, so when an axis will not release, the bit that differs is the
- * one holding it - a card reporting err with the master answering err-ack 0, for
- * instance.  Reading only one side tells you almost nothing.
+ * Both directions of the safety payload are published deliberately, because they
+ * are independent: the command is what the safety application asks of the card,
+ * the status is the state the card is actually in, and the two can differ in
+ * either direction.  A card can report a function active that was never
+ * demanded - after an internal error, say - and reading only one side hides
+ * exactly that case.
+ *
+ * The pins carry the payload as transmitted.  Nothing is inverted or otherwise
+ * interpreted: what a given bit means, and in which sense, is the device's
+ * business and is documented by the vendor.  A configuration that wants the
+ * opposite sense should invert it explicitly in HAL.
  *
  * @par Configuration
  * The card is a modular device: object @c 0x2F10 selects the safety process
@@ -153,17 +160,20 @@ static const lcec_ax5805_pdo_entry_t tx_axis2[] = {
  *
  * The card's safety payload is one byte per axis in each direction, laid out
  * the same way in both: bit 0 STO, then SS1/SS2/SOS/SSR and SDI, and bit 7 the
- * error.  Commanded and reported are both published because the diagnosis is
- * usually in the difference - the two normally agree, and the bit that differs
- * is the one holding the axis.  The whole byte is published alongside the two
- * named bits so the remaining functions never need a driver change to inspect.
+ * error.  Commanded and reported are both published because they are separate
+ * quantities - the status is the card's own state, not an echo of the command,
+ * and the two are observed to differ - so a bit is only meaningful next to its
+ * counterpart.  The whole byte is published alongside the named bits so the
+ * remaining functions never need a driver change to inspect.
+ *
+ * Values are passed through unaltered; see the note in the file header.
  */
 typedef struct {
   stmak_hal_u32_t *cmd_data;   /**< HAL OUT: commanded safety byte (master to card). */
-  stmak_hal_bit_t *cmd_sto;    /**< HAL OUT: commanded STO, 1 = torque permitted. */
+  stmak_hal_bit_t *cmd_sto;    /**< HAL OUT: commanded STO bit, as transmitted. */
   stmak_hal_bit_t *cmd_err_ack; /**< HAL OUT: commanded error acknowledge. */
   stmak_hal_u32_t *sts_data;   /**< HAL OUT: reported safety byte (card to master). */
-  stmak_hal_bit_t *sts_sto;    /**< HAL OUT: reported STO state. */
+  stmak_hal_bit_t *sts_sto;    /**< HAL OUT: reported STO bit, as received. */
   stmak_hal_bit_t *sts_err;    /**< HAL OUT: reported error state. */
 } lcec_ax5805_axis_t;
 
