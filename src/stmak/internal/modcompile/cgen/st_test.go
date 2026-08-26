@@ -1210,3 +1210,82 @@ END_PROGRAM`)
 		}
 	}
 }
+
+// TestSTStringFunctionBuffers covers how a string result reaches its caller.
+//
+// C returns no arrays, so each call builds its result in a buffer the call
+// site owns and returns that buffer. What has to hold is that the buffers are
+// distinct: CONCAT(CONCAT(a, b), c) is the shape these appear in, and a shared
+// one would have the inner call overwrite what the outer call is reading.
+func TestSTStringFunctionBuffers(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    q : BOOL;
+  END_VAR
+  VAR
+    s : STRING[8] := 'ab';
+    msg : STRING[64];
+  END_VAR
+  msg := CONCAT(CONCAT('drive=', s), '!');
+  q := TRUE;
+END_PROGRAM`)
+
+	// Three call sites, three buffers, each sized from its own arguments:
+	// 6+8 for the inner, that plus 1 for the outer.
+	for _, want := range []string{
+		"char __st_s0[16];",
+		"char __st_s1[15];",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing buffer declaration %q\n--- generated ---\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "char __st_s") != 2 {
+		t.Errorf("wanted one buffer per call site, got %d\n--- generated ---\n%s",
+			strings.Count(out, "char __st_s"), out)
+	}
+	// Nested as an expression, not hoisted into statements: that is what keeps
+	// a call inside a loop or a short-circuit evaluating when it should.
+	if !strings.Contains(out, "__st_concat(__comp_inst, __st_s0, (int)sizeof(__st_s0), __st_concat(__comp_inst, __st_s1,") {
+		t.Errorf("the calls did not nest\n--- generated ---\n%s", out)
+	}
+	// And the result is copied into the destination under its own bound,
+	// because the buffer is sized from the arguments and the variable is not.
+	if !strings.Contains(out, "__st_strcpy(__comp_inst, (__comp_inst->msg)") {
+		t.Errorf("the result was not copied into the destination\n--- generated ---\n%s", out)
+	}
+}
+
+// TestSTStringHelpersAreGated is the -Werror trap for the string runtime.
+//
+// The build runs with -Wall -Werror, so a helper nothing calls fails the
+// compile just as surely as a wrong one. FIND is the case that pins it: it
+// counts characters rather than building any, so it needs neither the append
+// primitive nor the fault reporter that a truncated result would use.
+func TestSTStringHelpersAreGated(t *testing.T) {
+	find := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    q : BOOL;
+  END_VAR
+  VAR
+    s : STRING[8] := 'ab';
+  END_VAR
+  q := FIND(s, 'b') = 2;
+END_PROGRAM`)
+	if !strings.Contains(find, "static int __st_find") {
+		t.Error("FIND did not get its helper")
+	}
+	for _, unwanted := range []string{"__st_app", "__st_fault", "__st_len", "__st_concat"} {
+		if strings.Contains(find, unwanted) {
+			t.Errorf("a component that only searches got %s", unwanted)
+		}
+	}
+
+	// And a component that uses none of them gets none of it.
+	if plain := generateST(t, "durations"); strings.Contains(plain, "__st_") &&
+		strings.Contains(plain, "__st_concat") {
+		t.Error("a component with no string functions got the string runtime")
+	}
+}

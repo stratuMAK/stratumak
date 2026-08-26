@@ -63,7 +63,12 @@ type generator struct {
 	// needDayPart is set while emitting when a point in time is split into
 	// the day it falls on or the time of day within it.
 	needDayPart bool
-	err         error
+
+	// usedStrFuncs is which of IEC's string functions the package reaches, so
+	// only those helpers are emitted.
+	usedStrFuncs map[ast.StrFunc]bool
+
+	err error
 
 	// outName is the path the generated C will be saved as; empty disables
 	// #line emission. line counts newlines written so far, which is what
@@ -101,7 +106,9 @@ func (g *generator) generate() error {
 		g.needStrCopy = g.anyStringAssign()
 		g.needStrCmp = g.anyStringCompare()
 		g.needDayPart = g.anyDayPart()
+		g.usedStrFuncs = g.scanStrFuncs()
 		g.emitSTRuntime()
+		g.emitStrRuntime()
 		g.emitFperiodHelper()
 		// Blocks and functions are declared before any is defined, so they may
 		// call each other whatever order they were written in.

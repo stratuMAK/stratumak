@@ -309,6 +309,64 @@ convert explicitly:
 delay := SECONDS_TO_TIME(delay_s);
 ----
 
+[[sec:st-strings]]
+== Strings
+
+A `STRING` holds a fixed number of characters, declared with it:
+
+[source,pascal]
+----
+VAR
+  label : STRING[32];
+  unit  : STRING[8] := 'mm';
+END_VAR
+
+label := unit;                   (* copied, not aliased *)
+----
+
+Assignment copies within the destination, because the two need not be the same
+length. A copy that loses characters is counted and logged rather than passing
+quietly. Two strings compare with `=`, `<>`, `<` and the rest, character by
+character and regardless of their declared widths.
+
+A `STRING` cannot be a pin — HAL has no string type — so it lives inside the
+component, which is where a message being assembled belongs.
+
+=== The string functions
+
+IEC's own, all of them:
+
+[source,pascal]
+----
+n     := LEN(label);                 (* how many characters *)
+p     := FIND(label, 'mm');          (* where, one-based, or 0 *)
+
+part  := LEFT(label, 4);             (* the first four *)
+part  := RIGHT(label, 4);            (* the last four *)
+part  := MID(label, 4, 2);           (* four, starting at the second *)
+
+msg   := CONCAT('drive=', unit);     (* two or more, in one call *)
+msg   := INSERT(label, '-', 3);      (* '-' after the third character *)
+msg   := DELETE(label, 2, 3);        (* two characters out, from the third *)
+msg   := REPLACE(label, 'mm', 2, 3); (* two replaced by 'mm', from the third *)
+----
+
+Positions are IEC's, so they count from one. A position or a length outside the
+string gives what is there rather than an error: `LEFT(s, 20)` on a shorter
+string is how you ask for _up to_ twenty, and is not a fault.
+
+Each result is built in a buffer the call site owns, sized from the arguments,
+so calls nest as they read:
+
+[source,pascal]
+----
+msg := CONCAT(CONCAT('drive=', unit), ' ready');
+----
+
+That buffer is capped at 255 characters, which is where CODESYS caps a result
+too — so a result that outgrows it is truncated in the same place, and the
+truncation is counted and logged.
+
 == Function blocks
 
 A function block is a reusable piece with its own state. Its inputs and outputs
@@ -692,14 +750,12 @@ compiles is safe to run in a servo thread. Refused, each by name:
   space to locate a variable in
 * the bit-string types `BYTE`, `WORD`, `DWORD` and `LWORD`, and so partial
   access (`word.0`)
-* `WSTRING`, and `STRING` on a pin. A `STRING` variable works: it is copied on
-  assignment, bounded by the destination, and a copy that loses characters is
-  counted and logged rather than passing quietly. It may be a function block
-  member, a struct field, an array element or a parameter — though a parameter
-  is a view of the caller's characters and cannot be assigned, and no function
-  or method may return one, because C returns no arrays. Two strings compare
-  with `=`, `<>`, `<` and the rest, character by character and regardless of
-  their declared widths. Concatenation is not implemented.
+* `WSTRING`, and `STRING` on a pin — see <<sec:st-strings,Strings>> for what a `STRING`
+  variable does. It may be a function block member, a struct field, an array
+  element or a parameter, though a parameter is a view of the caller's
+  characters and cannot be assigned, and no function or method may return one,
+  because C returns no arrays — which is why the string functions build their
+  results into a buffer instead.
 * the other IEC languages — Ladder, Function Block Diagram and Sequential
   Function Chart
 

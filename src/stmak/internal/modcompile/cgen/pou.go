@@ -5,6 +5,7 @@ package cgen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
 )
@@ -171,6 +172,13 @@ func (g *generator) emitFBInit(b *ast.FunctionBlock) {
 				g.printf("    { int __i; for (__i = 0; __i < %d; __i++) %s(&((%s *)__self->%s)[__i]); }\n",
 					v.Typ.Elements(), fbInitName(v.Typ.Elem.Ref),
 					fbStructName(v.Typ.Elem.Ref), toC(v.Name))
+			case v.Typ.Kind == ast.TypeString && v.Init != nil:
+				// A STRING member is a char array, and C has no assignment
+				// for one: `__self->s = "ax"` does not compile.  Copied
+				// instead, bounded by the member, as the component's own
+				// variables are.  This runs once at load, not in the cycle.
+				g.printf("    snprintf(__self->%s, sizeof(__self->%s), \"%%s\", %s);\n",
+					toC(v.Name), toC(v.Name), e.expr(v.Init))
 			case v.Init != nil:
 				g.printf("    __self->%s = %s;\n", toC(v.Name), e.expr(v.Init))
 			}
@@ -190,6 +198,7 @@ func (g *generator) emitFBBody(b *ast.FunctionBlock) {
 	g.printf("static void %s(inst_t *__comp_inst, %s *__self) {\n",
 		fbBodyName(b.Name), fbStructName(b.Name))
 	g.printf("    (void)__comp_inst; (void)__self;\n")
+	e.declareStrTemps(b.Body, 1)
 	e.emitStmts(b.Body, 1)
 	e.lineBackToOutput()
 	g.printf("}\n\n")
@@ -216,6 +225,24 @@ func (g *generator) emitFunction(f *ast.PureFunction) {
 		if v.Init != nil {
 			init = e.expr(v.Init)
 		}
+		if v.Typ.Kind == ast.TypeString {
+			// A STRING is a char array: it needs its declared length, or it
+			// is one byte and every write to it runs past the end.  A literal
+			// initialiser goes on the declaration, which is the one place C
+			// will take one for an array; the rest of the buffer is zeroed by
+			// the same rule.  This is a body, so nothing is copied at run
+			// time.
+			lit := `""`
+			if v.Init != nil {
+				if lit = init; !strings.HasPrefix(lit, `"`) && g.err == nil {
+					g.err = fmt.Errorf("%s: %s has an initialiser that is not a literal string",
+						v.Pos, v.Name)
+				}
+			}
+			g.printf("    %s %s%s = %s;\n",
+				v.Typ.CType(), toC(v.Name), cTypeDims(v.Typ), lit)
+			continue
+		}
 		if v.Typ.Kind == ast.TypeArray || v.Typ.Kind == ast.TypeStruct {
 			g.printf("    %s %s%s;\n", v.Typ.CType(), toC(v.Name), cTypeDims(v.Typ))
 			g.printf("    memset(&%s, 0, sizeof(%s));\n", toC(v.Name), toC(v.Name))
@@ -224,6 +251,7 @@ func (g *generator) emitFunction(f *ast.PureFunction) {
 		g.printf("    %s %s = %s;\n", v.Typ.CType(), toC(v.Name), init)
 	}
 
+	e.declareStrTemps(f.Body, 1)
 	e.emitStmts(f.Body, 1)
 	e.lineBackToOutput()
 	g.printf("    return %s;\n", toC(f.Name))
@@ -380,6 +408,7 @@ func (g *generator) emitMethodBodies() {
 				g.printf("    %s %s = %s;\n", v.Typ.CType(), toC(v.Name), init)
 			}
 
+			e.declareStrTemps(m.Body, 1)
 			e.emitStmts(m.Body, 1)
 			e.lineBackToOutput()
 			if m.Result.Kind != ast.TypeInvalid {

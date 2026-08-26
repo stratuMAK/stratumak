@@ -1,0 +1,45 @@
+#!/bin/bash
+# Columns: the sixteen checks in the order strfuncs.st declares them, then
+# LEN(LEFT(s, n)) for the count that cycle streamed in.
+fail() { echo "$1"; exit 1; }
+
+# Saved before anything calls `set --`, which would take $1 for itself.
+out=$1
+
+names=(
+    "LEN"
+    "LEFT"
+    "RIGHT"
+    "MID"
+    "CONCAT of two"
+    "CONCAT of four"
+    "INSERT after a character"
+    "INSERT at the front"
+    "DELETE"
+    "REPLACE"
+    "FIND that hits"
+    "FIND that misses"
+    "LEFT past the end"
+    "MID past the end"
+    "RIGHT of nothing"
+    "CONCAT nested in CONCAT"
+)
+
+[ "$(wc -l < "$out")" -eq 4 ] || fail "captured $(wc -l < "$out") cycles, want 4"
+
+# The sixteen are the same every cycle: none of them reads the input.
+while read -r line; do
+    set -- $line
+    for i in "${!names[@]}"; do
+        eval "v=\${$((i + 1))}"
+        [ "$v" = "1" ] || fail "${names[$i]} gave the wrong string"
+    done
+done < "$out"
+
+# The clamp: 3 of 7 is 3, 0 is 0, 99 of 7 is 7, and 7 of 7 is 7.
+want=(3 0 7 7)
+for i in 0 1 2 3; do
+    got=$(awk -v r="$((i + 1))" 'NR==r {print $17}' "$out")
+    [ "$got" = "${want[$i]}" ] ||
+        fail "LEFT(s, n) took $got characters on cycle $((i + 1)), want ${want[$i]}"
+done

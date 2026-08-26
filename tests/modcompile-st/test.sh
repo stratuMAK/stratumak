@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations uselib methods; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations uselib methods strings; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -501,3 +501,29 @@ if [ $? -eq 0 ]; then
 fi
 
 exit 0
+
+# A STRING is a char array wherever it is declared, and C has no assignment
+# for one.  Each of these emitted `x = "lit"` or `char x;` once, which is
+# either a compile error or one byte where the declaration asked for more.
+if ! grep -q 'snprintf(__self->base, sizeof(__self->base), "%s", "ax");' strings.c; then
+    echo 'strings.c assigned a block member STRING instead of copying it'
+    exit 1
+fi
+if ! grep -q 'char cut\[17\] = "none";' strings.c; then
+    echo 'strings.c did not give a function-local STRING its length'
+    exit 1
+fi
+# A string result is built in a buffer the call site owns, and the calls nest
+# as expressions -- one buffer per site, or the inner call overwrites what the
+# outer one is reading.
+if [ "$(grep -c 'char __st_s[0-9]*\[' strings.c)" -ne 5 ]; then
+    echo "strings.c declared $(grep -c 'char __st_s[0-9]*\[' strings.c) result buffers, want one per call site"
+    exit 1
+fi
+# The action and the method are their own C functions, and a helper either
+# calls still has to be defined in this file.  Leaving them out of the scan
+# emitted the call and not the definition.
+if ! grep -q 'static char \*__st_concat' strings.c; then
+    echo 'strings.c calls __st_concat from an action and a method but defines it nowhere'
+    exit 1
+fi

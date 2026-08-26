@@ -649,11 +649,39 @@ throughout, as it did for every phase of the frontend.
   nothing left to decide.
 
   Still refused: a `ptr`, which is opaque by construction.
-- **String concatenation**, and the rest of IEC's string functions. `CONCAT`,
-  `LEFT`, `MID` and the `*_TO_STRING` family all *return* a STRING, which C
-  cannot do, so they need a temporary per call site rather than a shared
-  buffer — nested calls are the common shape and would otherwise collide.
-  Comparison is done and needed none of that.
+- ~~**String concatenation**, and the rest of IEC's string functions.~~ Done
+  for the manipulation family — `CONCAT`, `LEFT`, `RIGHT`, `MID`, `INSERT`,
+  `DELETE`, `REPLACE`, `LEN` and `FIND`. Each *returns* a STRING, which C
+  cannot do, so each builds its result into a buffer the call site owns and
+  returns that buffer. One per call site rather than one shared: nested calls
+  are the common shape these appear in — the measured one is
+  `CONCAT(CONCAT('varietie=$T', UINT_TO_STRING(v)), '$N')` — and a shared
+  buffer would have the inner call overwrite what the outer one was reading.
+
+  Returning the buffer is what keeps the call an ordinary C expression, so
+  nothing has to be hoisted out of the statement it appears in — which would
+  have evaluated a `WHILE` condition once, and both arms of an `ELSIF`.
+
+  The buffers are declared at the top of each body and sized from the
+  arguments, capped at 255 as CODESYS caps a result. That cap is also what
+  bounds what a chain of concatenations costs the real-time stack, and it is
+  visible in the generated C rather than something a reader has to reason
+  about. The set has to be exact in both directions: the build runs with
+  `-Wall -Werror`, so a buffer nothing writes is as fatal as a helper nothing
+  calls, which is why the walk that declares them and the emitter decide by
+  the same local rule.
+
+  Positions are IEC's, so one-based, and one outside the string gives what is
+  there rather than faulting: `LEFT(s, 20)` on a shorter string is how people
+  write "up to twenty". Losing characters off the end of a result is
+  different, and is counted and logged like a truncated assignment.
+
+  `CONCAT` is variadic in IEC and binary here, because a C helper with a
+  destination takes two; the extra arguments fold into nested calls in sema,
+  which is what the operation means and costs nothing the nesting did not
+  already.
+
+  Still open: the `*_TO_STRING` family, and `STRING_TO_*`.
 - ~~**`THIS`.**~~ Done, and not by making `THIS` a value. A method needs an
   instance and there is always one in scope — `__self`, already a parameter of
   the generated function — so a bare `helper(x := 1)` inside a block's body,

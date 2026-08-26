@@ -1,0 +1,32 @@
+# The string functions at a 10 ms cycle.  Nothing here is timed: every column
+# is a function of that cycle's input alone, so the expected output is exact.
+
+newthread slow 10000000
+
+load ./strfuncs.so <r.0>
+
+load filestream stream_cfg=s infile=in.txt sample_cfg=bbbbbbbbbbbbbbbbs outfile=out.txt depth=1000 samples=4
+
+net n filestream.stream.0 r.0.n
+
+net ok0  r.0.ok.00  filestream.sample.0
+net ok1  r.0.ok.01  filestream.sample.1
+net ok2  r.0.ok.02  filestream.sample.2
+net ok3  r.0.ok.03  filestream.sample.3
+net ok4  r.0.ok.04  filestream.sample.4
+net ok5  r.0.ok.05  filestream.sample.5
+net ok6  r.0.ok.06  filestream.sample.6
+net ok7  r.0.ok.07  filestream.sample.7
+net ok8  r.0.ok.08  filestream.sample.8
+net ok9  r.0.ok.09  filestream.sample.9
+net ok10 r.0.ok.10 filestream.sample.10
+net ok11 r.0.ok.11 filestream.sample.11
+net ok12 r.0.ok.12 filestream.sample.12
+net ok13 r.0.ok.13 filestream.sample.13
+net ok14 r.0.ok.14 filestream.sample.14
+net ok15 r.0.ok.15 filestream.sample.15
+net cut  r.0.cut   filestream.sample.16
+
+addf filestream.write slow
+addf r.0 slow
+addf filestream.read slow

@@ -109,6 +109,14 @@ func (k TypeKind) String() string {
 // DefaultStringLen is the STRING length used when a declaration gives none.
 const DefaultStringLen = 80
 
+// MaxStringLen bounds the buffer a string function's result is built in.
+//
+// It is CODESYS's own limit -- a CONCAT there produces a STRING(255) whatever
+// its arguments were -- so a ported source truncates in the same place. It
+// also bounds what the generated body puts on the real-time stack, which a
+// chain of concatenations otherwise would not.
+const MaxStringLen = 255
+
 // ArrayDim is one array dimension, with the inclusive ST bounds as written.
 // The bounds are kept rather than only the count because a non-zero Lo has to
 // be subtracted at every index site, and because a diagnostic that says
@@ -692,6 +700,60 @@ type DayPartExpr struct {
 	Typ   Type
 }
 
+// StrFunc names one of IEC's string functions.
+type StrFunc int
+
+const (
+	StrConcat  StrFunc = iota // CONCAT(a, b, ...)
+	StrLeft                   // LEFT(s, n)
+	StrRight                  // RIGHT(s, n)
+	StrMid                    // MID(s, n, p)
+	StrInsert                 // INSERT(a, b, p)
+	StrDelete                 // DELETE(s, n, p)
+	StrReplace                // REPLACE(a, b, n, p)
+	StrLen                    // LEN(s) -> INT
+	StrFind                   // FIND(a, b) -> INT
+)
+
+// String names the function as the source writes it.
+func (f StrFunc) String() string {
+	switch f {
+	case StrConcat:
+		return "CONCAT"
+	case StrLeft:
+		return "LEFT"
+	case StrRight:
+		return "RIGHT"
+	case StrMid:
+		return "MID"
+	case StrInsert:
+		return "INSERT"
+	case StrDelete:
+		return "DELETE"
+	case StrReplace:
+		return "REPLACE"
+	case StrLen:
+		return "LEN"
+	case StrFind:
+		return "FIND"
+	}
+	return fmt.Sprintf("StrFunc(%d)", int(f))
+}
+
+// StrFuncExpr is a call to one of IEC's string functions.
+//
+// The ones that produce a STRING produce it into a buffer the backend
+// allocates per call site, because C returns no arrays: a shared one would be
+// overwritten by the inner call of CONCAT(CONCAT(a, b), c), which is the shape
+// these appear in. Typ carries the length that buffer needs, computed from the
+// arguments and capped at MaxStringLen.
+type StrFuncExpr struct {
+	Pos  Pos
+	Func StrFunc
+	Args []Expr
+	Typ  Type
+}
+
 // APICallExpr calls one function of a consumed GMI interface.
 //
 // The callbacks table and its context both live in inst_t, put there by the
@@ -760,6 +822,7 @@ func (e *TimeConvExpr) Position() Pos   { return e.Pos }
 func (e *MethodCallExpr) Position() Pos { return e.Pos }
 func (e *APICallExpr) Position() Pos    { return e.Pos }
 func (e *DayPartExpr) Position() Pos    { return e.Pos }
+func (e *StrFuncExpr) Position() Pos    { return e.Pos }
 func (e *CallExpr) Position() Pos       { return e.Pos }
 
 func (e *IntLit) ExprType() Type         { return e.Typ }
@@ -777,6 +840,7 @@ func (e *TimeConvExpr) ExprType() Type   { return e.Typ }
 func (e *MethodCallExpr) ExprType() Type { return e.Typ }
 func (e *APICallExpr) ExprType() Type    { return e.Typ }
 func (e *DayPartExpr) ExprType() Type    { return e.Typ }
+func (e *StrFuncExpr) ExprType() Type    { return e.Typ }
 func (e *CallExpr) ExprType() Type       { return e.Typ }
 
 func (*IntLit) exprNode()         {}
@@ -793,6 +857,7 @@ func (*TimeConvExpr) exprNode()   {}
 func (*MethodCallExpr) exprNode() {}
 func (*APICallExpr) exprNode()    {}
 func (*DayPartExpr) exprNode()    {}
+func (*StrFuncExpr) exprNode()    {}
 func (*ConvExpr) exprNode()       {}
 func (*CallExpr) exprNode()       {}
 

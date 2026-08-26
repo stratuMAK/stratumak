@@ -64,15 +64,33 @@ type stFeatures struct {
 func (f stFeatures) needsGuards() bool { return len(f.guards) > 0 }
 
 // allBodies is every lowered body in the package: the exported HAL functions,
-// the function block bodies and the pure functions.  A guard used only inside
-// a block still has to be emitted, so every scan walks all of them.
+// the function block bodies and the pure functions, and the actions and
+// methods of each.  A guard used only inside a block still has to be emitted,
+// so every scan walks all of them.
+//
+// The actions and methods are not optional.  Each is its own C function but
+// none is its own translation unit, so a helper a method calls is a helper the
+// file has to define -- leaving them out emitted the call and not the
+// definition, and the component failed to compile with the frontend claiming
+// nothing was wrong.
 func (g *generator) allBodies() [][]ast.Stmt {
 	out := make([][]ast.Stmt, 0, len(g.comp.Functions)+len(g.pkg.Blocks)+len(g.pkg.Functions))
 	for i := range g.comp.Functions {
-		out = append(out, g.comp.Functions[i].Body)
+		fn := &g.comp.Functions[i]
+		out = append(out, fn.Body)
+		for j := range fn.Actions {
+			out = append(out, fn.Actions[j].Body)
+		}
 	}
 	for i := range g.pkg.Blocks {
-		out = append(out, g.pkg.Blocks[i].Body)
+		b := &g.pkg.Blocks[i]
+		out = append(out, b.Body)
+		for j := range b.Actions {
+			out = append(out, b.Actions[j].Body)
+		}
+		for j := range b.Methods {
+			out = append(out, b.Methods[j].Body)
+		}
 	}
 	for i := range g.pkg.Functions {
 		out = append(out, g.pkg.Functions[i].Body)
@@ -138,8 +156,10 @@ func guardName(b *ast.BinaryExpr) (string, bool) {
 func (g *generator) needsFaultCounter() bool {
 	f := g.stFeatures()
 	// A truncated string copy records one too, so the counter has to exist
-	// wherever the copy helper does.
-	return f.needsGuards() || f.boundLoop || g.anyRuntimeIndex() || g.anyStringAssign()
+	// wherever the copy helper does -- and so does a string function whose
+	// result outgrew the buffer it was built in.
+	return f.needsGuards() || f.boundLoop || g.anyRuntimeIndex() ||
+		g.anyStringAssign() || g.anyStrProducer()
 }
 
 // anyStringAssign reports whether a STRING is assigned anywhere, and so
@@ -272,6 +292,10 @@ func walkExpr(e ast.Expr, onExpr func(ast.Expr)) {
 		walkExpr(v.X, onExpr)
 	case *ast.DayPartExpr:
 		walkExpr(v.X, onExpr)
+	case *ast.StrFuncExpr:
+		for _, a := range v.Args {
+			walkExpr(a, onExpr)
+		}
 	case *ast.MethodCallExpr:
 		walkExpr(v.Inst, onExpr)
 		for _, a := range v.Args {
@@ -314,7 +338,7 @@ func (g *generator) emitSTRuntime() {
 	f.copyString = g.needStrCopy
 	f.cmpString = g.needStrCmp
 	if !f.needsGuards() && !f.boundLoop && !f.clampIndex && !f.copyString &&
-		!f.cmpString && !g.needDayPart {
+		!f.cmpString && !g.needDayPart && !g.anyStrProducer() {
 		return
 	}
 
@@ -329,7 +353,7 @@ func (g *generator) emitSTRuntime() {
 	// Only where something can fault.  Comparing two strings cannot, and a
 	// component that only does that would carry a counter nothing increments
 	// and a __st_fault nothing calls -- which is -Werror=unused-function.
-	if f.needsGuards() || f.boundLoop || f.clampIndex || f.copyString {
+	if f.needsGuards() || f.boundLoop || f.clampIndex || f.copyString || g.anyStrProducer() {
 		g.printf("#define __ST_FAULT_LOG_EVERY %d\n\n", faultLogEvery)
 		g.printf("static void __st_fault(inst_t *__comp_inst, const char *what) STMAK_NONBLOCKING;\n")
 		g.printf("static void __st_fault(inst_t *__comp_inst, const char *what) {\n")
@@ -489,6 +513,11 @@ type stEmitter struct {
 	// loopSeq numbers the iteration counters, so nested bounded loops do not
 	// collide.
 	loopSeq int
+
+	// strTemps maps each string-producing call in this body to the buffer its
+	// result is built in.  Populated by declareStrTemps before the body is
+	// emitted, and empty for a body that builds no strings.
+	strTemps map[*ast.StrFuncExpr]int
 }
 
 // emitSTBodies emits every ST function body, in place of the verbatim C an
@@ -583,6 +612,7 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	// body reading a plain member.
 	g.emitBindingLoads(fn)
 
+	e.declareStrTemps(fn.Body, 1)
 	e.emitStmts(fn.Body, 1)
 
 	if anyWritablePin(pins) || anyWritableBinding(fn.PinBindings) {
@@ -1122,6 +1152,9 @@ func (e *stEmitter) expr(x ast.Expr) string {
 
 	case *ast.TimeConvExpr:
 		return e.timeConv(v)
+
+	case *ast.StrFuncExpr:
+		return e.strFunc(v)
 
 	case *ast.DayPartExpr:
 		e.g.needDayPart = true

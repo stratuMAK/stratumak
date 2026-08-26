@@ -155,6 +155,7 @@ func (g *generator) emitActionBodies() {
 			if needsPinStruct(fn) {
 				g.printf("    (void)__p;\n")
 			}
+			e.declareStrTemps(act.Body, 1)
 			e.emitStmts(act.Body, 1)
 			e.lineBackToOutput()
 			g.printf("}\n\n")
@@ -169,6 +170,7 @@ func (g *generator) emitActionBodies() {
 			g.printf("static void %s(inst_t *__comp_inst, %s *__self) {\n",
 				fbActionCName(b.Name, act.Name), fbStructName(b.Name))
 			g.printf("    (void)__comp_inst; (void)__self;\n")
+			e.declareStrTemps(act.Body, 1)
 			e.emitStmts(act.Body, 1)
 			e.lineBackToOutput()
 			g.printf("}\n\n")
