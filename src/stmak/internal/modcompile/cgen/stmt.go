@@ -98,7 +98,18 @@ func (g *generator) stFeatures() stFeatures {
 // definition of that mapping: the feature scan and the emitter both ask here,
 // so the set emitted and the set called cannot drift apart.
 func guardName(b *ast.BinaryExpr) (string, bool) {
-	if !b.Op.NeedsZeroGuard() || !b.Typ.IsInteger() {
+	if !b.Op.NeedsZeroGuard() {
+		return "", false
+	}
+	// A duration is a signed 64-bit count of nanoseconds.  It is not on the
+	// numeric lattice, so IsInteger is false for it, but dividing one by a
+	// runtime zero raises SIGFPE exactly as any other integer division does
+	// and takes the whole RT process with it.  MOD is refused on a duration,
+	// so division is the only case.
+	if b.Typ.Kind == ast.TypeTime {
+		return "div_s", true
+	}
+	if !b.Typ.IsInteger() {
 		return "", false
 	}
 	op := "div"
@@ -198,6 +209,8 @@ func walkExpr(e ast.Expr, onExpr func(ast.Expr)) {
 	case *ast.UnaryExpr:
 		walkExpr(v.X, onExpr)
 	case *ast.ConvExpr:
+		walkExpr(v.X, onExpr)
+	case *ast.TimeConvExpr:
 		walkExpr(v.X, onExpr)
 	case *ast.IndexExpr:
 		walkExpr(v.Base, onExpr)
@@ -904,6 +917,9 @@ func (e *stEmitter) expr(x ast.Expr) string {
 	case nil:
 		return ""
 
+	case *ast.TimeConvExpr:
+		return e.timeConv(v)
+
 	case *ast.IntLit:
 		return intLiteral(v.Value, v.Typ)
 
@@ -1117,7 +1133,7 @@ func (e *stEmitter) binary(v *ast.BinaryExpr) string {
 	// result, not a fault.
 	if name, guarded := guardName(v); guarded {
 		cast := "int64_t"
-		if !v.Typ.IsSigned() {
+		if !v.Typ.IsSigned() && v.Typ.Kind != ast.TypeTime {
 			cast = "uint64_t"
 		}
 		return fmt.Sprintf("((%s)__st_%s(__comp_inst, (%s)%s, (%s)%s))",
@@ -1141,6 +1157,11 @@ func (e *stEmitter) binary(v *ast.BinaryExpr) string {
 func intLiteral(v int64, t ast.Type) string {
 	s := strconv.FormatInt(v, 10)
 	switch {
+	case t.Kind == ast.TypeTime:
+		// A duration is a signed 64-bit count of nanoseconds, and is neither
+		// IsSigned nor IsInteger -- it is not on the numeric lattice at all --
+		// so it would otherwise fall through to the unsigned 64-bit case.
+		return s + "LL"
 	case t.Bits() == 64 && t.IsSigned():
 		return s + "LL"
 	case t.Bits() == 64:
@@ -1230,4 +1251,31 @@ func cTypeDims(t ast.Type) string {
 		fmt.Fprintf(&b, "[%d]", d.Count())
 	}
 	return b.String()
+}
+
+// timeConv renders a conversion between a duration and a number.
+//
+// A duration is nanoseconds and the number is milliseconds or seconds, so the
+// cast comes with a scale.  Which way it applies follows from the target: to a
+// duration the number is multiplied up, and from one it is divided down.
+//
+// Integer targets divide in int64 and stay exact; a float target goes through
+// a double, because that is the only way TIME_TO_LREAL(T#1500us) can be 1.5
+// rather than 1.
+func (e *stEmitter) timeConv(v *ast.TimeConvExpr) string {
+	inner := e.expr(v.X)
+	scale := strconv.FormatFloat(v.Unit, 'f', -1, 64)
+
+	if v.Typ.Kind == ast.TypeTime {
+		// To a duration: the number is in the coarser unit, so scale up.  The
+		// product is formed as a double so a fractional input survives, then
+		// truncated to nanoseconds.
+		return fmt.Sprintf("((int64_t)((double)%s * %s))", inner, scale)
+	}
+
+	if v.Typ.IsFloat() {
+		return fmt.Sprintf("((%s)((double)%s / %s))", v.Typ.CType(), inner, scale)
+	}
+	// An integer target divides in int64: exact, and no double rounding.
+	return fmt.Sprintf("((%s)(%s / (int64_t)%s))", v.Typ.CType(), inner, scale)
 }

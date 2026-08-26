@@ -109,9 +109,18 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 		c.errorf(v.Pos, "%s", why)
 		return nil
 	}
+	switch upper {
+	case "T", "TIME", "LT", "LTIME":
+		ns, err := parseDuration(v.Body)
+		if err != nil {
+			c.errorf(v.Pos, "%s#%s: %s", v.Prefix, v.Body, err)
+			return nil
+		}
+		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeTime}}
+	}
 	if isDateTimePrefix(upper) {
 		c.errorf(v.Pos, "%s literals are not supported; "+
-			"duration and date types arrive with the standard function block library", v.Prefix)
+			"stratuMAK has TIME but no date or time-of-day types", v.Prefix)
 		return nil
 	}
 
@@ -477,6 +486,11 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 		hint = ast.Type{}
 	} else if v.Op.IsLogical() {
 		hint = ast.Type{Kind: ast.TypeBool}
+	} else if want.Kind == ast.TypeTime && scalesDuration(v.Op) {
+		// `PT := 2 * T#1s` scales a duration by a plain number, and which
+		// operand is the duration is not known until both are checked.
+		// Pushing TIME onto either would turn the 2 into two nanoseconds.
+		hint = ast.Type{}
 	}
 
 	x := c.checkExpr(v.X, hint)
@@ -490,6 +504,10 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 		rhint = x.ExprType()
 	} else if v.Op.IsComparison() {
 		rhint = x.ExprType()
+	}
+	if rhint.Kind == ast.TypeTime && scalesDuration(v.Op) {
+		// Same reason, from the other side: in `T#1s * 2` the 2 is a count.
+		rhint = ast.Type{}
 	}
 	y := c.checkExpr(v.Y, rhint)
 	if y == nil {
@@ -506,6 +524,10 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 			return nil
 		}
 		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
+	}
+
+	if xt.Kind == ast.TypeTime || yt.Kind == ast.TypeTime {
+		return c.checkTimeBinary(v, x, y, xt, yt)
 	}
 
 	common, ok := unify(xt, yt)
@@ -763,7 +785,14 @@ func (c *checker) foldToC(e ast.Expr) (string, bool) {
 		return strconv.Quote(v.Value), true
 	}
 	if n, ok := foldInt(e); ok {
-		return strconv.FormatInt(n, 10), true
+		s := strconv.FormatInt(n, 10)
+		if e.ExprType().Kind == ast.TypeTime {
+			// A duration in nanoseconds outgrows a 32-bit long at two
+			// seconds, so the suffix is what makes the initialiser mean the
+			// same thing wherever it is compiled.
+			s += "LL"
+		}
+		return s, true
 	}
 	if f, ok := foldFloat(e); ok {
 		s := strconv.FormatFloat(f, 'g', -1, 64)

@@ -645,6 +645,16 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 				"so only a one-dimensional array maps to an array pin", name)
 			return
 		}
+		if typ.Kind == ast.TypeTime {
+			// Worth its own message now that TIME is a real type: HAL has no
+			// duration, and the component that wants one settable from
+			// outside converts at the boundary -- which is also what
+			// ton.comp does with its float `pt` param in seconds.
+			c.errorf(d.Pos, "%s cannot be a HAL pin: HAL has no duration type. "+
+				"Use an LREAL pin carrying seconds and convert with SECONDS_TO_TIME, "+
+				"or a DINT pin carrying milliseconds and DINT_TO_TIME", name)
+			return
+		}
 		c.errorf(d.Pos, "%s cannot be a HAL pin: %s has no HAL representation. "+
 			"Move it to a VAR section, or use one of BOOL, SINT, INT, DINT, USINT, UINT, UDINT, REAL or LREAL",
 			name, typ)

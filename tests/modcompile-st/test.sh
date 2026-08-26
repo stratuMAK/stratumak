@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period durations; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -235,6 +235,40 @@ if grep -q '__st_fperiod' ramplimit.c; then
     exit 1
 fi
 
+# A duration is int64 nanoseconds -- what get_time() and a task's period
+# already are -- and every conversion carries the scale reconciling that with
+# the unit the number is in.
+if ! grep -q 'int64_t pt;' durations.c; then
+    echo 'durations.c does not hold a TIME as int64'
+    exit 1
+fi
+if ! grep -q 'int64_t errDelay;' durations.c; then
+    echo 'durations.c does not hold a TIME inside a STRUCT'
+    exit 1
+fi
+if ! grep -q '90000000000LL' durations.c; then
+    echo 'durations.c: T#1m30s should reach the C as 90000000000LL'
+    exit 1
+fi
+# The millisecond bridge is what a ported CODESYS source depends on:
+# TIME_TO_DINT(T#1s) is 1000, not 1000000000.  The seconds pair is stratuMAK's
+# own unit and carries a name no CODESYS source contains.
+if ! grep -q '/ (int64_t)1000000)' durations.c; then
+    echo 'durations.c: TIME_TO_DINT should yield milliseconds, as CODESYS does'
+    exit 1
+fi
+if ! grep -q '\* 1000000000))' durations.c; then
+    echo 'durations.c: SECONDS_TO_TIME should scale up to nanoseconds'
+    exit 1
+fi
+# Dividing a duration by a runtime value must be guarded: unguarded it is a
+# SIGFPE in the RT thread.  A duration is not on the numeric lattice, so it
+# does not get this for free.
+if ! grep -q '__st_div_s(__comp_inst, (int64_t)(__comp_inst->pt)' durations.c; then
+    echo 'durations.c: dividing a duration is unguarded; a zero divisor would SIGFPE'
+    exit 1
+fi
+
 # A man page generated from an .st carries what one generated from a .comp
 # does.  docgen is shared, so this really checks that every field it reads is
 # reachable from ST.
@@ -308,6 +342,13 @@ rm -f bad_period.c
 modcompile --preprocess bad_period.st -o bad_period.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted fperiod inside a FUNCTION'
+    exit 1
+fi
+
+rm -f bad_time.c
+modcompile --preprocess bad_time.st -o bad_time.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted a number added to a duration'
     exit 1
 fi
 

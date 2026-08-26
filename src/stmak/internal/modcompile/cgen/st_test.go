@@ -34,6 +34,7 @@ var stLowers = []string{
 	"actions",     // named pieces of a body
 	"params",      // HAL parameters, top level and inside a block
 	"period",      // fperiod in each kind of body
+	"durations",   // the TIME type
 }
 
 // compile turns one fixture into C.
@@ -55,6 +56,25 @@ func generateST(t *testing.T, name string) string {
 	var buf bytes.Buffer
 	if err := GenerateTo(&buf, pkg, name+".c"); err != nil {
 		t.Fatalf("%s: generating C: %v", name, err)
+	}
+	return buf.String()
+}
+
+// generateSTSource is generateST for a source string rather than a fixture,
+// for a case too small to be worth a file of its own.
+func generateSTSource(t *testing.T, src string) string {
+	t.Helper()
+	file, perr := st.Parse("p.st", src)
+	if perr != nil {
+		t.Fatalf("does not parse:\n%v\n--- source ---\n%s", perr, src)
+	}
+	pkg, cerr := sema.Check("p", file)
+	if cerr != nil {
+		t.Fatalf("does not check:\n%v\n--- source ---\n%s", cerr, src)
+	}
+	var buf bytes.Buffer
+	if err := GenerateTo(&buf, pkg, "p.c"); err != nil {
+		t.Fatalf("generating C: %v", err)
 	}
 	return buf.String()
 }
@@ -897,5 +917,89 @@ func TestSTPeriodHelperCostsNothingWhenUnused(t *testing.T) {
 	// that happens to mention it nowhere.
 	if !strings.Contains(out, "fperiod") {
 		t.Error("ramplimit no longer uses fperiod; pick another fixture for this test")
+	}
+}
+
+// TestSTDurations checks how a TIME reaches the generated C.
+//
+// It is int64 nanoseconds -- what get_time() and a task's period already are
+// -- and every conversion carries the scale that reconciles that with the unit
+// the number is in.
+func TestSTDurations(t *testing.T) {
+	out := generateST(t, "durations")
+
+	// Storage: int64, in inst_t and inside a STRUCT alike.
+	for _, want := range []string{
+		"    int64_t pt;",
+		"    int64_t errDelay;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a duration should be held as int64: missing\n  %s", want)
+		}
+	}
+
+	// The millisecond bridge, which is what a ported CODESYS source depends
+	// on: TIME_TO_DINT(T#1s) must be 1000, not 1000000000.
+	if !strings.Contains(out, "/ (int64_t)1000000)") {
+		t.Errorf("TIME_TO_DINT should divide by a million nanoseconds to give milliseconds"+
+			"\n--- generated ---\n%s", out)
+	}
+	// The seconds bridge, which is stratuMAK's own unit.
+	if !strings.Contains(out, "/ 1000000000)") {
+		t.Error("TIME_TO_SECONDS should divide by a billion nanoseconds")
+	}
+	if !strings.Contains(out, "* 1000000000))") {
+		t.Error("SECONDS_TO_TIME should multiply up to nanoseconds")
+	}
+
+	// Scaling by a whole count stays in int64 and stays exact; scaling by a
+	// fraction goes through a double, which is the only way `* 1.5` means
+	// what it looks like.
+	// Exact, in int64, and guarded like any other integer division -- a
+	// constant divisor takes the guard on the numeric path too.
+	if !strings.Contains(out, "__st_div_s(__comp_inst, (int64_t)(__comp_inst->pt), (int64_t)((int64_t)2))") {
+		t.Errorf("dividing a duration by a count should stay in int64\n--- generated ---\n%s", out)
+	}
+	if !strings.Contains(out, "((int64_t)(((double)(__comp_inst->warmup)) * 1.5))") {
+		t.Error("scaling a duration by a fraction should go through a double")
+	}
+
+	// Two durations divided give their ratio, as a number.
+	if !strings.Contains(out, "(((double)(__comp_inst->e).et) / ((double)(__comp_inst->pt)))") {
+		t.Error("dividing two durations should give their ratio as a double")
+	}
+
+	// A literal carries the suffix, because a duration in nanoseconds outgrows
+	// a 32-bit long at two seconds.
+	if !strings.Contains(out, "90000000000LL") {
+		t.Error("T#1m30s should reach the C as 90000000000LL")
+	}
+}
+
+// TestSTDurationDivisionIsGuarded is a regression.
+//
+// A duration is not on the numeric lattice -- IsInteger is false for it -- so
+// it slipped past the zero-divisor guard, and dividing one by a runtime zero
+// would have raised SIGFPE and taken the whole RT process with it.  The float
+// case needs no guard: dividing by 0.0 gives infinity, not a signal.
+func TestSTDurationDivisionIsGuarded(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_INPUT
+    n : DINT;
+  END_VAR
+  VAR_OUTPUT
+    out : LREAL;
+  END_VAR
+  VAR
+    pt : TIME := T#1s;
+  END_VAR
+  pt := pt / n;
+  out := TIME_TO_SECONDS(pt);
+END_PROGRAM`)
+
+	if !strings.Contains(out, "__st_div_s(__comp_inst,") {
+		t.Errorf("dividing a duration by a runtime value must be guarded; "+
+			"unguarded it is a SIGFPE in the RT thread\n--- generated ---\n%s", out)
 	}
 }

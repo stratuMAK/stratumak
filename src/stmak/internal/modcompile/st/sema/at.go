@@ -156,6 +156,12 @@ func (c *checker) bindAT(text string, pos ast.Pos, varName string, typ ast.Type)
 	}
 	halType, fit := typ.HALType()
 	if fit == ast.HALFitNone {
+		if typ.Kind == ast.TypeTime {
+			c.errorf(pos, "%s cannot be mapped to a HAL %s: HAL has no duration type. "+
+				"Map an LREAL carrying seconds and convert with SECONDS_TO_TIME, "+
+				"or a DINT carrying milliseconds and DINT_TO_TIME", varName, what)
+			return nil
+		}
 		c.errorf(pos, "%s cannot be mapped to a HAL %s: %s has no HAL representation",
 			varName, what, typ)
 		return nil

@@ -936,9 +936,11 @@ func TestDiagnostics(t *testing.T) {
 		},
 
 		{
-			name: "TIME is named, not merely unknown",
-			src:  wrap("VAR\n t : TIME;\nEND_VAR", "q := TRUE;"),
-			want: "TIME type is not implemented yet",
+			// TIME is implemented; the date and time-of-day types that share
+			// its literal syntax are not, and say so by name.
+			name: "date types are named, not merely unknown",
+			src:  wrap("VAR\n d : DATE;\nEND_VAR", "q := TRUE;"),
+			want: "date and time-of-day types are not implemented",
 		},
 		{
 			name: "bit-string types are named",
@@ -1230,5 +1232,107 @@ func TestPeriodIsReachableEverywhere(t *testing.T) {
 	note(pkg.Component.Functions[0].Actions[0].Body)
 	if seen != 2 {
 		t.Errorf("found %d fperiod references, want 2 (one in the block, one in the action)", seen)
+	}
+}
+
+// TestTimeDiagnostics covers what a duration may and may not take part in.
+//
+// A duration is not a number.  Letting it be one would accept `PT + 1` -- one
+// what? -- so every combination that has an unambiguous meaning is written out
+// and the rest are refused by name.
+func TestTimeDiagnostics(t *testing.T) {
+	decls := "VAR\n pt : TIME := T#1s;\n n : DINT;\n x : LREAL;\nEND_VAR"
+
+	for _, tt := range []struct {
+		name string
+		src  string
+		want string
+	}{{
+		name: "adding a number to a duration",
+		src:  wrap(decls, "pt := pt + 1;"),
+		want: "needs two durations",
+	}, {
+		name: "comparing a duration with a number",
+		src:  wrap(decls, "q := pt > 5;"),
+		want: "only be compared with another duration",
+	}, {
+		name: "multiplying two durations",
+		src:  wrap(decls, "pt := pt * pt;"),
+		want: "two durations cannot be multiplied",
+	}, {
+		name: "dividing a number by a duration",
+		src:  wrap(decls, "n := n / pt;"),
+		want: "cannot be divided by a duration",
+	}, {
+		name: "MOD on a duration",
+		src:  wrap(decls, "pt := pt MOD 2;"),
+		want: "cannot be applied to a duration",
+	}, {
+		name: "assigning a number to a duration",
+		src:  wrap(decls, "pt := n;"),
+		want: "cannot",
+	}, {
+		name: "a duration on a pin",
+		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n pt : TIME;\nEND_VAR\n" +
+			"pt := T#1s;\nEND_PROGRAM",
+		want: "HAL has no duration type",
+	}, {
+		name: "a duration mapped with AT",
+		src:  wrap("VAR\n pt AT %Q : TIME;\nEND_VAR", "pt := T#1s;"),
+		want: "HAL has no duration type",
+	}, {
+		name: "a malformed literal",
+		src:  wrap(decls, "pt := T#30s1m;"),
+		want: "largest to smallest",
+	}, {
+		name: "a conversion given the wrong type",
+		src:  wrap(decls, "n := TIME_TO_DINT(n);"),
+		want: "TIME_TO_DINT takes a duration",
+	}, {
+		// A divisor written out as zero is a mistake, not something the RT
+		// guard exists for.  A duration would otherwise slip past that rule.
+		name: "a duration divided by a written-out zero",
+		src:  wrap(decls, "pt := pt / 0;"),
+		want: "division by zero",
+	}, {
+		name: "date types are still refused",
+		src:  wrap(decls, "q := D#2026-01-01 = D#2026-01-01;"),
+		want: "no date or time-of-day types",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none\n--- source ---\n%s", tt.src)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant a message containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestTimeAccepted covers what a duration may do, and that the literal reached
+// the value it should.
+func TestTimeAccepted(t *testing.T) {
+	pkg := mustCheck(t, "p", wrap(
+		"VAR\n pt : TIME := T#1m30s;\n half : TIME;\n n : DINT;\n ratio : LREAL;\nEND_VAR",
+		"half := pt / 2;\nratio := pt / half;\nn := TIME_TO_DINT(pt);\nq := pt > half;"))
+
+	var pt *ast.Variable
+	for i := range pkg.Component.Variables {
+		if pkg.Component.Variables[i].Name == "pt" {
+			pt = &pkg.Component.Variables[i]
+		}
+	}
+	if pt == nil {
+		t.Fatal("pt was not declared")
+	}
+	// A duration lands in inst_t as the int64 count of nanoseconds it is.
+	if pt.CType != "int64_t" {
+		t.Errorf("pt is declared %q, want int64_t", pt.CType)
+	}
+	// 90 seconds in nanoseconds: the representation is the point.
+	if pt.Default != "90000000000LL" {
+		t.Errorf("T#1m30s initialised to %q, want 90000000000LL", pt.Default)
 	}
 }

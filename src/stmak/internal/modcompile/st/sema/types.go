@@ -24,14 +24,18 @@ var elementary = map[string]ast.TypeKind{
 	"ULINT": ast.TypeULInt,
 	"REAL":  ast.TypeReal,
 	"LREAL": ast.TypeLReal,
+	// A duration, held as int64 nanoseconds -- what get_time() and a task's
+	// period already are.  LTIME is the same type: IEC leaves TIME's range
+	// implementation-defined, and at nanoseconds there is nothing for a
+	// "long" one to add.
+	"TIME":  ast.TypeTime,
+	"LTIME": ast.TypeTime,
 }
 
 // deferredTypes name types stratuMAK will support but does not yet, mapped to
 // the reason.  Naming them explicitly turns "unknown type TIME" into something
 // a reader can act on.
 var deferredTypes = map[string]string{
-	"TIME":          "the TIME type is not implemented yet; it arrives with the standard function block library",
-	"LTIME":         "the LTIME type is not implemented yet",
 	"DATE":          "date and time-of-day types are not implemented",
 	"TIME_OF_DAY":   "date and time-of-day types are not implemented",
 	"TOD":           "date and time-of-day types are not implemented",

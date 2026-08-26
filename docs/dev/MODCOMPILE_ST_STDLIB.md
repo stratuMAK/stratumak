@@ -162,7 +162,7 @@ which is the claim itself — a constant would fail it, and so would anything
 resolving to the wrong thread. The helper is emitted only where something
 reaches it, because it is a `static` function and cmods build with `-Werror`.
 
-## 5. Phase 1: the `TIME` type
+## 5. Phase 1: the `TIME` type — **done**
 
 Groundwork exists: `ast.TypeTime` is already a type kind, the lexer already
 recognises `T#`/`TIME#` prefixed literals, and sema already refuses them by
@@ -183,16 +183,41 @@ with `LT#`/`LTIME#` as accepted spellings of the same thing.
 TIME`; `TIME / TIME → LREAL`. Comparisons across the board. Refuse `TIME +
 number`, which is the mistake that reads as though it works.
 
-**Conversions.** `TIME_TO_DINT` and `DINT_TO_TIME` are milliseconds, matching
-CODESYS, so ported sources compute the same numbers. `TIME_TO_LREAL` and
-`LREAL_TO_TIME` are seconds, which is the natural stratuMAK unit and what
-`fperiod` already is. Both directions documented as what they are; this is the
-one place the ns representation is visible and it is worth the note.
+**Conversions.** The plan originally said `TIME_TO_LREAL` would be seconds.
+That is a trap and it was not built: in CODESYS `TIME_TO_REAL(T#1s)` is
+`1000.0`, because a CODESYS `TIME` is milliseconds, so a ported source would
+silently compute a number a thousand times off with nothing to see.
 
-**Not on a pin.** HAL has no duration type, and `ir.go` already says `TIME` has
+So **every IEC-named conversion is milliseconds**, exactly as CODESYS has it —
+`TIME_TO_DINT`, `TIME_TO_UDINT`, `TIME_TO_LINT`, `TIME_TO_ULINT`,
+`TIME_TO_REAL`, `TIME_TO_LREAL` and the six inverses. Seconds are what
+stratuMAK works in — `fperiod` is seconds, and so is every float pin carrying a
+time — so they get a pair of names of their own: `TIME_TO_SECONDS` and
+`SECONDS_TO_TIME`. Those are not IEC names and appear in no CODESYS source,
+which is the point: there is no spelling that could be read either way. A unit
+test asserts the split, so a conversion added later cannot quietly join the
+wrong group.
+
+**Not on a pin.** HAL has no duration type, and `ir.go` already said `TIME` has
 no HAL representation. A component converts at the boundary — `PT :=
-LREAL_TO_TIME(pt_pin)` — which is also what `ton.comp` does today with a float
-`pt` param in seconds.
+SECONDS_TO_TIME(pt_pin)` — which is also what `ton.comp` does today with a
+float `pt` param in seconds. Both the `VAR_OUTPUT` path and the `AT` path now
+say that by name rather than falling back on "no HAL representation".
+
+**Two holes the fixture found**, both from a duration not being on the numeric
+lattice and so slipping past checks written in terms of `IsInteger`:
+
+- Dividing a duration by a runtime value was **unguarded**, where every other
+  integer division goes through `__st_div_s`. A zero divisor would have raised
+  `SIGFPE` and taken the RT process with it. `guardName()` now names `TIME`.
+- A divisor written out as `0` was accepted, where the numeric path makes it a
+  compile error. §4 of the frontend note is explicit that the runtime guard is
+  for divisors that cannot be known at compile time, not for one written out.
+
+A third was a plain omission: the new IR node was not in either expression
+walker, so the `fperiod` use-scan missed a reference inside a conversion and
+the helper went unemitted. The generated C then failed to compile, which is how
+it was caught.
 
 ## 6. Phase 2: the library mechanism
 

@@ -622,6 +622,19 @@ type ConvExpr struct {
 	Typ Type
 }
 
+// TimeConvExpr converts between a duration and a number.
+//
+// It is not a ConvExpr because it is not a C cast: a duration is nanoseconds
+// and the number is milliseconds or seconds, so a scale factor comes with it.
+// Unit is how many nanoseconds one of the number's units is worth, and which
+// way it applies follows from whether Typ is TIME.
+type TimeConvExpr struct {
+	Pos  Pos
+	X    Expr
+	Unit float64
+	Typ  Type
+}
+
 // CallExpr calls a stateless FUNCTION.  A function block invocation is a
 // statement (InvokeStmt), not an expression, because it mutates instance state.
 type CallExpr struct {
@@ -631,44 +644,47 @@ type CallExpr struct {
 	Typ  Type
 }
 
-func (e *IntLit) Position() Pos     { return e.Pos }
-func (e *RealLit) Position() Pos    { return e.Pos }
-func (e *BoolLit) Position() Pos    { return e.Pos }
-func (e *StringLit) Position() Pos  { return e.Pos }
-func (e *EnumLit) Position() Pos    { return e.Pos }
-func (e *VarRef) Position() Pos     { return e.Pos }
-func (e *IndexExpr) Position() Pos  { return e.Pos }
-func (e *FieldExpr) Position() Pos  { return e.Pos }
-func (e *BinaryExpr) Position() Pos { return e.Pos }
-func (e *UnaryExpr) Position() Pos  { return e.Pos }
-func (e *ConvExpr) Position() Pos   { return e.Pos }
-func (e *CallExpr) Position() Pos   { return e.Pos }
+func (e *IntLit) Position() Pos       { return e.Pos }
+func (e *RealLit) Position() Pos      { return e.Pos }
+func (e *BoolLit) Position() Pos      { return e.Pos }
+func (e *StringLit) Position() Pos    { return e.Pos }
+func (e *EnumLit) Position() Pos      { return e.Pos }
+func (e *VarRef) Position() Pos       { return e.Pos }
+func (e *IndexExpr) Position() Pos    { return e.Pos }
+func (e *FieldExpr) Position() Pos    { return e.Pos }
+func (e *BinaryExpr) Position() Pos   { return e.Pos }
+func (e *UnaryExpr) Position() Pos    { return e.Pos }
+func (e *ConvExpr) Position() Pos     { return e.Pos }
+func (e *TimeConvExpr) Position() Pos { return e.Pos }
+func (e *CallExpr) Position() Pos     { return e.Pos }
 
-func (e *IntLit) ExprType() Type     { return e.Typ }
-func (e *RealLit) ExprType() Type    { return e.Typ }
-func (e *BoolLit) ExprType() Type    { return Type{Kind: TypeBool} }
-func (e *StringLit) ExprType() Type  { return e.Typ }
-func (e *EnumLit) ExprType() Type    { return e.Typ }
-func (e *VarRef) ExprType() Type     { return e.Typ }
-func (e *IndexExpr) ExprType() Type  { return e.Typ }
-func (e *FieldExpr) ExprType() Type  { return e.Typ }
-func (e *BinaryExpr) ExprType() Type { return e.Typ }
-func (e *UnaryExpr) ExprType() Type  { return e.Typ }
-func (e *ConvExpr) ExprType() Type   { return e.Typ }
-func (e *CallExpr) ExprType() Type   { return e.Typ }
+func (e *IntLit) ExprType() Type       { return e.Typ }
+func (e *RealLit) ExprType() Type      { return e.Typ }
+func (e *BoolLit) ExprType() Type      { return Type{Kind: TypeBool} }
+func (e *StringLit) ExprType() Type    { return e.Typ }
+func (e *EnumLit) ExprType() Type      { return e.Typ }
+func (e *VarRef) ExprType() Type       { return e.Typ }
+func (e *IndexExpr) ExprType() Type    { return e.Typ }
+func (e *FieldExpr) ExprType() Type    { return e.Typ }
+func (e *BinaryExpr) ExprType() Type   { return e.Typ }
+func (e *UnaryExpr) ExprType() Type    { return e.Typ }
+func (e *ConvExpr) ExprType() Type     { return e.Typ }
+func (e *TimeConvExpr) ExprType() Type { return e.Typ }
+func (e *CallExpr) ExprType() Type     { return e.Typ }
 
-func (*IntLit) exprNode()     {}
-func (*RealLit) exprNode()    {}
-func (*BoolLit) exprNode()    {}
-func (*StringLit) exprNode()  {}
-func (*EnumLit) exprNode()    {}
-func (*VarRef) exprNode()     {}
-func (*IndexExpr) exprNode()  {}
-func (*FieldExpr) exprNode()  {}
-func (*BinaryExpr) exprNode() {}
-func (*UnaryExpr) exprNode()  {}
-func (*ConvExpr) exprNode()   {}
-func (*CallExpr) exprNode()   {}
+func (*IntLit) exprNode()       {}
+func (*RealLit) exprNode()      {}
+func (*BoolLit) exprNode()      {}
+func (*StringLit) exprNode()    {}
+func (*EnumLit) exprNode()      {}
+func (*VarRef) exprNode()       {}
+func (*IndexExpr) exprNode()    {}
+func (*FieldExpr) exprNode()    {}
+func (*BinaryExpr) exprNode()   {}
+func (*UnaryExpr) exprNode()    {}
+func (*TimeConvExpr) exprNode() {}
+func (*ConvExpr) exprNode()     {}
+func (*CallExpr) exprNode()     {}
 
 // IsLValue reports whether e may appear on the left of an assignment.  Only a
 // reference chain qualifies: a name, a subscript of one, or a field of one.

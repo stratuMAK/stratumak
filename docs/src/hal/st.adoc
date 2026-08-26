@@ -89,7 +89,8 @@ appear on a pin:
 |`REAL` |`float`, with a warning |accepted
 |enumeration |`s32` |
 |`ARRAY [0..n] OF` scalar |an array pin, one dimension |any shape
-|`LINT` `ULINT` `TIME` `STRING` `STRUCT` |not possible |accepted
+|`TIME` |not possible |accepted, a duration
+|`LINT` `ULINT` `STRING` `STRUCT` |not possible |accepted
 |===
 
 `REAL` reaches a pin without loss but not back, because HAL carries it as a
@@ -153,6 +154,76 @@ An `rw` parameter cannot be assigned in the body, for the same reason an input
 pin cannot: you are its writer. To clamp a tunable, read it and keep the
 clamped value in a `VAR`. A parameter is a single value — there is no array
 form.
+
+== Durations
+
+`TIME` is a duration, written the way IEC writes one:
+
+[source,pascal]
+----
+VAR
+  pt      : TIME := T#500ms;
+  warmup  : TIME := T#1m30s;
+  elapsed : TIME;
+END_VAR
+----
+
+The units are `d`, `h`, `m`, `s`, `ms`, `us` and `ns`, largest first, and only
+the first may overrun its own unit — `T#25h` and `T#90s` are durations,
+`T#1m90s` is a typo. A fraction is allowed on the last magnitude, so `T#0.5s`
+works.
+
+A duration is not a number, so `pt + 1` is refused — one what? What is allowed
+is what has one meaning: durations add, subtract and compare with each other,
+scale by a plain number, and divide by each other to give a ratio.
+
+[source,pascal]
+----
+elapsed := elapsed + SECONDS_TO_TIME(fperiod);
+expired := elapsed >= pt;
+half    := pt / 2;         (* a duration *)
+ratio   := elapsed / pt;   (* an LREAL   *)
+----
+
+=== Converting
+
+stratuMAK holds a duration as nanoseconds, but CODESYS holds one as
+milliseconds — so every conversion with an IEC name is in milliseconds, and
+computes exactly what it computes in CODESYS:
+
+[source,pascal]
+----
+ms := TIME_TO_DINT(T#1s);      (* 1000 *)
+pt := DINT_TO_TIME(1500);      (* T#1s500ms *)
+----
+
+Seconds are what the rest of stratuMAK works in — `fperiod` is seconds, and so
+is any float pin carrying a time — so they have their own pair of names, which
+cannot be mistaken for the IEC ones:
+
+[source,pascal]
+----
+secs := TIME_TO_SECONDS(T#1s);   (* 1.0 *)
+pt   := SECONDS_TO_TIME(0.25);   (* T#250ms *)
+----
+
+=== Durations and HAL
+
+A duration cannot be a pin or a parameter: HAL has no duration type. Carry one
+across the boundary as seconds on an `LREAL`, or as milliseconds on a `DINT`,
+and convert:
+
+[source,pascal]
+----
+VAR_INPUT
+  delay_s : LREAL;
+END_VAR
+VAR
+  delay : TIME;
+END_VAR
+
+delay := SECONDS_TO_TIME(delay_s);
+----
 
 == Function blocks
 
@@ -340,8 +411,8 @@ compiles is safe to run in a servo thread. Refused, each by name:
   space to locate a variable in
 * the bit-string types `BYTE`, `WORD`, `DWORD` and `LWORD`, and so partial
   access (`word.0`)
-* `TIME` and the date types, which arrive with the standard function block
-  library
+* the date and time-of-day types — `DATE`, `TIME_OF_DAY`, `DATE_AND_TIME` —
+  though `TIME` itself is supported
 * `WSTRING`, and `STRING` on a pin
 * the other IEC languages — Ladder, Function Block Diagram and Sequential
   Function Chart

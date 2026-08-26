@@ -522,6 +522,12 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 		c.errorf(v.Pos, "only a plain function name may be called in an expression")
 		return nil
 	}
+	// The duration conversions are built in, so they resolve before the
+	// scope: a file declaring its own FUNCTION of one of these names is a
+	// redeclaration, not a shadow.
+	if e, handled := c.checkTimeConversion(v, name.Name); handled {
+		return e
+	}
 	sym := c.scope.lookup(name.Name)
 	if sym == nil {
 		c.errorf(v.Pos, "%s is not declared", name.Name)
@@ -786,6 +792,8 @@ func walkStmtExprs(body []ast.Stmt, f func(ast.Expr)) {
 		case *ast.UnaryExpr:
 			expr(v.X)
 		case *ast.ConvExpr:
+			expr(v.X)
+		case *ast.TimeConvExpr:
 			expr(v.X)
 		case *ast.IndexExpr:
 			expr(v.Base)
