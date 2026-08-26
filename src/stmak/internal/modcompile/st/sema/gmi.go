@@ -50,8 +50,18 @@ func gmiType(api *gmiast.API, t gmiast.TypeRef) (ast.Type, string, error) {
 			return ast.Type{Kind: ast.TypeDInt},
 				fmt.Sprintf("%s_%s_t", api.Prefix, toSnake(t.Name)), nil
 		}
-		return ast.Type{}, "", fmt.Errorf("%s is a structure, and Structured Text can only "+
-			"reach the scalar part of a GMI interface so far", t.Name)
+		for i := range api.Types {
+			if api.Types[i].Name != t.Name {
+				continue
+			}
+			// A structure is passed by pointer in the callback and the type ST
+			// sees is a view over the header's own, so no conversion is
+			// needed either way -- only the address at the call site.
+			st := apiStructType(api, t.Name)
+			return st, st.CName, nil
+		}
+		return ast.Type{}, "", fmt.Errorf("%s is neither a structure nor an enumeration of "+
+			"this interface", t.Name)
 	}
 	if t.Kind != gmiast.TypePrimitive {
 		return ast.Type{}, "", fmt.Errorf("%s is not a scalar type, and Structured Text "+
@@ -80,10 +90,14 @@ func gmiType(api *gmiast.API, t gmiast.TypeRef) (ast.Type, string, error) {
 		return ast.Type{Kind: ast.TypeReal}, "", nil
 	case "f64":
 		return ast.Type{Kind: ast.TypeLReal}, "", nil
+	case "string":
+		// `const char *` in the callback.  An ST STRING is a char array, which
+		// decays to exactly that, so passing one costs nothing -- but only
+		// outward: see checkImplements for why a provider cannot receive one.
+		return ast.Type{Kind: ast.TypeString}, "const char *", nil
 	}
 	return ast.Type{}, "", fmt.Errorf("%s has no Structured Text equivalent; "+
-		"a string is a pointer in the callback and a ptr is opaque, neither of "+
-		"which ST has", t.Name)
+		"a ptr is opaque by construction, which is the point of it", t.Name)
 }
 
 // toSnake mirrors the GMI code generator's naming, so a type's C spelling here
@@ -190,6 +204,19 @@ func (c *checker) checkAPICall(base *st.Ident, pos ast.Pos, fn string, args []st
 		if e == nil {
 			continue
 		}
+		if typ.Kind == ast.TypeString {
+			// The callback takes `const char *`, so how much room the ST
+			// string has is its own business: any STRING decays to the same
+			// pointer.  Going through assign would compare the declared
+			// lengths and refuse a STRING[32] for wanting to be a STRING[80].
+			if e.ExprType().Kind != ast.TypeString {
+				c.errorf(a.Pos, "%s.%s takes a STRING for %s, got %s",
+					api.Name, f.Name, p.Name, e.ExprType())
+				continue
+			}
+			out.Args = append(out.Args, e)
+			continue
+		}
 		e = c.assign(a.Pos, api.Name+"."+f.Name+"."+p.Name, typ, e)
 		if e == nil {
 			continue
@@ -277,6 +304,18 @@ func (c *checker) checkMethodMatches(pos ast.Pos, api *gmiast.API, f *gmiast.Fun
 				api.Name, f.Name, p.Name)
 			return
 		}
+		if p.Type.Kind == gmiast.TypePrimitive && p.Type.Name == "string" {
+			// The callback hands over a pointer into the caller's memory, and
+			// an ST STRING is a value with a fixed size.  Receiving one means
+			// a bounded copy and a rule for what happens when it does not fit,
+			// and that is a decision to make deliberately rather than in a
+			// thunk.  Consuming an interface that takes strings is unaffected.
+			c.errorf(m.Pos, "%s.%s takes the string %s, and a provider written in "+
+				"Structured Text cannot receive one: the interface passes a pointer "+
+				"into the caller's memory, and a STRING here is a value of fixed size",
+				api.Name, f.Name, p.Name)
+			return
+		}
 		typ, ctype, err := gmiType(api, p.Type)
 		if err != nil {
 			c.errorf(m.Pos, "%s.%s parameter %s: %s", api.Name, f.Name, p.Name, err)
@@ -292,5 +331,90 @@ func (c *checker) checkMethodMatches(pos ast.Pos, api *gmiast.API, f *gmiast.Fun
 				api.Name, f.Name, i+1, typ, p.Name, m.Name, got.Name, got.Typ)
 			return
 		}
+	}
+}
+
+// declareAPITypes makes an interface's structures and enumerations visible to
+// Structured Text.
+//
+// They are declared, not redeclared.  The type ST sees is named as the
+// interface names it and compiles to the C type the generated header already
+// carries, so there is no second declaration and nothing to keep in step.  A
+// field ST has no way to represent -- a slice, which is a pointer and a length
+// in C -- is simply left out of the view: the memory is the header's either
+// way, so ST just cannot name that one.
+func (c *checker) declareAPITypes() {
+	for _, api := range c.apis {
+		for i := range api.Enums {
+			e := &api.Enums[i]
+			name := e.Name
+			if c.scope.lookupLocal(name) != nil {
+				continue
+			}
+			def := ast.TypeDef{
+				Pos: c.pkg.Component.Pos, Name: name, Kind: ast.DefEnum,
+				External: true,
+				CName:    fmt.Sprintf("%s_%s_t", api.Prefix, toSnake(name)),
+				Doc:      fmt.Sprintf("From the %s interface.", api.Name),
+			}
+			for j := range e.Values {
+				def.Consts = append(def.Consts, ast.EnumConst{
+					Name:  e.Values[j].Name,
+					Value: int64(e.Values[j].Value),
+				})
+			}
+			c.pkg.Types = append(c.pkg.Types, def)
+			c.scope.declare(&symbol{Name: name, Kind: symType, Pos: def.Pos})
+
+			enumType := ast.Type{Kind: ast.TypeEnum, Ref: name, CName: def.CName}
+			for j := range def.Consts {
+				k := &def.Consts[j]
+				if c.scope.lookupLocal(k.Name) != nil {
+					continue
+				}
+				c.scope.declare(&symbol{
+					Name: k.Name, Kind: symEnumConst, Type: enumType, Pos: def.Pos,
+					Const: true, ConstValue: k.Value, HasConstValue: true,
+					EnumType: name,
+				})
+			}
+		}
+
+		for i := range api.Types {
+			t := &api.Types[i]
+			name := t.Name
+			if c.scope.lookupLocal(name) != nil {
+				continue
+			}
+			def := ast.TypeDef{
+				Pos: c.pkg.Component.Pos, Name: name, Kind: ast.DefStruct,
+				External: true,
+				CName:    fmt.Sprintf("%s_%s_t", api.Prefix, toSnake(name)),
+				Doc:      fmt.Sprintf("From the %s interface.", api.Name),
+			}
+			for j := range t.Fields {
+				f := &t.Fields[j]
+				ft, _, err := gmiType(api, f.Type)
+				if err != nil {
+					// Not representable here.  The field is still there in
+					// memory; ST simply has no name for it.
+					continue
+				}
+				def.Fields = append(def.Fields, ast.Field{
+					Pos: def.Pos, Name: f.Name, Typ: ft,
+				})
+			}
+			c.pkg.Types = append(c.pkg.Types, def)
+			c.scope.declare(&symbol{Name: name, Kind: symType, Pos: def.Pos})
+		}
+	}
+}
+
+// apiStructType is the ST type for one of an interface's structures.
+func apiStructType(api *gmiast.API, name string) ast.Type {
+	return ast.Type{
+		Kind:  ast.TypeStruct,
+		Ref:   name,
+		CName: fmt.Sprintf("%s_%s_t", api.Prefix, toSnake(name)),
 	}
 }

@@ -44,9 +44,19 @@ var cKeywords = map[string]bool{
 	// `true` and `false` to bit pins, so a variable of either name shadows
 	// what those expand to.
 	"bool": true, "true": true, "false": true,
-	// The type the whole component is built around.  A member named inst_t
-	// would compile, but a *type* of that name would shadow it.
+}
+
+// cGenerated are names the generated module already uses for itself: the type
+// the component is built around, and the members every instance carries.
+//
+// Checked only where a name actually lands in inst_t -- a component variable,
+// a pin, a parameter -- which is what claimInstanceName already marks.  A
+// method parameter or a function local named comp_id is a C local and collides
+// with nothing, and refusing it would reject a provider implementing an
+// interface whose function happens to take one.
+var cGenerated = map[string]bool{
 	"inst_t": true, "inst_hal_t": true,
+	"base": true, "env": true, "comp_id": true, "name": true, "hal": true,
 }
 
 // checkCName refuses a declared name the generated C could not spell.  It
@@ -71,4 +81,15 @@ func (c *checker) checkCName(name string, pos ast.Pos, what string) bool {
 		return false
 	}
 	return true
+}
+
+// checkInstanceCName refuses a name that would collide with a member every
+// instance already carries.
+func (c *checker) checkInstanceCName(name string, pos ast.Pos, what string) bool {
+	if !cGenerated[strings.ToLower(name)] {
+		return true
+	}
+	c.errorf(pos, "%s cannot be named %s: the generated module already uses that name "+
+		"for part of every instance. Pick another name", what, name)
+	return false
 }

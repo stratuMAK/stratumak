@@ -613,11 +613,20 @@ throughout, as it did for every phase of the frontend.
 - **`DATE` and `TIME_OF_DAY`** on their own. They carve a point in time into
   halves, and `DATE_AND_TIME` covers what has been asked for. (`RTC` itself is
   done — see §7 — and needed no wall clock.)
-- **GMI beyond scalars.** A string is a pointer in the callback, a `ptr` is
-  opaque, and a struct would be a second copy of the interface kept in step by
-  hand. This is the largest functional limit: `home` is nearly all scalars, but
-  `hm2_serial`, `mot` and `tp` are not, so most shipped interfaces are still
-  out of reach from ST.
+- ~~**GMI beyond scalars.**~~ Done for structures and for strings passed
+  outward. A structure's ST type is a *view* over the one the generated header
+  declares — named as the interface names it, compiling to the header's C type
+  — so there is no second declaration to keep in step, and a field ST cannot
+  represent (a slice is a pointer and a length in C) is simply not nameable
+  rather than approximated. A string reaches the callback as `const char *`
+  and an ST STRING is a char array, so passing one costs nothing.
+
+  Still refused: a `ptr`, which is opaque by construction; and a **provider**
+  receiving a string, because the interface hands over a pointer into the
+  caller's memory while a STRING here is a value of fixed size — receiving one
+  means a bounded copy and a rule for what happens when it does not fit, which
+  is a decision to make deliberately rather than in a thunk. Consuming an
+  interface that takes strings is unaffected, which is the common direction.
 - **`THIS`.** A method cannot call a sibling method, because there is no name
   for the instance inside one. Refused with that reason rather than "not
   declared".

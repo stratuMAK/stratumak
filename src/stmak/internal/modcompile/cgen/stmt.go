@@ -1259,6 +1259,12 @@ func (g *generator) emitSTTypedefs() {
 
 	for i := range g.pkg.Types {
 		td := &g.pkg.Types[i]
+		if td.External {
+			// Declared by a header the module already includes -- a GMI
+			// interface's.  Emitting it again would be a redefinition, and a
+			// copy free to drift from the one that matters.
+			continue
+		}
 		switch td.Kind {
 		case ast.DefEnum:
 			// Constants become macros named <ENUM>_<CONST>, which keeps two
@@ -1291,6 +1297,13 @@ func enumConstName(enum, konst string) string {
 
 // cTypeDims renders the declarator brackets an array type needs.
 func cTypeDims(t ast.Type) string {
+	if t.Kind == ast.TypeString {
+		// A STRING is a char array, and the terminator is the one character
+		// beyond the declared length.  Without this it emitted `char s;` --
+		// one byte where the declaration asked for thirty-three, and every
+		// use of it wrote past the end.
+		return fmt.Sprintf("[%d]", t.StringLen()+1)
+	}
 	if t.Kind != ast.TypeArray {
 		return ""
 	}

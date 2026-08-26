@@ -140,6 +140,9 @@ func (c *checker) run() {
 	// so the type scope survives for every program in phase 6.
 	c.push()
 	defer c.pop()
+	// An interface's structures and enumerations are declared before the
+	// file's own, so a TYPE may be written in terms of one.
+	c.declareAPITypes()
 	c.checkTypeDecls(c.file.Types)
 
 	// Constant globals live with the types, not with the mutable globals
@@ -686,6 +689,12 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 		// member itself.
 		v.CType = instCType(typ)
 	}
+	if typ.Kind == ast.TypeString {
+		// A STRING is a char array in inst_t as much as anywhere else, and
+		// the terminator is the character past the declared length.
+		v.Array = typ.StringLen() + 1
+		v.String = true
+	}
 	if typ.Kind == ast.TypeArray {
 		// Both fields are set: Array is the total so a reader of either sees
 		// something true, and Dims keeps the shape so the generated C reads
@@ -916,6 +925,9 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 // different storage in different programs is worse than a rename -- and
 // VAR_GLOBAL already exists for what is genuinely shared.
 func (c *checker) claimInstanceName(name string, pos ast.Pos, what string) bool {
+	if !c.checkInstanceCName(name, pos, what) {
+		return false
+	}
 	if c.instanceNames == nil {
 		c.instanceNames = make(map[string]ast.Pos)
 	}
@@ -1054,9 +1066,12 @@ func (c *checker) resolveType(ref *st.TypeRef) (ast.Type, bool) {
 		case ast.DefAlias:
 			return td.Alias, true
 		case ast.DefEnum:
-			return ast.Type{Kind: ast.TypeEnum, Ref: td.Name}, true
+			// CName carries the C spelling for a type declared by a header the
+			// module includes -- a GMI interface's.  Empty for everything
+			// declared here, where Ref plus "_t" is the name.
+			return ast.Type{Kind: ast.TypeEnum, Ref: td.Name, CName: td.CName}, true
 		case ast.DefStruct:
-			return ast.Type{Kind: ast.TypeStruct, Ref: td.Name}, true
+			return ast.Type{Kind: ast.TypeStruct, Ref: td.Name, CName: td.CName}, true
 		}
 	}
 

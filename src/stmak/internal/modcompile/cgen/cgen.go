@@ -1208,7 +1208,14 @@ func (g *generator) emitNew() {
 	for _, v := range g.comp.Variables {
 		if v.Default != "" {
 			defName := strings.TrimLeft(v.Name, "*")
-			if v.Array > 0 {
+			if v.String {
+				// A string is copied, not repeated into every element: the
+				// array-fill below would assign the pointer to each char.
+				// Bounded by the declared size, so a longer initialiser is
+				// truncated rather than writing past the end.
+				g.printf("    snprintf(inst->%s, sizeof(inst->%s), \"%%s\", %s);\n",
+					defName, defName, v.Default)
+			} else if v.Array > 0 {
 				g.printf("    for (int _i = 0; _i < %d; _i++)\n", v.Array)
 				g.printf("        inst->%s[_i] = %s;\n", defName, v.Default)
 			} else {

@@ -27,6 +27,13 @@ func (e *stEmitter) apiCall(v *ast.APICallExpr) string {
 	handle := fmt.Sprintf("__comp_inst->__gmi_%s", toC(v.API))
 	args := fmt.Sprintf("%s->ctx", handle)
 	for _, a := range v.Args {
+		if a.ExprType().Kind == ast.TypeStruct {
+			// The callback takes `const T *`, and the type ST holds is the
+			// header's own -- so its address is the argument, with no
+			// conversion and no copy.
+			args += ", &(" + e.expr(a) + ")"
+			continue
+		}
 		args += ", " + e.expr(a)
 	}
 	return fmt.Sprintf("(%s->%s(%s))", handle, toC(v.Func), args)

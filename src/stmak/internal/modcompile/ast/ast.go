@@ -397,6 +397,11 @@ type Variable struct {
 	Array   int    // element count; 0 if not an array
 	Default string // initial value expression (empty if none)
 
+	// String marks a STRING, which is a char array like any other in C but
+	// is initialised by copying rather than by filling every element with the
+	// same value.  Array carries its size, terminator included.
+	String bool
+
 	// Dims is the extent of each dimension of a multi-dimensional array,
 	// outermost first.  A .comp cannot declare one and leaves this nil, using
 	// Array alone; an .st sets both, with Array the product, so a reader of
@@ -469,6 +474,15 @@ type TypeDef struct {
 	Name string
 	Kind TypeDefKind
 	Doc  string
+
+	// External marks a type declared somewhere the generated module already
+	// includes -- a GMI interface's header.  Nothing is emitted for it: the C
+	// declaration exists, and emitting a second would be a redefinition and,
+	// worse, a copy free to drift from the first.
+	External bool
+
+	// CName is that declaration's C name, when External.
+	CName string
 
 	// Alias is the target type when Kind is DefAlias.
 	Alias Type

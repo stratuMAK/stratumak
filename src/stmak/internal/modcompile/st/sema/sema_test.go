@@ -1565,3 +1565,69 @@ func TestHALNameLength(t *testing.T) {
 		strings.Repeat("z", 125)+" : DINT;\nEND_VAR\n"+
 		strings.Repeat("z", 125)+" := 1;\nEND_PROGRAM")
 }
+
+// TestInstanceMemberNames covers the names inst_t already carries.
+//
+// Every component variable, pin and parameter becomes a member beside `base`,
+// `env`, `comp_id`, `name` and `hal`, so one of those names is a duplicate
+// member -- reported by the C compiler against generated code rather than
+// against the declaration.
+//
+// The other half matters as much: these are only refused where the name lands
+// in inst_t. A method parameter is a C local and collides with nothing, and
+// refusing it would reject a provider implementing an interface whose function
+// takes a `comp_id`, which the `home` interface does.
+func TestInstanceMemberNames(t *testing.T) {
+	for _, name := range []string{"hal", "name", "comp_id", "env", "base"} {
+		t.Run("variable "+name, func(t *testing.T) {
+			_, err := check(t, "p", wrap("VAR\n "+name+" : DINT;\nEND_VAR", "q := TRUE;"))
+			if err == nil || !strings.Contains(err.Error(), "part of every instance") {
+				t.Errorf("a variable named %s gave %v, want a refusal", name, err)
+			}
+		})
+	}
+	t.Run("an output pin", func(t *testing.T) {
+		_, err := check(t, "p", "{attribute 'summary' := 'x'}\nPROGRAM p\n"+
+			"VAR_OUTPUT\n hal : BOOL;\nEND_VAR\nhal := TRUE;\nEND_PROGRAM")
+		if err == nil || !strings.Contains(err.Error(), "part of every instance") {
+			t.Errorf("a pin named hal gave %v, want a refusal", err)
+		}
+	})
+
+	// Not an instance member: a method's parameter, a function's local, and a
+	// function block's own member all live somewhere else.
+	mustCheck(t, "p", "{attribute 'summary' := 'x'}\n"+
+		"FUNCTION_BLOCK B\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n"+
+		"VAR\n hal : DINT;\nEND_VAR\n"+
+		"o := hal;\n"+
+		"METHOD go : DINT\nVAR_INPUT\n comp_id : DINT;\nEND_VAR\n"+
+		"go := comp_id;\nEND_METHOD\n"+
+		"END_FUNCTION_BLOCK\n"+
+		progWith("VAR\n b : B;\nEND_VAR", "b();\nq := b.o > 0;"))
+}
+
+// TestStringVariableIsSized is a regression.
+//
+// A STRING is a char array, and neither path that emits a variable knew it:
+// `label : STRING[32]` became `char label;`, one byte where the declaration
+// asked for thirty-three, and every use of it wrote past the end.  Valid C,
+// and memory corruption in the real-time process.
+func TestStringVariableIsSized(t *testing.T) {
+	pkg := mustCheck(t, "p", wrap("VAR\n label : STRING[32] := 'hi';\nEND_VAR", "q := TRUE;"))
+
+	var v *ast.Variable
+	for i := range pkg.Component.Variables {
+		if pkg.Component.Variables[i].Name == "label" {
+			v = &pkg.Component.Variables[i]
+		}
+	}
+	if v == nil {
+		t.Fatal("label was not declared")
+	}
+	if !v.String {
+		t.Error("label is not marked as a STRING, so its initialiser would be filled rather than copied")
+	}
+	if v.Array != 33 {
+		t.Errorf("label has room for %d characters, want 33 -- the declared length plus the terminator", v.Array)
+	}
+}

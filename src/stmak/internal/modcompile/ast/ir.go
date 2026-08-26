@@ -141,6 +141,14 @@ type Type struct {
 	// through a TYPE alias.  Diagnostics use it so an error about a
 	// Temperature reads as Temperature rather than LREAL.  Never load-bearing.
 	Alias string
+
+	// CName overrides the C spelling this type would otherwise be given.
+	//
+	// It is how a GMI structure reaches Structured Text: the type ST sees is
+	// named as the interface names it, PktUartConfig, while the C it compiles
+	// to is the one the generated header already declares.  There is no second
+	// declaration to keep in step, because there is no second declaration.
+	CName string
 }
 
 func (t Type) String() string {
@@ -282,6 +290,9 @@ func (t Type) CType() string {
 	case TypeEnum:
 		return "int32_t"
 	case TypeStruct, TypeFB:
+		if t.CName != "" {
+			return t.CName
+		}
 		return t.Ref + "_t"
 	case TypeArray:
 		if t.Elem != nil {
