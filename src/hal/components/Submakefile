@@ -260,6 +260,29 @@ modules: $(CMOD_TARGETS) $(CMOD_DRIVER_TARGETS)
 modules: $(CMOD_ST_TARGETS) $(CMOD_ST_DRIVER_TARGETS)
 
 # ---------------------------------------------------------------------------
+# Structured Text libraries.
+#
+# A library is source, not a module: `USING standard;` resolves it and its
+# declarations are compiled into the consumer's own .so.  So these are copied
+# rather than built, into the directory modcompile searches last --
+# <cmod-dir>/st-lib -- after $STMAK_ST_LIB_PATH and the source's own
+# directory.  See docs/dev/MODCOMPILE_ST_STDLIB.md §6.
+#
+# They are deliberately not swept up by the hal/components/*.st wildcard
+# above: a library declares no PROGRAM, so trying to make a module of one is
+# refused, which is why they live in their own directory.
+ST_LIBS := $(wildcard hal/st-lib/*.st)
+ST_LIB_TARGETS := $(patsubst hal/st-lib/%.st, ../cmod/st-lib/%.st, $(ST_LIBS))
+
+../cmod/st-lib/%.st: hal/st-lib/%.st
+	@mkdir -p $(dir $@)
+	$(ECHO) Installing ST library $(notdir $@)
+	$(Q)cp -f $< $@
+
+TARGETS += $(ST_LIB_TARGETS)
+modules: $(ST_LIB_TARGETS)
+
+# ---------------------------------------------------------------------------
 # cmod native C components (hand-written .c files, not from .comp)
 # NOTE: These should use "modcompile --compile foo.c" (out-of-tree already can).
 # In-tree will switch to modcompile when migrating from Make to CMake.

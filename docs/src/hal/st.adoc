@@ -363,6 +363,42 @@ same file, checked against the real declaration, and a fault inside it maps
 back to the library's source rather than to yours. Only what you use is
 generated, so a library may declare as much as it likes.
 
+=== The standard library
+
+The IEC 61131-3 standard function blocks ship as one library, `standard`:
+
+[cols="1,3"]
+|===
+|`SR` / `RS` | set-dominant and reset-dominant latches
+|`R_TRIG` / `F_TRIG` | rising and falling edge, true for one cycle
+|`CTU` / `CTD` / `CTUD` | up, down and up-down counters
+|===
+
+[source,pascal]
+----
+USING standard;
+
+PROGRAM mycomp
+  VAR
+    up  : R_TRIG;
+    ctr : CTU;
+  END_VAR
+
+  up(CLK := input);
+  ctr(CU := up.Q, R := reset, PV := 10);
+  done := ctr.Q;
+END_PROGRAM
+----
+
+These are the standard's own bodies with one difference: IEC declares a
+counter's clock as `CU : BOOL R_EDGE`, and stratuMAK does not support that
+qualifier — an input that silently becomes a one-cycle pulse is invisible when
+you read the body. The counters detect the edge themselves, so `CU` is an
+ordinary input and counts one per rising edge either way.
+
+The standard library is LGPL with an added permission, not GPL, so a
+proprietary component may use it. See `src/hal/st-lib/COPYING`.
+
 `modcompile` looks for `timers.st` in `$STMAK_ST_LIB_PATH` first, then beside
 the file being compiled, then in the shipped library directory — so keeping
 your libraries next to your components needs no configuration at all. The first

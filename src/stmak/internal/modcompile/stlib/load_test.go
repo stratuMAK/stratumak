@@ -154,12 +154,12 @@ func TestLoadRefuses(t *testing.T) {
 		},
 		want: "may not declare a PROGRAM",
 	}, {
-		name: "a library declaring VAR_GLOBAL",
+		name: "a library declaring a mutable VAR_GLOBAL",
 		files: map[string]string{
 			"lib.st": "{attribute 'library' := 'lib'}\nVAR_GLOBAL\n n : DINT;\nEND_VAR\n",
 			"c.st":   "{attribute 'summary' := 'x'}\nUSING lib;\n",
 		},
-		want: "may not declare VAR_GLOBAL",
+		want: "may not declare a mutable VAR_GLOBAL",
 	}, {
 		name: "a library that uses itself",
 		files: map[string]string{
@@ -190,6 +190,30 @@ func TestLoadRefuses(t *testing.T) {
 				t.Errorf("error is %q, want one containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestLoadAcceptsGlobalConstants is the other half of the VAR_GLOBAL rule.
+//
+// A VAR_GLOBAL CONSTANT is not state: it folds to its value and emits no
+// storage, so a library may declare the constants its blocks are written in
+// terms of.  The standard library's counters need CV_MAX and CV_MIN.
+func TestLoadAcceptsGlobalConstants(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "lim.st", "{attribute 'library' := 'lim'}\n"+
+		"VAR_GLOBAL CONSTANT\n CV_MAX : INT := 32767;\nEND_VAR\n")
+	root := write(t, dir, "c.st", `{attribute 'summary' := 'x'}
+USING lim;
+PROGRAM c
+  VAR_OUTPUT
+    q : BOOL;
+  END_VAR
+  q := CV_MAX > 0;
+END_PROGRAM
+`)
+	l := &Loader{Dirs: []string{dir}}
+	if _, err := l.Load(root); err != nil {
+		t.Fatalf("a library's VAR_GLOBAL CONSTANT should be accepted: %v", err)
 	}
 }
 

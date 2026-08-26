@@ -1,0 +1,24 @@
+# Drive the standard library's blocks from a file and capture what they do.
+# These are the IEC bodies, so what is being checked is the semantics: which
+# latch wins when both inputs are true, that an edge lasts exactly one cycle,
+# and that a counter counts edges rather than levels.
+
+newthread fast 100000
+
+load ./stdblocks.so <sb.0>
+
+load filestream stream_cfg=bb infile=in.txt sample_cfg=bbbbss outfile=out.txt depth=1000 samples=12
+
+net clk filestream.stream.0 sb.0.clk
+net aux filestream.stream.1 sb.0.aux
+
+net sr_q  sb.0.sr-q  filestream.sample.0
+net rs_q  sb.0.rs-q  filestream.sample.1
+net rise  sb.0.rise  filestream.sample.2
+net fall  sb.0.fall  filestream.sample.3
+net cu_cv sb.0.cu-cv filestream.sample.4
+net cd_cv sb.0.cd-cv filestream.sample.5
+
+addf filestream.write fast
+addf sb.0 fast
+addf filestream.read fast

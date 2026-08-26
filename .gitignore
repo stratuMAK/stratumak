@@ -88,4 +88,15 @@ share/bash-completion/
 /tests/modcompile-st-behaviour/*.c
 /tests/modcompile-st-behaviour/in.txt
 /tests/modcompile-st-behaviour/out.txt
+/tests/modcompile-st-period/*.c
+/tests/modcompile-st-period/in.txt
+/tests/modcompile-st-period/out.txt
+/tests/modcompile-st-standard/*.c
+/tests/modcompile-st-standard/in.txt
+/tests/modcompile-st-standard/out.txt
+
+# Structured Text libraries are source, not modules: the build copies them
+# into the directory modcompile searches rather than compiling them, so the
+# usual *.so rule does not cover the result.
+/cmod/st-lib/
 /tests/modcompile-st-behaviour/server.log

@@ -166,11 +166,20 @@ func (l *Loader) merge(root *st.File, rootPath string) error {
 			root.Types = append(root.Types, lib.Types...)
 			root.Blocks = append(root.Blocks, lib.Blocks...)
 			root.Funcs = append(root.Funcs, lib.Funcs...)
-			if len(lib.Globals) > 0 {
-				return fmt.Errorf("%s:%d: a library may not declare VAR_GLOBAL: "+
+			for _, g := range lib.Globals {
+				if g.Constant {
+					// A VAR_GLOBAL CONSTANT is not state: it folds to its
+					// value and emits no storage, so a library may declare
+					// the constants its blocks are written in terms of, and
+					// they come across with everything else.
+					root.Globals = append(root.Globals, g)
+					continue
+				}
+				return fmt.Errorf("%s:%d: a library may not declare a mutable VAR_GLOBAL: "+
 					"it would become per-instance state of whatever component used it, "+
-					"which is not something a library can reason about",
-					libPath, lib.Globals[0].Pos.Line)
+					"which is not something a library can reason about. "+
+					"VAR_GLOBAL CONSTANT is fine -- it folds to its value and needs no storage",
+					libPath, g.Pos.Line)
 			}
 		}
 		return nil

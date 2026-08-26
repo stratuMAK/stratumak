@@ -581,6 +581,21 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 }
 
 func (c *checker) checkUnary(v *st.UnaryExpr, want ast.Type) ast.Expr {
+	if v.Op == ast.UnNeg {
+		if lit, ok := v.X.(*st.IntLit); ok {
+			// The sign folds into the literal before it is range-checked,
+			// because the most negative value of a signed type cannot be
+			// written any other way: INT runs -32768 to 32767, so 32768 does
+			// not fit on its own and `-32768` would be refused for the
+			// magnitude it never has.
+			return c.checkIntLit(&st.IntLit{
+				Pos:   lit.Pos,
+				Value: -lit.Value,
+				Text:  "-" + lit.Text,
+			}, want)
+		}
+	}
+
 	hint := want
 	if v.Op == ast.UnNot {
 		hint = ast.Type{Kind: ast.TypeBool}

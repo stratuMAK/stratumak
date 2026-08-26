@@ -124,6 +124,14 @@ func (c *checker) run() {
 	c.push()
 	defer c.pop()
 	c.checkTypeDecls(c.file.Types)
+
+	// Constant globals live with the types, not with the mutable globals
+	// below, because a FUNCTION_BLOCK body is checked before either and a
+	// constant is something it can legitimately be written in terms of -- a
+	// library's counters are bounded by CV_MAX and CV_MIN.  A constant folds
+	// to its value and needs no storage, so nothing about the instance
+	// depends on when it is declared.
+	c.declareGlobals(globalsConstant)
 	c.checkPOUs()
 
 	// Before anything walks the instance tree.  A block that contains itself
@@ -137,7 +145,7 @@ func (c *checker) run() {
 	// each program's own declarations private to it.
 	c.push()
 	defer c.pop()
-	c.declareGlobals()
+	c.declareGlobals(globalsMutable)
 
 	if len(c.file.Programs) == 0 {
 		c.errorf(c.file.Pos, "no PROGRAM declared; a component needs at least one, "+
@@ -190,8 +198,21 @@ func (c *checker) declarePeriod(pos ast.Pos) {
 // declareGlobals resolves VAR_GLOBAL, which becomes per-instance state shared
 // by every program in the file.  It lands in inst_t like any other variable;
 // what makes it global is only that it is visible from more than one program.
-func (c *checker) declareGlobals() {
+// Which half of the VAR_GLOBAL declarations a pass handles.  They are
+// declared in two different scopes and at two different times, so the split is
+// named rather than being a bare bool at the call site.
+type globalsPass int
+
+const (
+	globalsConstant globalsPass = iota
+	globalsMutable
+)
+
+func (c *checker) declareGlobals(pass globalsPass) {
 	for _, b := range c.file.Globals {
+		if (pass == globalsConstant) != b.Constant {
+			continue
+		}
 		if b.Retain || b.NonRetain {
 			c.warnf("%s: RETAIN and NON_RETAIN have no effect; stratuMAK has no retentive memory", b.Pos)
 		}

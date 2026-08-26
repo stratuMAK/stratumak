@@ -313,10 +313,49 @@ files and needed nothing new.
 Everything below is written in ST, in-tree, and compiled by the same frontend
 as user code. Nothing in the standard library is a compiler builtin.
 
-**Phase 3 — no new language needed.** Pure ST on what already exists:
-`SR`, `RS`, `R_TRIG`, `F_TRIG`, `CTU`, `CTD`, `CTUD`. These are the proof that
-the library mechanism works, and they are worth landing before the timers so
-that phase 2 is validated by something with no other moving parts.
+**Phase 3 — no new language needed — done.** `SR`, `RS`, `R_TRIG`, `F_TRIG`,
+`CTU`, `CTD`, `CTUD`, in `src/hal/st-lib/standard.st`, installed to
+`<cmod-dir>/st-lib` so `USING standard;` resolves with no configuration.
+
+One library rather than several, matching CODESYS's `Standard.lib`: pruning
+makes an unused block free, so splitting it would only make the reader choose a
+subset by hand.
+
+**One deliberate difference from the standard's own bodies.** IEC declares a
+counter's clock as `CU : BOOL R_EDGE`, and stratuMAK refuses that qualifier —
+an input that silently becomes a one-cycle pulse is invisible when reading the
+body. The counters hold an `R_TRIG` and the edge is written out, which also
+proves a library block may use another from the same file.
+
+**Three frontend gaps it found**, none of them in the blocks:
+
+- A library could not declare `VAR_GLOBAL CONSTANT`. The phase 2 rule refused
+  every `VAR_GLOBAL`, but a constant is not state: it folds to its value and
+  emits no storage. The counters are written in terms of `CV_MAX`/`CV_MIN`.
+- Constant globals were declared *after* the POUs were checked, so a
+  `FUNCTION_BLOCK` body could not see one at all. They now live with the types.
+- `-32768` was not a writable `INT`. The literal was range-checked before the
+  negation folded, so the most negative value of every signed type was
+  unwritable. The sign now folds into the literal first.
+
+**And one bug in a block**, caught by running it rather than by reading it:
+`F_TRIG`'s `M` must start true. An instance loads with its members zeroed, so
+with `M` false and `CLK` low the first cycle computes `NOT CLK AND NOT M` and
+reports a falling edge that never happened. IEC initialises it for exactly
+that reason. `tests/modcompile-st-standard` drives the blocks from HAL and
+asserts the properties by name — which latch wins when both inputs are true,
+that an edge lasts one cycle, that a counter counts edges and not levels — so
+a broken block is named rather than showing up as a diff line.
+
+**Licensing.** The libraries are LGPL-2.1-or-later with an added permission,
+not GPL, so a proprietary module may use them. The permission is not
+ceremonial: the LGPL is written around linking against a work that stays
+separate, and nothing here is separate — `USING` compiles the declarations into
+the consumer's own module, which is closer to including a header than to
+linking, and §6's relink obligations make no sense for it. `src/hal/st-lib/COPYING`
+says so explicitly rather than leaving the intent to a later reading. The LGPL
+text itself is not yet bundled; a `COPYING.LIB` belongs beside the existing
+`COPYING` before these are distributed.
 
 **Phase 4 — the timers**, on `TIME` and the monotonic clock: `TP`, `TON`,
 `TOF`, and `TONR` from ed.3. This is 60 of the 79 measured instantiations.

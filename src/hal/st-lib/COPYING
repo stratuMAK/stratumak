@@ -1,0 +1,56 @@
+stratuMAK Structured Text libraries — licensing
+===============================================
+
+The files in this directory are
+
+    Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+
+and are licensed under the GNU Lesser General Public License, version 2.1 or
+(at your option) any later version, with the additional permission below.
+
+Why LGPL and not GPL
+--------------------
+
+stratuMAK itself is GPL.  These libraries are not, deliberately: a HAL
+component that uses one should not be forced to be GPL by that use alone, so
+that proprietary modules can be built on the standard function blocks.
+
+Why an added permission is needed anyway
+----------------------------------------
+
+The LGPL is written around linking against a library that stays a separate
+work.  Nothing here is separate.  A Structured Text library is resolved by
+`USING` and its declarations are compiled into the consumer's own module — no
+shared object, no ABI, no library boundary at run time.  That is closer to
+including a header than to linking, and section 6 of the LGPL, which covers
+works containing portions of the library, imposes conditions (supplying object
+files so the user can relink) that make no sense for a module whose whole
+content is one generated translation unit.
+
+Rather than leave the intent resting on how anyone later reads section 6, it
+is written out:
+
+    stratuMAK module exception
+    --------------------------
+    As a special exception, the copyright holders give you permission to
+    compile the Structured Text declarations in this directory into a
+    stratuMAK HAL module, and to convey the resulting module under terms of
+    your choice, without any of the conditions of section 6 of the LGPL
+    applying to that module.
+
+    This exception does not invalidate any other reasons why the module might
+    be covered by the GNU General Public License: using a stratuMAK header, a
+    GMI interface, or any other GPL part of stratuMAK is unaffected by this
+    permission and is governed by its own licence.
+
+    Modifications to the files in this directory are still governed by the
+    LGPL: the exception covers using these libraries, not changing them.
+
+In short: use these blocks in whatever module you like; improvements to the
+blocks themselves come back.
+
+The full text of the LGPL v2.1 is at
+<https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>.
+
+It is not yet bundled: the tree ships COPYING (GPL v2) and COPYING.more, and a
+COPYING.LIB should be added beside them before these libraries are distributed.
