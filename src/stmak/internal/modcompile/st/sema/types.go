@@ -37,20 +37,29 @@ var elementary = map[string]ast.TypeKind{
 	"DT":             ast.TypeDateTime,
 	"LDATE_AND_TIME": ast.TypeDateTime,
 	"LDT":            ast.TypeDateTime,
+	// A day, held as that day's midnight in the same unit, and a time of day,
+	// held as nanoseconds since midnight.  Separate types because what you can
+	// do with each differs: two days subtract to a duration, a day and a time
+	// of day combine into a point in time, and neither is the other.
+	"DATE":         ast.TypeDate,
+	"D":            ast.TypeDate,
+	"LDATE":        ast.TypeDate,
+	"LD":           ast.TypeDate,
+	"TIME_OF_DAY":  ast.TypeTimeOfDay,
+	"TOD":          ast.TypeTimeOfDay,
+	"LTIME_OF_DAY": ast.TypeTimeOfDay,
+	"LTOD":         ast.TypeTimeOfDay,
 }
 
 // deferredTypes name types stratuMAK will support but does not yet, mapped to
 // the reason.  Naming them explicitly turns "unknown type TIME" into something
 // a reader can act on.
 var deferredTypes = map[string]string{
-	"DATE":        "the DATE type is not implemented; use DATE_AND_TIME, which is a point in time",
-	"TIME_OF_DAY": "the TIME_OF_DAY type is not implemented; use DATE_AND_TIME, which is a point in time",
-	"TOD":         "the TIME_OF_DAY type is not implemented; use DATE_AND_TIME, which is a point in time",
-	"WSTRING":     "WSTRING is not supported; use STRING",
-	"BYTE":        "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
-	"WORD":        "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
-	"DWORD":       "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
-	"LWORD":       "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
+	"WSTRING": "WSTRING is not supported; use STRING",
+	"BYTE":    "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
+	"WORD":    "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
+	"DWORD":   "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
+	"LWORD":   "bit-string types (BYTE, WORD, DWORD, LWORD) are not implemented yet; use USINT, UINT, UDINT or ULINT",
 }
 
 // lookupElementary resolves an elementary type name, case-insensitively.

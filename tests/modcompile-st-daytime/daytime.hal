@@ -1,0 +1,21 @@
+# One point in time per cycle, split into its two halves.
+#
+# Nothing here is timed: the block reads no clock, so every column is a
+# function of that cycle's input alone and the expected output is exact.
+
+newthread slow 10000000
+
+load ./daytime.so <r.0>
+
+load filestream stream_cfg=s infile=in.txt sample_cfg=ffbf outfile=out.txt depth=1000 samples=6
+
+net epoch filestream.stream.0 r.0.epoch
+
+net day-s   r.0.day-s   filestream.sample.0
+net tod-s   r.0.tod-s   filestream.sample.1
+net at-work r.0.at-work filestream.sample.2
+net days    r.0.days    filestream.sample.3
+
+addf filestream.write slow
+addf r.0 slow
+addf filestream.read slow

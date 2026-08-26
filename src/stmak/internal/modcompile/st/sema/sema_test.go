@@ -936,11 +936,12 @@ func TestDiagnostics(t *testing.T) {
 		},
 
 		{
-			// TIME and DATE_AND_TIME are implemented; the two that carve a
-			// point in time into halves are not, and point at the whole.
-			name: "date types are named, not merely unknown",
-			src:  wrap("VAR\n d : DATE;\nEND_VAR", "q := TRUE;"),
-			want: "use DATE_AND_TIME, which is a point in time",
+			// A day and a time of day are each half of a point in time, and
+			// what they measure differs -- so the arithmetic between them is
+			// checked rather than assumed.  See TestDayAndClockArithmetic.
+			name: "a day and a time of day do not mix",
+			src:  wrap("VAR\n d : DATE;\n c : TIME_OF_DAY;\nEND_VAR", "d := c;"),
+			want: "cannot assign",
 		},
 		{
 			name: "bit-string types are named",
@@ -1286,9 +1287,12 @@ func TestTimeDiagnostics(t *testing.T) {
 		src:  wrap(decls, "pt := pt / 0;"),
 		want: "division by zero",
 	}, {
-		name: "bare date literals are still refused",
-		src:  wrap(decls, "q := D#2026-01-01 = D#2026-01-01;"),
-		want: "D literals are not supported",
+		// Every prefix in the family now parses, so what is left to get wrong
+		// is mixing them: a time of day is a position within some day, and a
+		// point in time says which day.  Comparing them compares nothing.
+		name: "a time of day compared with a point in time",
+		src:  wrap(decls, "q := TOD#08:00:00 < DT#2026-01-01-09:00:00;"),
+		want: "they measure different things",
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := check(t, "p", tt.src)
@@ -1833,5 +1837,51 @@ func TestDurationOnAPin(t *testing.T) {
 	}
 	if len(pkg.Warnings) == 0 || !strings.Contains(strings.Join(pkg.Warnings, "\n"), "milliseconds") {
 		t.Errorf("no warning about the rounding: %v", pkg.Warnings)
+	}
+}
+
+// TestDayAndClockArithmetic covers what the two halves of a point in time can
+// and cannot do.
+//
+// They are separate types because what each can do differs, and the cases are
+// written out rather than inferred: two days subtract to the time between
+// them, a day and a time of day combine into a point in time, and adding two
+// days is nothing at all.
+func TestDayAndClockArithmetic(t *testing.T) {
+	decls := "VAR\n d : DATE := D#2026-01-01;\n e : DATE := D#2026-02-01;\n" +
+		" c : TIME_OF_DAY := TOD#08:00:00;\n f : TIME_OF_DAY := TOD#17:00:00;\n" +
+		" stamp : DATE_AND_TIME;\n span : TIME;\nEND_VAR"
+
+	mustCheck(t, "p", wrap(decls,
+		"span := e - d;\nspan := f - c;\nstamp := d + c;\nstamp := c + d;\nq := c < f;"))
+
+	for _, tt := range []struct{ name, body, want string }{{
+		// The one people reach for. 23:00 plus two hours is one in the
+		// morning of the next day, and a TIME_OF_DAY has no next day.
+		name: "a duration added to a time of day",
+		body: "c := c + T#2h;",
+		want: "the result would leave the day",
+	}, {
+		name: "two days added",
+		body: "d := d + e;",
+		want: "cannot be applied to DATE and DATE",
+	}, {
+		name: "a day compared with a time of day",
+		body: "q := d > c;",
+		want: "they measure different things",
+	}, {
+		name: "a day assigned to a time of day",
+		body: "c := d;",
+		want: "cannot assign",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", wrap(decls, tt.body))
+			if err == nil {
+				t.Fatal("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
 	}
 }

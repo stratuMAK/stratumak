@@ -59,7 +59,11 @@ type generator struct {
 
 	// needStrCmp is set when two STRINGs are compared anywhere.
 	needStrCmp bool
-	err        error
+
+	// needDayPart is set while emitting when a point in time is split into
+	// the day it falls on or the time of day within it.
+	needDayPart bool
+	err         error
 
 	// outName is the path the generated C will be saved as; empty disables
 	// #line emission. line counts newlines written so far, which is what
@@ -96,6 +100,7 @@ func (g *generator) generate() error {
 		g.needClamp = g.anyRuntimeIndex()
 		g.needStrCopy = g.anyStringAssign()
 		g.needStrCmp = g.anyStringCompare()
+		g.needDayPart = g.anyDayPart()
 		g.emitSTRuntime()
 		g.emitFperiodHelper()
 		// Blocks and functions are declared before any is defined, so they may

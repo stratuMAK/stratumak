@@ -158,6 +158,20 @@ func (g *generator) anyStringAssign() bool {
 	return found
 }
 
+// anyDayPart reports whether a point in time is split anywhere, and so
+// whether the two helpers that do it are needed.
+func (g *generator) anyDayPart() bool {
+	found := false
+	for _, body := range g.allBodies() {
+		walkStmts(body, func(ast.Stmt) {}, func(e ast.Expr) {
+			if _, ok := e.(*ast.DayPartExpr); ok {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
 // anyStringCompare reports whether two STRINGs are compared anywhere, and so
 // whether the compare helper is needed.  A pre-scan for the same reason as
 // anyStringAssign: the helper is emitted before the bodies that call it.
@@ -256,6 +270,8 @@ func walkExpr(e ast.Expr, onExpr func(ast.Expr)) {
 		walkExpr(v.X, onExpr)
 	case *ast.TimeConvExpr:
 		walkExpr(v.X, onExpr)
+	case *ast.DayPartExpr:
+		walkExpr(v.X, onExpr)
 	case *ast.MethodCallExpr:
 		walkExpr(v.Inst, onExpr)
 		for _, a := range v.Args {
@@ -297,7 +313,8 @@ func (g *generator) emitSTRuntime() {
 	f.clampIndex = g.needClamp
 	f.copyString = g.needStrCopy
 	f.cmpString = g.needStrCmp
-	if !f.needsGuards() && !f.boundLoop && !f.clampIndex && !f.copyString && !f.cmpString {
+	if !f.needsGuards() && !f.boundLoop && !f.clampIndex && !f.copyString &&
+		!f.cmpString && !g.needDayPart {
 		return
 	}
 
@@ -338,6 +355,24 @@ func (g *generator) emitSTRuntime() {
 		g.printf("    while (__i < cap - 1 && src[__i] != '\\0') { dst[__i] = src[__i]; __i++; }\n")
 		g.printf("    dst[__i] = '\\0';\n")
 		g.printf("    if (src[__i] != '\\0') __st_fault(__comp_inst, what);\n")
+		g.printf("}\n\n")
+	}
+
+	if g.needDayPart {
+		// The two halves of a point in time.  Written out because C's
+		// remainder takes the sign of the left operand, so for a date before
+		// 1970 the plain `t %% day` is negative and both halves come out
+		// wrong -- the day one too late and the time of day going backwards.
+		g.printf("#define __ST_NS_PER_DAY %dLL\n\n", 24*60*60*1000000000)
+		g.printf("static int64_t __st_tod(int64_t t) STMAK_NONBLOCKING;\n")
+		g.printf("static int64_t __st_tod(int64_t t) {\n")
+		g.printf("    int64_t d = t %% __ST_NS_PER_DAY;\n")
+		g.printf("    if (d < 0) d += __ST_NS_PER_DAY;\n")
+		g.printf("    return d;\n")
+		g.printf("}\n\n")
+		g.printf("static int64_t __st_day(int64_t t) STMAK_NONBLOCKING;\n")
+		g.printf("static int64_t __st_day(int64_t t) {\n")
+		g.printf("    return t - __st_tod(t);\n")
 		g.printf("}\n\n")
 	}
 
@@ -1088,6 +1123,13 @@ func (e *stEmitter) expr(x ast.Expr) string {
 	case *ast.TimeConvExpr:
 		return e.timeConv(v)
 
+	case *ast.DayPartExpr:
+		e.g.needDayPart = true
+		if v.Whole {
+			return fmt.Sprintf("__st_day(%s)", e.expr(v.X))
+		}
+		return fmt.Sprintf("__st_tod(%s)", e.expr(v.X))
+
 	case *ast.MethodCallExpr:
 		return e.methodCall(v)
 
@@ -1349,7 +1391,8 @@ func (e *stEmitter) binary(v *ast.BinaryExpr) string {
 func intLiteral(v int64, t ast.Type) string {
 	s := strconv.FormatInt(v, 10)
 	switch {
-	case t.Kind == ast.TypeTime, t.Kind == ast.TypeDateTime:
+	case t.Kind == ast.TypeTime, t.Kind == ast.TypeDateTime,
+		t.Kind == ast.TypeDate, t.Kind == ast.TypeTimeOfDay:
 		// A duration, and a point in time, are signed 64-bit counts of
 		// nanoseconds, and neither is IsSigned or IsInteger -- they are not on
 		// the numeric lattice at all -- so they would otherwise fall through
@@ -1467,9 +1510,10 @@ func cTypeDims(t ast.Type) string {
 
 // timeConv renders a conversion between a duration and a number.
 //
-// A duration is nanoseconds and the number is milliseconds or seconds, so the
-// cast comes with a scale.  Which way it applies follows from the target: to a
-// duration the number is multiplied up, and from one it is divided down.
+// A duration, a point in time, a day and a time of day are all nanoseconds and
+// the number is milliseconds or seconds, so the cast comes with a scale.
+// Which way it applies follows from the target: towards nanoseconds the number
+// is multiplied up, and away from them it is divided down.
 //
 // Integer targets divide in int64 and stay exact; a float target goes through
 // a double, because that is the only way TIME_TO_LREAL(T#1500us) can be 1.5
@@ -1478,10 +1522,10 @@ func (e *stEmitter) timeConv(v *ast.TimeConvExpr) string {
 	inner := e.expr(v.X)
 	scale := strconv.FormatFloat(v.Unit, 'f', -1, 64)
 
-	if v.Typ.Kind == ast.TypeTime {
-		// To a duration: the number is in the coarser unit, so scale up.  The
-		// product is formed as a double so a fractional input survives, then
-		// truncated to nanoseconds.
+	if v.Typ.IsTimeLike() {
+		// Towards nanoseconds: the number is in the coarser unit, so scale up.
+		// The product is formed as a double so a fractional input survives,
+		// then truncated to nanoseconds.
 		return fmt.Sprintf("((int64_t)((double)%s * %s))", inner, scale)
 	}
 

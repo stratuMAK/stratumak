@@ -97,6 +97,7 @@ appear on a pin:
 |enumeration |`s32` |
 |`ARRAY [0..n] OF` scalar |an array pin, one dimension |any shape
 |`TIME` |`s32`, in milliseconds |accepted, a duration in nanoseconds
+|`DATE_AND_TIME` `DATE` `TIME_OF_DAY` |not possible |accepted, convert to reach a pin
 |`LINT` `ULINT` `STRING` `STRUCT` |not possible |accepted
 |===
 
@@ -236,10 +237,51 @@ duration between them, a point and a duration add to another point, and two
 points cannot be added at all — twice last Tuesday is not a time.
 
 `DT_TO_UDINT` and `UDINT_TO_DT` convert in seconds since 1970-01-01 UTC, as
-CODESYS does; `DT_TO_SECONDS` and `SECONDS_TO_DT` are the same in `LREAL`.
+CODESYS does; `DT_TO_SECONDS` and `SECONDS_TO_DT` are the same in `LREAL`, and
+`DT_TO_LINT` and `LINT_TO_DT` are the signed form, which reaches the days
+before 1970.
 
-`DATE` and `TIME_OF_DAY` on their own are not supported — use a
-`DATE_AND_TIME`.
+=== Days and times of day
+
+A point in time has two halves, and each is a type of its own. `DATE` (`D`) is
+a day; `TIME_OF_DAY` (`TOD`) is a position within some day, without saying
+which:
+
+[source,pascal]
+----
+VAR
+  today : DATE := D#2026-08-26;
+  shift : TIME_OF_DAY := TOD#08:00:00;
+  now   : DATE_AND_TIME;
+END_VAR
+
+now := today + shift;            (* a day and a position in it: a point *)
+----
+
+`DT_TO_DATE` and `DT_TO_TOD` split a point back into them. The split is exact
+on both sides of 1970 — a day before the epoch is a negative number, and the
+clock still runs forwards through it:
+
+[source,pascal]
+----
+started := DT_TO_TOD(stamp);
+if started >= TOD#08:00:00 AND started < TOD#17:00:00 then
+  ...
+----
+
+What each half can do follows from what it measures. Two days subtract to the
+`TIME` between them, as two points do. Two times of day likewise. A day plus a
+time of day is a point in time, in either order. Everything else is refused,
+including the one people reach for — a duration added to a time of day, where
+23:00 plus two hours is one in the morning of a day a `TIME_OF_DAY` does not
+have. Add it to the point in time instead, which does.
+
+`DATE_TO_UDINT` and `UDINT_TO_DATE` convert in seconds since 1970-01-01 UTC,
+like the point in time a day is; `DATE_TO_LINT`/`LINT_TO_DATE` and
+`DATE_TO_SECONDS`/`SECONDS_TO_DATE` are the signed and floating forms.
+`TOD_TO_UDINT` and `UDINT_TO_TOD` convert in milliseconds since midnight,
+which is what CODESYS holds a `TIME_OF_DAY` in, and `TOD_TO_SECONDS` and
+`SECONDS_TO_TOD` are seconds in an `LREAL`.
 
 === Durations and HAL
 
@@ -650,8 +692,6 @@ compiles is safe to run in a servo thread. Refused, each by name:
   space to locate a variable in
 * the bit-string types `BYTE`, `WORD`, `DWORD` and `LWORD`, and so partial
   access (`word.0`)
-* the date and time-of-day types — `DATE`, `TIME_OF_DAY`, `DATE_AND_TIME` —
-  though `TIME` itself is supported
 * `WSTRING`, and `STRING` on a pin. A `STRING` variable works: it is copied on
   assignment, bounded by the destination, and a copy that loses characters is
   counted and logged rather than passing quietly. It may be a function block

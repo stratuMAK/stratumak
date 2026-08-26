@@ -135,22 +135,88 @@ func TestDurationMillisecondBridge(t *testing.T) {
 			t.Errorf("%s scales by %v, want 1e9 -- it is the seconds bridge", name, conv.unit)
 		}
 	}
+	// Every IEC-named conversion is in the unit CODESYS holds that type in,
+	// because a ported source computes the same number or it does not.  A
+	// point in time and a day are seconds since the epoch; a duration and a
+	// time of day are milliseconds.  The SECONDS pairs are stratuMAK's own
+	// and are exempt -- that is why they are not IEC names.
+	seconds := map[string]bool{
+		"DT_TO_UDINT": true, "UDINT_TO_DT": true,
+		"DT_TO_LINT": true, "LINT_TO_DT": true,
+		"DATE_TO_UDINT": true, "UDINT_TO_DATE": true,
+		"DATE_TO_LINT": true, "LINT_TO_DATE": true,
+	}
 	for name, conv := range timeConversions {
 		if strings.Contains(name, "SECONDS") {
 			continue
 		}
-		if strings.Contains(name, "DT") {
-			// A point in time converts in seconds, which is the unit CODESYS
-			// holds a DT in.  There is no millisecond form of it to disagree
-			// with.
-			if conv.unit != nsPerSecond {
-				t.Errorf("%s scales by %v, want seconds", name, conv.unit)
-			}
+		want, unit := nsPerMillisecond, "milliseconds"
+		if seconds[name] {
+			want, unit = nsPerSecond, "seconds"
+		}
+		if conv.unit != float64(want) {
+			t.Errorf("%s scales by %v, want %s to agree with CODESYS", name, conv.unit, unit)
+		}
+	}
+}
+
+// TestParseDayAndClock covers the D# and TOD# literal bodies.
+func TestParseDayAndClock(t *testing.T) {
+	const (
+		s   = int64(1e9)
+		day = 24 * 60 * 60 * s
+	)
+
+	// A DATE is that day's midnight, in the same unit a DATE_AND_TIME is, so
+	// the two combine by addition and need no conversion between them.
+	d, err := parseDate("2026-08-01")
+	if err != nil {
+		t.Fatalf("D#2026-08-01: %v", err)
+	}
+	if d%day != 0 {
+		t.Errorf("D#2026-08-01 is %d ns, which is not a midnight", d)
+	}
+	dt, err := parseDateTime("2026-08-01-00:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d != dt {
+		t.Errorf("D#2026-08-01 = %d but DT#2026-08-01-00:00:00 = %d; they must agree", d, dt)
+	}
+
+	for _, tt := range []struct {
+		body string
+		want int64
+	}{
+		{"00:00:00", 0},
+		{"08:00:00", 8 * 3600 * s},
+		{"23:59:59", (23*3600 + 59*60 + 59) * s},
+		{"12:30:00.5", (12*3600+30*60)*s + s/2},
+	} {
+		got, err := parseTimeOfDay(tt.body)
+		if err != nil {
+			t.Errorf("TOD#%s: %v", tt.body, err)
 			continue
 		}
-		if conv.unit != nsPerMillisecond {
-			t.Errorf("%s scales by %v; every IEC-named conversion must be milliseconds "+
-				"to agree with CODESYS", name, conv.unit)
+		if got != tt.want {
+			t.Errorf("TOD#%s = %d ns, want %d", tt.body, got, tt.want)
 		}
+	}
+
+	// Refused, each for a stated reason rather than being read as something
+	// the author did not write.
+	for _, tt := range []struct{ body, want string }{
+		{"25:00:00", "is not an hour"},
+		{"08:60:00", "is not a minute"},
+		{"08:00", "is not a time of day"},
+	} {
+		if _, err := parseTimeOfDay(tt.body); err == nil ||
+			!strings.Contains(err.Error(), tt.want) {
+			t.Errorf("TOD#%s gave %v, want %q", tt.body, err, tt.want)
+		}
+	}
+	if _, err := parseDate("2026-02-30"); err == nil ||
+		!strings.Contains(err.Error(), "is not a date") {
+		t.Errorf("D#2026-02-30 gave %v, want a refusal", err)
 	}
 }

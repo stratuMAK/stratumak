@@ -63,9 +63,11 @@ const (
 	TypeReal  // 32-bit float
 	TypeLReal // 64-bit float
 
-	TypeTime     // duration, nanoseconds
-	TypeDateTime // a point in time, nanoseconds since 1970-01-01 UTC
-	TypeString   // STRING[n]
+	TypeTime      // duration, nanoseconds
+	TypeDateTime  // a point in time, nanoseconds since 1970-01-01 UTC
+	TypeDate      // a day, as that day's midnight UTC in the same unit
+	TypeTimeOfDay // a time of day, nanoseconds since midnight
+	TypeString    // STRING[n]
 
 	TypeEnum   // named enumeration; Ref is the TypeDef name
 	TypeStruct // named struct; Ref is the TypeDef name
@@ -74,25 +76,27 @@ const (
 )
 
 var typeKindNames = map[TypeKind]string{
-	TypeInvalid:  "<invalid>",
-	TypeBool:     "BOOL",
-	TypeSInt:     "SINT",
-	TypeInt:      "INT",
-	TypeDInt:     "DINT",
-	TypeLInt:     "LINT",
-	TypeUSInt:    "USINT",
-	TypeUInt:     "UINT",
-	TypeUDInt:    "UDINT",
-	TypeULInt:    "ULINT",
-	TypeReal:     "REAL",
-	TypeLReal:    "LREAL",
-	TypeTime:     "TIME",
-	TypeDateTime: "DATE_AND_TIME",
-	TypeString:   "STRING",
-	TypeEnum:     "<enum>",
-	TypeStruct:   "<struct>",
-	TypeArray:    "<array>",
-	TypeFB:       "<function block>",
+	TypeInvalid:   "<invalid>",
+	TypeBool:      "BOOL",
+	TypeSInt:      "SINT",
+	TypeInt:       "INT",
+	TypeDInt:      "DINT",
+	TypeLInt:      "LINT",
+	TypeUSInt:     "USINT",
+	TypeUInt:      "UINT",
+	TypeUDInt:     "UDINT",
+	TypeULInt:     "ULINT",
+	TypeReal:      "REAL",
+	TypeLReal:     "LREAL",
+	TypeTime:      "TIME",
+	TypeDateTime:  "DATE_AND_TIME",
+	TypeDate:      "DATE",
+	TypeTimeOfDay: "TIME_OF_DAY",
+	TypeString:    "STRING",
+	TypeEnum:      "<enum>",
+	TypeStruct:    "<struct>",
+	TypeArray:     "<array>",
+	TypeFB:        "<function block>",
 }
 
 func (k TypeKind) String() string {
@@ -222,6 +226,20 @@ func (t Type) IsSigned() bool {
 	return false
 }
 
+// IsTimeLike reports whether t is one of the four types held as nanoseconds
+// in an int64: a duration, a point in time, a day, or a time of day.
+//
+// What they share is the unit, and every place that scales between one of them
+// and a number needs to know which side of the conversion the number is on.
+// Adding a fifth without adding it here divides where it should multiply.
+func (t Type) IsTimeLike() bool {
+	switch t.Kind {
+	case TypeTime, TypeDateTime, TypeDate, TypeTimeOfDay:
+		return true
+	}
+	return false
+}
+
 // IsFloat reports whether t is REAL or LREAL.
 func (t Type) IsFloat() bool { return t.Kind == TypeReal || t.Kind == TypeLReal }
 
@@ -232,7 +250,7 @@ func (t Type) IsNumeric() bool { return t.IsInteger() || t.IsFloat() }
 // can appear on a HAL pin, before the HAL representability question.
 func (t Type) IsScalar() bool {
 	switch t.Kind {
-	case TypeBool, TypeEnum, TypeTime, TypeDateTime:
+	case TypeBool, TypeEnum, TypeTime, TypeDateTime, TypeDate, TypeTimeOfDay:
 		return true
 	}
 	return t.IsNumeric()
@@ -249,7 +267,7 @@ func (t Type) Bits() int {
 		return 16
 	case TypeDInt, TypeUDInt, TypeReal, TypeEnum:
 		return 32
-	case TypeLInt, TypeULInt, TypeLReal, TypeTime, TypeDateTime:
+	case TypeLInt, TypeULInt, TypeLReal, TypeTime, TypeDateTime, TypeDate, TypeTimeOfDay:
 		return 64
 	}
 	return 0
@@ -283,7 +301,7 @@ func (t Type) CType() string {
 		return "float"
 	case TypeLReal:
 		return "double"
-	case TypeTime, TypeDateTime:
+	case TypeTime, TypeDateTime, TypeDate, TypeTimeOfDay:
 		return "int64_t"
 	case TypeString:
 		return "char"
@@ -660,6 +678,20 @@ type TimeConvExpr struct {
 	Typ  Type
 }
 
+// DayPartExpr takes one half of a point in time: the day it falls on, or the
+// time of day within it.
+//
+// Not a ConvExpr and not a scaling, because neither half is a multiple of the
+// other: the day is a floor to midnight and the time of day is what remains,
+// and both have to be right below the epoch, where C's remainder is negative.
+type DayPartExpr struct {
+	Pos Pos
+	X   Expr
+	// Whole selects the day rather than the time of day within it.
+	Whole bool
+	Typ   Type
+}
+
 // APICallExpr calls one function of a consumed GMI interface.
 //
 // The callbacks table and its context both live in inst_t, put there by the
@@ -727,6 +759,7 @@ func (e *ConvExpr) Position() Pos       { return e.Pos }
 func (e *TimeConvExpr) Position() Pos   { return e.Pos }
 func (e *MethodCallExpr) Position() Pos { return e.Pos }
 func (e *APICallExpr) Position() Pos    { return e.Pos }
+func (e *DayPartExpr) Position() Pos    { return e.Pos }
 func (e *CallExpr) Position() Pos       { return e.Pos }
 
 func (e *IntLit) ExprType() Type         { return e.Typ }
@@ -743,6 +776,7 @@ func (e *ConvExpr) ExprType() Type       { return e.Typ }
 func (e *TimeConvExpr) ExprType() Type   { return e.Typ }
 func (e *MethodCallExpr) ExprType() Type { return e.Typ }
 func (e *APICallExpr) ExprType() Type    { return e.Typ }
+func (e *DayPartExpr) ExprType() Type    { return e.Typ }
 func (e *CallExpr) ExprType() Type       { return e.Typ }
 
 func (*IntLit) exprNode()         {}
@@ -758,6 +792,7 @@ func (*UnaryExpr) exprNode()      {}
 func (*TimeConvExpr) exprNode()   {}
 func (*MethodCallExpr) exprNode() {}
 func (*APICallExpr) exprNode()    {}
+func (*DayPartExpr) exprNode()    {}
 func (*ConvExpr) exprNode()       {}
 func (*CallExpr) exprNode()       {}
 

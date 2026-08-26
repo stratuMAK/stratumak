@@ -467,9 +467,26 @@ March 2 rather than refusing it. The conversions are seconds since the epoch,
 which is the unit CODESYS holds a `DT` in, so there is no millisecond form of
 them to disagree about — the split that `TIME` needed does not arise here.
 
-`DATE` and `TIME_OF_DAY` are still not implemented. They carve a point in time
-into halves, and the message for each now points at the whole rather than
-claiming the family is missing.
+`DATE` and `TIME_OF_DAY` followed, once a shift schedule needed them: a day
+alone and a position within a day are what a caller actually holds, and both
+had to be built out of `DATE_AND_TIME` by hand until they existed. Each is a
+type of its own, and again because the arithmetic differs — two days subtract
+to a `TIME`, a day and a time of day add to a point in time, and a duration
+added to a time of day is refused, because 23:00 plus two hours is one in the
+morning of a day a `TIME_OF_DAY` has not got. Both are nanoseconds in an
+`int64` like the whole they came from: a `DATE` is that day's midnight since
+the epoch, a `TIME_OF_DAY` is the offset from midnight, and `d + c` is
+therefore addition with nothing else in it.
+
+`DT_TO_DATE` and `DT_TO_TOD` split the whole, through two generated helpers
+rather than a `/` and a `%`. C's remainder takes the sign of its left operand,
+so for a day before 1970 the plain expressions put the day one day late and
+run the clock backwards through it; the helpers add a day back when the
+remainder came out negative. The conversions follow the unit CODESYS holds
+each type in, which is the same split `TIME` needed: a day is seconds since
+the epoch, a time of day is milliseconds since midnight. Both also have a
+signed and an `LREAL` form, because a `UDINT` holds no day before 1970 and a
+date that far back is one somebody meant to write.
 
 ## 7a. Ahead: GMI in Structured Text
 
@@ -613,9 +630,8 @@ throughout, as it did for every phase of the frontend.
 
 - **Qualified names** (`timers.TON`) and namespaces. Flat plus a collision
   error first.
-- **`DATE` and `TIME_OF_DAY`** on their own. They carve a point in time into
-  halves, and `DATE_AND_TIME` covers what has been asked for. (`RTC` itself is
-  done — see §7 — and needed no wall clock.)
+- ~~**`DATE` and `TIME_OF_DAY`** on their own.~~ Done — see §5. (`RTC` itself
+  was done earlier, see §7, and needed no wall clock.)
 - ~~**GMI beyond scalars.**~~ Done for structures and for strings passed
   outward. A structure's ST type is a *view* over the one the generated header
   declares — named as the interface names it, compiling to the header's C type

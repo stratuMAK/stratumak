@@ -117,6 +117,20 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 			return nil
 		}
 		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeDateTime}}
+	case "D", "DATE", "LD", "LDATE":
+		ns, err := parseDate(v.Body)
+		if err != nil {
+			c.errorf(v.Pos, "%s#%s: %s", v.Prefix, v.Body, err)
+			return nil
+		}
+		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeDate}}
+	case "TOD", "TIME_OF_DAY", "LTOD", "LTIME_OF_DAY":
+		ns, err := parseTimeOfDay(v.Body)
+		if err != nil {
+			c.errorf(v.Pos, "%s#%s: %s", v.Prefix, v.Body, err)
+			return nil
+		}
+		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeTimeOfDay}}
 	case "T", "TIME", "LT", "LTIME":
 		ns, err := parseDuration(v.Body)
 		if err != nil {
@@ -125,13 +139,6 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 		}
 		return &ast.IntLit{Pos: v.Pos, Value: ns, Typ: ast.Type{Kind: ast.TypeTime}}
 	}
-	if isDateTimePrefix(upper) {
-		c.errorf(v.Pos, "%s literals are not supported; stratuMAK has TIME for a "+
-			"duration and DATE_AND_TIME for a point in time, but neither a bare "+
-			"date nor a bare time of day", v.Prefix)
-		return nil
-	}
-
 	kind, ok := lookupElementary(v.Prefix)
 	if !ok {
 		c.errorf(v.Pos, "unknown type %s in the literal %s#%s", v.Prefix, v.Prefix, v.Body)
@@ -184,19 +191,6 @@ func parseIntBody(body string) (int64, error) {
 		return strconv.ParseInt(body[i+1:], radix, 64)
 	}
 	return strconv.ParseInt(body, 10, 64)
-}
-
-// isDateTimePrefix mirrors the scanner's table.  Duplicated rather than
-// exported because the two ask different questions: the scanner needs to know
-// how far the literal runs, sema needs to know whether it can type it.
-func isDateTimePrefix(upper string) bool {
-	switch upper {
-	case "T", "TIME", "LT", "LTIME", "D", "DATE", "LD", "LDATE",
-		"TOD", "TIME_OF_DAY", "LTOD", "LTIME_OF_DAY",
-		"DT", "DATE_AND_TIME", "LDT", "LDATE_AND_TIME":
-		return true
-	}
-	return false
 }
 
 // checkIdent resolves a name.
@@ -559,6 +553,9 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
 	}
 
+	if isDayOrClock(xt.Kind) || isDayOrClock(yt.Kind) {
+		return c.checkDayClockBinary(v, x, y, xt, yt)
+	}
 	if xt.Kind == ast.TypeDateTime || yt.Kind == ast.TypeDateTime {
 		return c.checkDateTimeBinary(v, x, y, xt, yt)
 	}
@@ -853,10 +850,11 @@ func (c *checker) foldToC(e ast.Expr) (string, bool) {
 	}
 	if n, ok := foldInt(e); ok {
 		s := strconv.FormatInt(n, 10)
-		if e.ExprType().Kind == ast.TypeTime {
-			// A duration in nanoseconds outgrows a 32-bit long at two
-			// seconds, so the suffix is what makes the initialiser mean the
-			// same thing wherever it is compiled.
+		switch e.ExprType().Kind {
+		case ast.TypeTime, ast.TypeDateTime, ast.TypeDate, ast.TypeTimeOfDay:
+			// Nanoseconds outgrow a 32-bit long at two seconds, so the suffix
+			// is what makes the initialiser mean the same thing wherever it
+			// is compiled.  Every one of these is held in them.
 			s += "LL"
 		}
 		return s, true

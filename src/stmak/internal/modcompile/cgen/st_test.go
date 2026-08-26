@@ -1111,3 +1111,102 @@ func TestSTStringCompareHelperCostsNothingWhenUnused(t *testing.T) {
 		t.Error("a component that compares no strings got the compare helper")
 	}
 }
+
+// TestSTDayParts covers splitting a point in time into its halves.
+//
+// Neither half is a scaling of the other: the day is a floor to midnight and
+// the time of day is what remains. Both have to be right below the epoch,
+// where C's remainder takes the sign of the left operand -- which would put
+// the day a day late and run the clock backwards.
+func TestSTDayParts(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    q : BOOL;
+  END_VAR
+  VAR
+    stamp : DATE_AND_TIME := DT#2026-08-26-14:45:00;
+    day   : DATE;
+    clock : TIME_OF_DAY;
+  END_VAR
+  day   := DT_TO_DATE(stamp);
+  clock := DT_TO_TOD(stamp);
+  q := clock > TOD#08:00:00;
+END_PROGRAM`)
+
+	for _, want := range []string{
+		"(__comp_inst->day) = __st_day((__comp_inst->stamp));",
+		"(__comp_inst->clock) = __st_tod((__comp_inst->stamp));",
+		"if (d < 0) d += __ST_NS_PER_DAY;",
+		// All three are nanoseconds in an int64, so a literal carries the
+		// suffix or a 32-bit long silently truncates it.
+		"inst->stamp = 1787755500000000000LL;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// Splitting cannot fault, so it must not drag in the reporter.
+	if strings.Contains(out, "__st_fault") {
+		t.Error("splitting a point in time pulled in the fault reporter")
+	}
+}
+
+// TestSTDayPartHelpersCostNothingWhenUnused is the -Werror trap.
+func TestSTDayPartHelpersCostNothingWhenUnused(t *testing.T) {
+	if out := generateST(t, "durations"); strings.Contains(out, "__st_day") {
+		t.Error("a component that splits no point in time got the helpers")
+	}
+}
+
+// TestSTTimeConversionDirection pins which way each conversion scales.
+//
+// It was wrong for three of them and nothing noticed: a conversion *into* a
+// point in time divided instead of multiplying, so UDINT_TO_DT(1787733000)
+// came out as 1 nanosecond past the epoch. Every test at the time converted
+// only outwards, where the direction happens to be the same.
+//
+// The rule is one line: towards nanoseconds, multiply; away from them, divide.
+// The cases below are one per type in each direction, so a fifth nanosecond
+// type added without teaching the emitter shows up here.
+func TestSTTimeConversionDirection(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    q : BOOL;
+  END_VAR
+  VAR
+    n : LINT;
+    pt : TIME;
+    stamp : DATE_AND_TIME;
+    day : DATE;
+    clock : TIME_OF_DAY;
+  END_VAR
+  pt    := LINT_TO_TIME(n);
+  stamp := LINT_TO_DT(n);
+  day   := LINT_TO_DATE(n);
+  clock := UDINT_TO_TOD(1);
+  n     := TIME_TO_LINT(pt);
+  n     := DT_TO_LINT(stamp);
+  n     := DATE_TO_LINT(day);
+  q     := TRUE;
+END_PROGRAM`)
+
+	for _, tt := range []struct{ what, want string }{
+		// Into nanoseconds: multiply, through a double so a fraction survives.
+		{"LINT_TO_TIME", "(__comp_inst->pt) = ((int64_t)((double)(__comp_inst->n) * 1000000))"},
+		{"LINT_TO_DT", "(__comp_inst->stamp) = ((int64_t)((double)(__comp_inst->n) * 1000000000))"},
+		{"LINT_TO_DATE", "(__comp_inst->day) = ((int64_t)((double)(__comp_inst->n) * 1000000000))"},
+		{"UDINT_TO_TOD", "(__comp_inst->clock) = ((int64_t)((double)1u * 1000000))"},
+		// Out of them: divide, in int64 so it stays exact.
+		{"TIME_TO_LINT", "((int64_t)((__comp_inst->pt) / (int64_t)1000000))"},
+		{"DT_TO_LINT", "((int64_t)((__comp_inst->stamp) / (int64_t)1000000000))"},
+		{"DATE_TO_LINT", "((int64_t)((__comp_inst->day) / (int64_t)1000000000))"},
+	} {
+		if !strings.Contains(out, tt.want) {
+			t.Errorf("%s scales the wrong way; wanted\n  %s\n--- generated ---\n%s",
+				tt.what, tt.want, out)
+		}
+	}
+}

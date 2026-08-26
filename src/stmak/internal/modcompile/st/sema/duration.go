@@ -356,6 +356,59 @@ var timeConversions = map[string]timeConv{
 	"LINT_TO_DT":    {ast.TypeLInt, ast.TypeDateTime, nsPerSecond},
 	"DT_TO_SECONDS": {ast.TypeDateTime, ast.TypeLReal, nsPerSecond},
 	"SECONDS_TO_DT": {ast.TypeLReal, ast.TypeDateTime, nsPerSecond},
+
+	// A day converts in seconds since the epoch, like the point in time it
+	// is.  A time of day converts in milliseconds since midnight, which is
+	// what CODESYS holds a TIME_OF_DAY in -- the same split the TIME
+	// conversions have, and for the same reason.
+	// The signed and floating forms exist for the same reason DT's do: a
+	// UDINT holds no day before 1970, and a date that far back is a date
+	// somebody meant to write.
+	"DATE_TO_UDINT":   {ast.TypeDate, ast.TypeUDInt, nsPerSecond},
+	"UDINT_TO_DATE":   {ast.TypeUDInt, ast.TypeDate, nsPerSecond},
+	"DATE_TO_LINT":    {ast.TypeDate, ast.TypeLInt, nsPerSecond},
+	"LINT_TO_DATE":    {ast.TypeLInt, ast.TypeDate, nsPerSecond},
+	"DATE_TO_SECONDS": {ast.TypeDate, ast.TypeLReal, nsPerSecond},
+	"SECONDS_TO_DATE": {ast.TypeLReal, ast.TypeDate, nsPerSecond},
+	"TOD_TO_UDINT":    {ast.TypeTimeOfDay, ast.TypeUDInt, nsPerMillisecond},
+	"UDINT_TO_TOD":    {ast.TypeUDInt, ast.TypeTimeOfDay, nsPerMillisecond},
+	"TOD_TO_SECONDS":  {ast.TypeTimeOfDay, ast.TypeLReal, nsPerSecond},
+	"SECONDS_TO_TOD":  {ast.TypeLReal, ast.TypeTimeOfDay, nsPerSecond},
+}
+
+// dayParts are the two conversions that split a point in time.  They are not
+// scalings, so they cannot join the table above: taking the day out of a
+// DATE_AND_TIME is a floor to midnight and taking the time of day out is what
+// is left over, and both have to be right for a date before 1970, where C's
+// remainder goes the wrong way.
+var dayParts = map[string]struct{ from, to ast.TypeKind }{
+	"DT_TO_DATE": {ast.TypeDateTime, ast.TypeDate},
+	"DT_TO_TOD":  {ast.TypeDateTime, ast.TypeTimeOfDay},
+}
+
+// checkDayPart resolves DT_TO_DATE and DT_TO_TOD.
+func (c *checker) checkDayPart(v *st.CallExpr, name string) (ast.Expr, bool) {
+	part, ok := dayParts[strings.ToUpper(name)]
+	if !ok {
+		return nil, false
+	}
+	if len(v.Args) != 1 {
+		c.errorf(v.Pos, "%s takes one argument, got %d", strings.ToUpper(name), len(v.Args))
+		return nil, true
+	}
+	arg := c.checkExpr(v.Args[0].Value, ast.Type{Kind: part.from})
+	if arg == nil {
+		return nil, true
+	}
+	if arg.ExprType().Kind != part.from {
+		c.errorf(v.Args[0].Pos, "%s takes %s, got %s",
+			strings.ToUpper(name), ast.Type{Kind: part.from}, arg.ExprType())
+		return nil, true
+	}
+	return &ast.DayPartExpr{
+		Pos: v.Pos, X: arg, Whole: part.to == ast.TypeDate,
+		Typ: ast.Type{Kind: part.to},
+	}, true
 }
 
 // checkTimeConversion resolves one of the calls above, or reports that this is
@@ -380,9 +433,11 @@ func (c *checker) checkTimeConversion(v *st.CallExpr, name string) (ast.Expr, bo
 		return nil, true
 	}
 	if at := arg.ExprType(); at.Kind != conv.from {
-		// A number widens into the parameter as it would for any function; a
-		// duration has to be one already.
-		if conv.from == ast.TypeTime || conv.from == ast.TypeDateTime {
+		// A number widens into the parameter as it would for any function.
+		// One of the nanosecond types has to be that type already: they are
+		// all int64 and would convert into each other silently, turning a
+		// time of day into a day that is 50 years off.
+		if from.IsTimeLike() {
 			c.errorf(v.Args[0].Pos, "%s takes %s, got %s",
 				strings.ToUpper(name), ast.Type{Kind: conv.from}, at)
 			return nil, true
@@ -415,6 +470,26 @@ const (
 	dtMinYear = 1678
 	dtMaxYear = 2261
 )
+
+// nsPerDay is one day, which is what separates a DATE from the time of day
+// within it.
+const nsPerDay = 24 * 60 * 60 * int64(nsPerSecond)
+
+// parseDate converts the body of a D# literal: a day, as that day's midnight.
+func parseDate(body string) (int64, error) {
+	return parseDateTime(strings.TrimSpace(body) + "-00:00:00")
+}
+
+// parseTimeOfDay converts the body of a TOD# literal to nanoseconds since
+// midnight.
+func parseTimeOfDay(body string) (int64, error) {
+	hh, mm, ss, ns, err := parseClock(strings.TrimSpace(body))
+	if err != nil {
+		return 0, err
+	}
+	return int64(hh)*3600*nsPerSecond + int64(mm)*60*nsPerSecond +
+		int64(ss)*nsPerSecond + int64(ns), nil
+}
 
 // parseDateTime converts the body of a DT# literal to nanoseconds since the
 // Unix epoch.
@@ -556,4 +631,71 @@ func other2(xt, yt ast.Type) ast.Type {
 		return yt
 	}
 	return xt
+}
+
+// ---------------------------------------------------------------------------
+// DATE and TIME_OF_DAY
+// ---------------------------------------------------------------------------
+
+// isDayOrClock reports whether a type is one of the two halves of a point in
+// time.
+func isDayOrClock(k ast.TypeKind) bool {
+	return k == ast.TypeDate || k == ast.TypeTimeOfDay
+}
+
+// checkDayClockBinary types an operator with a DATE or a TIME_OF_DAY on at
+// least one side.
+//
+// The halves are separate types because what each can do differs, and writing
+// the cases out is what makes that pay: two days subtract to the time between
+// them, a day and a time of day combine into a point in time, and adding two
+// days is nothing at all.
+func (c *checker) checkDayClockBinary(v *st.BinaryExpr, x, y ast.Expr, xt, yt ast.Type) ast.Expr {
+	timeT := ast.Type{Kind: ast.TypeTime}
+	bothSame := xt.Kind == yt.Kind
+
+	if v.Op.IsComparison() {
+		if !bothSame {
+			c.errorf(v.Pos, "%s and %s cannot be compared; they measure different things",
+				xt, yt)
+			return nil
+		}
+		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
+	}
+
+	switch v.Op {
+	case ast.BinSub:
+		if bothSame {
+			// Two days, or two times of day: how long between them.  Both are
+			// held in the same unit, so the subtraction is the answer.
+			return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: timeT}
+		}
+
+	case ast.BinAdd:
+		// A day plus a time of day is the point in time they name together,
+		// and both are already offsets in the same unit -- one from the epoch,
+		// one from midnight -- so adding them is exactly it.
+		if xt.Kind == ast.TypeDate && yt.Kind == ast.TypeTimeOfDay {
+			return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y,
+				Typ: ast.Type{Kind: ast.TypeDateTime}}
+		}
+		if xt.Kind == ast.TypeTimeOfDay && yt.Kind == ast.TypeDate {
+			return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y,
+				Typ: ast.Type{Kind: ast.TypeDateTime}}
+		}
+	}
+
+	// Everything else, named rather than merely refused.  The one people
+	// reach for is a duration added to a time of day, and the reason it is
+	// not here is worth stating: 23:00 plus two hours is one in the morning
+	// of the next day, and a TIME_OF_DAY has no next day to carry it into.
+	if (xt.Kind == ast.TypeTimeOfDay || yt.Kind == ast.TypeTimeOfDay) &&
+		(xt.Kind == ast.TypeTime || yt.Kind == ast.TypeTime) {
+		c.errorf(v.Pos, "a duration cannot be added to or taken from a TIME_OF_DAY: "+
+			"the result would leave the day, and a time of day has no day to leave. "+
+			"Combine it with a DATE first, and move the DATE_AND_TIME instead")
+		return nil
+	}
+	c.errorf(v.Pos, "%s cannot be applied to %s and %s", v.Op, xt, yt)
+	return nil
 }
