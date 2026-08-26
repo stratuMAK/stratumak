@@ -194,19 +194,26 @@ func cStringLiteral(s string) string {
 func toC(halName string) string {
 	// Strip runs of # and their adjacent separators.
 	s := stripHashMarkers(halName)
-	// Replace . and - with _.
+	// Replace . and - with _, collapsing a run of them into one: stripping a
+	// '#' marker leaves its neighbours adjacent, which is the whole reason
+	// runs are collapsed at all.
+	//
+	// A literal underscore is not a separator and is copied through.
+	// Collapsing those too made a_b and a__b the same C identifier while
+	// leaving them two distinct ST variables, so one silently aliased the
+	// other -- valid C, wrong answer.
 	var b strings.Builder
-	prevUnderscore := false
+	prevSep := false
 	for _, c := range s {
 		switch c {
-		case '-', '.', '_':
-			if !prevUnderscore {
+		case '-', '.':
+			if !prevSep {
 				b.WriteByte('_')
-				prevUnderscore = true
+				prevSep = true
 			}
 		default:
 			b.WriteRune(c)
-			prevUnderscore = false
+			prevSep = false
 		}
 	}
 	return b.String()

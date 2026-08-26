@@ -73,6 +73,12 @@ The component's name comes from the filename, as it does for a `.comp`. Inside:
 An underscore in a name becomes a hyphen on the pin, so `max_rate` is
 `comp.max-rate` — the same transform a `.comp` pin name gets.
 
+A variable, pin, parameter or struct field keeps its name in the generated
+module, so it may not be one C would read as something else: `int`, `static`,
+`long` and the rest are refused by name, as is a leading double underscore.
+Types, function blocks, enumeration constants and actions are decorated on the
+way out and carry no such restriction.
+
 === Types
 
 HAL has five scalar types and its `float` is a `double`, which decides what may

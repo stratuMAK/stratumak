@@ -576,6 +576,9 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 // typing setp, not by a thread, so the body reads it in place -- which is also
 // what a .comp body does.
 func (c *checker) declareParam(d *st.VarDecl, name string, typ ast.Type, bind *ast.HALBinding) {
+	if !c.checkCName(bind.Name, d.Pos, "a parameter") {
+		return
+	}
 	if !c.claimInstanceName(bind.Name, d.Pos, "parameter") {
 		return
 	}
@@ -679,6 +682,9 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 		pinName = name
 	}
 
+	if !c.checkCName(pinName, d.Pos, "a pin") {
+		return
+	}
 	if !c.claimInstanceName(pinName, d.Pos, "pin") {
 		return
 	}
@@ -783,6 +789,9 @@ func (c *checker) claimInstanceName(name string, pos ast.Pos, what string) bool 
 
 // bind declares sym in the current scope, reporting a redeclaration.
 func (c *checker) bind(sym *symbol) bool {
+	if !c.checkCName(sym.Name, sym.Pos, "a variable") {
+		return false
+	}
 	if prev := c.scope.lookupLocal(sym.Name); prev != nil {
 		c.errorf(sym.Pos, "%s is already declared at %s", sym.Name, prev.Pos)
 		return false

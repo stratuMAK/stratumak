@@ -271,3 +271,37 @@ FUNCTION(_) { }
 		t.Errorf("int modparam not parsed as hex-or-decimal; generated:\n%s", out)
 	}
 }
+
+// TestToCKeepsLiteralUnderscores is a regression.
+//
+// toC collapses a run of separators into one underscore, because stripping a
+// '#' array marker leaves its neighbours adjacent.  It used to collapse
+// literal underscores with them, which made a_b and a__b the same C
+// identifier while ST kept them two distinct variables: the declarations were
+// emitted from the raw names and so stayed apart, but every reference went
+// through toC and landed on the first.  Valid C, wrong answer, no diagnostic.
+func TestToCKeepsLiteralUnderscores(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		// Two distinct ST names stay two distinct C names.
+		{"a_b", "a_b"},
+		{"a__b", "a__b"},
+		{"_leading", "_leading"},
+		{"trailing_", "trailing_"},
+
+		// Separators still become one underscore, which is what the collapse
+		// is for: an array pin's '#' run leaves its dots adjacent.
+		{"axes.#.position", "axes_position"},
+		{"a.b", "a_b"},
+		{"at-home", "at_home"},
+		{"a.-b", "a_b"},
+
+		// And an underscore beside a separator is not swallowed by it: the
+		// instance `r_` with member `dt` is not the instance `r`.
+		{"r_.dt", "r__dt"},
+		{"r.dt", "r_dt"},
+	} {
+		if got := toC(tt.in); got != tt.want {
+			t.Errorf("toC(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

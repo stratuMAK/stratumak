@@ -269,6 +269,15 @@ if ! grep -q '__st_div_s(__comp_inst, (int64_t)(__comp_inst->pt)' durations.c; t
     exit 1
 fi
 
+# toC collapses a run of separators into one underscore, because stripping an
+# array pin's '#' marker leaves its neighbours adjacent.  A literal underscore
+# is not a separator: collapsing those too made a_b and a__b one C identifier
+# while ST kept them two variables, so one silently aliased the other.
+if ! grep -q 'axes_position' atmap.c; then
+    echo 'atmap.c: an array pin path should collapse to one underscore'
+    exit 1
+fi
+
 # A man page generated from an .st carries what one generated from a .comp
 # does.  docgen is shared, so this really checks that every field it reads is
 # reachable from ST.
@@ -349,6 +358,13 @@ rm -f bad_time.c
 modcompile --preprocess bad_time.st -o bad_time.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted a number added to a duration'
+    exit 1
+fi
+
+rm -f bad_cname.c
+modcompile --preprocess bad_cname.st -o bad_cname.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted a variable named for a C keyword'
     exit 1
 fi
 

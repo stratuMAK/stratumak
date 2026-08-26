@@ -162,6 +162,9 @@ func (c *checker) checkStructDecl(d *st.TypeDecl, td *ast.TypeDef) {
 			continue
 		}
 
+		if !c.checkCName(f.Name, f.Pos, "a struct field") {
+			continue
+		}
 		field := ast.Field{Pos: f.Pos, Name: f.Name, Typ: ft, Doc: attrValue(f.Attrs, "doc")}
 		if f.Init != nil {
 			// Struct field initialisers would need a per-field init sequence

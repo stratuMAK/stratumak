@@ -1336,3 +1336,90 @@ func TestTimeAccepted(t *testing.T) {
 		t.Errorf("T#1m30s initialised to %q, want 90000000000LL", pt.Default)
 	}
 }
+
+// TestCNameDiagnostics covers the names the generated C could not spell.
+//
+// Every ST variable, pin, parameter and struct field reaches the C as a bare
+// identifier, so one that is a C keyword produces code gcc rejects -- an error
+// against generated source nobody keeps, which is what this frontend exists to
+// prevent.  Names that reach the C decorated are not at risk and are not
+// refused.
+func TestCNameDiagnostics(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		src  string
+		want string
+	}{{
+		name: "a variable",
+		src:  wrap("VAR\n int : DINT;\nEND_VAR", "q := TRUE;"),
+		want: "a variable cannot be named int",
+	}, {
+		// ST is case-insensitive, so Int and int are one name; which spelling
+		// happened to be declared must not decide whether it builds.
+		name: "a variable, differently spelled",
+		src:  wrap("VAR\n Long : DINT;\nEND_VAR", "q := TRUE;"),
+		want: "cannot be named Long",
+	}, {
+		name: "an output pin",
+		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n static : BOOL;\nEND_VAR\n" +
+			"static := TRUE;\nEND_PROGRAM",
+		want: "cannot be named static",
+	}, {
+		// The pin's own name, which an AT clause may make differ from the
+		// variable's -- and it is the pin's that becomes the member.
+		name: "a pin renamed by AT",
+		src:  wrap("VAR\n count AT %Q.int : DINT;\nEND_VAR", "count := 1;"),
+		want: "a pin cannot be named int",
+	}, {
+		name: "a parameter renamed by AT",
+		src:  wrap("VAR\n gain AT %MRW.double : LREAL;\nEND_VAR", "q := gain > 1.0;"),
+		want: "a parameter cannot be named double",
+	}, {
+		name: "a struct field",
+		src: "{attribute 'summary' := 'x'}\nTYPE S : STRUCT\n union : DINT;\nEND_STRUCT\nEND_TYPE\n" +
+			progWith("VAR\n s : S;\nEND_VAR", "q := TRUE;"),
+		want: "a struct field cannot be named union",
+	}, {
+		name: "a function block member",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n signed : DINT;\nEND_VAR\n" +
+			"signed := 1;\nEND_FUNCTION_BLOCK\n" + progWith("VAR\n b : B;\nEND_VAR", "b();"),
+		want: "cannot be named signed",
+	}, {
+		name: "a function local",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION F : DINT\nVAR\n register : DINT;\nEND_VAR\n" +
+			"register := 1;\nF := register;\nEND_FUNCTION\n" + progWith("", "q := F() > 0;"),
+		want: "cannot be named register",
+	}, {
+		// The generator's own names all begin with a double underscore, and C
+		// reserves the prefix besides.
+		name: "a leading double underscore",
+		src:  wrap("VAR\n __state : DINT;\nEND_VAR", "q := TRUE;"),
+		want: "leading double underscore is reserved",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none\n--- source ---\n%s", tt.src)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant a message containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestCNameDecoratedAreFine is the other half: a name that reaches the C
+// decorated is not at risk, and refusing it would reject a legal program for
+// no reason.
+func TestCNameDecoratedAreFine(t *testing.T) {
+	// A type becomes `Mode_t`, an enumeration constant `MODE_AUTO`, a function
+	// block `Switch_t` and `Switch_body`, an action `p_go`.  None is bare.
+	mustCheck(t, "p", "{attribute 'summary' := 'x'}\n"+
+		"TYPE Mode : (AUTO, MANUAL); END_TYPE\n"+
+		"FUNCTION_BLOCK Switch\nVAR_OUTPUT\n m : Mode;\nEND_VAR\n"+
+		"m := AUTO;\nEND_FUNCTION_BLOCK\n"+
+		"PROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\n"+
+		"VAR\n sw : Switch;\nEND_VAR\n"+
+		"sw();\nIF sw.m = AUTO THEN go(); END_IF;\n"+
+		"ACTION go:\n q := TRUE;\nEND_ACTION\nEND_PROGRAM")
+}

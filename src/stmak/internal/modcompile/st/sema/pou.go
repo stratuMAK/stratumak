@@ -113,6 +113,9 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 				}
 				seen[key(name)] = d.Pos
 
+				if !c.checkCName(name, d.Pos, "a variable") {
+					continue
+				}
 				v := ast.VarDecl{
 					Pos:   d.Pos,
 					Name:  name,
@@ -267,6 +270,9 @@ func (c *checker) declareFunctionSignature(f *st.FunctionDecl) {
 				}
 				seen[key(name)] = d.Pos
 
+				if !c.checkCName(name, d.Pos, "a variable") {
+					continue
+				}
 				v := ast.VarDecl{
 					Pos: d.Pos, Name: name, Typ: typ,
 					Store: ast.StorageLocal, Const: blk.Constant,
