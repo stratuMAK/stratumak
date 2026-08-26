@@ -1748,3 +1748,61 @@ func TestThisIsNotAValue(t *testing.T) {
 		})
 	}
 }
+
+// TestStringPlacements covers where a STRING may and may not appear.
+//
+// It is a char array, and C's rules about arrays decide all of these: an array
+// cannot be returned, an array parameter is a pointer, and an array of them
+// needs both dimensions. Each was broken and each failed loudly in generated
+// C rather than against the declaration.
+func TestStringPlacements(t *testing.T) {
+	for _, tt := range []struct{ name, src, want string }{{
+		// C cannot return an array. A static buffer would be shared between
+		// callers, and a FUNCTION has no output parameter to fill instead.
+		name: "a function returning one",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION f : STRING[8]\n f := 'hi';\nEND_FUNCTION\n" +
+			progWith("", "q := TRUE;"),
+		want: "may not return a STRING",
+	}, {
+		name: "a method returning one",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+			"o := 1;\nMETHOD m : STRING[8]\n m := 'hi';\nEND_METHOD\nEND_FUNCTION_BLOCK\n" +
+			progWith("VAR\n b : B;\nEND_VAR", "b();"),
+		want: "may not return a STRING",
+	}, {
+		// Passed as a pointer to the caller's characters, so writing through
+		// it would change the caller's string.
+		name: "assigning to a string parameter",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION f : DINT\nVAR_INPUT\n s : STRING[8];\nEND_VAR\n" +
+			"s := 'no';\nf := 1;\nEND_FUNCTION\n" + progWith("", "q := f('x') > 0;"),
+		want: "a view of the caller's characters",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatal("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+
+	// An array of STRING carries both dimensions: the table's, and each
+	// string's own. With only the first, every entry was one character.
+	pkg := mustCheck(t, "p", wrap("VAR\n names : ARRAY [0..2] OF STRING[8];\nEND_VAR",
+		"names[0] := 'hi';\nq := TRUE;"))
+	var v *ast.Variable
+	for i := range pkg.Component.Variables {
+		if pkg.Component.Variables[i].Name == "names" {
+			v = &pkg.Component.Variables[i]
+		}
+	}
+	if v == nil {
+		t.Fatal("names was not declared")
+	}
+	if len(v.Dims) != 2 || v.Dims[0] != 3 || v.Dims[1] != 9 {
+		t.Errorf("names has dimensions %v, want [3 9] -- three strings of eight plus a terminator",
+			v.Dims)
+	}
+}

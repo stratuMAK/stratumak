@@ -646,8 +646,11 @@ compiles is safe to run in a servo thread. Refused, each by name:
   though `TIME` itself is supported
 * `WSTRING`, and `STRING` on a pin. A `STRING` variable works: it is copied on
   assignment, bounded by the destination, and a copy that loses characters is
-  counted and logged rather than passing quietly. Comparison and concatenation
-  are not implemented.
+  counted and logged rather than passing quietly. It may be a function block
+  member, a struct field, an array element or a parameter — though a parameter
+  is a view of the caller's characters and cannot be assigned, and no function
+  or method may return one, because C returns no arrays. Comparison and
+  concatenation are not implemented.
 * the other IEC languages — Ladder, Function Block Diagram and Sequential
   Function Chart
 

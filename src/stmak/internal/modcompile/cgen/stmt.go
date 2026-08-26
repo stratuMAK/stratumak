@@ -1363,6 +1363,12 @@ func cTypeDims(t ast.Type) string {
 	for _, d := range t.Dims {
 		fmt.Fprintf(&b, "[%d]", d.Count())
 	}
+	if t.Elem != nil && t.Elem.Kind == ast.TypeString {
+		// An array of STRING is an array of char arrays, so the element's own
+		// dimension comes after the array's.  Without it the element type is
+		// a bare char and every string in the table is one byte.
+		fmt.Fprintf(&b, "[%d]", t.Elem.StringLen()+1)
+	}
 	return b.String()
 }
 

@@ -53,8 +53,12 @@ func (c *checker) declareMethodSignatures(b *st.FunctionBlockDecl, def *ast.Func
 			if !ok {
 				continue
 			}
-			if !result.IsScalar() && result.Kind != ast.TypeString {
-				c.errorf(m.Pos, "a method may not return %s; only a scalar or a STRING", result)
+			if result.Kind == ast.TypeString {
+				c.errorf(m.Pos, "a method may not return a STRING: it is an array, and C "+
+					"returns none. Write into one of the block's own instead, which the "+
+					"caller can read afterwards")
+			} else if !result.IsScalar() {
+				c.errorf(m.Pos, "a method may not return %s; only a scalar", result)
 			}
 			out.Result = result
 		}
@@ -93,6 +97,13 @@ func (c *checker) declareMethodSignatures(b *st.FunctionBlockDecl, def *ast.Func
 					v := ast.VarDecl{
 						Pos: d.Pos, Name: name, Typ: typ,
 						Store: ast.StorageLocal, Const: blk.Constant,
+					}
+					if blk.Kind == st.VarInput && typ.Kind == ast.TypeString {
+						// Passed as a pointer to the caller's characters, not
+						// a copy of them, because C has no by-value array
+						// parameter.  Writing through it would change the
+						// caller's string.
+						v.Const = true
 					}
 					if d.Init != nil {
 						v.Init = c.checkExpr(d.Init, typ)

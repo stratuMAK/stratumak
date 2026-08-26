@@ -705,6 +705,12 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 		for _, d := range typ.Dims {
 			v.Dims = append(v.Dims, d.Count())
 		}
+		if typ.Elem != nil && typ.Elem.Kind == ast.TypeString {
+			// An array of STRING is an array of char arrays: the element's
+			// own dimension is the last one, or every string in the table
+			// would be a single character.
+			v.Dims = append(v.Dims, typ.Elem.StringLen()+1)
+		}
 	}
 	c.pkg.Component.Variables = append(c.pkg.Component.Variables, v)
 }

@@ -126,7 +126,7 @@ func (g *generator) emitPOUForwards() {
 func fnParams(f *ast.PureFunction) string {
 	s := "inst_t *__comp_inst"
 	for _, p := range f.Params {
-		s += fmt.Sprintf(", %s %s", p.Typ.CType(), toC(p.Name))
+		s += ", " + paramCType(p.Typ) + " " + toC(p.Name)
 	}
 	return s
 }
@@ -313,6 +313,10 @@ func fbMethodCName(block, method string) string {
 func methodParams(block string, m *ast.Method) string {
 	s := fmt.Sprintf("inst_t *__comp_inst, %s *__self", fbStructName(block))
 	for _, p := range m.Params {
+		if p.Typ.Kind == ast.TypeString {
+			s += ", " + paramCType(p.Typ) + " " + toC(p.Name)
+			continue
+		}
 		s += fmt.Sprintf(", %s %s%s", p.Typ.CType(), toC(p.Name), cTypeDims(p.Typ))
 	}
 	return s
@@ -401,4 +405,18 @@ func (e *stEmitter) methodCall(v *ast.MethodCallExpr) string {
 	}
 	return fmt.Sprintf("%s(__comp_inst, &(%s)%s)",
 		fbMethodCName(v.Owner, v.Method), e.expr(v.Inst), args)
+}
+
+// paramCType is how a parameter of this type is written in C.
+//
+// A STRING is a char array, and C has no by-value array parameter: one written
+// as an array is a pointer.  So it is passed as the pointer it becomes, and
+// const, because the callee is looking at the caller's characters rather than
+// a copy of them -- sema refuses assigning to such a parameter for the same
+// reason.
+func paramCType(t ast.Type) string {
+	if t.Kind == ast.TypeString {
+		return "const char *"
+	}
+	return t.CType()
 }

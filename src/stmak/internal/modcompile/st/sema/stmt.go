@@ -80,6 +80,15 @@ func (c *checker) checkAssign(v *st.AssignStmt) ast.Stmt {
 			case sym.Kind == symEnumConst:
 				c.errorf(v.Target.Position(),
 					"cannot assign to %s: it is a constant of enumeration %s", sym.Name, sym.EnumType)
+			case sym.Store == ast.StorageLocal && sym.Type.Kind == ast.TypeString:
+				// A STRING parameter is a pointer to the caller's characters,
+				// because C has no by-value array parameter.  Writing through
+				// it would change the caller's string, which is not what
+				// passing by value means.
+				c.errorf(v.Target.Position(),
+					"cannot assign to %s: a STRING parameter is a view of the caller's "+
+						"characters, not a copy of them. Declare a STRING in this body "+
+						"and assign that", sym.Name)
 			case sym.Kind == symBuiltin:
 				c.errorf(v.Target.Position(), "cannot assign to %s: it is a built-in", sym.Name)
 			default:

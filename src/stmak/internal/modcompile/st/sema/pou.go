@@ -254,8 +254,17 @@ func (c *checker) declareFunctionSignature(f *st.FunctionDecl) {
 		c.pkg.Functions = append(c.pkg.Functions, def)
 		return
 	}
-	if !result.IsScalar() && result.Kind != ast.TypeString {
-		c.errorf(f.Pos, "a function may not return %s; only a scalar or a STRING", result)
+	if result.Kind == ast.TypeString {
+		// C cannot return an array, and a STRING is one.  The alternatives
+		// are a static buffer, which two callers would share, or an output
+		// parameter, which a FUNCTION does not have.  Neither is worth the
+		// surprise: take the destination as a VAR_IN_OUT of a FUNCTION_BLOCK
+		// instead, where it can be written in place.
+		c.errorf(f.Pos, "a function may not return a STRING: it is an array, and C returns "+
+			"none. Write into a STRING the caller owns -- a VAR_IN_OUT of a "+
+			"FUNCTION_BLOCK -- or return the length and fill it there")
+	} else if !result.IsScalar() {
+		c.errorf(f.Pos, "a function may not return %s; only a scalar", result)
 	}
 	def.Result = result
 
@@ -290,6 +299,13 @@ func (c *checker) declareFunctionSignature(f *st.FunctionDecl) {
 				v := ast.VarDecl{
 					Pos: d.Pos, Name: name, Typ: typ,
 					Store: ast.StorageLocal, Const: blk.Constant,
+				}
+				if blk.Kind == st.VarInput && typ.Kind == ast.TypeString {
+					// Passed as a pointer to the caller's characters, not
+					// a copy of them, because C has no by-value array
+					// parameter.  Writing through it would change the
+					// caller's string.
+					v.Const = true
 				}
 				if d.Init != nil {
 					v.Init = c.checkExpr(d.Init, typ)
