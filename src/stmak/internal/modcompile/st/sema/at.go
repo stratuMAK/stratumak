@@ -167,8 +167,14 @@ func (c *checker) bindAT(text string, pos ast.Pos, varName string, typ ast.Type)
 		return nil
 	}
 	if fit == ast.HALFitLossy {
-		c.warnf("%s: %s %s is REAL; HAL carries it as a double, so a value written by HAL "+
-			"loses precision when read back. Use LREAL for an exact %s", pos, what, halName, what)
+		if typ.Kind == ast.TypeTime {
+			c.warnf("%s: %s %s is a TIME, which HAL carries as milliseconds in an s32; "+
+				"a duration finer than a millisecond is rounded when it crosses",
+				pos, what, halName)
+		} else {
+			c.warnf("%s: %s %s is REAL; HAL carries it as a double, so a value written by HAL "+
+				"loses precision when read back. Use LREAL for an exact %s", pos, what, halName, what)
+		}
 	}
 	return &ast.HALBinding{
 		Pos: pos, Name: halName, Dir: spec.dir, Type: halType,
@@ -260,7 +266,10 @@ func (c *checker) publishOne(fn *ast.Function, path string, count int, v ast.Var
 		what = "parameter"
 	}
 
-	binding := ast.PinBinding{Pin: halName, Path: cPath, Dir: v.HAL.Dir, Param: v.HAL.Param}
+	binding := ast.PinBinding{
+		Pin: halName, Path: cPath, Dir: v.HAL.Dir, Param: v.HAL.Param,
+		Duration: v.Typ.Kind == ast.TypeTime,
+	}
 	arraySize := 0
 
 	if count > 0 {

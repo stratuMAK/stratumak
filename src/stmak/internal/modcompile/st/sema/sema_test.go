@@ -1272,15 +1272,6 @@ func TestTimeDiagnostics(t *testing.T) {
 		src:  wrap(decls, "pt := n;"),
 		want: "cannot",
 	}, {
-		name: "a duration on a pin",
-		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n pt : TIME;\nEND_VAR\n" +
-			"pt := T#1s;\nEND_PROGRAM",
-		want: "HAL has no duration type",
-	}, {
-		name: "a duration mapped with AT",
-		src:  wrap("VAR\n pt AT %Q : TIME;\nEND_VAR", "pt := T#1s;"),
-		want: "HAL has no duration type",
-	}, {
 		name: "a malformed literal",
 		src:  wrap(decls, "pt := T#30s1m;"),
 		want: "largest to smallest",
@@ -1804,5 +1795,43 @@ func TestStringPlacements(t *testing.T) {
 	if len(v.Dims) != 2 || v.Dims[0] != 3 || v.Dims[1] != 9 {
 		t.Errorf("names has dimensions %v, want [3 9] -- three strings of eight plus a terminator",
 			v.Dims)
+	}
+}
+
+// TestDurationOnAPin covers a TIME crossing the HAL boundary.
+//
+// HAL has no duration type, so a TIME pin is an s32 of milliseconds -- which
+// is what a CODESYS TIME is, so a value set from outside means there what it
+// means here.  The body still works in nanoseconds; the scale is applied where
+// the pin is read and written, and a duration finer than a millisecond does
+// not survive, which is warned about at the declaration.
+func TestDurationOnAPin(t *testing.T) {
+	pkg := mustCheck(t, "p", "{attribute 'summary' := 'x'}\nPROGRAM p\n"+
+		"VAR_INPUT\n pt : TIME := T#500ms;\nEND_VAR\n"+
+		"VAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := pt > T#0s;\nEND_PROGRAM")
+
+	var pin *ast.Pin
+	for i := range pkg.Component.Pins {
+		if pkg.Component.Pins[i].Name == "pt" {
+			pin = &pkg.Component.Pins[i]
+		}
+	}
+	if pin == nil {
+		t.Fatal("pt was not declared")
+	}
+	if pin.Type != ast.HALS32 {
+		t.Errorf("a TIME pin is %v, want s32", pin.Type)
+	}
+	if !pin.Duration {
+		t.Error("the pin is not marked a duration, so nothing would convert at the boundary")
+	}
+	// The default is what HAL stores, which is milliseconds: emitting the
+	// nanoseconds would put 500000000 where setp reads 500.
+	if pin.Default != "500" {
+		t.Errorf("T#500ms defaults to %q on the pin, want 500 -- milliseconds, not nanoseconds",
+			pin.Default)
+	}
+	if len(pkg.Warnings) == 0 || !strings.Contains(strings.Join(pkg.Warnings, "\n"), "milliseconds") {
+		t.Errorf("no warning about the rounding: %v", pkg.Warnings)
 	}
 }

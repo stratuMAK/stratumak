@@ -96,7 +96,7 @@ appear on a pin:
 |`REAL` |`float`, with a warning |accepted
 |enumeration |`s32` |
 |`ARRAY [0..n] OF` scalar |an array pin, one dimension |any shape
-|`TIME` |not possible |accepted, a duration
+|`TIME` |`s32`, in milliseconds |accepted, a duration in nanoseconds
 |`LINT` `ULINT` `STRING` `STRUCT` |not possible |accepted
 |===
 
@@ -243,19 +243,27 @@ CODESYS does; `DT_TO_SECONDS` and `SECONDS_TO_DT` are the same in `LREAL`.
 
 === Durations and HAL
 
-A duration cannot be a pin or a parameter: HAL has no duration type. Carry one
-across the boundary as seconds on an `LREAL`, or as milliseconds on a `DINT`,
-and convert:
+A `TIME` can be a pin or a parameter. HAL has no duration type, so it is
+carried as an `s32` of *milliseconds* — which is exactly what a CODESYS `TIME`
+is, so a number set from outside means there what it means here:
 
 [source,pascal]
 ----
 VAR_INPUT
-  delay_s : LREAL;
+  pt : TIME := T#500ms;    (* comp.pt, an s32; setp comp.pt 500 *)
 END_VAR
-VAR
-  delay : TIME;
-END_VAR
+----
 
+The body still works in nanoseconds; the conversion happens where the pin is
+read and written, once a cycle, not at every use. A duration finer than a
+millisecond does not survive the trip, and the compiler says so at the
+declaration.
+
+Where that rounding matters, carry seconds on an `LREAL` pin instead and
+convert explicitly:
+
+[source,pascal]
+----
 delay := SECONDS_TO_TIME(delay_s);
 ----
 

@@ -99,6 +99,10 @@ func (g *generator) emitPinStructs() {
 				g.printf("    %s %s[%d];\n", halCType(pin.Type), toC(pin.Name), pin.ArraySize)
 				continue
 			}
+			if pin.Duration {
+				g.printf("    int64_t %s;\n", toC(pin.Name))
+				continue
+			}
 			g.printf("    %s %s;\n", halCType(pin.Type), toC(pin.Name))
 		}
 		g.printf("} %s;\n\n", g.pinsStructName(fn))

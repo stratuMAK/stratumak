@@ -37,7 +37,9 @@ func TestTypeHALMapping(t *testing.T) {
 		{Type{Kind: TypeULInt}, 0, HALFitNone},
 
 		// No HAL representation at all.
-		{Type{Kind: TypeTime}, 0, HALFitNone},
+		// A duration reaches HAL as an s32 of milliseconds -- what a CODESYS
+		// TIME is -- so anything finer than one is lost crossing.
+		{Type{Kind: TypeTime}, HALS32, HALFitLossy},
 		{Type{Kind: TypeString, Len: 10}, 0, HALFitNone},
 		{Type{Kind: TypeStruct, Ref: "Point"}, 0, HALFitNone},
 		{Type{Kind: TypeFB, Ref: "Ramp"}, 0, HALFitNone},

@@ -675,6 +675,10 @@ throughout, as it did for every phase of the frontend.
   checked package, because a library has no `PROGRAM` and so is not a
   component — and because `PT : TIME` as the author spelled it is the answer
   to "what do I pass", where the resolved kind is not.
-- **Whether `TIME` should reach a pin** after all, as `s32` nanoseconds. §5
-  refuses it; if a real component wants a HAL-settable `PT` often enough, that
-  is the thing to revisit first.
+- ~~**Whether `TIME` should reach a pin.**~~ It does, as an `s32` of
+  *milliseconds* — not nanoseconds, which overflow an s32 at 2.1 seconds and
+  would have made the pin useless for any timer. Milliseconds is also what a
+  CODESYS `TIME` is, so a ported number carries over. The body keeps
+  nanoseconds and the scale is applied where the pin is read and written; a
+  default is stored in milliseconds too, or `setp` and the declaration would
+  disagree by a factor of a million.

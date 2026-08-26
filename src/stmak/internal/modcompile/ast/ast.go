@@ -341,6 +341,13 @@ type Pin struct {
 	Personality string
 
 	Doc string
+
+	// Duration marks a pin declared TIME in Structured Text.  HAL has no
+	// duration type, so the pin is an s32 of milliseconds -- which is what a
+	// CODESYS TIME is, so a number set from outside means there what it means
+	// here -- while the body works in the nanoseconds a TIME actually is.  The
+	// conversion happens where the pin is read and written.
+	Duration bool
 }
 
 // Param represents a HAL parameter declaration.
@@ -355,6 +362,10 @@ type Param struct {
 	Default          string
 	Personality      string
 	Doc              string
+
+	// Duration marks a parameter declared TIME, on the same terms as a pin's:
+	// milliseconds on the HAL side, nanoseconds in the body.
+	Duration bool
 }
 
 // Function represents an exported HAL function.

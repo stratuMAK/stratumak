@@ -359,6 +359,13 @@ func (t Type) HALType() (HALType, HALFit) {
 		return HALS32, HALFitWiden
 	case TypeReal:
 		return HALFloat, HALFitLossy
+	case TypeTime:
+		// HAL has no duration type.  A TIME pin is therefore an s32 of
+		// milliseconds -- what a CODESYS TIME is, so a number set from outside
+		// means there what it means here -- and the body still works in
+		// nanoseconds, with the conversion at the boundary.  Lossy, and named
+		// so: a duration finer than a millisecond does not survive the trip.
+		return HALS32, HALFitLossy
 	case TypeArray:
 		if t.Elem == nil || len(t.Dims) != 1 {
 			return 0, HALFitNone
@@ -366,7 +373,7 @@ func (t Type) HALType() (HALType, HALFit) {
 		return t.Elem.HALType()
 	}
 	// LINT, ULINT: no 64-bit HAL type.
-	// TIME, DATE_AND_TIME, STRING, STRUCT, FB: no HAL representation at all.
+	// DATE_AND_TIME, STRING, STRUCT, FB: no HAL representation at all.
 	return 0, HALFitNone
 }
 
@@ -1018,6 +1025,10 @@ type PinBinding struct {
 	// instances, and zero otherwise.  At most one segment may be an array,
 	// because a HAL pin name carries one index.
 	ArrayOf int
+
+	// Duration marks a binding onto a TIME: milliseconds on the HAL side,
+	// nanoseconds in the instance, converted where it crosses.
+	Duration bool
 
 	// Param marks a binding onto a HAL parameter rather than a pin.  The two
 	// differ in inst_hal_t: a pin is a pointer into shared memory and a

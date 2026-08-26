@@ -468,6 +468,11 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 						pin.ArraySize, toC(pin.Name), toC(pin.Name))
 					continue
 				}
+				if pin.Duration {
+					g.printf("    __p->%s = (int64_t)(*(__comp_inst->hal->%s)) * %s;\n",
+						toC(pin.Name), toC(pin.Name), durationScale)
+					continue
+				}
 				g.printf("    __p->%s = (*(__comp_inst->hal->%s));\n", toC(pin.Name), toC(pin.Name))
 				continue
 			}
@@ -483,6 +488,14 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 			qual := ""
 			if pin.Dir == ast.PinIn {
 				qual = "const "
+			}
+			if pin.Duration {
+				// The pin carries milliseconds and the body works in
+				// nanoseconds, so the local is the duration it is and the
+				// scale is applied here, once, rather than at every use.
+				g.printf("    %sint64_t %s = (int64_t)(*(__comp_inst->hal->%s)) * %s;\n",
+					qual, pinLocal(pin.Name), toC(pin.Name), durationScale)
+				continue
 			}
 			g.printf("    %s%s %s = (*(__comp_inst->hal->%s));\n",
 				qual, halCType(pin.Type), pinLocal(pin.Name), toC(pin.Name))
@@ -514,6 +527,14 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 			if pin.ArraySize > 0 {
 				g.printf("    for (__pi = 0; __pi < %d; __pi++) (*(__comp_inst->hal->%s[__pi])) = %s[__pi];\n",
 					pin.ArraySize, toC(pin.Name), src)
+				continue
+			}
+			if pin.Duration {
+				// Back to milliseconds, truncating: a duration finer than one
+				// does not fit the pin, which sema says when the pin is
+				// declared.
+				g.printf("    (*(__comp_inst->hal->%s)) = (int32_t)(%s / %s);\n",
+					toC(pin.Name), src, durationScale)
 				continue
 			}
 			g.printf("    (*(__comp_inst->hal->%s)) = %s;\n", toC(pin.Name), src)
@@ -583,6 +604,18 @@ func (g *generator) emitBindingStores(fn *ast.Function) {
 // and does not.
 func (g *generator) emitBindingCopy(b ast.PinBinding, load bool) {
 	member := toC(b.Pin)
+	if b.Duration {
+		// A published TIME: milliseconds on the pin, nanoseconds in the
+		// instance, exactly as for a pin the PROGRAM declares itself.
+		if load {
+			g.printf("    __comp_inst->%s = (int64_t)(*(__comp_inst->hal->%s)) * %s;\n",
+				b.Path, member, durationScale)
+			return
+		}
+		g.printf("    (*(__comp_inst->hal->%s)) = (int32_t)(__comp_inst->%s / %s);\n",
+			member, b.Path, durationScale)
+		return
+	}
 	open, shut := "(*(", "))"
 	if b.Param {
 		open, shut = "(", ")"
@@ -739,6 +772,14 @@ func (e *stEmitter) emitStmt(s ast.Stmt, depth int) {
 			g.printf("%s__st_strcpy(__comp_inst, %s, (int)sizeof(%s), %s, %s);\n",
 				in, dst, dst, e.expr(v.Value),
 				cStringLiteral("assignment to "+assignWhat(v.Target)+" truncated"))
+			return
+		}
+		if ref, ok := v.Target.(*ast.VarRef); ok &&
+			ref.Store == ast.StorageParam && ref.Typ.Kind == ast.TypeTime {
+			// The parameter holds milliseconds.  Written directly rather than
+			// through varRef, which renders the reading form.
+			g.printf("%s(__comp_inst->hal->%s) = (int32_t)(%s / %s);\n",
+				in, toC(ref.Name), e.expr(v.Value), durationScale)
 			return
 		}
 		g.printf("%s%s = %s;\n", in, e.expr(v.Target), e.expr(v.Value))
@@ -1135,6 +1176,13 @@ func (e *stEmitter) varRef(v *ast.VarRef) string {
 		}
 		return pinLocal(v.Name)
 	case ast.StorageParam:
+		if v.Typ.Kind == ast.TypeTime {
+			// A parameter is read in place rather than snapshotted, so the
+			// scale is applied at each use.  Reading only: the assignment
+			// emitter converts the other way for a parameter the body writes.
+			return fmt.Sprintf("((int64_t)(__comp_inst->hal->%s) * %s)",
+				toC(v.Name), durationScale)
+		}
 		return fmt.Sprintf("(__comp_inst->hal->%s)", toC(v.Name))
 	case ast.StorageVar, ast.StorageGlobal:
 		return fmt.Sprintf("(__comp_inst->%s)", toC(v.Name))
@@ -1411,3 +1459,7 @@ func assignWhat(e ast.Expr) string {
 	}
 	return "a string"
 }
+
+// durationScale converts between the nanoseconds a TIME is and the
+// milliseconds a HAL pin or parameter carries it in.
+const durationScale = "1000000LL"

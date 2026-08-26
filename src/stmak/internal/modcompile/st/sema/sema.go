@@ -7,6 +7,7 @@ import (
 	"fmt"
 	gmiast "github.com/stratuMAK/stratumak/src/stmak/internal/gmicompile/ast"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
@@ -715,6 +716,24 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 	c.pkg.Component.Variables = append(c.pkg.Component.Variables, v)
 }
 
+// halDefault renders a declaration's initial value as the HAL side stores it.
+//
+// For everything but a duration that is the value itself.  A TIME is
+// nanoseconds in the body and milliseconds on the pin, so a default written
+// T#250ms has to reach HAL as 250 -- emitting the nanoseconds would put
+// 250000000 where `setp` and `show param` read milliseconds.
+func (c *checker) halDefault(lit string, typ ast.Type, e ast.Expr, pos ast.Pos) string {
+	if typ.Kind != ast.TypeTime || lit == "" {
+		return lit
+	}
+	ns, ok := foldInt(e)
+	if !ok {
+		c.errorf(pos, "the default of a TIME pin or parameter must be a compile-time constant")
+		return ""
+	}
+	return strconv.FormatInt(ns/int64(nsPerMillisecond), 10)
+}
+
 // declareParam turns an `AT %MRW` or `AT %MR` declaration into a HAL
 // parameter.  See docs/dev/MODCOMPILE_ST_FRONTEND.md §3.5.
 //
@@ -758,7 +777,7 @@ func (c *checker) declareParam(d *st.VarDecl, name string, typ ast.Type, bind *a
 				c.errorf(d.Init.Position(),
 					"the default value of parameter %s must be a compile-time constant", name)
 			}
-			def = lit
+			def = c.halDefault(lit, typ, e, d.Init.Position())
 		}
 	}
 
@@ -767,12 +786,13 @@ func (c *checker) declareParam(d *st.VarDecl, name string, typ ast.Type, bind *a
 	sym.Name = bind.Name
 
 	c.pkg.Component.Params = append(c.pkg.Component.Params, ast.Param{
-		Pos:     d.Pos,
-		Name:    bind.Name,
-		Type:    bind.Type,
-		Dir:     bind.ParamDir,
-		Default: def,
-		Doc:     attrValue(d.Attrs, "doc"),
+		Pos:      d.Pos,
+		Name:     bind.Name,
+		Type:     bind.Type,
+		Dir:      bind.ParamDir,
+		Default:  def,
+		Doc:      attrValue(d.Attrs, "doc"),
+		Duration: typ.Kind == ast.TypeTime,
 	})
 
 	for _, a := range d.Attrs {
@@ -814,6 +834,14 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 			name, typ)
 		return
 	case ast.HALFitLossy:
+		if typ.Kind == ast.TypeTime {
+			// A TIME pin carries milliseconds, which is what a CODESYS TIME
+			// is.  Anything finer does not survive the trip, and that is
+			// worth saying once rather than being discovered.
+			c.warnf("%s: pin %s is a TIME, which HAL carries as milliseconds in an s32; "+
+				"a duration finer than a millisecond is rounded when it crosses", d.Pos, name)
+			break
+		}
 		// REAL reaches the pin losslessly but not back, because HAL float is
 		// a double.  Accepted, but never silently.
 		c.warnf("%s: pin %s is REAL; HAL carries it as a double, so a value written by HAL "+
@@ -873,17 +901,18 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 				c.errorf(d.Init.Position(),
 					"the default value of pin %s must be a compile-time constant", name)
 			}
-			def = lit
+			def = c.halDefault(lit, typ, e, d.Init.Position())
 		}
 	}
 
 	pin := ast.Pin{
-		Pos:     d.Pos,
-		Name:    pinName,
-		Type:    halType,
-		Dir:     dir,
-		Default: def,
-		Doc:     attrValue(d.Attrs, "doc"),
+		Pos:      d.Pos,
+		Name:     pinName,
+		Type:     halType,
+		Dir:      dir,
+		Default:  def,
+		Doc:      attrValue(d.Attrs, "doc"),
+		Duration: typ.Kind == ast.TypeTime,
 	}
 	if typ.Kind == ast.TypeArray {
 		pin.ArraySize = typ.Dims[0].Count()
