@@ -4,18 +4,23 @@
 # FUNCTION_BLOCK body, which is its own C function and never received the HAL
 # function's period argument -- so both are the RT task lookup, and getting
 # 0.000100 and 0.001000 is what proves it resolves the calling thread.
+#
+# Only the last sample is judged.  Sampling happens in the slow thread, and
+# until the quick thread has run once its pin holds whatever it was created
+# with -- which has been seen to take a dozen samples, since how soon a thread
+# first runs is up to the scheduler and is not what this test is about.  Forty
+# samples at 1 ms is ample margin for that; the claim being checked needs one
+# settled reading, not a settled run.
 here=$(dirname "$0")
+[ "$(wc -l < "$1")" -ge 20 ] || { echo "captured $(wc -l < "$1") cycles, too few to judge"; exit 1; }
 
-# The first sample is taken by the slow thread, which may run before the quick
-# thread has ticked once; that line alone is a start-up race and is skipped.
-diff -u <(tail -n +2 "$here/expected") <(tail -n +2 "$1") || exit 1
+last=$(tail -n 1 "$1")
+quick=$(echo "$last" | awk '{print $1}')
+slow=$(echo "$last" | awk '{print $2}')
 
-# A constant would satisfy the diff above if expected were ever regenerated
-# from a broken build, so assert the two columns disagree as well: that is the
-# whole claim, and it cannot hold for any value that ignores the thread.
-awk 'NR > 1 {
-    if ($1 == $2) {
-        printf "line %d: both threads report %s; fperiod is not tracking the thread\n", NR, $1
-        bad = 1
-    }
-} END { exit bad }' "$1"
+[ "$quick" = "0.000100" ] || { echo "the 100 us thread reports fperiod = $quick"; exit 1; }
+[ "$slow"  = "0.001000" ] || { echo "the 1 ms thread reports fperiod = $slow"; exit 1; }
+
+# The whole claim, and the one thing no constant can satisfy: the same block
+# in two threads reports two different periods.
+[ "$quick" != "$slow" ] || { echo "both threads report $quick; fperiod is not tracking the thread"; exit 1; }

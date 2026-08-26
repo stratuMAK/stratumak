@@ -407,6 +407,16 @@ func (c *checker) checkInvoke(v *st.CallStmt) ast.Stmt {
 		}
 	}
 
+	// `motor.stop()` is an action of the instance, not a member of it, so it
+	// has to be recognised before the target is resolved as a value -- the
+	// field lookup would fail first, and "Motor has no member stop" is a poor
+	// way to learn that stop is an action.
+	if fld, ok := v.Target.(*st.FieldExpr); ok {
+		if stmt, handled := c.checkExternalActionCall(v, fld); handled {
+			return stmt
+		}
+	}
+
 	// A function block instance is a value: resolve it as one, so
 	// `avg[i](...)` and `outer.inner(...)` work like any other reference.
 	inst := c.checkExpr(v.Target, ast.Type{})

@@ -848,6 +848,15 @@ type ActionCall struct {
 	Pos     Pos
 	Action  string
 	Presets []*AssignStmt
+
+	// Inst is the function block instance whose action this is, for a call
+	// from outside the block: `motor.stop()`.  Nil for a call from within the
+	// POU that declares the action, which reaches its own.
+	Inst Expr
+
+	// Owner is the block Inst is an instance of, needed to name the C
+	// function.  Empty when Inst is nil.
+	Owner string
 }
 
 func (s *ActionCall) Position() Pos { return s.Pos }

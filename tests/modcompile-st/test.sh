@@ -152,6 +152,15 @@ if grep -q 'advance;' actions.c; then
     exit 1
 fi
 
+# An action of an instance, called from outside the block that declares it.
+# Actions and methods share this syntax -- a name is one or the other -- and
+# the action's own C function already takes the instance, so the call site
+# just names a different one.
+if ! grep -q 'Counter_clear(__comp_inst, &((__comp_inst->c)));' actions.c; then
+    echo 'actions.c did not emit an action call on another instance'
+    exit 1
+fi
+
 # A HAL parameter is a value in shared memory that no signal connects to.  It
 # differs from a pin in inst_hal_t: a pin is a pointer into shared memory, a
 # parameter is the storage itself, so every access is one dereference less.
@@ -439,6 +448,13 @@ rm -f bad_library.c
 modcompile --preprocess bad_library.st -o bad_library.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted USING a library that does not exist'
+    exit 1
+fi
+
+rm -f bad_extaction.c
+modcompile --preprocess bad_extaction.st -o bad_extaction.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted arguments to an external action call'
     exit 1
 fi
 

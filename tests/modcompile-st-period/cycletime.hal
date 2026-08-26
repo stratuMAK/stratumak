@@ -8,7 +8,7 @@ newthread slow  1000000
 
 load ./cycletime.so <ct.0>
 
-load filestream stream_cfg=b infile=in.txt sample_cfg=ff outfile=out.txt depth=1000 samples=16
+load filestream stream_cfg=b infile=in.txt sample_cfg=ff outfile=out.txt depth=1000 samples=40
 
 net tick filestream.stream.0
 

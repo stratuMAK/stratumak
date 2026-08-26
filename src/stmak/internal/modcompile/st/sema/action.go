@@ -128,9 +128,72 @@ func (c *checker) checkActionCall(v *st.CallStmt, name string) ast.Stmt {
 func actionCallees(body []ast.Stmt) []namedRef {
 	var out []namedRef
 	walkBody(body, func(s ast.Stmt) {
-		if call, ok := s.(*ast.ActionCall); ok {
+		// Only a call to the POU's own action is unqualified.  One naming an
+		// instance belongs to that instance's block, and calleesOf records it
+		// under the qualified key instead.
+		if call, ok := s.(*ast.ActionCall); ok && call.Inst == nil {
 			out = append(out, namedRef{call.Action, call.Pos})
 		}
 	})
 	return out
+}
+
+// checkExternalActionCall resolves `instance.action()`.
+//
+// Actions and methods are different constructs -- an action has no interface
+// and a method has one -- and they share this call syntax, which is what
+// CODESYS does and what makes `motor.stop()` read the way it should.  A name
+// is one or the other, never both, so resolution is unambiguous.
+//
+// From outside, an action call takes no arguments.  Inside the declaring POU
+// `Act(v := x)` is shorthand for setting one of the POU's own variables first
+// (§3.4); from outside the same spelling would reach into the instance's
+// private state through a call that declares no interface.  Refusing it also
+// keeps `instance.name(a := 1)` unambiguously a method call for when methods
+// arrive, rather than something whose meaning depends on what `name` turned
+// out to be.  See docs/dev/MODCOMPILE_ST_STDLIB.md §7a.
+func (c *checker) checkExternalActionCall(v *st.CallStmt, fld *st.FieldExpr) (ast.Stmt, bool) {
+	inst := c.checkExpr(fld.Base, ast.Type{})
+	if inst == nil || inst.ExprType().Kind != ast.TypeFB {
+		return nil, false
+	}
+	block := inst.ExprType().Ref
+	if c.pkg.LookupBlock(block) == nil {
+		return nil, false
+	}
+
+	// Resolved against the declaration rather than the checked block: a block
+	// is checked when its turn comes, so at this point another block's
+	// Actions may not be filled in yet -- and whether `stop` is an action of
+	// Motor does not depend on the order the two were written in.
+	name := ""
+	for _, decl := range c.file.Blocks {
+		if !ast.EqualName(decl.Name, block) {
+			continue
+		}
+		for _, a := range decl.Actions {
+			if ast.EqualName(a.Name, fld.Name) {
+				name = a.Name
+			}
+		}
+	}
+	if name == "" {
+		return nil, false
+	}
+
+	if len(v.Args) > 0 {
+		c.errorf(v.Args[0].Pos, "%s.%s takes no arguments: an action has no interface, "+
+			"and setting one of %s's own variables through a call would reach past it. "+
+			"Assign what it needs first, or give %s a VAR_INPUT and pass it on the "+
+			"invocation instead",
+			exprName(inst, inst.ExprType()), name, block, block)
+		return nil, true
+	}
+
+	return &ast.ActionCall{
+		Pos:    v.Pos,
+		Action: name,
+		Inst:   inst,
+		Owner:  block,
+	}, true
 }

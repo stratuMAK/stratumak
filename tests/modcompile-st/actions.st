@@ -60,6 +60,11 @@ PROGRAM actions
     selected : DINT;
   END_VAR
 
+  (* An action of an instance, called from outside the block that declares
+     it: `motor.stop()`.  It shares that instance's variables and takes no
+     arguments -- there is no interface to pass anything through. *)
+  c.clear();
+
   IF enable THEN
     (* An action of a PROGRAM sees the pin snapshot, so it may read and write
        pins exactly as the body does. *)

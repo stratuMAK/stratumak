@@ -171,6 +171,10 @@ func (c *checker) run() {
 	// reported -- but before the backend, which would otherwise emit a static
 	// function nothing calls and fail the build under -Werror.
 	c.pruneUnreachable()
+
+	// And into an order the backend can emit: a block's struct names the
+	// types of the blocks it holds, so those have to come first.
+	c.orderBlocks()
 }
 
 // declarePeriod declares fperiod, the period in seconds of the thread this

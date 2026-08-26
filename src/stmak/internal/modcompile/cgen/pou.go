@@ -37,8 +37,10 @@ func fnName(name string) string { return "st_" + toC(name) }
 // ---------------------------------------------------------------------------
 
 // emitFBStructs emits one struct per function block.  They come before inst_t,
-// which has members of them, and sema has ordered the blocks so a block is
-// declared before the one that contains it.
+// which has members of them, and sema's orderBlocks has put each block after
+// the ones it holds an instance of -- C needs the contained type complete
+// before the containing struct names it, and ST declaration order carries no
+// such obligation.
 func (g *generator) emitFBStructs() {
 	if len(g.pkg.Blocks) == 0 {
 		return

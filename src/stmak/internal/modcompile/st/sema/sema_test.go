@@ -1423,3 +1423,86 @@ func TestCNameDecoratedAreFine(t *testing.T) {
 		"sw();\nIF sw.m = AUTO THEN go(); END_IF;\n"+
 		"ACTION go:\n q := TRUE;\nEND_ACTION\nEND_PROGRAM")
 }
+
+// TestExternalActionCall covers `instance.action()`, and the rule that keeps
+// it out of the way of methods.
+//
+// Actions and methods are different constructs -- an action has no interface,
+// a method has one -- and they share this call syntax, which is what CODESYS
+// does. A name is one or the other, so resolution is unambiguous; what would
+// not be is an argument list, which is why an external action call takes none.
+func TestExternalActionCall(t *testing.T) {
+	const motor = "{attribute 'summary' := 'x'}\n" +
+		"FUNCTION_BLOCK Motor\nVAR_OUTPUT\n speed : DINT;\nEND_VAR\n" +
+		"speed := speed;\nACTION stop:\n speed := 0;\nEND_ACTION\nEND_FUNCTION_BLOCK\n"
+
+	t.Run("accepted", func(t *testing.T) {
+		pkg := mustCheck(t, "p", motor+
+			progWith("VAR\n m : Motor;\nEND_VAR", "m();\nm.stop();\nq := m.speed > 0;"))
+		var found *ast.ActionCall
+		walkStmtsFor(pkg.Component.Functions[0].Body, func(s ast.Stmt) {
+			if call, ok := s.(*ast.ActionCall); ok && call.Inst != nil {
+				found = call
+			}
+		})
+		if found == nil {
+			t.Fatal("m.stop() did not lower to an action call on an instance")
+		}
+		if found.Owner != "Motor" || found.Action != "stop" {
+			t.Errorf("call is %s.%s, want Motor.stop", found.Owner, found.Action)
+		}
+	})
+
+	for _, tt := range []struct{ name, src, want string }{{
+		// The one that matters for methods: an argument list here would be
+		// the same spelling a method call uses, and its meaning would depend
+		// on what the name turned out to be.
+		name: "arguments",
+		src:  motor + progWith("VAR\n m : Motor;\nEND_VAR", "m.stop(speed := 5);"),
+		want: "takes no arguments: an action has no interface",
+	}, {
+		name: "a name that is neither an action nor a member",
+		src:  motor + progWith("VAR\n m : Motor;\nEND_VAR", "m.nosuch();"),
+		want: "has no member nosuch",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestBlocksOrderedByContainment is a regression.
+//
+// A block's struct names the types of the blocks it holds, so C needs those
+// complete first.  ST declaration order carries no such obligation -- bodies
+// are forward-declared so blocks may call each other in any order -- and a
+// block declared before the one it contains used to emit `Inner_t inner;`
+// before Inner_t existed, with the error landing in generated C.
+func TestBlocksOrderedByContainment(t *testing.T) {
+	pkg := mustCheck(t, "p", "{attribute 'summary' := 'x'}\n"+
+		"FUNCTION_BLOCK Outer\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n"+
+		"VAR\n inner : Inner;\nEND_VAR\ninner();\no := inner.o;\nEND_FUNCTION_BLOCK\n"+
+		"FUNCTION_BLOCK Inner\nVAR_OUTPUT\n o : DINT;\nEND_VAR\no := 2;\nEND_FUNCTION_BLOCK\n"+
+		progWith("VAR\n x : Outer;\nEND_VAR", "x();\nq := x.o > 0;"))
+
+	at := map[string]int{}
+	for i := range pkg.Blocks {
+		at[pkg.Blocks[i].Name] = i
+	}
+	if len(at) != 2 {
+		t.Fatalf("got blocks %v, want Outer and Inner", at)
+	}
+	if at["Inner"] > at["Outer"] {
+		t.Errorf("Inner is emitted at %d, after Outer at %d; the contained block has to come first",
+			at["Inner"], at["Outer"])
+	}
+}
+
+// walkStmtsFor visits every statement of a body, including nested ones.
+func walkStmtsFor(body []ast.Stmt, f func(ast.Stmt)) { walkBody(body, f) }

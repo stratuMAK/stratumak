@@ -348,6 +348,25 @@ restructuring what that body operates on.
 `advance(count := 0)` is shorthand for setting one of the POU's own variables
 before running the action — not a parameter, since an action has none.
 
+An action of a function block can also be called on an instance from outside
+it, which is how a block gets commands:
+
+[source,pascal]
+----
+VAR
+  motor : Motor;
+END_VAR
+
+motor(setpoint := 1000);
+IF fault THEN
+  motor.stop();
+END_IF;
+----
+
+Such a call takes no arguments — an action has no interface. Inside the POU
+that declares it, `Act(v := x)` sets one of that POU's own variables first;
+from outside there is nothing to set that way.
+
 Actions may also be written after the POU's `END_PROGRAM` or
 `END_FUNCTION_BLOCK` rather than inside it, which is how CODESYS exports them.
 Both placements mean the same thing.

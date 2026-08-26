@@ -184,6 +184,13 @@ func (e *stEmitter) emitActionCall(v *ast.ActionCall, depth int) {
 		g.printf("%s%s = %s;\n", in, e.expr(p.Target), e.expr(p.Value))
 	}
 
+	// `motor.stop()`: the action belongs to another instance, which the call
+	// site names.  Its own body reaches its own members through that pointer,
+	// exactly as an invocation does.
+	if v.Inst != nil {
+		g.printf("%s%s(__comp_inst, &(%s));\n", in, fbActionCName(v.Owner, v.Action), e.expr(v.Inst))
+		return
+	}
 	if e.self != "" {
 		g.printf("%s%s(__comp_inst, %s);\n", in, fbActionCName(e.owner, v.Action), e.self)
 		return

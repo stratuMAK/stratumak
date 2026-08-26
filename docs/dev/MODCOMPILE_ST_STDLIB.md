@@ -506,15 +506,27 @@ the IDL does not mark rt-safe.
 declarations in; a `.gmi` surfaced as a synthesised library reuses it rather
 than adding a second.
 
-**The decision this forecloses.** All of the above needs methods —
-`inst.m(args)` with a result — which do not exist. The syntax is currently
-unclaimed: `b.compute(2)` is refused with "only a plain function name may be
-called in an expression", and none of `INTERFACE`, `METHOD`, `IMPLEMENTS`,
-`EXTENDS` or `THIS` is reserved. But §9 notes that a function block's `ACTION`
-cannot be called from outside it, which CODESYS allows — and adding that would
-claim exactly the `inst.something()` syntax methods need. Whether actions and
-methods unify or stay distinct has to be settled before either lands, not
-after.
+**The decision this forecloses — settled.** All of the above needs methods,
+`inst.m(args)` with a result, and calling a function block's `ACTION` from
+outside claims the same `inst.something()` spelling.
+
+**They stay distinct, and share the call syntax.** An action has no interface
+and a method has one, so they are not the same construct, and merging them
+would mean giving an action parameters it has no use for. Sharing the syntax
+is what CODESYS does, and it is what makes `motor.stop()` read the way it
+should. A name is one or the other, never both, so resolution is unambiguous.
+
+**What keeps them apart is the argument list.** From outside, an action call
+takes none. Inside the declaring POU, `Act(v := x)` is shorthand for setting
+one of that POU's own variables first (§3.4) — from outside the identical
+spelling would reach past the instance's interface into its state, and it is
+also exactly what a method call looks like. Refusing it means
+`inst.name(a := 1)` is a method call and nothing else whenever methods arrive,
+rather than something whose meaning depends on what `name` turned out to be.
+
+`inst.Action()` is implemented on that basis. Methods are still not, and are
+GMI's business. None of `INTERFACE`, `METHOD`, `IMPLEMENTS`, `EXTENDS` or
+`THIS` is reserved yet, so nothing there is spent.
 
 ## 8. Testing
 
@@ -542,13 +554,11 @@ throughout, as it did for every phase of the frontend.
 - **Library versioning.** Nothing is checked today; a library is whatever the
   search path found. A version pragma and a `USING timers >= 1.2` constraint is
   the obvious next step and deliberately not in this plan.
-- **Calling a function block's action from outside it** — `inst.Action()`,
-  which CODESYS allows. See §7a: this claims the syntax ed.3 methods need, so
-  it is not an independent choice. Found while writing the phase 0 fixture: an action is
-  currently reachable only from the POU that declares it. None of the three
-  projects rely on it (their `inst.Name()` calls are CODESYS *methods*, a
-  separate ed.3 feature that is also out of scope), so it is noted rather than
-  planned.
+- ~~**Calling a function block's action from outside it**~~ Done, on the terms
+  §7a settles: shared syntax, distinct constructs, and no argument list on an
+  action call so that methods can have one. None of the three projects relied
+  on it — their `inst.Name()` calls are CODESYS *methods*, a separate ed.3
+  feature that is still out of scope.
 - **Binary libraries**, per §2, unless something later makes the case.
 - ~~**Man pages for libraries.**~~ Done. `modcompile --document` on a library
   writes one man3 page per function block, installed to `docs/man/man3` by the

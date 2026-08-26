@@ -132,3 +132,52 @@ func filterFuncs(in []ast.PureFunction, live map[string]bool) []ast.PureFunction
 	}
 	return out
 }
+
+// orderBlocks puts a function block after every block it holds an instance of.
+//
+// C needs the contained type complete before the containing struct names it,
+// and ST declaration order carries no such obligation: bodies are
+// forward-declared so blocks may call each other in any order, and a reader
+// reasonably expects the same of containment.  Without this,
+//
+//	FUNCTION_BLOCK Outer  VAR inner : Inner; END_VAR  ... END_FUNCTION_BLOCK
+//	FUNCTION_BLOCK Inner  ...                          END_FUNCTION_BLOCK
+//
+// generates `Inner_t inner;` before Inner_t exists, and the error lands in
+// generated C rather than against anything the author wrote.
+//
+// A post-order walk gives the order directly.  It terminates because
+// checkContainmentCycles has already refused a block that contains itself, so
+// the graph is acyclic by the time this runs.
+func (c *checker) orderBlocks() {
+	index := make(map[string]int, len(c.pkg.Blocks))
+	for i := range c.pkg.Blocks {
+		index[key(c.pkg.Blocks[i].Name)] = i
+	}
+
+	done := make(map[string]bool, len(c.pkg.Blocks))
+	out := make([]ast.FunctionBlock, 0, len(c.pkg.Blocks))
+
+	var visit func(k string)
+	visit = func(k string) {
+		if done[k] {
+			return
+		}
+		i, ok := index[k]
+		if !ok {
+			return // pruned away, or not a block at all
+		}
+		done[k] = true
+		for _, ref := range containedBlocks(&c.pkg.Blocks[i]) {
+			visit(key(ref.name))
+		}
+		out = append(out, c.pkg.Blocks[i])
+	}
+
+	// Declaration order among independent blocks, so the generated C keeps
+	// following the source wherever containment does not force a change.
+	for i := range c.pkg.Blocks {
+		visit(key(c.pkg.Blocks[i].Name))
+	}
+	c.pkg.Blocks = out
+}

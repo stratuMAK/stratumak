@@ -11,6 +11,6 @@ modcompile --compile cycletime.st
 
 # filestream needs a replay stream to drain; nothing here reads it, the sample
 # count is what ends the run.
-for _ in $(seq 16); do echo 0; done > in.txt
+for _ in $(seq 40); do echo 0; done > in.txt
 
 fs_run cycletime.hal
