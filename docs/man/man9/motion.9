@@ -613,6 +613,20 @@ This masks the speed only: the spindle stays "on" as far as the interpreter
 and the status buffer are concerned, an M3 issued while it is asserted still
 succeeds, and releasing the pin returns the spindle to the commanded speed
 with no further operator action.
+Use \fBspindle.M.start\-inhibit\fR for an interlock.
+
+.TP
+\fBspindle.M.start\-inhibit\fR IN BIT
+When TRUE, the spindle may not run.
+An M3/M4 or any other start request is refused with an operator error rather
+than started and then muted, and a spindle that is already turning is stopped
+as if by M5.
+Releasing the pin does not restart the spindle: a new start command is
+required.
+This pin stops the spindle only -- it does not stop the feed or the running
+program, so on its own it would leave the axes cutting with a dead spindle.
+Ordering is the caller's responsibility: stop AUTO first (see
+\fBhalui.auto\-inhibit\fR), then inhibit the spindle.
 
 .TP
 \fBspindle.M.is\-oriented\fR IN BIT

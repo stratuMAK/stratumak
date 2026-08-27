@@ -622,6 +622,23 @@ static void process_inputs(motmod_inst_t *inst)
     /* save the resulting combined scale factor */
     inst->status->net_feed_scale = scale;
 
+    /* Hold the spindle stopped for as long as start-inhibit is asserted.
+       Enforced here, at level, rather than only refusing the SPINDLE_ON
+       command: the pin has to stop a spindle that is already turning when the
+       interlock opens, and it must not be possible for the spindle to resume
+       when the pin drops.  spindle_force_off clears the run state, so this
+       reports once per stop rather than every servo cycle -- anything that
+       turns the spindle back on under an asserted inhibit is a real event and
+       is meant to be reported again. */
+    for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
+	if (*inst->hal_data->spindle[spindle_num].spindle_start_inhibit
+	    && inst->status->spindle_status[spindle_num].state != 0) {
+	    stmak_log_errorf(inst->log, inst->name,
+		_("Spindle %d stopped: start-inhibit is active"), spindle_num);
+	    spindle_force_off(inst, spindle_num, "start-inhibit");
+	}
+    }
+
     /* now do spindle scaling */
     for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
 		scale = 1.0;

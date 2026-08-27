@@ -174,6 +174,26 @@ void refresh_jog_limits(motmod_inst_t *inst, emcmot_joint_t *joint, int joint_nu
     }
 }
 
+/* Stop spindle n dead.  Factored out of the SPINDLE_OFF handler so the
+   start-inhibit interlock leaves byte-identical state behind -- an interlock
+   that stops a spindle differently from M5 is a second code path to get wrong.
+   `why` only labels the debug lines. */
+void spindle_force_off(motmod_inst_t *inst, int n, const char *why)
+{
+    inst->status->spindle_status[n].state = 0;
+    inst->status->spindle_status[n].speed = 0;
+    inst->status->spindle_status[n].direction = 0;
+    inst->status->spindle_status[n].brake = 1; // engage brake
+    if (*(inst->hal_data->spindle[n].spindle_orient))
+        stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by %s", why);
+    if (*(inst->hal_data->spindle[n].spindle_locked)){
+        stmak_log_debugf(inst->log, inst->name, "spindle-locked cleared by %s", why);
+        *(inst->hal_data->spindle[n].spindle_locked) = 0;
+    }
+    *(inst->hal_data->spindle[n].spindle_orient) = 0;
+    inst->status->spindle_status[n].orient_state = EMCMOT_ORIENT_NONE;
+}
+
 void apply_spindle_limits(spindle_status_t *s){
     if (s->speed > 0) {
         if (s->speed > s->max_pos_speed) s->speed = s->max_pos_speed;
@@ -1790,6 +1810,21 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
         }
         for (n = s0; n<=s1; n++){
 
+	        /* Refuse the start outright rather than letting it "succeed" and
+	           be muted downstream.  spindle.N.inhibit only zeroes the speed
+	           scale: the spindle state stays on, status keeps reporting the
+	           commanded speed, and dropping the pin spins the spindle up again
+	           with no operator action.  start-inhibit is the ignition, not the
+	           clutch -- nothing starts, and control.c keeps it stopped for as
+	           long as the pin is held. */
+	        if (*(inst->hal_data->spindle[n].spindle_start_inhibit) && inst->command->state) {
+	            stmak_log_errorf(inst->log, inst->name,
+	                _("Spindle %d start refused: start-inhibit is active"), n);
+	            inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
+	            spindle_force_off(inst, n, "start-inhibit");
+	            continue;
+	        }
+
 	        if (*(inst->hal_data->spindle[n].spindle_orient))
 	    	stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_ON");
 	        if (*(inst->hal_data->spindle[n].spindle_locked))
@@ -1842,19 +1877,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             s1 = inst->num_spindles - 1;
         }
         for (n = s0; n<=s1; n++){
-
-	        inst->status->spindle_status[n].state = 0;
-	        inst->status->spindle_status[n].speed = 0;
-	        inst->status->spindle_status[n].direction = 0;
-	        inst->status->spindle_status[n].brake = 1; // engage brake
-	        if (*(inst->hal_data->spindle[n].spindle_orient))
-		    stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_OFF");
-	        if (*(inst->hal_data->spindle[n].spindle_locked)){
-		    stmak_log_debugf(inst->log, inst->name, "spindle-locked cleared by SPINDLE_OFF");
-	            *(inst->hal_data->spindle[n].spindle_locked) = 0;
-            }
-	        *(inst->hal_data->spindle[n].spindle_orient) = 0;
-	        inst->status->spindle_status[n].orient_state = EMCMOT_ORIENT_NONE;
+	        spindle_force_off(inst, n, "SPINDLE_OFF");
         }
 	    break;
 
