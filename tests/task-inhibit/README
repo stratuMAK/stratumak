@@ -1,0 +1,17 @@
+halui.auto-inhibit and halui.mdi-inhibit refuse before anything starts.
+
+Without them the only way to forbid automatic motion is to let AUTO start and
+then drop the machine's enable, which reaches the operator as an E-stop they
+did not cause and which says nothing about why.  These refuse the mode change,
+the program run and the MDI command outright, with a message naming the
+inhibit.
+
+Two pins rather than one, because the granularity matters in practice: an
+interlock that forbids running a program usually still has to allow the MDI
+routines an operator homes and touches off with, and [HALUI]MDI_COMMAND
+entries reach the machine through the same MDI path.  The test pins down that
+each inhibit leaves the other alone, which is the property a single combined
+pin would quietly lose.
+
+mdi-inhibit deliberately covers [HALUI]MDI_COMMAND as well: an inhibit that
+some MDI sources bypass would be worse than none.
