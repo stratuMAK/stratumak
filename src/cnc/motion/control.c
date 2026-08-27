@@ -1005,6 +1005,7 @@ static void check_for_faults(motmod_inst_t *inst)
 	joint = &inst->joints[joint_num];
 	/* only check active, enabled axes */
 	if ( GET_JOINT_ACTIVE_FLAG(joint) && GET_JOINT_ENABLE_FLAG(joint) ) {
+	    int joint_faulted = 0;
 	    /* are any limits for this joint overridden? */
 	    neg_limit_override = inst->status->overrideLimitMask & ( 1 << (joint_num*2));
 	    pos_limit_override = inst->status->overrideLimitMask & ( 2 << (joint_num*2));
@@ -1016,11 +1017,13 @@ static void check_for_faults(motmod_inst_t *inst)
 		    /* no, ignore limits */
 		} else {
 		    /* trip on limits */
-		    if (!GET_JOINT_ERROR_FLAG(joint)) {
-			/* report the error just this once */
+		    if (!joint->fault_reported) {
+			/* name the primary cause; knock-on faults stay quiet */
 			stmak_log_errorf(inst->log, inst->name, _("joint %d on limit switch error"),
 			    joint_num);
+			joint->fault_reported = 1;
 		    }
+		    joint_faulted = 1;
 		    SET_JOINT_ERROR_FLAG(joint, 1);
 		    SET_MOTION_ERROR_FLAG(1);
 		    inst->internal->enabling = 0;
@@ -1029,23 +1032,31 @@ static void check_for_faults(motmod_inst_t *inst)
 	    /* check for amp fault */
 	    if (GET_JOINT_FAULT_FLAG(joint)) {
 		/* joint is faulted, trip */
-		if (!GET_JOINT_ERROR_FLAG(joint)) {
-		    /* report the error just this once */
+		if (!joint->fault_reported) {
+		    /* name the primary cause; knock-on faults stay quiet */
 		    stmak_log_errorf(inst->log, inst->name, _("joint %d amplifier fault"), joint_num);
+		    joint->fault_reported = 1;
 		}
+		joint_faulted = 1;
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
 		inst->internal->enabling = 0;
 	    }
 	    /* check for excessive following error */
 	    if (GET_JOINT_FERROR_FLAG(joint)) {
-		if (!GET_JOINT_ERROR_FLAG(joint)) {
-		    /* report the error just this once */
+		if (!joint->fault_reported) {
+		    /* name the primary cause; knock-on faults stay quiet */
 		    stmak_log_errorf(inst->log, inst->name, _("joint %d following error"), joint_num);
+		    joint->fault_reported = 1;
 		}
+		joint_faulted = 1;
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
 		inst->internal->enabling = 0;
+	    }
+	    if (!joint_faulted) {
+		/* joint is clean again: re-arm reporting for the next episode */
+		joint->fault_reported = 0;
 	    }
 	/* end of if JOINT_ACTIVE_FLAG(joint) */
 	}

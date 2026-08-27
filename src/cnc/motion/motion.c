@@ -1575,6 +1575,7 @@ static int init_comm_buffers(motmod_inst_t *inst)
 	joint->ferror = 0.0;
 	joint->ferror_limit = joint->min_ferror;
 	joint->ferror_high_mark = 0.0;
+	joint->fault_reported = 0;
 
 	/* init internal info */
 	cubicInit(&(joint->cubic));
