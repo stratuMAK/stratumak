@@ -610,8 +610,13 @@ static void process_inputs(motmod_inst_t *inst)
 	    scale = 0;
 	}
     }
-    /*non maskable (except during spinndle synch move) feed hold inhibit pin */
-	if ( enables & *inst->hal_data->feed_inhibit ) {
+    /* Non-maskable (except during spindle synch move) feed inhibit pin.
+       Not gated on any enables bit: this was "enables & *feed_inhibit", and
+       since the pin is 0 or 1 that ANDed against 0x01 == SS_ENABLED -- the
+       feed inhibit silently stopped working whenever spindle-scale override
+       was switched off.  An inhibit that a UI action can disable is not an
+       inhibit. */
+	if ( *inst->hal_data->feed_inhibit ) {
 	    scale = 0;
 	}
     /* save the resulting combined scale factor */
@@ -623,8 +628,10 @@ static void process_inputs(motmod_inst_t *inst)
 		if ( enables & SS_ENABLED ) {
 			scale *= inst->status->spindle_status[spindle_num].scale;
 		}
-		/*non maskable (except during spindle synch move) spindle inhibit pin */
-		if ( enables & *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
+		/* Non-maskable (except during spindle synch move) spindle inhibit
+		   pin.  Was "enables & *spindle_inhibit", i.e. gated on SS_ENABLED --
+		   see the feed inhibit above. */
+		if ( *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
 			scale = 0;
 		}
 		/* save the resulting combined scale factor */

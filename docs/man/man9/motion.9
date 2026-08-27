@@ -608,7 +608,11 @@ For correct operation of spindle synchronized moves, this signal must be hooked 
 
 .TP
 \fBspindle.M.inhibit\fR IN BIT
-When TRUE, the spindle speed is set and held to 0.
+When TRUE, the commanded spindle speed is scaled to 0.
+This masks the speed only: the spindle stays "on" as far as the interpreter
+and the status buffer are concerned, an M3 issued while it is asserted still
+succeeds, and releasing the pin returns the spindle to the commanded speed
+with no further operator action.
 
 .TP
 \fBspindle.M.is\-oriented\fR IN BIT
