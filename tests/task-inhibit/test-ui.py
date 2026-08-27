@@ -21,7 +21,22 @@ stmak_test.install_constants()
 
 
 def pin_set(pin, value):
+    """Set an inhibit pin and wait until task has actually sampled it.
+
+    The pins are read once per halui monitor tick, so a command issued straight
+    after setp can beat the sample and see the old state -- a race that only
+    loses under load, which is exactly when it is most confusing.  The status
+    field the UI greys its buttons from is the same value the guards read, so
+    waiting on it is waiting for the guard to be armed.
+    """
     subprocess.run(["halcmd", "setp", pin, "1" if value else "0"], check=True)
+    field = {"halui.auto-inhibit": "auto_inhibit",
+             "halui.mdi-inhibit": "mdi_inhibit"}.get(pin)
+    if field is not None:
+        stmak_test.wait_stat(
+            s, lambda st: getattr(st, field) == value,
+            "%s to reach task status as %s" % (pin, value),
+            detail=lambda st: "%s=%s" % (field, getattr(st, field)))
 
 
 s = gmi.Stat()
@@ -85,4 +100,27 @@ if s.interp_state != INTERP_IDLE:
 print("ok: MDI command refused while mdi-inhibit is set")
 
 pin_set("halui.mdi-inhibit", False)
+
+# --- auto-inhibit stops a program that is already running -----------------
+# Refusing new runs is only half an interlock: if the guard opens mid-program
+# the machine would otherwise cut to the end of the file.  The pin aborts the
+# run and says why, rather than the program merely stopping.
+c.mode(MODE_AUTO)
+c.wait_complete()
+c.program_open("slow.ngc")
+c.auto(AUTO_RUN)
+stmak_test.wait_stat(
+    s, lambda st: st.interp_state in (INTERP_READING, INTERP_WAITING),
+    "the program to be running",
+    detail=lambda st: "interp_state=%d" % st.interp_state)
+print("ok: program running")
+
+pin_set("halui.auto-inhibit", True)
+stmak_test.wait_stat(
+    s, lambda st: st.interp_state == INTERP_IDLE,
+    "auto-inhibit to abort the running program",
+    detail=lambda st: "interp_state=%d" % st.interp_state)
+print("ok: auto-inhibit aborts a running program")
+
+pin_set("halui.auto-inhibit", False)
 print("PASS")

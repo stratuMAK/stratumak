@@ -343,6 +343,8 @@ type halUIValues struct {
 	abort   bool
 	homeAll bool
 
+	autoInhibit bool
+
 	mdiCommands [haluiMaxMDI]bool
 
 	notificationsClear      bool
@@ -1044,7 +1046,21 @@ func (h *halUI) check(t *Task) {
 	}
 
 	if h.autoInhibit != nil {
-		t.setAutoInhibit(h.autoInhibit.Get())
+		v := h.autoInhibit.Get()
+		// Refusing new runs is not enough on its own: an interlock that opens
+		// mid-program would otherwise leave the program cutting to the end.
+		// Abort on the rising edge, and say why -- a program that simply
+		// stopped with no message is the failure mode this whole pin exists to
+		// replace.
+		// Publish the inhibit before aborting, not after: the abort drops
+		// t.mu and takes cmdMu, and an AutoRun arriving in that window has to
+		// be refused by the guard rather than race the abort it would undo.
+		t.setAutoInhibit(v)
+		if risingEdge(v, h.old.autoInhibit) && t.programRunning() {
+			t.operatorError("Program aborted: auto-inhibit went active")
+			_ = t.Abort()
+		}
+		h.old.autoInhibit = v
 	}
 	if h.mdiInhibit != nil {
 		t.setMDIInhibit(h.mdiInhibit.Get())

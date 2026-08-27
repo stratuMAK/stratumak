@@ -202,6 +202,23 @@ pin for stepping in a program
 pin for stopping a program 
 (note: this pin does the same thing as halui.abort)
 
+.SS Inhibits
+.TP
+.B halui.auto\-inhibit\fR bit in \fR
+When TRUE, AUTO mode may not be selected and no program may be started, each
+refused with an operator error.
+Asserting it while a program is running (paused included) aborts that program.
+This refuses the run up front, instead of letting it start and then dropping
+the machine's enable -- which reaches the operator as an E\-stop they did not
+cause.
+.TP
+.B halui.mdi\-inhibit\fR bit in \fR
+When TRUE, MDI mode may not be selected and no MDI command may be issued,
+each refused with an operator error.
+Separate from halui.auto\-inhibit on purpose: an interlock that forbids running
+a program usually still has to allow the MDI routines an operator homes and
+touches off with.
+
 .SS Mode
 .TP
 .B halui.mode.auto\fR bit in \fR
