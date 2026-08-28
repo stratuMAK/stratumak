@@ -218,7 +218,7 @@ func (c *control) streamedApproach(j *job, pk int, s *procState) error {
 	if err != nil {
 		return err
 	}
-	if err := c.dispatchTravel(j, pk, wp); err != nil {
+	if err := c.dispatchLeadingLeg(j, pk, wp); err != nil {
 		return err
 	}
 	stopped, err := c.awaitClear(s, true)

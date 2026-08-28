@@ -283,6 +283,38 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 // the same tracking that lets the segments of a single route be queued back to
 // back.
 func (c *control) dispatchTravel(j *job, pk int, target pnproute.Point) error {
+	return c.dispatchLeg(j, pk, target, false)
+}
+
+// dispatchLeadingLeg is dispatchTravel for the first of two streamed legs: it
+// ends the route with the braking distance as a segment of its own, so the leg
+// queued behind it joins one the machine has NOT started driving.
+//
+// Why that should matter: a blend is decided when the following segment is
+// added, against whatever is last in the queue at that moment. Every segment
+// of a route escapes any question about this because a route is dispatched
+// back to back — the join is always with a segment at zero progress. A leg
+// dispatched on its own does not, and D29's first leg is exactly that: it is
+// queued, it runs, and the second leg arrives against a segment that is
+// already part-driven. Reserving the braking distance restores the property
+// the route case has for free.
+//
+// The split changes no geometry — the extra point lies ON the final segment —
+// so the driven path is identical and the only cost is one queue entry.
+//
+// NOT VALIDATED IN SIMULATION. The effect is a velocity profile through a
+// segment boundary, and the integration harness polls HAL over REST, which
+// cannot sample velocity and position coherently at travel speeds; every
+// attempt to measure it there produced artefacts (a straight move with no
+// boundary at all measured a larger "loss" than the boundary case). It is
+// deployed to be measured on the machine with haltrace, and blend-tail-margin
+// is a param so the size can be swept there. Setting it to 0 restores the
+// previous behaviour exactly.
+func (c *control) dispatchLeadingLeg(j *job, pk int, target pnproute.Point) error {
+	return c.dispatchLeg(j, pk, target, true)
+}
+
+func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail bool) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
@@ -327,7 +359,11 @@ func (c *control) dispatchTravel(j *job, pk int, target pnproute.Point) error {
 	if err := c.m.mc.SetTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)
 	}
-	for _, wp := range route.Waypoints {
+	waypoints := route.Waypoints
+	if splitTail {
+		waypoints = c.withBrakingTail(waypoints, j.height)
+	}
+	for _, wp := range waypoints {
 		to := c.cmdPos
 		to.X, to.Y, to.Z = wp.X, wp.Y, j.height
 		// The first waypoint is where the picker already is, so its line drops
@@ -338,6 +374,50 @@ func (c *control) dispatchTravel(j *job, pk int, target pnproute.Point) error {
 		}
 	}
 	return nil
+}
+
+// withBrakingTail returns the waypoints with the last v²/2a of the final
+// segment split off as a segment of its own. See dispatchLeadingLeg.
+//
+// v²/2a is the distance the head needs to come to rest from this leg's own
+// speed, which makes the split point the place where the two zones of the leg
+// meet: everything before it can be driven flat out, because the deceleration
+// ramp now fits inside the tail instead of reaching back past it, and the tail
+// is where the head brakes if the station never clears.
+//
+// Two cases are left alone. A final segment already shorter than the tail is
+// entirely inside the braking distance — the head is decelerating through all
+// of it however it is split, so there is nothing to protect. And a margin of 0
+// disables the split, which is how the previous behaviour is restored.
+func (c *control) withBrakingTail(wps []pnproute.Point, height float64) []pnproute.Point {
+	margin := c.m.pins.blendTailMargin.Get()
+	if margin <= 0 || len(wps) < 2 {
+		return wps
+	}
+	a, b := wps[len(wps)-2], wps[len(wps)-1]
+	seg := math.Hypot(b.X-a.X, b.Y-a.Y)
+	if seg < moveFuzz {
+		return wps
+	}
+	from, to := c.cmdPos, c.cmdPos
+	from.X, from.Y, from.Z = a.X, a.Y, height
+	to.X, to.Y, to.Z = b.X, b.Y, height
+	// The coordinated values this segment will actually run at, not the INI
+	// ceilings: the blend against the per-axis limits differs with direction,
+	// and it is the real speed that sets the real braking distance.
+	vel, acc, moved := c.moveLimits(from, to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc)
+	if !moved || vel <= 0 || acc <= 0 {
+		return wps
+	}
+	tail := margin * vel * vel / (2 * acc)
+	if tail <= moveFuzz || tail >= seg-moveFuzz {
+		return wps
+	}
+	f := (seg - tail) / seg
+	split := pnproute.Point{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f}
+	out := make([]pnproute.Point, 0, len(wps)+1)
+	out = append(out, wps[:len(wps)-1]...)
+	return append(out, split, b)
 }
 
 // waitPoint is where an approach to a busy station with a WAIT_DEADZONE has to

@@ -72,9 +72,17 @@ type pinSet struct {
 
 	// Tuning knobs. Params rather than pins because they are adjusted with
 	// halcmd setp and never wired (D2); the INI only seeds them.
-	posSettleTime  *hal.Param[float64]
-	pickSettleTime *hal.Param[float64]
-	releaseTime    *hal.Param[float64]
+	posSettleTime *hal.Param[float64]
+
+	// blendTailMargin scales the tail a streamed approach reserves at the end
+	// of its first leg (D29, see dispatchLeadingLeg). A param rather than a
+	// constant because the right value is a property of the machine's
+	// trajectory planner behaviour, not of the module: it is meant to be swept
+	// with halcmd setp on the machine, where the effect is measurable, without
+	// a rebuild. 0 disables the split.
+	blendTailMargin *hal.Param[float64]
+	pickSettleTime  *hal.Param[float64]
+	releaseTime     *hal.Param[float64]
 
 	pickers []pickerPins
 	trays   []trayPins
@@ -232,6 +240,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.errorReset = mkPin[bool](b, "error-reset", hal.In)
 
 	p.posSettleTime = mkParam[float64](b, "pos-settle-time", hal.RW)
+	p.blendTailMargin = mkParam[float64](b, "blend-tail-margin", hal.RW)
 	p.pickSettleTime = mkParam[float64](b, "pick-settle-time", hal.RW)
 	p.releaseTime = mkParam[float64](b, "release-time", hal.RW)
 
@@ -303,6 +312,11 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.posSettleTime.Set(cfg.PosSettleTime)
 	p.pickSettleTime.Set(cfg.PickSettleTime)
 	p.releaseTime.Set(cfg.ReleaseTime)
+	// Two braking distances by default: a parabolic join halves the
+	// acceleration available to both segments, so the deceleration the
+	// trajectory planner can actually apply at the end of a leg is below the
+	// value the leg was dispatched with.
+	p.blendTailMargin.Set(2.0)
 
 	// DEFAULT_TRAYDEF and DEFAULT_STEP seed their pins, exactly as a halcmd
 	// setp would. This runs before the instance's net lines, so it only ever

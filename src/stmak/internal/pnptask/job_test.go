@@ -1201,6 +1201,88 @@ func TestJobWaitZoneStartingAtTheStation(t *testing.T) {
 	f.requireOK("a job that starts with the head already at the station")
 }
 
+// TestJobWaitZoneLeavesAnUnstartedTailForLegTwo: the first leg of a streamed
+// approach ends with the braking distance as a segment of its own, so the leg
+// queued behind it joins one the machine has not started driving (D29).
+//
+// Geometry only — what the tail is FOR is a velocity profile through a segment
+// boundary, which needs a servo-rate instrument and belongs on the machine.
+// What can be pinned here is that the split is the right size, that it lies on
+// the leg so the driven path is unchanged, and that the param turns it off.
+func TestJobWaitZoneLeavesAnUnstartedTailForLegTwo(t *testing.T) {
+	f := newWaitZoneFixture(t)
+	startCamPick(f) // the station never clears, so this is all leg 1
+	f.eventually("the approach to reach the wait position", func() bool {
+		return atWaitZone(f.mot.moveList())
+	})
+	f.consistently("still waiting at the wait position", func() bool { return f.bit("busy") })
+
+	legs := travelMoves(f.mot.moveList())
+	if len(legs) < 2 {
+		t.Fatalf("leg 1 was dispatched as %d segment(s); it has to end with a tail of its own", len(legs))
+	}
+	last, prev := legs[len(legs)-1], legs[len(legs)-2]
+	tail := math.Hypot(last.pos.X-prev.pos.X, last.pos.Y-prev.pos.Y)
+
+	want := f.m.pins.blendTailMargin.Get() * last.vel * last.vel / (2 * last.acc)
+	if math.Abs(tail-want) > 0.5 {
+		t.Errorf("tail is %.3f mm, want the braking distance %.3f mm (vel %.1f, acc %.1f)",
+			tail, want, last.vel, last.acc)
+	}
+	if len(legs) >= 3 {
+		a, b, c := legs[len(legs)-3], prev, last
+		cross := (b.pos.X-a.pos.X)*(c.pos.Y-a.pos.Y) - (b.pos.Y-a.pos.Y)*(c.pos.X-a.pos.X)
+		if math.Abs(cross) > 1e-3 {
+			t.Errorf("the split moved the path off the leg: cross product %g", cross)
+		}
+	}
+
+	f.m.pins.deadzoneSelect.Set(0)
+	f.setBit(f.m.pins.procs[1].busy, false)
+	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("the job with a split leg")
+}
+
+// TestJobWaitZoneTailMarginZeroRestoresOneSegment: blend-tail-margin = 0 is the
+// way back to the previous behaviour on a machine where the split turns out not
+// to help, so it has to actually restore it.
+func TestJobWaitZoneTailMarginZeroRestoresOneSegment(t *testing.T) {
+	f := newWaitZoneFixture(t)
+	f.m.pins.blendTailMargin.Set(0)
+	startCamPick(f)
+	f.eventually("the approach to reach the wait position", func() bool {
+		return atWaitZone(f.mot.moveList())
+	})
+	f.consistently("still waiting at the wait position", func() bool { return f.bit("busy") })
+
+	legs := travelMoves(f.mot.moveList())
+	if len(legs) < 2 {
+		return // a single-segment leg cannot carry a tail either way
+	}
+	last, prev := legs[len(legs)-1], legs[len(legs)-2]
+	tail := math.Hypot(last.pos.X-prev.pos.X, last.pos.Y-prev.pos.Y)
+	// What a margin of 2 would have reserved. The final segment of an
+	// unsplit leg is a whole leg of the route and is far longer than that.
+	brake := 2.0 * last.vel * last.vel / (2 * last.acc)
+	if tail < 2*brake {
+		t.Errorf("final segment is %.3f mm, close to the %.3f mm a split would reserve — the margin of 0 did not disable it",
+			tail, brake)
+	}
+}
+
+// travelMoves is the moves commanded at the fixture's movement height — the XY
+// travel, without the Z strokes on either side of it.
+func travelMoves(moves []moveCall) []moveCall {
+	var out []moveCall
+	for _, m := range moves {
+		if math.Abs(m.pos.Z-30.0) < 1e-6 { // MOVE_HEIGHT in the fixture INI
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // TestJobWaitZoneRefusesAWrongScene: the wait point was derived from a route
 // planned in WAIT_CLEAR_DEADZONE, so the leg that finishes the approach has to
 // be planned in it too. A station that reports done before its scene is

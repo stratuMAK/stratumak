@@ -373,6 +373,7 @@ normalized to HAL-conventional dashes.
 | `start-job` | bit | io | rising edge starts a job; reset by module on finish/error; external clears mid-job are ignored (D16) |
 | `busy` | bit | out | job executing |
 | `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset at the `start-job` edge (phase 7 — D13's budget, made observable) |
+| `blend-tail-margin` | float | param | D29 only: how many braking distances the first of two streamed legs reserves as a segment of its own, so the second joins a segment the machine has not started driving. 0 disables the split. A param because the useful value is a property of the trajectory planner's blend behaviour on a given machine, meant to be swept with halcmd setp where the effect is measurable |
 | `wait-stops` | u32 | out | how often a `WAIT_DEADZONE` approach actually stopped at its derived wait point — the queue ran dry before the station cleared (D29). Not reset per job: the question it answers is a frequency over a shift, and it is what would justify building the conditional segment gate the streaming cannot replace |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
