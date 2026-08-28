@@ -1201,7 +1201,7 @@ func TestJobWaitZoneStartingAtTheStation(t *testing.T) {
 	f.requireOK("a job that starts with the head already at the station")
 }
 
-// TestJobWaitZoneRefusesAWrongScene:// TestJobWaitZoneRefusesAWrongScene: the wait point was derived from a route
+// TestJobWaitZoneRefusesAWrongScene: the wait point was derived from a route
 // planned in WAIT_CLEAR_DEADZONE, so the leg that finishes the approach has to
 // be planned in it too. A station that reports done before its scene is
 // released is a PLC sequencing bug and gets said so, rather than surfacing as
