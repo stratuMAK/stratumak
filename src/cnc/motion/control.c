@@ -2398,6 +2398,9 @@ static void output_to_hal(motmod_inst_t *inst)
     *(inst->hal_data->tp_reverse) = inst->status->reverse_run;
     *(inst->hal_data->motion_type) = inst->status->motionType;
     *(inst->hal_data->distance_to_go) = inst->status->distance_to_go;
+    /* One servo cycle behind, like segment-id and motion-type above: the depth
+       is read from the TP in update_status, which runs after this. */
+    *(inst->hal_data->queue_depth) = (hal_s32_t)inst->status->depth;
     if(GET_MOTION_COORD_FLAG()) {
         *(inst->hal_data->current_vel) = inst->status->current_vel;
         *(inst->hal_data->requested_vel) = inst->status->requested_vel;

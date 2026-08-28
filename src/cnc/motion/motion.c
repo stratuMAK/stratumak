@@ -1206,6 +1206,17 @@ static int init_hal_io(motmod_inst_t *inst)
     CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->current_vel), inst->comp_id, PFMT("motion.current-vel")));
     CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->requested_vel), inst->comp_id, PFMT("motion.requested-vel")));
     CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->distance_to_go), inst->comp_id, PFMT("motion.distance-to-go")));
+    /* How many segments motion still has to run (tcqLen, via the TP).
+       A task that streams segments — pnptask feeds a whole route back to back,
+       then a second leg behind it — has no other way to tell "the queue ran dry
+       and the machine stopped between two legs" from "the two blended": both
+       leave current-vel low for a cycle or two, and at any sampling rate a
+       sensible HAL logger can manage, a short stop is invisible. queue-depth
+       reaching 0 while a move is still in progress says it outright.
+       Deliberately not exporting activeDepth beside it: that one is the
+       optimizer's backward-pass counter (it goes negative on a short queue),
+       not a count of blending segments, and it would mislead. */
+    CALL_CHECK(stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->queue_depth), inst->comp_id, PFMT("motion.queue-depth")));
     CALL_CHECK(stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->segment_id), inst->comp_id, PFMT("motion.segment-id")));
     CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->jog_is_active), inst->comp_id, PFMT("motion.jog-is-active")));
 
