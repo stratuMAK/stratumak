@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Measure the deceleration the trajectory planner actually applies.
+
+vel.txt holds motion.current-vel sampled once per servo cycle. decel.ngc makes
+two moves that each end the queue: one under G61 (exact stop, the segment
+carries TC_TERM_COND_STOP) and one under G64 (blended, TC_TERM_COND_PARABOLIC).
+
+tc.c:57-69 scales a parabolic segment's acceleration by 1/2, and nothing else
+in the TP scales a straight segment, so the blended ramp should measure half
+the exact-stop one. That ratio is the whole question: it is the number a
+streaming task has to size a braking allowance by, and it should be derivable
+rather than found by trial on a machine.
+"""
+import sys, os
+
+SERVO_DT = 0.001          # [EMCMOT]SERVO_PERIOD in decel.ini
+CMD_ACCEL = 2000.0        # [AXIS_*]MAX_ACCELERATION in decel.ini
+
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
+vel = []
+with open(os.path.join(here, 'vel.txt')) as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            vel.append(float(line.split()[0]))
+
+def ramps(v, floor=1.0):
+    """Every falling run from a local peak down to rest."""
+    out, i, n = [], 0, len(v)
+    while i < n:
+        if v[i] > floor:
+            j = i
+            while j + 1 < n and v[j + 1] >= v[j]:
+                j += 1                      # climb to the peak
+            k = j
+            while k + 1 < n and v[k + 1] < v[k]:
+                k += 1                      # fall to the bottom
+            if v[j] > floor and v[k] <= floor and k - j >= 5:
+                out.append((j, k))
+            i = k + 1
+        else:
+            i += 1
+    return out
+
+def slope(v, a, b):
+    """Least-squares dv/dt over the ramp, trimming the rounded ends."""
+    lo, hi = a + 2, b - 2
+    if hi - lo < 3:
+        return None
+    xs = [i * SERVO_DT for i in range(lo, hi + 1)]
+    ys = v[lo:hi + 1]
+    n = len(xs)
+    mx, my = sum(xs) / n, sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = sum((x - mx) ** 2 for x in xs)
+    return None if den == 0 else num / den
+
+found = ramps(vel)
+if len(found) < 2:
+    print("FAIL only %d deceleration ramp(s) in %d samples; expected 2"
+          % (len(found), len(vel)))
+    sys.exit(1)
+
+labels = ["G61 exact stop", "G64 blended  "]
+accels = []
+for (a, b), label in zip(found[:2], labels):
+    s = slope(vel, a, b)
+    if s is None or s >= 0:
+        print("FAIL %s: could not fit the ramp" % label)
+        sys.exit(1)
+    accels.append(-s)
+    print("PASS %s: peak %7.2f mm/s, ramp %3d cycles, decel %8.2f mm/s^2 (%.2f x commanded)"
+          % (label, vel[a], b - a, -s, -s / CMD_ACCEL))
+
+exact, blended = accels
+ratio = exact / blended
+print("PASS exact-stop / blended deceleration ratio = %.2f" % ratio)
+
+# The prediction under test: a parabolic segment decelerates at half the rate.
+if not (1.8 <= ratio <= 2.2):
+    print("FAIL ratio %.2f is not the 2.0 the parabolic halving predicts" % ratio)
+    sys.exit(1)
+print("ALL OK")
