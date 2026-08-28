@@ -210,11 +210,6 @@ func TestAltSwapAtAWaitZoneStationUsesTheRemoversOffset(t *testing.T) {
 		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
 		prep: func(_ *testing.T, m *pnptaskModule) {
 			m.world.procs[1].setHasMaterial(true)
-			// Two grips in one job — the tray pick and the swap removal — with
-			// a wait in between that lets the loop fall behind on a loaded
-			// machine. The shared fixture's handful of cycles is enough for one
-			// grip; this gives the simulated gripper room for both.
-			m.pins.pickSettleTime.Set(30 * pollInterval.Seconds())
 		},
 	})
 	f.homed()
@@ -342,7 +337,7 @@ func TestAltSwapAbortLeavesTheStationEmptyInTheModel(t *testing.T) {
 	f.mot.setMoveCycles(20)
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
@@ -446,8 +441,7 @@ func TestManualOpenRetainsTheStationAndCloseRestoresIt(t *testing.T) {
 	// Closed again, onto the part: the record comes back with its station id.
 	f.press(f.m.pins.pickers[0].manualClose)
 	f.eventually("the picker to close", func() bool { return f.bit("picker.0.close") })
-	// Give the grip validation its settle time plus a margin.
-	time.Sleep(30 * pollInterval)
+	f.waitRestored(0, 10)
 
 	w := f.stopped()
 	if !w.held[0].present || w.held[0].station != 10 {
@@ -516,7 +510,7 @@ func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f.eventually("the record judged empty and cleared", func() bool {
 		return !f.bit("error") // no pin shows the record; the job below is the proof
 	})
-	time.Sleep(20 * pollInterval) // let the grip judgement expire
+	f.waitDropped(0)
 	f.press(f.m.pins.pickers[0].manualOpen)
 	f.setBit(f.m.pins.autoEnable, true)
 
@@ -535,7 +529,7 @@ func TestManualOpenTwiceKeepsRetained(t *testing.T) {
 	f.press(f.m.pins.pickers[0].manualOpen) // the idempotent second press
 	// The part goes back in; the sim's default close grips material.
 	f.press(f.m.pins.pickers[0].manualClose)
-	time.Sleep(20 * pollInterval) // the grip judgement window
+	f.waitRestored(0, 10)
 
 	w := f.stopped()
 	if !w.held[0].present || w.held[0].station != 10 {
@@ -584,7 +578,7 @@ func TestRetainedRecordSurvivesRestart(t *testing.T) {
 	second.clearError()
 	second.setBit(second.m.pins.autoEnable, false)
 	second.press(second.m.pins.pickers[1].manualClose)
-	time.Sleep(20 * pollInterval)
+	second.waitRestored(1, 20)
 
 	w := second.stopped()
 	if !w.held[1].present || w.held[1].station != 20 || !w.held[1].swap {
@@ -605,11 +599,14 @@ func TestSlowGripperKeepsJudging(t *testing.T) {
 	// windows.
 	f.sim.set(func(s *machineSim) { s.jammedClosed = true })
 	f.press(f.m.pins.pickers[0].manualClose)
-	time.Sleep(40 * pollInterval)
+	// Long enough to span several judgement windows, which is the point: each
+	// one has to re-arm rather than give up. Sized off the settle budget, not
+	// off the loop rate, because that is what the window is sized off.
+	time.Sleep(3 * pickSettleBudget)
 
 	// The air comes back; the grip completes and the record is restored.
 	f.sim.set(func(s *machineSim) { s.jammedClosed = false })
-	time.Sleep(40 * pollInterval)
+	f.waitRestored(0, 10)
 
 	w := f.stopped()
 	if !w.held[0].present || w.held[0].station != 10 {

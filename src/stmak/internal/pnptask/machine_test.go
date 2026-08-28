@@ -506,22 +506,31 @@ func (f *machineFixture) setBit(pin *hal.Pin[bool], v bool) { pin.Set(v) }
 
 func (f *machineFixture) setFloat(pin *hal.Pin[float64], v float64) { pin.Set(v) }
 
+// levelHold is how long a level is held for the control loop to sample it.
+//
+// Sized against SCHEDULER JITTER, like pickSettleBudget and for the same
+// reason: what has to be survived is this process being descheduled, which has
+// nothing to do with how fast the loop is configured to run. A handful of
+// cycles (10 ms) is inside the jitter of a loaded machine, and a level the loop
+// never samples is no edge at all — the request is simply lost, and the case
+// fails somewhere later with no hint that a button press went missing.
+const levelHold = 50 * time.Millisecond
+
 // pulse drives an edge-triggered input low, gives the loop time to see the low,
 // and drives it high again — the edge detection compares consecutive cycles, so
 // a low/high pair inside one cycle is no edge at all.
 func (f *machineFixture) pulse(pin *hal.Pin[bool]) {
 	pin.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	pin.Set(true)
 }
 
-// press is pulse followed by the release — a whole button press. The high half
-// is held for a handful of cycles: a level the loop never samples is no edge,
-// so a caller that has no observable effect to wait for cannot simply drive the
-// pin low again.
+// press is pulse followed by the release — a whole button press. Both halves
+// are held: a caller that has no observable effect to wait for cannot simply
+// drive the pin low again.
 func (f *machineFixture) press(pin *hal.Pin[bool]) {
 	f.pulse(pin)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	pin.Set(false)
 }
 
@@ -536,12 +545,25 @@ func (f *machineFixture) get(pin string) float64 {
 
 func (f *machineFixture) bit(pin string) bool { return f.get(pin) != 0 }
 
+// eventuallyDeadline bounds a wait for something that is supposed to happen.
+//
+// It is deliberately far longer than any of these waits should take: it is a
+// safety net that turns a hung case into a named failure, not a performance
+// assertion, and a passing case never spends any of it — the poll below returns
+// the moment the condition holds. Sizing it tightly instead was a steady source
+// of false failures, because what these cases wait on is a 1 ms control loop
+// running on a general-purpose scheduler: a busy machine (a parallel `go test
+// ./...`, which compiles a hundred other packages while this one runs, is
+// enough) stretches a job well past a second without anything being wrong with
+// it. Go's own -timeout is the backstop for a case that really is stuck.
+const eventuallyDeadline = 20 * time.Second
+
 // eventually polls cond at the loop rate until it holds or the deadline passes.
 // The control loop runs on its own goroutine, so every assertion about what it
 // did is a race unless it is given time to run.
 func (f *machineFixture) eventually(what string, cond func() bool) {
 	f.t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(eventuallyDeadline)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -549,6 +571,27 @@ func (f *machineFixture) eventually(what string, cond func() bool) {
 		time.Sleep(pollInterval)
 	}
 	f.t.Fatalf("timed out waiting for %s", what)
+}
+
+// waitRestored waits for a manual close over a retained record to be judged
+// material (§8.1): the record comes back, and the holds/origin-id pins publish
+// it. Waiting on that rather than sleeping out the settle window is what keeps
+// these cases honest — the judgement counts CYCLES (settleTicks), so no
+// wall-clock sleep covers it reliably on a machine that deschedules the loop.
+func (f *machineFixture) waitRestored(pk int, station uint32) {
+	f.t.Helper()
+	holds, origin := fmt.Sprintf("picker.%d.holds", pk), fmt.Sprintf("picker.%d.origin-id", pk)
+	f.eventually(fmt.Sprintf("picker %d's record restored from station %d", pk, station),
+		func() bool { return f.bit(holds) && f.get(origin) == float64(station) })
+}
+
+// waitDropped is the other outcome: the close gripped nothing, so the record is
+// forgotten and the picker is commanded open again.
+func (f *machineFixture) waitDropped(pk int) {
+	f.t.Helper()
+	holds, close := fmt.Sprintf("picker.%d.holds", pk), fmt.Sprintf("picker.%d.close", pk)
+	f.eventually(fmt.Sprintf("picker %d's retained record judged gone", pk),
+		func() bool { return !f.bit(holds) && !f.bit(close) })
 }
 
 // consistently gives the loop a handful of cycles and then checks cond — for
@@ -677,7 +720,7 @@ func TestMachineOnEdgeDuringEstopNotLatched(t *testing.T) {
 
 	// The PLC cycles machine-on while estop is still active.
 	f.pulse(f.m.pins.machineOn)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 
 	f.setBit(f.m.pins.estopOn, false)
 	f.consistently("stays off after estop clears", func() bool { return !f.bit("machine-is-on") })
@@ -694,10 +737,10 @@ func TestManualPickerPressDuringEstopNotLatched(t *testing.T) {
 	f := newMachineFixture(t)
 	f.setBit(f.m.pins.autoEnable, false)
 	f.setBit(f.m.pins.estopOn, true)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 
 	f.pulse(f.m.pins.pickers[0].manualClose)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 
 	f.setBit(f.m.pins.estopOn, false)
 	f.consistently("press during estop stays dead after clear", func() bool {
@@ -714,7 +757,7 @@ func TestManualPickerPressDuringEstopNotLatched(t *testing.T) {
 func TestErrorResetWithoutFaultNotLatched(t *testing.T) {
 	f := newMachineFixture(t)
 	f.pulse(f.m.pins.errorReset)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.setBit(f.m.pins.errorReset, false)
 
 	// Now a fault: homing with the machine off.
@@ -945,7 +988,7 @@ func TestJogGates(t *testing.T) {
 	// between two reads of one sample would have the loop act on a manual-mode
 	// jog request it is about to be told to ignore, which is this test's own
 	// race, not the module's.
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.setBit(f.m.pins.jog[0].pos, true)
 	f.consistently("no jog in auto mode", func() bool { return f.mot.callCount("JogCont") == 0 })
 
@@ -1118,7 +1161,7 @@ func TestMotionSelfDisableDetected(t *testing.T) {
 
 	// Cycling machine-on is.
 	f.setBit(f.m.pins.machineOn, false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.setBit(f.m.pins.machineOn, true)
 	f.eventually("the machine back on after the cycle", func() bool { return f.bit("machine-is-on") })
 }

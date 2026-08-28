@@ -89,9 +89,38 @@ func (s *machineSim) shutdown() {
 	<-s.done
 }
 
+// pickSettleBudget is what every fixture gives the simulated gripper to answer
+// a close or an open in. It is a duration rather than a cycle count on purpose:
+// what it has to survive is the machine descheduling this process, which has
+// nothing to do with how fast the control loop is configured to run.
+const pickSettleBudget = 50 * time.Millisecond
+
+// simStepInterval is how often the simulated hardware republishes. It runs
+// several times per control cycle deliberately.
+//
+// What the settle times budget for is the hardware taking time to answer, and
+// the control loop already enforces the ordering the cases care about: dwell
+// costs at least one cycle, so a feedback check always reads a snapshot taken
+// after the command it is checking. The sim's own tick rate adds nothing to
+// that — it only decides how much of a settle budget is spent waiting for this
+// goroutine to be scheduled at all. At one tick per cycle that was most of it:
+// time.Ticker coalesces the ticks missed during a scheduler stall into one, so
+// a stall as long as the settle time left the sim a single step to answer in.
+// Stepping several times per cycle takes the sim out of that race without
+// inflating any budget or costing a case any wall time.
+//
+// Read per sim rather than as a package var: fastLoop lowers pollInterval when
+// a case starts, long after package initialisation would have captured it.
+func simStepInterval() time.Duration {
+	if d := pollInterval / 4; d > 0 {
+		return d
+	}
+	return time.Microsecond
+}
+
 func (s *machineSim) run() {
 	defer close(s.done)
-	t := time.NewTicker(pollInterval)
+	t := time.NewTicker(simStepInterval())
 	defer t.Stop()
 	for {
 		select {
@@ -190,11 +219,16 @@ func newJobFixtureOpts(t *testing.T, o fixtureOpts) *jobFixture {
 		// to prove a sequence. Zero still costs one cycle, which is what makes the
 		// feedback checks read a fresh sample (see dwell).
 		m.pins.posSettleTime.Set(0)
-		// The pick settle time is what the gripper feedback is given to arrive in,
-		// and the simulated gripper answers on its own goroutine at the loop rate —
-		// so it gets a handful of cycles rather than zero. The INI's tenths of a
-		// second would only make every case slower.
-		m.pins.pickSettleTime.Set(10 * pollInterval.Seconds())
+		// The pick settle time is what the gripper feedback is given to arrive
+		// in, and it is sized against SCHEDULER JITTER rather than against the
+		// loop rate. dwell counts wall-clock time while the sim answers on its
+		// own goroutine, so a stall longer than this budget leaves the deadline
+		// already expired on the first cycle after it: the feedback check then
+		// judges a sample the gripper never had a chance to appear in, and the
+		// case fails with PICKER_CLOSE_FAILED against working code. A handful
+		// of cycles (10 ms) sat inside the jitter of a loaded machine and was
+		// the suite's dominant false failure.
+		m.pins.pickSettleTime.Set(pickSettleBudget.Seconds())
 		m.pins.releaseTime.Set(0)
 		// Auto mode: jobs are accepted (§6.4). An unwired pin reads low, which is
 		// manual mode.
@@ -269,7 +303,7 @@ func (f *jobFixture) runJob(origin, dest, step uint32) {
 	// Drive start-job low and give the loop time to see it: the handshake has to
 	// be re-armed before a level counts as a new request (see jobRequest).
 	f.m.pins.startJob.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.m.pins.originID.Set(origin)
 	f.m.pins.destID.Set(dest)
 	f.m.pins.processStep.Set(step)
@@ -995,12 +1029,6 @@ func newWaitZoneFixture(t *testing.T) *jobFixture {
 		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
 		prep: func(_ *testing.T, m *pnptaskModule) {
 			m.world.procs[1].setHasMaterial(true)
-			// These cases hold a job in the gate for a while and then let it
-			// run on, so the simulated gripper is asked to answer at the end of
-			// a stretch the loop may have fallen behind on. The shared
-			// fixture's handful of cycles is tight for that; this is the same
-			// settle time with room to spare.
-			m.pins.pickSettleTime.Set(30 * pollInterval.Seconds())
 		},
 	})
 	f.homed()
@@ -1376,7 +1404,7 @@ func TestEstopDuringPlaceDwellKeepsRecords(t *testing.T) {
 	f.m.pins.releaseTime.Set(100 * pollInterval.Seconds())
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
@@ -1631,7 +1659,7 @@ func TestJobGatedOnRestoredHeldVerification(t *testing.T) {
 			m.pins.pickers[0].close.Set(true)
 			// A long settle keeps the verification window open while the test
 			// commands its job into it.
-			m.pins.pickSettleTime.Set(float64(1000) * pollInterval.Seconds())
+			m.pins.pickSettleTime.Set(20 * pickSettleBudget.Seconds())
 			m.pins.posSettleTime.Set(0)
 			m.pins.releaseTime.Set(0)
 			m.pins.autoEnable.Set(true)
@@ -1677,7 +1705,7 @@ func TestJobPlansEachLegAgainstTheCurrentScene(t *testing.T) {
 	f.proc().busy.Set(true)
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
@@ -1804,7 +1832,7 @@ func TestHomePressDuringJobIsIgnored(t *testing.T) {
 	// press in, with the machine standing still.
 	f.proc().busy.Set(true)
 	f.m.pins.startJob.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)

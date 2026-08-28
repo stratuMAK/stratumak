@@ -270,7 +270,7 @@ func TestGeometrylessResetKeepsRecord(t *testing.T) {
 		}),
 	})
 	second.pulse(second.m.pins.trays[0].setEmpty)
-	time.Sleep(20 * pollInterval)
+	time.Sleep(levelHold)
 	// tray-id arrives late: the pending record is adopted, not the reset.
 	second.m.pins.trays[0].trayID.Set(1)
 	second.eventually("record adopted despite the early reset", func() bool {
@@ -401,7 +401,7 @@ func TestPersistStoreMissingKey(t *testing.T) {
 // same breath).
 func loadEventually(t *testing.T, p *persistStore, key string, v any, want loadResult) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(eventuallyDeadline)
 	for {
 		got := p.load(key, v)
 		if got == want {
@@ -431,7 +431,7 @@ func TestRestoredHeldPartStillThere(t *testing.T) {
 
 	second := newMachineFixtureOpts(t, fixtureOpts{
 		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
-			m.pins.pickSettleTime.Set(10 * pollInterval.Seconds())
+			m.pins.pickSettleTime.Set(pickSettleBudget.Seconds())
 		}),
 	})
 	sim := newMachineSim(second) // default: a close command grips material
@@ -467,7 +467,7 @@ func TestRestoredHeldPartGone(t *testing.T) {
 
 	second := newMachineFixtureOpts(t, fixtureOpts{
 		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
-			m.pins.pickSettleTime.Set(10 * pollInterval.Seconds())
+			m.pins.pickSettleTime.Set(pickSettleBudget.Seconds())
 		}),
 	})
 	// One miss pre-armed via the constructor hook, so the close command the

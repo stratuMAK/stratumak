@@ -722,7 +722,7 @@ func TestTrayBothResetPinsAtOnce(t *testing.T) {
 
 	tray.setFull.Set(false)
 	tray.setEmpty.Set(false)
-	time.Sleep(10 * pollInterval)
+	time.Sleep(levelHold)
 	tray.setFull.Set(true)
 	tray.setEmpty.Set(true)
 	f.consistently("both edges at once change nothing", func() bool {
@@ -748,10 +748,10 @@ func TestTrayResetsDuringHomingSnapshotAndLastWin(t *testing.T) {
 
 	// Operator: empty... no, full of step-3 material (the correction wins).
 	f.pulse(tray.setEmpty)
-	time.Sleep(5 * pollInterval)
+	time.Sleep(levelHold)
 	tray.step.Set(3)
 	f.pulse(tray.setFull)
-	time.Sleep(5 * pollInterval)
+	time.Sleep(levelHold)
 	// The tray's step is re-pointed at another kind of material while homing
 	// still runs; the pending reset must carry the value it was pressed with.
 	tray.step.Set(4)
