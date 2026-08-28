@@ -293,26 +293,6 @@ MOVE_HEIGHT = 15.0
 	}
 }
 
-// TestLoadConfigBlendTailMargin: the tail margin is a machine property, so it
-// comes from the INI and survives a restart — the param only seeds from it.
-// The default is two braking distances; a machine that needs more says so.
-func TestLoadConfigBlendTailMargin(t *testing.T) {
-	setupPaths(t)
-	base := trajSection + pnptaskSection + stationSections
-
-	if got := mustLoad(t, base).BlendTailMargin; got != defaultBlendTailMargin {
-		t.Errorf("BLEND_TAIL_MARGIN absent = %v, want the default %v", got, defaultBlendTailMargin)
-	}
-	cfg := mustLoad(t, base+"\n[PNPTASK]\nBLEND_TAIL_MARGIN = 4.0\n")
-	if cfg.BlendTailMargin != 4.0 {
-		t.Errorf("BLEND_TAIL_MARGIN = %v, want 4", cfg.BlendTailMargin)
-	}
-	// 0 is meaningful: it turns the split off.
-	if cfg := mustLoad(t, base+"\n[PNPTASK]\nBLEND_TAIL_MARGIN = 0\n"); cfg.BlendTailMargin != 0 {
-		t.Errorf("BLEND_TAIL_MARGIN = 0 parsed as %v", cfg.BlendTailMargin)
-	}
-}
-
 // TestLoadConfigWaitDeadzone checks the D29 keys parse into the pair of
 // drawing indices, and that a station with neither kind of wait key reads as
 // having neither.
@@ -1143,13 +1123,6 @@ WAIT_DEADZONE = -1
 WAIT_CLEAR_DEADZONE = 1
 `,
 		want: "cannot be negative",
-	}, {
-		name: "negative blend tail margin",
-		ini: trajSection + pnptaskSection + stationSections + `
-[PNPTASK]
-BLEND_TAIL_MARGIN = -1.0
-`,
-		want: "BLEND_TAIL_MARGIN = -1: must not be negative",
 	}, {
 		name: "route to unknown station",
 		ini: trajSection + pnptaskSection + stationSections + `

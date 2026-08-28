@@ -74,15 +74,8 @@ type pinSet struct {
 	// halcmd setp and never wired (D2); the INI only seeds them.
 	posSettleTime *hal.Param[float64]
 
-	// blendTailMargin scales the tail a streamed approach reserves at the end
-	// of its first leg (D29, see dispatchLeadingLeg). Seeded from
-	// [PNPTASK]BLEND_TAIL_MARGIN and adjustable with halcmd setp like the
-	// settle times (D2): the INI holds the machine's value so a restart keeps
-	// it, and the param is how it gets swept in the first place, on the
-	// machine, where the effect is measurable. 0 disables the split.
-	blendTailMargin *hal.Param[float64]
-	pickSettleTime  *hal.Param[float64]
-	releaseTime     *hal.Param[float64]
+	pickSettleTime *hal.Param[float64]
+	releaseTime    *hal.Param[float64]
 
 	pickers []pickerPins
 	trays   []trayPins
@@ -240,7 +233,6 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.errorReset = mkPin[bool](b, "error-reset", hal.In)
 
 	p.posSettleTime = mkParam[float64](b, "pos-settle-time", hal.RW)
-	p.blendTailMargin = mkParam[float64](b, "blend-tail-margin", hal.RW)
 	p.pickSettleTime = mkParam[float64](b, "pick-settle-time", hal.RW)
 	p.releaseTime = mkParam[float64](b, "release-time", hal.RW)
 
@@ -312,7 +304,6 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.posSettleTime.Set(cfg.PosSettleTime)
 	p.pickSettleTime.Set(cfg.PickSettleTime)
 	p.releaseTime.Set(cfg.ReleaseTime)
-	p.blendTailMargin.Set(cfg.BlendTailMargin)
 
 	// DEFAULT_TRAYDEF and DEFAULT_STEP seed their pins, exactly as a halcmd
 	// setp would. This runs before the instance's net lines, so it only ever

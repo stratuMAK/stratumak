@@ -361,7 +361,7 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	}
 	waypoints := route.Waypoints
 	if splitTail {
-		waypoints = c.withBrakingTail(waypoints, j.height)
+		waypoints = c.withTriangleTail(waypoints, j.height)
 	}
 	for _, wp := range waypoints {
 		to := c.cmdPos
@@ -376,22 +376,38 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	return nil
 }
 
-// withBrakingTail returns the waypoints with the last v²/2a of the final
-// segment split off as a segment of its own. See dispatchLeadingLeg.
+// withTriangleTail returns the waypoints with a final segment split off long
+// enough that the leg queued behind it can be entered at full travel speed.
 //
-// v²/2a is the distance the head needs to come to rest from this leg's own
-// speed, which makes the split point the place where the two zones of the leg
-// meet: everything before it can be driven flat out, because the deceleration
-// ramp now fits inside the tail instead of reaching back past it, and the tail
-// is where the head brakes if the station never clears.
+// The length is derived, not tuned. A segment's velocity ceiling in the
+// trajectory planner is its TRIANGLE VELOCITY — the fastest it can peak at if
+// it has to ramp up and back down within itself (tp.c,
+// tpCalculateOptimizationInitialVel):
 //
-// Two cases are left alone. A final segment already shorter than the tail is
-// entirely inside the braking distance — the head is decelerating through all
-// of it however it is split, so there is nothing to protect. And a margin of 0
-// disables the split, which is how the previous behaviour is restored.
-func (c *control) withBrakingTail(wps []pnproute.Point, height float64) []pnproute.Point {
-	margin := c.m.pins.blendTailMargin.Get()
-	if margin <= 0 || len(wps) < 2 {
+//	v_max = sqrt(L * a_eff)
+//
+// and a_eff is half the commanded acceleration, because a segment joined by a
+// blend gets tc->maxaccel * 0.5 (tc.c, tcGetOverallMaxAccel — measured exactly
+// by tests/trajectory-planner/decel-rate). Setting that ceiling equal to the
+// speed the leg actually runs at and solving for L gives
+//
+//	L = v^2 / (a/2) = 2*v^2/a
+//
+// Any shorter and the ceiling binds: a tail of half this length caps the join
+// at 1/sqrt(2) of travel speed however early the second leg is queued, which
+// is a slowdown at a join that has no corner in it.
+//
+// This was a tuned constant first — a number of braking distances, found on a
+// machine by trying 2, 3 and 4. It was never a braking distance; v^2/2a was
+// the right scale only by accident and the factor was making up the difference
+// between that and a triangle length. Expressed properly it needs no constant
+// and it scales with speed and acceleration, which a fixed factor does not.
+//
+// Two cases are left alone: a final segment already shorter than the tail is
+// entirely inside it, so there is nothing to split off; and a route with no
+// real final segment has nothing to split.
+func (c *control) withTriangleTail(wps []pnproute.Point, height float64) []pnproute.Point {
+	if len(wps) < 2 {
 		return wps
 	}
 	a, b := wps[len(wps)-2], wps[len(wps)-1]
@@ -404,12 +420,12 @@ func (c *control) withBrakingTail(wps []pnproute.Point, height float64) []pnprou
 	to.X, to.Y, to.Z = b.X, b.Y, height
 	// The coordinated values this segment will actually run at, not the INI
 	// ceilings: the blend against the per-axis limits differs with direction,
-	// and it is the real speed that sets the real braking distance.
+	// and it is the real speed that sets the real length.
 	vel, acc, moved := c.moveLimits(from, to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc)
 	if !moved || vel <= 0 || acc <= 0 {
 		return wps
 	}
-	tail := margin * vel * vel / (2 * acc)
+	tail := 2 * vel * vel / acc
 	if tail <= moveFuzz || tail >= seg-moveFuzz {
 		return wps
 	}

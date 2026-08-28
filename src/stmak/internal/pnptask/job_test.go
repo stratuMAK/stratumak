@@ -1224,7 +1224,9 @@ func TestJobWaitZoneLeavesAnUnstartedTailForLegTwo(t *testing.T) {
 	last, prev := legs[len(legs)-1], legs[len(legs)-2]
 	tail := math.Hypot(last.pos.X-prev.pos.X, last.pos.Y-prev.pos.Y)
 
-	want := f.m.pins.blendTailMargin.Get() * last.vel * last.vel / (2 * last.acc)
+	// The derived length: v^2/(a/2), the distance whose triangle velocity is
+	// the speed the segment runs at. See withTriangleTail.
+	want := 2 * last.vel * last.vel / last.acc
 	if math.Abs(tail-want) > 0.5 {
 		t.Errorf("tail is %.3f mm, want the braking distance %.3f mm (vel %.1f, acc %.1f)",
 			tail, want, last.vel, last.acc)
@@ -1242,33 +1244,6 @@ func TestJobWaitZoneLeavesAnUnstartedTailForLegTwo(t *testing.T) {
 	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
 	f.m.pins.startJob.Set(false)
 	f.requireOK("the job with a split leg")
-}
-
-// TestJobWaitZoneTailMarginZeroRestoresOneSegment: blend-tail-margin = 0 is the
-// way back to the previous behaviour on a machine where the split turns out not
-// to help, so it has to actually restore it.
-func TestJobWaitZoneTailMarginZeroRestoresOneSegment(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	f.m.pins.blendTailMargin.Set(0)
-	startCamPick(f)
-	f.eventually("the approach to reach the wait position", func() bool {
-		return atWaitZone(f.mot.moveList())
-	})
-	f.consistently("still waiting at the wait position", func() bool { return f.bit("busy") })
-
-	legs := travelMoves(f.mot.moveList())
-	if len(legs) < 2 {
-		return // a single-segment leg cannot carry a tail either way
-	}
-	last, prev := legs[len(legs)-1], legs[len(legs)-2]
-	tail := math.Hypot(last.pos.X-prev.pos.X, last.pos.Y-prev.pos.Y)
-	// What a margin of 2 would have reserved. The final segment of an
-	// unsplit leg is a whole leg of the route and is far longer than that.
-	brake := 2.0 * last.vel * last.vel / (2 * last.acc)
-	if tail < 2*brake {
-		t.Errorf("final segment is %.3f mm, close to the %.3f mm a split would reserve — the margin of 0 did not disable it",
-			tail, brake)
-	}
 }
 
 // travelMoves is the moves commanded at the fixture's movement height — the XY

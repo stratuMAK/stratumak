@@ -24,14 +24,6 @@ const (
 	defaultReleaseTimeout  = 5.0
 	defaultMaxUnpopulated  = 1
 	defaultTrayRowsAndCols = 1
-
-	// defaultBlendTailMargin: two braking distances. A parabolic join halves
-	// the acceleration available to both segments it joins, so the
-	// deceleration the trajectory planner can actually apply at the end of a
-	// leg is below the value the leg was dispatched with. Machines have
-	// wanted more — the coating cell runs 4 — which is why this is a key and
-	// not a constant.
-	defaultBlendTailMargin = 2.0
 )
 
 // Config is the parsed and validated [PNPTASK*] configuration of one instance.
@@ -83,14 +75,6 @@ type Config struct {
 	PosSettleTime  float64
 	PickSettleTime float64
 	ReleaseTime    float64
-
-	// BlendTailMargin is how many braking distances the first of two streamed
-	// legs reserves as a segment of its own (D29). It belongs in the INI and
-	// not only in the param because it is a property of the machine — how far
-	// the trajectory planner's blending falls short of the commanded
-	// deceleration — and a machine that loses it on a restart silently gets
-	// the fault back. 0 disables the split.
-	BlendTailMargin float64
 
 	// ReleaseTimeout is how long a proc station's released feedback may take;
 	// 0 means wait forever. HomeTimeout bounds autohoming.
@@ -345,7 +329,6 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.PosSettleTime = r.duration(sec, "POS_SETTLE_TIME", 0)
 	cfg.PickSettleTime = r.duration(sec, "PICK_SETTLE_TIME", 0)
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
-	cfg.BlendTailMargin = r.floatNonNeg(sec, "BLEND_TAIL_MARGIN", defaultBlendTailMargin)
 	cfg.ReleaseTimeout = r.duration(sec, "RELEASE_TIMEOUT", defaultReleaseTimeout)
 	cfg.HomeTimeout = r.duration(sec, "HOME_TIMEOUT", defaultHomeTimeout)
 	// [JOINT_n]HOME is otherwise motsetup's business; the X/Y values are read
@@ -889,16 +872,6 @@ func (r *iniReader) str(section, key string) string {
 }
 
 // float reads a plain number (no unit conversion).
-// floatNonNeg reads a plain (unit-less) number that may not be negative.
-func (r *iniReader) floatNonNeg(section, key string, def float64) float64 {
-	v := r.float(section, key, def)
-	if v < 0 {
-		r.fail("[%s]%s = %v: must not be negative", section, key, v)
-		return def
-	}
-	return v
-}
-
 func (r *iniReader) float(section, key string, def float64) float64 {
 	s := r.str(section, key)
 	if s == "" {
