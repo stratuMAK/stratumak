@@ -135,6 +135,7 @@ The scenario directories
     probing/    empty slots corrected by the gripper, up to TRAY_EMPTY (D9)
     homing/     the home request and manual jog (D18, D25)
     busy/       busy gating, the wait position, the auto-enable abort (D15)
+    waitzone/   the wait position derived from a dead zone, streamed (D29)
     errors/     the error ids of §7.5 and the error-reset that clears them
     estop/      an estop mid-job and the way back to a running machine (D14)
     persist/    the tracked world surviving a restart (D6)

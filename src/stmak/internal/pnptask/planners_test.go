@@ -4,6 +4,7 @@ package pnptask
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -158,6 +159,143 @@ func TestPlannersAllowStationBlockedInOneScene(t *testing.T) {
 	}
 	if err := set.planners[1].CheckPoint(pos); err == nil {
 		t.Error("the blocked drawing accepted the station; the fixture no longer covers it")
+	}
+}
+
+// threeDrawingSection is pnptaskSection with a third dead-zone drawing, for the
+// cases that need a station usable in one scene and blocked in two others.
+const threeDrawingSection = pnptaskSection + `DEADZONE_FILE = zones_c.dxf
+`
+
+// The D29 wait position is derived, not taught, so what load has to validate is
+// the geometry it will be derived FROM: a zone the station sits inside (so a
+// route in must cross it), in a drawing that exists, and a second drawing in
+// which the station is actually reachable.
+func TestPlannersValidateWaitDeadzone(t *testing.T) {
+	// zones_a leaves proc station 20 clear, zones_b covers it — which is
+	// exactly the shape the feature describes: blocked while the enclosure is
+	// shut, reachable once it opens.
+	const procWith = `
+[PNPTASK_PROC_0]
+ID = 20
+X = 300.0
+Y = 200.0
+Z_PICK = 5.0
+WAIT_DEADZONE = %s
+WAIT_CLEAR_DEADZONE = %s
+`
+
+	t.Run("accepted", func(t *testing.T) {
+		setupPathsWith(t, map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock})
+		cfg := mustLoad(t, trajSection+pnptaskSection+fmt.Sprintf(procWith, "1", "0"))
+		if _, err := newPlanners(cfg); err != nil {
+			t.Fatalf("newPlanners: %v", err)
+		}
+		// The zone the station sits in is resolved once here, not searched for
+		// per job.
+		if got := cfg.Procs[0].WaitZoneIdx; got != 0 {
+			t.Errorf("WaitZoneIdx = %d, want 0 (the fixture's only zone)", got)
+		}
+	})
+
+	cases := []struct {
+		name    string
+		ini     string
+		files   map[string]string
+		blocked string
+		clear   string
+		want    string
+	}{{
+		name:    "blocked index past the configured drawings",
+		files:   map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock},
+		blocked: "2", clear: "0",
+		want: "[PNPTASK_PROC_0]WAIT_DEADZONE = 2: only 2 dead-zone file(s)",
+	}, {
+		name:    "clear index past the configured drawings",
+		files:   map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock},
+		blocked: "1", clear: "5",
+		want: "[PNPTASK_PROC_0]WAIT_CLEAR_DEADZONE = 5: only 2 dead-zone file(s)",
+	}, {
+		// Nothing to derive a wait point from: a route to the station would
+		// never cross a boundary, so the head would drive straight in without
+		// ever stopping — the worst way to discover a mis-configuration.
+		name:    "station is in no zone of the blocked drawing",
+		files:   map[string]string{zonesA: fixtureClear, zonesB: fixtureClear},
+		blocked: "1", clear: "0",
+		want: "is inside none of that drawing's",
+	}, {
+		// The reference route is planned in the clear drawing, so a station
+		// still covered there is a station no job could ever reach. Three
+		// drawings, because the station has to stay usable in *some* scene:
+		// blocked everywhere is checkPositions' refusal, not this one.
+		name:    "station is blocked in the drawing that should clear it",
+		ini:     trajSection + threeDrawingSection,
+		files:   map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock, zonesC: fixtureBlock},
+		blocked: "1", clear: "2",
+		want: "not reachable in the drawing that is supposed to clear it",
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupPathsWith(t, tc.files)
+			base := tc.ini
+			if base == "" {
+				base = trajSection + pnptaskSection
+			}
+			cfg := mustLoad(t, base+fmt.Sprintf(procWith, tc.blocked, tc.clear))
+			_, err := newPlanners(cfg)
+			if err == nil {
+				t.Fatal("newPlanners accepted the configuration")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Two zones over the same station leave it undecided which boundary the job is
+// supposed to stop at, so the configuration is refused rather than silently
+// resolved by drawing order. Built in memory: overlapping convex zones are a
+// shape no fixture drawing has, and the point is the ambiguity, not the DXF.
+func TestPlannersRejectAmbiguousWaitDeadzone(t *testing.T) {
+	square := func(cx, cy, half float64) pnproute.Polygon {
+		return pnproute.Polygon{
+			{X: cx - half, Y: cy - half}, {X: cx + half, Y: cy - half},
+			{X: cx + half, Y: cy + half}, {X: cx - half, Y: cy + half},
+		}
+	}
+	outer := pnproute.Polygon{{X: 0, Y: 0}, {X: 600, Y: 0}, {X: 600, Y: 500}, {X: 0, Y: 500}}
+	blocked, err := pnproute.NewPlanner(&pnproute.Scene{
+		Outer:     outer,
+		Deadzones: []pnproute.Shape{{Poly: square(300, 200, 40)}, {Poly: square(310, 200, 40)}},
+	}, 10)
+	if err != nil {
+		t.Fatalf("building the overlapping scene: %v", err)
+	}
+	clear, err := pnproute.NewPlanner(&pnproute.Scene{Outer: outer}, 10)
+	if err != nil {
+		t.Fatalf("building the clear scene: %v", err)
+	}
+	set := &plannerSet{
+		files:    []string{"clear.dxf", "blocked.dxf"},
+		planners: []*pnproute.Planner{clear, blocked},
+	}
+
+	p := &ProcStation{
+		Section:           "PNPTASK_PROC_0",
+		ID:                20,
+		Pos:               pnproute.Point{X: 300, Y: 200},
+		WaitDeadzone:      1,
+		WaitClearDeadzone: 0,
+		HasWaitZone:       true,
+	}
+	err = set.checkWaitZone(p)
+	if err == nil {
+		t.Fatal("checkWaitZone accepted a station inside two zones")
+	}
+	if !strings.Contains(err.Error(), "inside two overlapping zones") {
+		t.Errorf("error = %v, want it to name the overlap", err)
 	}
 }
 

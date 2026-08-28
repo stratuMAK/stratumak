@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -182,6 +183,88 @@ func TestAltSwapAtOccupiedStation(t *testing.T) {
 	}
 	if !w.held[1].present || w.held[1].station != 20 || !w.held[1].swap {
 		t.Errorf("swap record = %+v, want the material of station 20, marked as a swap", w.held[1])
+	}
+}
+
+// firstAtXY is the index of the first move commanded to an XY, or -1.
+func firstAtXY(moves []moveCall, x, y float64) int {
+	for i, m := range moves {
+		if math.Abs(m.pos.X-x) < 1e-6 && math.Abs(m.pos.Y-y) < 1e-6 {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestAltSwapAtAWaitZoneStationUsesTheRemoversOffset: the gated approach to a
+// WAIT_DEADZONE station drives all the way in once the station clears, so it
+// has to be planned for the picker that is actually going in. On a swap that is
+// the one taking the occupant out, not the one carrying the job's material —
+// they sit 40 mm apart here, and asking for the free picker only after the gate
+// (as the pre-D29 code did) would have driven the placer into the station and
+// then shuffled sideways by the offset difference.
+func TestAltSwapAtAWaitZoneStationUsesTheRemoversOffset(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		args:  []string{"pickers=2"},
+		ini:   waitZoneSections,
+		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[1].setHasMaterial(true)
+			// Two grips in one job — the tray pick and the swap removal — with
+			// a wait in between that lets the loop fall behind on a loaded
+			// machine. The shared fixture's handful of cycles is enough for one
+			// grip; this gives the simulated gripper room for both.
+			m.pins.pickSettleTime.Set(30 * pollInterval.Seconds())
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	// Picker 1 reaches 40 mm further in X than picker 0, so which picker a leg
+	// was planned for is visible in the commanded coordinate.
+	f.m.pins.pickers[1].xOffset.Set(40)
+	f.m.pins.deadzoneSelect.Set(1)
+	f.setBit(f.m.pins.procs[1].busy, true)
+
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(21)
+	f.m.pins.processStep.Set(0)
+	f.mot.resetCalls()
+	f.m.pins.startJob.Set(true)
+
+	// The pick is done and the gated approach is holding short of the zone. The
+	// wait point itself is not a fixed coordinate here — the approach starts
+	// from whichever tray slot the pick used — so what is checked is that the
+	// station was not entered, which is what the gate is for.
+	f.eventually("the pick to complete", func() bool { return f.bit("picker.0.close") })
+	f.consistently("the gated approach holding out of the station", func() bool {
+		return firstAtXY(f.mot.moveList(), procCamX-40, procCamY) < 0
+	})
+	f.m.pins.deadzoneSelect.Set(0)
+	f.setBit(f.m.pins.procs[1].busy, false)
+
+	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("swap into a wait-zone station")
+
+	moves := f.mot.moveList()
+	// The remover goes in first, at the station minus ITS offset...
+	remover := firstAtXY(moves, procCamX-40, procCamY)
+	if remover < 0 {
+		t.Fatalf("no move to the station for the removing picker (x = %v)", procCamX-40)
+	}
+	// ... and the placer follows, at the station minus its own.
+	placer := firstAtXY(moves, procCamX, procCamY)
+	if placer < 0 {
+		t.Fatalf("no move to the station for the placing picker (x = %v)", procCamX)
+	}
+	if remover > placer {
+		t.Errorf("the placer reached the station (move %d) before the remover (move %d)", placer, remover)
+	}
+	w := f.stopped()
+	if !w.held[1].present || w.held[1].station != 21 || !w.held[1].swap {
+		t.Errorf("swap record = %+v, want the material of station 21, marked as a swap", w.held[1])
 	}
 }
 

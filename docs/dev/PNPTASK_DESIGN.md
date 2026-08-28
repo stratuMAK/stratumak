@@ -32,7 +32,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D12 | Job model | Strictly one job at a time via the `start-job` handshake. No queueing. |
 | D13 | Planning latency | Plan time adds to cycle time (planning starts at the `start-job` edge). Budget: **< 100 ms**; precompute everything static (Phase 1). |
 | D14 | Manual mode | `auto-enable` input pin: low → new jobs rejected, manual jog + manual picker control enabled; a running job **finishes first** (no abort) when it goes low. Picker `close` outputs keep their state across machine-off (held material stays held); they are cleared on estop. Manual picker control works even with the machine off, but not during estop. |
-| D15 | Wait positions | No free-standing wait-point stations. A process station optionally defines `WAIT_X`/`WAIT_Y` and has a `busy` input pin; a job targeting a busy station waits there (holding the material) until `busy` clears. `auto-enable` going low aborts the wait (error `WAIT_ABORTED`). |
+| D15 | Wait positions | No free-standing wait-point stations. A process station optionally defines `WAIT_X`/`WAIT_Y` and has a `busy` input pin; a job targeting a busy station waits there (holding the material) until `busy` clears. `auto-enable` going low aborts the wait (error `WAIT_ABORTED`). Superseded for enclosure-gated stations by D29's derived wait position. |
 | D16 | Abort semantics | No abort request besides estop and machine-off. Externally clearing `start-job` mid-job is ignored. |
 | D17 | Tray geometry | TRAYDEF `FIRST`/`LAST` are **absolute machine coordinates** (`LAST` optional — single-position tray), `LAST` being the *taught* position of the far corner slot (D24); tray stations have no X/Y of their own, only `Z_PICK` and pins. A `tray-id` change resets all slots to −1 (the startup state). |
 | D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
@@ -46,6 +46,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
 | D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
 | D28 | Machine-frame planning + reachability at accept (2026-08-18) | Dead zones and the outer limit are **machine-position geometry**: the operator teaches them by driving the machine and noting machine positions into the DXF, so the outlines already embody the head's physical extent, both pickers included (picker offsets define pick *points*, never outlines). The route planner therefore runs **in machine coordinates per picker** — plan `cmdPos → target − offset` against the scene as-drawn, command the waypoints directly. (Planning in the pick-point frame and shifting the waypoints afterwards translated the polyline by the offset and let the machine cut a zone corner by up to \|offset\|.) On top of that, job **accept** validates every endpoint the job could command (every slot of an involved tray, proc position, wait point; travel height and station Z) minus every picker's offset against the **axis limits** — refusal is `TARGET_UNREACHABLE` (24), naming station, picker and limit, before any motion. The dead-zone *scene* is deliberately not part of that accept check: the selector describes the machine per leg (D15's enclosure workflow starts jobs whose destination is unreachable in the currently selected drawing), so scene reachability stays `PLANNING_FAILED` at leg time. |
+| D29 | Wait position derived from a dead zone (2026-08-28) | A process station may replace D15's taught `WAIT_X`/`WAIT_Y` with a pair of drawing indices, `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` (mutually exclusive with the taught pair). The approach is then planned as **two legs**: up to the last point on the way in that is still clear of the zone the station sits inside, and from there into the station — with the second leg queued into the TP **without draining the first**, the instant `busy` reads clear, so the two blend and the head does not stop. The wait point is where a reference route planned in the *clear* drawing (the station is not a legal goal in the blocked one, so no route to it exists there) first meets the *blocked* drawing's **offset** zone, pulled back by `BLEND_TOLERANCE`; taking the crossing on the offset zone rather than the drawn one is what leaves a full `CLEARANCE` after the TP rounds the corner inward. Leg 1 is replanned normally against the scene of the moment, so it is collision-free in the blocked drawing whatever the two drawings disagree about. Load time refuses a station that is not inside exactly one zone of `WAIT_DEADZONE` (a route in would never cross a boundary, so the head would drive straight through) or not reachable in `WAIT_CLEAR_DEADZONE`; leg time refuses a selector that is not `WAIT_CLEAR_DEADZONE` when the station clears (`WAIT_SCENE_MISMATCH`, 25). This does **not** remove the velocity dip when the clear lands inside the braking ramp — that needs a conditional segment gate in motmod/TP and should not be built on a hunch — so the module publishes `wait-stops` instead: how often the queue really ran dry at the wait point, which is the frequency that would justify the change. A station that is **not busy** is driven to in one continuous leg, which for such a station is already the outcome the two legs exist to produce — but the scene check still runs, so a station reporting done in the wrong drawing is `WAIT_SCENE_MISMATCH` rather than a `PLANNING_FAILED` about an obstructed route. Splitting unconditionally was considered and rejected: two approaches legitimately BEGIN inside the nominated zone — the second job at the same station, and the placer after a §8 swap — and there is no boundary crossing to derive a wait point from in there. The placer after a swap is for the same reason not gated at all: the removal already served the gate and left the head at the station. The picker the second leg is planned for has to be the one going in, so `placeToProc` resolves the swap's remover **before** the gate rather than inside `swapOut` (D20's re-ask). |
 
 ---
 
@@ -324,6 +325,9 @@ Y = 200.0
 Z_PICK = 5.0
 WAIT_X = 250.0                # optional wait position (D15); omit to wait in
 WAIT_Y = 150.0                #   place while the station is busy
+                              # or, instead of the taught pair (D29):
+WAIT_DEADZONE = 1             #   the drawing whose zone encloses this station
+WAIT_CLEAR_DEADZONE = 0       #   the drawing that applies once it opens
 
 [PNPTASK_ROUTE_0]             # optional per-pair movement-height override
 ORIGIN = 10
@@ -369,6 +373,7 @@ normalized to HAL-conventional dashes.
 | `start-job` | bit | io | rising edge starts a job; reset by module on finish/error; external clears mid-job are ignored (D16) |
 | `busy` | bit | out | job executing |
 | `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset at the `start-job` edge (phase 7 — D13's budget, made observable) |
+| `wait-stops` | u32 | out | how often a `WAIT_DEADZONE` approach actually stopped at its derived wait point — the queue ran dry before the station cleared (D29). Not reset per job: the question it answers is a frequency over a shift, and it is what would justify building the conditional segment gate the streaming cannot replace |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |
@@ -503,7 +508,9 @@ matching `--enable-pnptask-go` configure flag (default yes),
   the checks §5.1 lists, a section name must be a plain identifier (a header
   that came out as `[PNPTASK_TRAY_MATERIAL IN]` is a typo, not a station), the
   ids are unique across trays *and* procs, id 0 is refused (an unconnected u32
-  pin reads 0), `LAST_X`/`LAST_Y` and `WAIT_X`/`WAIT_Y` are all-or-nothing,
+  pin reads 0), `LAST_X`/`LAST_Y`, `WAIT_X`/`WAIT_Y` and
+  `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` are all-or-nothing (and the last two
+  pairs are alternatives, never both),
   `ROWS`/`COLS` must both be 0 or both positive, an endless tray defines neither
 LAST nor step widths, a route override must name
   known stations and may not repeat a pair, and `[TRAJ]COORDINATES` must carry
@@ -560,6 +567,17 @@ boundary and the offset zones, so it could not run before.
 - This is *position* validation, not route validation: whether a given pair of
   stations has a collision-free route between them is only knowable per pair
   and stays a job-time `PLANNING_FAILED`.
+- A station with `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` (D29) has no taught wait
+  point to check, so what is validated instead is the geometry the wait point
+  will be *derived* from: both indices name configured drawings and differ; the
+  station lies inside **exactly one** zone of the blocked drawing (zero leaves
+  nothing to stop at and a route in that never crosses a boundary — the failure
+  mode being "the head did not stop", which is the worst way to find out; more
+  than one leaves it arbitrary which boundary it stops at); and the station is a
+  legal goal in the clear drawing, which is stronger than the "at least one"
+  rule above and has to be, because that is the drawing the reference route is
+  planned in. The zone index is resolved here, once, rather than searched per
+  job.
 - `TrayDef.SlotPos`/`SlotCount` (the D24 grid layout) land here because
   the slot check needs them. Slot *state* — the `[]int32`, the direction-mode
   iteration and the probing counters — stays in phase 4.
@@ -887,6 +905,7 @@ fixture never confirmed letting go, so the part belongs to the fixture and
 | 22 | `NO_FREE_PICKER` | pick or swap needed but no picker is free (§8) |
 | 23 | `PICKER_OPEN_FAILED` | close withdrawn on the pick side but `opened` never came back (§12) |
 | 24 | `TARGET_UNREACHABLE` | job accept: an endpoint − a candidate picker's offset is outside the axis limits (D28) |
+| 25 | `WAIT_SCENE_MISMATCH` | a `WAIT_DEADZONE` station cleared while `deadzone-select` named a drawing other than its `WAIT_CLEAR_DEADZONE` (D29) |
 
 ### 7.6 As built — the model (2026-08-11)
 

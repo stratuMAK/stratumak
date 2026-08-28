@@ -64,14 +64,16 @@ setp pnp.home.joint.1.home-sw-in 1
 setp pnp.home.joint.2.home-sw-in 1
 
 # Grippers and fixtures: one pnpsim instance carries one of each (see
-# pnpsim(9)), so two instances cover this machine's two pickers and two process
-# stations. Out of the box every close finds a part and every fixture answers
-# its request, which is a machine that runs jobs; the knobs that make it fail on
-# purpose — gripper.miss-count, gripper.stuck, fixture.stuck — are pins the
-# integration suite flips between jobs.
-load pnpsim <pnp.sim.0,pnp.sim.1>
+# pnpsim(9)), so three instances cover this machine's two pickers and three
+# process stations — instance 2's gripper is simply unused. Out of the box every
+# close finds a part and every fixture answers its request, which is a machine
+# that runs jobs; the knobs that make it fail on purpose — gripper.miss-count,
+# gripper.stuck, fixture.stuck — are pins the integration suite flips between
+# jobs.
+load pnpsim <pnp.sim.0,pnp.sim.1,pnp.sim.2>
 addf pnp.sim.0 servo-thread
 addf pnp.sim.1 servo-thread
+addf pnp.sim.2 servo-thread
 
 net pnp-p0-close  pnp.task.picker.0.close    => pnp.sim.0.gripper.close
 net pnp-p0-opened pnp.sim.0.gripper.opened   => pnp.task.picker.0.opened
@@ -93,8 +95,11 @@ net pnp-proc20-release  pnp.task.proc.20.release  => pnp.sim.0.fixture.release
 net pnp-proc20-released pnp.sim.0.fixture.released => pnp.task.proc.20.released
 net pnp-proc21-release  pnp.task.proc.21.release  => pnp.sim.1.fixture.release
 net pnp-proc21-released pnp.sim.1.fixture.released => pnp.task.proc.21.released
+net pnp-proc22-release  pnp.task.proc.22.release  => pnp.sim.2.fixture.release
+net pnp-proc22-released pnp.sim.2.fixture.released => pnp.task.proc.22.released
 setp pnp.task.proc.20.busy 0
 setp pnp.task.proc.21.busy 0
+setp pnp.task.proc.22.busy 0
 
 # Which tray geometry each station holds. A real config has the PLC set these
 # when a tray is loaded; a change resets the station's slot state (D17).

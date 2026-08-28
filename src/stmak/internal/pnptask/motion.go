@@ -253,7 +253,19 @@ func (c *control) notePlanTime(j *job, d time.Duration) {
 }
 
 // travel moves picker pk to a target in the taught frame, at the job's movement
-// height, along a route planned around the dead zones.
+// height, along a route planned around the dead zones, and returns once the
+// machine has arrived. Every leg but D29's first one wants that drain: a Z
+// stroke starts from a standstill, and the action sequences read gripper and
+// fixture feedback about a machine that has stopped moving.
+func (c *control) travel(j *job, pk int, target pnproute.Point) error {
+	if err := c.dispatchTravel(j, pk, target); err != nil {
+		return err
+	}
+	return c.waitMotionDone()
+}
+
+// dispatchTravel plans one leg and queues it, and returns with the machine
+// still moving.
 //
 // The route is planned here, immediately before the leg runs (§7.4), from where
 // the picker currently is: the planner's static graph is built once at load, so
@@ -262,7 +274,15 @@ func (c *control) notePlanTime(j *job, d time.Duration) {
 // what turns the planner's clearance-rounded corners into smooth constant-Z
 // travel — and why CLEARANCE > BLEND_TOLERANCE is enforced at load: the TP blends
 // corners *inward*, toward the zone the route was planned around.
-func (c *control) travel(j *job, pk int, target pnproute.Point) error {
+//
+// Leaving the queue running is what the two-leg approach to a WAIT_DEADZONE
+// station needs (D29): it is the one place with something useful to do while a
+// leg runs — poll the station's busy input, and queue the leg into the station
+// the moment it reads clear, so the trajectory planner blends the two instead
+// of stopping between them. cmdPos tracking is what makes that work, and it is
+// the same tracking that lets the segments of a single route be queued back to
+// back.
+func (c *control) dispatchTravel(j *job, pk int, target pnproute.Point) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
@@ -317,7 +337,72 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 			return err
 		}
 	}
-	return c.waitMotionDone()
+	return nil
+}
+
+// waitPoint is where an approach to a busy station with a WAIT_DEADZONE has to
+// stop: the last point on the way in that is still clear of the zone the
+// station sits inside (D29).
+//
+// It is derived, not taught. A route is planned to the station in the drawing
+// that applies once the station CLEARS — the station is inside a zone in the
+// blocked drawing, so it is not a legal goal there and no route to it could be
+// planned at all — and the answer is where that route first meets the blocked
+// drawing's zone, pulled back by the blend tolerance.
+//
+// The two drawings are used for two different things and that is deliberate:
+// one supplies the geometry the head must stay out of, the other supplies a
+// scene the station can be routed to at all. Neither is necessarily the scene
+// of the moment; the LEG is planned against that, as always (see travel).
+//
+// The crossing is taken on the planner's OFFSET zone rather than the drawn one.
+// The offset zone is the drawn one grown by CLEARANCE, so a wait point one
+// blend tolerance outside it keeps a full CLEARANCE from the real obstacle even
+// after the trajectory planner rounds the corner there — which it rounds
+// inward, toward the zone, by up to that tolerance. Taking the crossing on the
+// drawn boundary instead would put the wait point CLEARANCE − BLEND_TOLERANCE
+// *inside* the offset zone, and the leg to it would be refused by its own plan.
+func (c *control) waitPoint(j *job, pk int, s *procState) (pnproute.Point, error) {
+	cleared, err := c.m.planners.at(s.cfg.WaitClearDeadzone)
+	if err != nil {
+		return pnproute.Point{}, err
+	}
+	blocked, err := c.m.planners.at(s.cfg.WaitDeadzone)
+	if err != nil {
+		return pnproute.Point{}, err
+	}
+
+	// Machine frame throughout, exactly as travel plans (D28): the route, the
+	// zones and the axis limits are all machine geometry, and the picker offset
+	// only decides the endpoint.
+	off := c.pickerOffset(pk)
+	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
+	goal := pnproute.Point{X: s.cfg.Pos.X - off.X, Y: s.cfg.Pos.Y - off.Y}
+	planStart := time.Now()
+	ref, err := cleared.Plan(start, goal)
+	c.notePlanTime(j, time.Since(planStart))
+	if err != nil {
+		return pnproute.Point{}, faultf(errPlanningFailed,
+			"station %d: no reference route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) in dead-zone file %d (WAIT_CLEAR_DEADZONE): %v",
+			s.cfg.ID, pk, start.X, start.Y, goal.X, goal.Y, s.cfg.WaitClearDeadzone, err)
+	}
+
+	zone := blocked.OffsetZones()[s.cfg.WaitZoneIdx]
+	wp, ok := pnproute.EntryPoint(ref.Waypoints, zone, c.m.cfg.BlendTolerance)
+	if !ok {
+		// Load-time validation established that the station is inside the zone,
+		// so a route from outside it has to cross. What is left is a machine
+		// that is already in there — parked inside the enclosure by a jog or by
+		// an aborted job — and driving on from there is exactly what must not
+		// happen silently.
+		return pnproute.Point{}, faultf(errPlanningFailed,
+			"station %d: the route from machine (%.3f, %.3f) never enters zone %d of dead-zone file %d — the head is already inside it, so there is no point to wait at",
+			s.cfg.ID, start.X, start.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
+	}
+	// Back into the taught frame: travel applies the offset again, from its own
+	// snapshot, and a point that went in through one conversion has to come out
+	// through the matching one.
+	return pnproute.Point{X: wp.X + off.X, Y: wp.Y + off.Y}, nil
 }
 
 // zStroke moves Z alone to an absolute height at the Z_VEL/Z_ACC limits, with the

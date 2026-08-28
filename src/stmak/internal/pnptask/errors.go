@@ -44,6 +44,13 @@ const (
 	errNoFreePicker    errorID = 22 // a pick or swap needs a free picker, none is
 	errPickerOpenFail  errorID = 23 // close withdrawn but opened never came back
 	errUnreachable     errorID = 24 // job accept: an endpoint − a candidate picker's offset is outside the scene or the axis limits
+
+	// errWaitSceneMismatch: a WAIT_DEADZONE station cleared, but deadzone-select
+	// does not name the drawing its WAIT_CLEAR_DEADZONE promised. The wait point
+	// was derived from a route planned in that drawing, so the last leg cannot be
+	// dispatched against a different one — and a PLANNING_FAILED would send the
+	// operator looking for a blocked route instead of a PLC sequencing bug.
+	errWaitSceneMismatch errorID = 25
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -74,6 +81,7 @@ var errorNames = map[errorID]string{
 	errNoFreePicker:          "NO_FREE_PICKER",
 	errPickerOpenFail:        "PICKER_OPEN_FAILED",
 	errUnreachable:           "TARGET_UNREACHABLE",
+	errWaitSceneMismatch:     "WAIT_SCENE_MISMATCH",
 }
 
 func (id errorID) String() string {

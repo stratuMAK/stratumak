@@ -50,6 +50,21 @@ type pinSet struct {
 	// one job.
 	planTime *hal.Pin[float64]
 
+	// waitStops counts how often a WAIT_DEADZONE approach actually came to a
+	// stop at its wait point — the station was still busy when the queue ran
+	// dry, so the last leg could only be dispatched from standstill.
+	//
+	// This is the measurement the design asks for before anyone builds the
+	// deterministic version. Streaming the last leg removes the stop whenever
+	// the station clears in time; what it cannot remove is the velocity dip
+	// when the clear lands inside the braking ramp, and eliminating *that*
+	// needs a conditional segment gate in the trajectory planner. Whether that
+	// is worth building depends on how often the timing is actually marginal,
+	// which is a number, not a hunch: run the cell and watch this pin. Unlike
+	// plan-time it is not reset per job — the question is a frequency over a
+	// shift, not a property of one job.
+	waitStops *hal.Pin[uint32]
+
 	// Error latch.
 	errorFlag  *hal.Pin[bool]   // out
 	errorID    *hal.Pin[uint32] // out, 0 = none
@@ -210,6 +225,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.startJob = mkPin[bool](b, "start-job", hal.IO)
 	p.busy = mkPin[bool](b, "busy", hal.Out)
 	p.planTime = mkPin[float64](b, "plan-time", hal.Out)
+	p.waitStops = mkPin[uint32](b, "wait-stops", hal.Out)
 
 	p.errorFlag = mkPin[bool](b, "error", hal.Out)
 	p.errorID = mkPin[uint32](b, "error-id", hal.Out)

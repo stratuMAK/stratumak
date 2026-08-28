@@ -22,6 +22,12 @@ func (p Polygon) Clone() Polygon {
 	return out
 }
 
+// Contains reports whether pt lies inside the ring. A point exactly on an edge
+// is not decided either way — the ray cast that answers this is a containment
+// test, not a clearance one, so callers that care about the boundary itself
+// should keep a margin rather than ask about it.
+func (p Polygon) Contains(pt Point) bool { return pointInPolygon(pt, p) }
+
 func (a Point) sub(b Point) Point     { return Point{a.X - b.X, a.Y - b.Y} }
 func (a Point) add(b Point) Point     { return Point{a.X + b.X, a.Y + b.Y} }
 func (a Point) scale(s float64) Point { return Point{a.X * s, a.Y * s} }
@@ -463,4 +469,108 @@ func checkConvex(poly Polygon) error {
 		return fmt.Errorf("is self-intersecting: total turn is %.1f°, expected 360°", total*180/math.Pi)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Where a route meets a zone
+// ---------------------------------------------------------------------------
+
+// EntryPoint returns the point on path measured back by setback from where path
+// first enters poly.
+//
+// It answers one question: driving this polyline, where is the last place the
+// machine can stop without any part of the move reaching into poly? The caller
+// splits its motion there — everything before that point is committed, and
+// everything after it waits until the zone is free to enter.
+//
+// poly is expected to be convex, as every dead zone in this package is (see
+// [NewPlanner]), so the first boundary crossing along the path is the entry:
+// there is no re-entry to look past.
+//
+// The setback is what the trajectory planner's corner blending can cut off. Two
+// legs meeting at a corner are rounded *inward* by up to the blend tolerance, so
+// a split taken exactly on the boundary could still clip inside it; pulling the
+// split back by that tolerance keeps the blended path out. Pass the blend
+// tolerance and give poly the clearance already applied — [Planner.OffsetZones]
+// returns exactly that — and what remains between the blended corner and the
+// real obstacle is the full clearance.
+//
+// ok is false when path never enters poly and when it starts inside it: both
+// mean there is no crossing to split at, and neither is a value the caller can
+// safely invent. A setback that runs back past path[0] clamps to path[0] —
+// the machine is already within the setback of the boundary, so it stops where
+// it stands.
+func EntryPoint(path []Point, poly Polygon, setback float64) (Point, bool) {
+	if len(path) < 2 || len(poly) < 3 {
+		return Point{}, false
+	}
+	if pointInPolygon(path[0], poly) {
+		return Point{}, false
+	}
+	seg, t, ok := firstCrossing(path, poly)
+	if !ok {
+		return Point{}, false
+	}
+	a, b := path[seg], path[seg+1]
+	pos := Point{a.X + (b.X-a.X)*t, a.Y + (b.Y-a.Y)*t}
+	if setback <= 0 {
+		return pos, true
+	}
+	// Walk back along the polyline, vertex by vertex, spending the setback.
+	for rem := setback; ; seg-- {
+		d := pos.dist(path[seg])
+		if d >= rem {
+			return pos.add(unit(path[seg].sub(pos)).scale(rem)), true
+		}
+		rem -= d
+		pos = path[seg]
+		if seg == 0 {
+			return path[0], true
+		}
+	}
+}
+
+// firstCrossing locates where path first meets poly: the index of the segment
+// and the parameter along it. A segment that ends inside poly without any edge
+// intersection being found is taken as crossing at its end — the arithmetic
+// disagreeing with the containment test is a grazing case, and ending the leg
+// early is the safe way to resolve it.
+func firstCrossing(path []Point, poly Polygon) (seg int, t float64, ok bool) {
+	n := len(poly)
+	for i := 0; i+1 < len(path); i++ {
+		a, b := path[i], path[i+1]
+		best := math.Inf(1)
+		for j := 0; j < n; j++ {
+			c, d := poly[j], poly[(j+1)%n]
+			if u, hit := segCrossParam(a, b, c, d); hit && u < best {
+				best = u
+			}
+		}
+		if !math.IsInf(best, 1) {
+			return i, best, true
+		}
+		if pointInPolygon(b, poly) {
+			return i, 1, true
+		}
+	}
+	return 0, 0, false
+}
+
+// segCrossParam returns the parameter along ab at which it meets cd, if it does.
+// Parallel segments report no hit: a route running along an edge never crosses
+// it, and the containment test in firstCrossing catches the case where it ends
+// up inside anyway.
+func segCrossParam(a, b, c, d Point) (float64, bool) {
+	r, s := b.sub(a), d.sub(c)
+	den := r.X*s.Y - r.Y*s.X
+	if math.Abs(den) < 1e-12 {
+		return 0, false
+	}
+	ac := c.sub(a)
+	t := (ac.X*s.Y - ac.Y*s.X) / den
+	u := (ac.X*r.Y - ac.Y*r.X) / den
+	if t < 0 || t > 1 || u < 0 || u > 1 {
+		return 0, false
+	}
+	return t, true
 }

@@ -20,8 +20,10 @@ import (
 const (
 	zonesA       = "zones_a.dxf"
 	zonesB       = "zones_b.dxf"
+	zonesC       = "zones_c.dxf"
 	fixtureClear = "zones.dxf"
 	fixtureBlock = "zones_blocked.dxf"
+	fixtureOpen  = "zones_open.dxf"
 )
 
 // setupPaths installs a resolver rooted at a temp directory holding the two
@@ -288,6 +290,44 @@ MOVE_HEIGHT = 15.0
 	}
 	if len(cfg.Routes) != 1 || cfg.Routes[0].Section != "PNPTASK_ROUTE_IN_TO_COATER" {
 		t.Errorf("routes = %+v", cfg.Routes)
+	}
+}
+
+// TestLoadConfigWaitDeadzone checks the D29 keys parse into the pair of
+// drawing indices, and that a station with neither kind of wait key reads as
+// having neither.
+func TestLoadConfigWaitDeadzone(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+
+[PNPTASK_PROC_CAM]
+ID = 20
+X = 300.0
+Y = 200.0
+Z_PICK = 5.0
+WAIT_DEADZONE = 0
+WAIT_CLEAR_DEADZONE = 1
+
+[PNPTASK_PROC_PLAIN]
+ID = 21
+X = 310.0
+Y = 200.0
+Z_PICK = 5.0
+`)
+	if len(cfg.Procs) != 2 {
+		t.Fatalf("procs = %+v, want two", cfg.Procs)
+	}
+	cam := cfg.Procs[0]
+	// Index 0 is both a legal drawing index and the value this machine uses,
+	// so the presence flag has to carry the answer, not the value.
+	if !cam.HasWaitZone || cam.WaitDeadzone != 0 || cam.WaitClearDeadzone != 1 || cam.HasWait {
+		t.Errorf("cam = %+v, want HasWaitZone with 0/1 and no taught wait", cam)
+	}
+	if plain := cfg.Procs[1]; plain.HasWaitZone || plain.HasWait {
+		t.Errorf("plain = %+v, want neither kind of wait position", plain)
 	}
 }
 
@@ -1034,6 +1074,55 @@ Z_PICK = 3.0
 WAIT_X = 4.0
 `,
 		want: "WAIT_X and WAIT_Y must be given together",
+	}, {
+		name: "half a dead-zone wait position",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 1.0
+Y = 2.0
+Z_PICK = 3.0
+WAIT_DEADZONE = 0
+`,
+		want: "WAIT_DEADZONE and WAIT_CLEAR_DEADZONE must be given together",
+	}, {
+		name: "both kinds of wait position",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 1.0
+Y = 2.0
+Z_PICK = 3.0
+WAIT_X = 4.0
+WAIT_Y = 5.0
+WAIT_DEADZONE = 0
+WAIT_CLEAR_DEADZONE = 1
+`,
+		want: "alternatives, not both",
+	}, {
+		name: "the same drawing blocked and clear",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 1.0
+Y = 2.0
+Z_PICK = 3.0
+WAIT_DEADZONE = 1
+WAIT_CLEAR_DEADZONE = 1
+`,
+		want: "must name a different drawing",
+	}, {
+		name: "negative dead-zone wait index",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 1.0
+Y = 2.0
+Z_PICK = 3.0
+WAIT_DEADZONE = -1
+WAIT_CLEAR_DEADZONE = 1
+`,
+		want: "cannot be negative",
 	}, {
 		name: "route to unknown station",
 		ini: trajSection + pnptaskSection + stationSections + `

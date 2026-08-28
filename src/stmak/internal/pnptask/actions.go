@@ -141,46 +141,171 @@ func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) err
 // Busy gating (D15)
 // ---------------------------------------------------------------------------
 
-// busyGate keeps the head out of a busy process station's area: it waits at the
-// station's wait position if one is configured, or where it stands at movement
-// height if not.
+// gatedTravel keeps the head out of a busy process station's area on the way
+// in: it brings picker pk to the station and returns with the machine drained
+// at movement height, having waited out the station's busy input on the way.
 //
 // busy is passed in rather than read here because §7.4 specifies *when* it is
 // sampled — at job start for a pick-from-proc, after the pick leg for a
 // place-to-proc. The release/released handshake remains the authoritative
 // synchronisation; this only saves travel time and keeps the head clear.
 //
-// auto-enable going low aborts the wait (D15): the operator wants the machine to
-// hand over to manual, and a job parked over a station forever is not a handover.
-// The picker keeps holding its material for exactly that manual handling.
-func (c *control) busyGate(j *job, pk int, s *procState, busy bool) error {
-	if !busy {
-		return nil
-	}
+// Which picker matters: the leg ends at the station point minus THAT picker's
+// offset, so the caller has to name the picker that is actually going in. On a
+// swap that is the picker taking the occupant out, not the one carrying the
+// job's material — see placeToProc.
+//
+// There are three shapes of wait, and which one applies is per station:
+//
+//   - WAIT_DEADZONE (D29): two legs. The first runs to the derived wait point
+//     and is left running while busy is polled; the second is queued into the
+//     trajectory planner the instant it clears, so the two blend and the head
+//     does not stop. If it never clears in time the queue simply runs dry at
+//     the wait point, which is the stop this is trying to avoid and the thing
+//     wait-stops counts.
+//   - WAIT_X/WAIT_Y (D15): one leg to a fixed park spot, wait there, then the
+//     leg in. Right where the gate cannot flip mid-approach — an M-code gate on
+//     a cut that takes minutes — and committing to the park spot costs nothing.
+//   - neither: wait where it stands, at movement height.
+//
+// A station that is not busy is driven to in one continuous leg whatever its
+// wait configuration, which for a WAIT_DEADZONE station is already the outcome
+// the two legs exist to produce — there is nothing to wait for, so there is
+// nothing to split for. Splitting anyway would also break the two cases where
+// the approach legitimately BEGINS inside the nominated zone: the second job at
+// the same station, and the placer after a swap. What the scene check below
+// preserves is the diagnosis, which is the part worth having.
+func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool) error {
 	if err := c.retract(j.height); err != nil {
 		return err
 	}
-	if s.cfg.HasWait {
-		if err := c.travel(j, pk, s.cfg.Wait); err != nil {
+	if s.cfg.HasWaitZone {
+		if busy {
+			return c.streamedApproach(j, pk, s)
+		}
+		if err := c.checkClearScene(s); err != nil {
+			return err
+		}
+		return c.travel(j, pk, s.cfg.Pos)
+	}
+	if busy {
+		if s.cfg.HasWait {
+			if err := c.travel(j, pk, s.cfg.Wait); err != nil {
+				return err
+			}
+		}
+		if _, err := c.awaitClear(s, s.cfg.HasWait); err != nil {
 			return err
 		}
 	}
+	return c.travel(j, pk, s.cfg.Pos)
+}
+
+// streamedApproach is the two-leg approach of D29.
+//
+// Leg 1 is planned against the scene of the moment, like every other leg —
+// the derived wait point only says where to stop, not how to get there, and
+// planning the drive to it normally is what guarantees it stays out of every
+// zone the current drawing has, not just the nominated one.
+//
+// Leg 2 is dispatched without draining in between. Three outcomes follow from
+// the trajectory planner with no arithmetic here: queued before the braking
+// ramp begins, the two legs blend and nothing slows down; queued during the
+// ramp, the planner re-accelerates and the head dips rather than stops; never
+// queued, the queue runs dry exactly at the wait point.
+func (c *control) streamedApproach(j *job, pk int, s *procState) error {
+	wp, err := c.waitPoint(j, pk, s)
+	if err != nil {
+		return err
+	}
+	if err := c.dispatchTravel(j, pk, wp); err != nil {
+		return err
+	}
+	stopped, err := c.awaitClear(s, true)
+	if err != nil {
+		return err
+	}
+	if err := c.checkClearScene(s); err != nil {
+		return err
+	}
+	if stopped {
+		// The queue ran dry before the station cleared: the head really stopped
+		// at the wait point. Counted rather than assumed — see pins.go.
+		c.m.pins.waitStops.Set(c.m.pins.waitStops.Get() + 1)
+		c.m.logger.Info("pnptask: the approach stopped at the wait position",
+			"station", s.cfg.ID, "picker", pk)
+	}
+	if err := c.dispatchTravel(j, pk, s.cfg.Pos); err != nil {
+		return err
+	}
+	return c.waitMotionDone()
+}
+
+// checkClearScene refuses to drive into a WAIT_DEADZONE station that reads
+// clear while deadzone-select still names the drawing it is enclosed in.
+//
+// The station lives inside a zone of one drawing and is reachable in another,
+// and WAIT_CLEAR_DEADZONE says which. A station reporting done in any other
+// scene is a PLC sequencing bug — it said it was finished before the enclosure
+// it sits in was released — and it gets its own id rather than surfacing as
+// whatever planning against the wrong drawing happens to do, which for the
+// blocked drawing is a PLANNING_FAILED that sends the operator looking for an
+// obstructed route.
+func (c *control) checkClearScene(s *procState) error {
+	if c.in.deadzoneSelect == s.cfg.WaitClearDeadzone {
+		return nil
+	}
+	return faultf(errWaitSceneMismatch,
+		"station %d is clear with deadzone-select %d, but it is only reachable in dead-zone file %d (WAIT_CLEAR_DEADZONE)",
+		s.cfg.ID, c.in.deadzoneSelect, s.cfg.WaitClearDeadzone)
+}
+
+// awaitClear holds until a process station's busy input goes low, and reports
+// whether the machine came to a standstill before it did.
+//
+// auto-enable going low aborts the wait (D15): the operator wants the machine to
+// hand over to manual, and a job parked over a station forever is not a handover.
+// The picker keeps holding its material for exactly that manual handling. On the
+// streamed approach the abort can now land while the first leg is still running;
+// the job ends either way and the job-abort path stops motion.
+//
+// stopped is what the streamed approach measures itself by: the wait normally
+// begins with a leg still running, and whether the queue ran dry before the
+// station cleared is the difference between a continuous drive in and a dead
+// stop at the wait point. The other two shapes of wait always begin at a
+// standstill and ignore it.
+//
+// The drain is only believed once the status has had time to catch up with what
+// was dispatched before the wait. Motion status is published by the servo
+// thread, so the first cycles here still describe the machine standing still —
+// the same stale-inpos race waitMotionDone skips past — and reading them would
+// report a stop at the wait point on every single approach. Only cycles whose
+// status read succeeded count, so a burst of comm errors lengthens the settle
+// rather than shortening it.
+func (c *control) awaitClear(s *procState, atWait bool) (stopped bool, err error) {
 	c.m.logger.Info("pnptask: waiting for a busy station",
-		"station", s.cfg.ID, "at_wait_position", s.cfg.HasWait)
+		"station", s.cfg.ID, "at_wait_position", atWait)
+	settled := 0
 	for {
+		if settled >= dispatchSettleTicks && c.motionDrained() {
+			stopped = true
+		}
 		if !c.in.procBusy[s.idx] {
 			c.m.logger.Info("pnptask: station cleared", "station", s.cfg.ID)
-			return nil
+			return stopped, nil
 		}
 		if !c.in.autoEnable {
-			return faultf(errWaitAborted,
+			return stopped, faultf(errWaitAborted,
 				"station %d: the wait was aborted by auto-enable going low", s.cfg.ID)
 		}
 		if !c.tick() {
-			return errStopping
+			return stopped, errStopping
 		}
 		if err := c.abortCheck(); err != nil {
-			return err
+			return stopped, err
+		}
+		if c.commErrors == 0 {
+			settled++
 		}
 	}
 }
@@ -255,9 +380,6 @@ func (c *control) pickFromTray(j *job, pk int) error {
 // busy-gated (§7.4, R1), and with the fixture clamped again on the way out.
 func (c *control) pickFromProc(j *job, pk int) (err error) {
 	s := j.origin.proc
-	if err := c.busyGate(j, pk, s, j.originBusy); err != nil {
-		return err
-	}
 	// Whatever goes wrong from here on, the fixture must not stay commanded
 	// open (D19: a station left open is a station whose own process runs
 	// unclamped). Fire-and-forget — an errored action may be estopped, and
@@ -267,19 +389,28 @@ func (c *control) pickFromProc(j *job, pk int) (err error) {
 			c.requestRelease(s, false)
 		}
 	}()
-	return c.removeFromProc(j, pk, s, false)
+	return c.removeFromProc(j, pk, s, false, j.originBusy)
 }
 
 // removeFromProc is the shared body of §7.4's "pick from proc": grip the part,
 // then have the fixture unclamp before lifting. It serves both the job's own
 // pick and §8's swap, which differ only in what happens to the release request
-// afterwards — see the swap parameter — and in the busy gating, which is the
-// caller's business (the swap's destination was already gated by placeToProc).
+// afterwards — see the swap parameter.
+//
+// The approach is gated here rather than by the caller: the gate ends at the
+// station with THIS picker's offset applied (D29's second leg drives all the
+// way in), so it cannot be separated from the travel it belongs to.
 //
 // The caller owns the error-path release withdrawal (D19), because on the swap
 // path the request outlives this function.
-func (c *control) removeFromProc(j *job, pk int, s *procState, swap bool) error {
-	if err := c.approach(j, pk, s.cfg.Pos, s.cfg.ZPick+s.pins.zOffset.Get()); err != nil {
+func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) error {
+	if err := c.gatedTravel(j, pk, s, busy); err != nil {
+		return err
+	}
+	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get()); err != nil {
+		return err
+	}
+	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
 		return err
 	}
 	grip, err := c.closeAndCheck(pk)
@@ -394,9 +525,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	// gating for a place-to-proc. The gate covers the swap below as well: that
 	// is an approach to this same station, and keeping the head out of a station
 	// that is still working is exactly what the gating is for.
-	if err := c.busyGate(j, pk, s, c.in.procBusy[s.idx]); err != nil {
-		return err
-	}
+	busy := c.in.procBusy[s.idx]
 	// See removeFromProc: no error path may leave the fixture commanded open —
 	// including the swap's, whose release request outlives the removal.
 	defer func() {
@@ -408,17 +537,40 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	// free picker before this job's material goes in. The release the removal
 	// raised is deliberately left standing — it is what the place below would
 	// ask for anyway, so its waitReleased finds the fixture already open.
+	//
+	// Which picker does the removing is settled HERE rather than inside swapOut
+	// (where D20 used to re-ask it) because the gate needs it: a gated approach
+	// ends at the station with the approaching picker's offset applied, and the
+	// remover is the one that goes in first. Asking afterwards would have driven
+	// the placer into the station and then moved over by the offset difference.
 	if s.hasMaterial {
-		if err := c.swapOut(j, pk, s); err != nil {
+		rm, ok := c.m.world.freePicker()
+		if !ok {
+			return faultf(errNoFreePicker,
+				"station %d is occupied and no picker is free to take the part out", s.cfg.ID)
+		}
+		if err := c.swapOut(j, pk, rm, s, busy); err != nil {
 			return err
 		}
-	}
-	c.requestRelease(s, true)
-	if err := c.retract(j.height); err != nil {
-		return err
-	}
-	if err := c.travel(j, pk, s.cfg.Pos); err != nil {
-		return err
+		c.requestRelease(s, true)
+		// Not gated, and deliberately so: the removal's approach already served
+		// the gate — same station, same job, and the station cannot go busy
+		// again while this job holds its fixture open — and it left the head AT
+		// the station. All the placer has to do is shift from the remover's
+		// offset to its own. Sending it back through the gate would ask for a
+		// wait point derived from a route that starts inside the very zone the
+		// wait point is supposed to keep it out of.
+		if err := c.retract(j.height); err != nil {
+			return err
+		}
+		if err := c.travel(j, pk, s.cfg.Pos); err != nil {
+			return err
+		}
+	} else {
+		c.requestRelease(s, true)
+		if err := c.gatedTravel(j, pk, s, busy); err != nil {
+			return err
+		}
 	}
 	if err := c.waitReleased(s, true); err != nil {
 		return err
@@ -451,27 +603,21 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 // The swap (§8)
 // ---------------------------------------------------------------------------
 
-// swapOut empties an occupied destination station with the free picker so the
-// placer can put the job's material in (§8).
+// swapOut empties an occupied destination station with picker pk so the placer
+// can put the job's material in (§8).
 //
 // The removed part stays in that picker and is recorded as swap-removed, which
 // is what makes the *next* job's origin mandatory: the station is about to run
 // its process on the piece that replaced it, so the picker is the only place
 // the removed part can be until a job carries it away (see validateJob).
 //
-// Which picker does the removing is asked here rather than assigned by the
-// caller (D20): the placer is holding the job's material, so it is not free,
-// and any other free one will do. Validation counted them at job start; this
-// re-asks because that is where the answer is used.
-func (c *control) swapOut(j *job, holder int, s *procState) error {
-	pk, ok := c.m.world.freePicker()
-	if !ok {
-		return faultf(errNoFreePicker,
-			"station %d is occupied and no picker is free to take the part out", s.cfg.ID)
-	}
+// pk comes from the caller because the caller needs it too — it is the picker
+// the gated approach below is planned for. Validation counted the free pickers
+// at job start; placeToProc is where the answer is picked and used.
+func (c *control) swapOut(j *job, holder, pk int, s *procState, busy bool) error {
 	c.m.logger.Info("pnptask: swapping the occupant out of a station",
 		"station", s.cfg.ID, "picker", pk, "placer", holder)
-	// The busy gating already happened in placeToProc — this is an approach to
-	// the same station in the same job.
-	return c.removeFromProc(j, pk, s, true)
+	// This removal's approach carries the busy gating for the whole job's
+	// business at this station: it is the first thing that goes in.
+	return c.removeFromProc(j, pk, s, true, busy)
 }

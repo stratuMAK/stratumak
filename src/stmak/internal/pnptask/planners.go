@@ -157,12 +157,18 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 			what, pt.X, pt.Y, len(s.planners), s.files[0], first)
 	}
 
-	for _, p := range cfg.Procs {
+	for i := range cfg.Procs {
+		p := &cfg.Procs[i]
 		if err := check(fmt.Sprintf("[%s]X/Y", p.Section), p.Pos); err != nil {
 			return err
 		}
 		if p.HasWait {
 			if err := check(fmt.Sprintf("[%s]WAIT_X/WAIT_Y", p.Section), p.Wait); err != nil {
+				return err
+			}
+		}
+		if p.HasWaitZone {
+			if err := s.checkWaitZone(p); err != nil {
 				return err
 			}
 		}
@@ -185,6 +191,68 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// checkWaitZone validates a station's dead-zone-derived wait position (D29) and
+// resolves which zone it names.
+//
+// The wait point is not taught, so there is nothing here to check the way
+// WAIT_X/WAIT_Y is checked: what is validated instead is that the geometry the
+// wait point will be *derived* from exists and means what the configuration
+// says it means.
+//
+// The containment test is the load-time form of "the planned route must cross
+// the nominated zone". A station inside the zone cannot be approached from
+// outside without crossing its boundary, so containment makes the crossing an
+// invariant rather than something a job discovers by not stopping — which is
+// the worst possible way to find out. Exactly one zone must contain it: zero
+// leaves nothing to derive a wait point from, and more than one leaves it
+// ambiguous which boundary the job should stop at.
+//
+// Like the taught positions above, the station point is read in the taught
+// frame; the run-time crossing is computed in machine coordinates, where the
+// route and the zones both live (D28).
+func (s *plannerSet) checkWaitZone(p *ProcStation) error {
+	n := uint32(len(s.planners))
+	if p.WaitDeadzone >= n {
+		return fmt.Errorf("[%s]WAIT_DEADZONE = %d: only %d dead-zone file(s) are configured",
+			p.Section, p.WaitDeadzone, n)
+	}
+	if p.WaitClearDeadzone >= n {
+		return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d: only %d dead-zone file(s) are configured",
+			p.Section, p.WaitClearDeadzone, n)
+	}
+
+	blocked := s.planners[p.WaitDeadzone]
+	found := -1
+	for i, dz := range blocked.Scene().Deadzones {
+		if !dz.Poly.Contains(p.Pos) {
+			continue
+		}
+		if found >= 0 {
+			return fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): the station (%.3f, %.3f) is inside two overlapping zones (%d and %d) — which boundary the job waits at would be arbitrary",
+				p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], p.Pos.X, p.Pos.Y, found, i)
+		}
+		found = i
+	}
+	if found < 0 {
+		return fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): the station (%.3f, %.3f) is inside none of that drawing's %d dead zone(s) — a route to it would never cross one, so there would be no point to wait at",
+			p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], p.Pos.X, p.Pos.Y,
+			len(blocked.Scene().Deadzones))
+	}
+	p.WaitZoneIdx = found
+
+	// The reference route the wait point is derived from is planned in the
+	// clear drawing, so the station has to be a legal goal there. This is
+	// stricter than checkPositions' "usable in at least one drawing" and it is
+	// the drawing that has to be the one: WAIT_CLEAR_DEADZONE names the machine
+	// as it is once the station opens up, and a station still blocked there is
+	// a station no job could ever drive into.
+	if err := s.planners[p.WaitClearDeadzone].CheckPoint(p.Pos); err != nil {
+		return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d (%s): the station (%.3f, %.3f) is not reachable in the drawing that is supposed to clear it: %w",
+			p.Section, p.WaitClearDeadzone, s.files[p.WaitClearDeadzone], p.Pos.X, p.Pos.Y, err)
 	}
 	return nil
 }
