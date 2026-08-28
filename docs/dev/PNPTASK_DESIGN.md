@@ -275,6 +275,8 @@ CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOL
                               #   extent, both pickers included. The offsets
                               #   only define the pick points, not outlines.
 BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel
+BLEND_TAIL_MARGIN = 2.0       # D29: braking distances reserved at the end of a
+                              #   streamed first leg; 0 disables the split
 POS_TOLERANCE = 0.1           # how far a computed position may sit from a
                               #   taught one before the load fails (D24)
 MOVE_VEL = 0                  # XY travel vel/acc, PER AXIS; 0 = axis limits only
@@ -373,7 +375,7 @@ normalized to HAL-conventional dashes.
 | `start-job` | bit | io | rising edge starts a job; reset by module on finish/error; external clears mid-job are ignored (D16) |
 | `busy` | bit | out | job executing |
 | `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset at the `start-job` edge (phase 7 — D13's budget, made observable) |
-| `blend-tail-margin` | float | param | D29 only: how many braking distances the first of two streamed legs reserves as a segment of its own, so the second joins a segment the machine has not started driving. 0 disables the split. A param because the useful value is a property of the trajectory planner's blend behaviour on a given machine, meant to be swept with halcmd setp where the effect is measurable |
+| `blend-tail-margin` | float | param | D29 only: how many braking distances the first of two streamed legs reserves as a segment of its own, so the second joins a segment the machine has not started driving. 0 disables the split. Seeded from `[PNPTASK]BLEND_TAIL_MARGIN`, adjustable with halcmd setp like the settle times: the useful value is a property of the trajectory planner's blend behaviour on a given machine, so it is swept on the machine and then written into the INI. The coating cell runs 4 |
 | `wait-stops` | u32 | out | how often a `WAIT_DEADZONE` approach actually stopped at its derived wait point — the queue ran dry before the station cleared (D29). Not reset per job: the question it answers is a frequency over a shift, and it is what would justify building the conditional segment gate the streaming cannot replace |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
@@ -519,7 +521,7 @@ LAST nor step widths, a route override must name
 - Defaults for the optional keys: `AUTOHOME` off, `BLEND_TOLERANCE` and all
   three settle/release times 0, `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` 0
   (= no ceiling beyond the `[AXIS_*]` limits), `RELEASE_TIMEOUT` 5 s,
-  `HOME_TIMEOUT` 30 s,
+  `HOME_TIMEOUT` 30 s, `BLEND_TAIL_MARGIN` 2,
   `MAX_UNPOPULATED` 1, `DIR_MODE` `C+R+`, `ROWS`/`COLS` 1 (single position).
   `MOVE_HEIGHT`, `CLEARANCE` and `POS_TOLERANCE` are required.
   A timeout defaulting to "forever" would turn a stuck fixture into a hung job
