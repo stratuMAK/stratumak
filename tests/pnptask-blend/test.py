@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """One approach to the enclosed station, with the release at a fixed coordinate.
 
-BLEND_TAIL_MARGIN comes from blend.ini so there is no doubt what was in force.
 busy is driven by a servo-thread comparator on X (blend.hal), so the second leg
 is dispatched at exactly x = -645 -- 80 mm into the 125 mm first leg, past the
 halfway mark where tpHandleBlendArc stops asking whether two segments are

@@ -142,6 +142,20 @@ The scenario directories
     altpicker/  the alternating-picker reference flow of §8
     manual/     the manual-handling retention round trip of §8.1
 
+Two related tests live outside this directory because they need their own
+config and a realtime instrument rather than the shared simulation:
+
+    ../pnptask-blend/                 whether the second leg of a streamed
+                                      approach blends into the first (D29).
+                                      Release and capture are both in the servo
+                                      thread — driving either from a script over
+                                      REST puts a non-realtime latency in series
+                                      with a realtime effect and the answer then
+                                      depends on the latency.
+    ../trajectory-planner/decel-rate/ the deceleration the TP actually applies
+                                      at the end of the queue, which is what
+                                      sets the length of that leg's tail.
+
 Each is a `runtests` test: a test.sh that starts stmakd on this config and a
 Python driver that commands jobs over the handshake pins and asserts what came
 back. They share pnpdrv.sh (server lifecycle) and pnpdrv.py (pin access over

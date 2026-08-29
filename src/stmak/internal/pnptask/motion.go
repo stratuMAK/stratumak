@@ -287,29 +287,26 @@ func (c *control) dispatchTravel(j *job, pk int, target pnproute.Point) error {
 }
 
 // dispatchLeadingLeg is dispatchTravel for the first of two streamed legs: it
-// ends the route with the braking distance as a segment of its own, so the leg
-// queued behind it joins one the machine has NOT started driving.
+// ends the route with a segment short enough to be a fresh one and long enough
+// to be entered at travel speed, so the leg queued behind it blends in instead
+// of stopping the head at the wait position.
 //
-// Why that should matter: a blend is decided when the following segment is
-// added, against whatever is last in the queue at that moment. Every segment
-// of a route escapes any question about this because a route is dispatched
-// back to back — the join is always with a segment at zero progress. A leg
-// dispatched on its own does not, and D29's first leg is exactly that: it is
-// queued, it runs, and the second leg arrives against a segment that is
-// already part-driven. Reserving the braking distance restores the property
-// the route case has for free.
+// Why that is needed at all: a leg dispatched on its own is the last thing in
+// the queue, so the planner plans to stop at its end, and the second leg
+// arrives against a segment that is already part-driven. Every segment of a
+// route escapes this — a route is dispatched back to back, so each join is
+// judged against a segment at zero progress, which is why route corners and
+// G-code need nothing from us. D29's first leg is the one place pnptask queues
+// a segment behind a moving one; every other leg drains first.
 //
-// The split changes no geometry — the extra point lies ON the final segment —
-// so the driven path is identical and the only cost is one queue entry.
+// withTriangleTail sets the length and derives it from the planner's own
+// arithmetic. The split changes no geometry — the extra point lies ON the final
+// segment — so the driven path is identical and the only cost is one queue
+// entry.
 //
-// NOT VALIDATED IN SIMULATION. The effect is a velocity profile through a
-// segment boundary, and the integration harness polls HAL over REST, which
-// cannot sample velocity and position coherently at travel speeds; every
-// attempt to measure it there produced artefacts (a straight move with no
-// boundary at all measured a larger "loss" than the boundary case). It is
-// deployed to be measured on the machine with haltrace, and blend-tail-margin
-// is a param so the size can be swept there. Setting it to 0 restores the
-// previous behaviour exactly.
+// The termination condition needs no help: the planner promotes both joins to
+// tangent itself when they are straight, which they are here by construction.
+// Declaring TC_TERM_COND_TANGENT explicitly was tried and changed nothing.
 func (c *control) dispatchLeadingLeg(j *job, pk int, target pnproute.Point) error {
 	return c.dispatchLeg(j, pk, target, true)
 }
