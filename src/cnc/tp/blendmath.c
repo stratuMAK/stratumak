@@ -1719,7 +1719,7 @@ static int pmCircleAngleFromParam(PmCircle const * const circle,
 
     double disc = pmSq(B) - 4.0 * A * C ;
     if (disc < 0) {
-        stmak_log_errorf(log, log_comp, "discriminant %f is negative in angle calculation", disc);
+        stmak_logf(log, log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "discriminant %f is negative in angle calculation", disc);
         return TP_ERR_FAIL;
     }
 
@@ -1820,14 +1820,14 @@ int findSpiralArcLengthFit(PmCircle const * const circle,
     double angle_end_chk = 0.0;
     int res_angle = pmCircleAngleFromParam(circle, fit, 1.0, &angle_end_chk, log, log_comp);
     if (res_angle != TP_ERR_OK) {
-        stmak_log_errorf(log, log_comp, "Spiral fit failed");
+        stmak_logf(log, log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Spiral fit failed");
         return TP_ERR_FAIL;
     }
 
     // Check fit against angle
     double fit_err = angle_end_chk - circle->angle;
     if (fabs(fit_err) > TP_ANGLE_EPSILON) {
-        stmak_log_errorf(log, log_comp,
+        stmak_logf(log, log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "Spiral fit angle difference is %e, maximum allowed is %e",
                 fit_err,
                 TP_ANGLE_EPSILON);

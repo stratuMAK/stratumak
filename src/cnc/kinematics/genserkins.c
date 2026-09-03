@@ -441,7 +441,7 @@ int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
     if (!env->hal) {
-        stmak_log_errorf(env->log, name, "HAL API not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
@@ -457,7 +457,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (sk_map_coordinates(&g_map, coordinates, 0) < 0) {
-        stmak_log_errorf(env->log, name, "bad coordinates: %s", coordinates);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "bad coordinates: %s", coordinates);
         return -1;
     }
     total_joints = g_map.num_joints;
@@ -519,7 +519,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &genser_callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name, "kins_api_register failed: %d", rc);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "kins_api_register failed: %d", rc);
         goto fail;
     }
 

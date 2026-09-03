@@ -52,6 +52,60 @@ func TestPinAccessAfterExit(t *testing.T) {
 	}
 }
 
+// TestCreateAfterExit verifies the creation guard: NewPin/NewParam on an
+// exited component must be refused with ErrComponentExited before touching
+// HAL — the component id is freed (and possibly recycled), and any HAL shm
+// allocated on the way would leak (bump allocator, no free).
+func TestCreateAfterExit(t *testing.T) {
+	comp, err := hal.NewComponent("test-create-after-exit")
+	if err != nil {
+		t.Fatalf("NewComponent: %v", err)
+	}
+	if err := comp.Exit(); err != nil {
+		t.Fatalf("Exit: %v", err)
+	}
+
+	if _, err := hal.NewPin[float64](comp, "v", hal.Out); !errors.Is(err, hal.ErrComponentExited) {
+		t.Errorf("NewPin after Exit: got %v, want ErrComponentExited", err)
+	}
+	if _, err := hal.NewParam[float64](comp, "p", hal.RW); !errors.Is(err, hal.ErrComponentExited) {
+		t.Errorf("NewParam after Exit: got %v, want ErrComponentExited", err)
+	}
+	// Ready must be refused too: the freed id may have been recycled, and
+	// hal_ready on it could mark an unrelated component ready prematurely.
+	if err := comp.Ready(); !errors.Is(err, hal.ErrComponentExited) {
+		t.Errorf("Ready after Exit: got %v, want ErrComponentExited", err)
+	}
+}
+
+// TestPinCreateGuard is the pin-side counterpart of TestParamValidation's
+// guard checks: duplicate names (shared with parameters) and creation after
+// Ready() are refused Go-side with the matching sentinels.
+func TestPinCreateGuard(t *testing.T) {
+	comp, err := hal.NewComponent("test-pin-guard")
+	if err != nil {
+		t.Fatalf("NewComponent: %v", err)
+	}
+	defer func() { _ = comp.Exit() }()
+
+	if _, err := hal.NewPin[float64](comp, "dup", hal.Out); err != nil {
+		t.Fatalf("NewPin(dup): %v", err)
+	}
+	if _, err := hal.NewPin[float64](comp, "dup", hal.Out); !errors.Is(err, hal.ErrNameExists) {
+		t.Errorf("NewPin with a duplicate name: got %v, want ErrNameExists", err)
+	}
+	if _, err := hal.NewParam[float64](comp, "dup", hal.RW); !errors.Is(err, hal.ErrNameExists) {
+		t.Errorf("NewParam reusing a pin name: got %v, want ErrNameExists", err)
+	}
+
+	if err := comp.Ready(); err != nil {
+		t.Fatalf("Ready: %v", err)
+	}
+	if _, err := hal.NewPin[float64](comp, "late", hal.Out); !errors.Is(err, hal.ErrAlreadyReady) {
+		t.Errorf("NewPin after Ready(): got %v, want ErrAlreadyReady", err)
+	}
+}
+
 // TestExitIdempotent verifies Exit() is idempotent (finding M3): a second call
 // is a no-op returning nil, so it never runs hal_exit() twice on the same id
 // (which would error, or tear down a recycled id's new component).

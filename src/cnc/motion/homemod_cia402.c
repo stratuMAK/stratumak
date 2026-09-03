@@ -38,6 +38,12 @@
 /* Mode switch timeout (servo cycles, ~5s at 1kHz) */
 #define MODE_SWITCH_TIMEOUT 5000
 
+/* Fraction of the joint velocity limit above which the drive counts as
+ * "still moving" when it declares homing complete.  Coarse on purpose: one
+ * encoder count per cycle is already a few tenths of a percent, and this only
+ * has to catch a drive that never decelerated. */
+#define STANDSTILL_FRACTION 0.05
+
 /* Drive homing states */
 typedef enum {
     DRV_HOME_IDLE = 0,
@@ -74,6 +80,7 @@ typedef struct {
     char pin_prefix[STMAK_HAL_NAME_LEN + 1];
     int comp_id;
     int jno;
+    double servo_period;
 
     /* Homing parameters */
     double home_offset;
@@ -90,6 +97,12 @@ typedef struct {
     int    mode_wait_count;
     bool   sync_final_move_released; /* set by do_final_move() to release sync pause */
 
+    /* motor_pos_fb history for the standstill check at HomingAttained */
+    double fb_prev;         /* previous cycle's motor_pos_fb */
+    double fb_delta;        /* this cycle's change */
+    double fb_delta_prev;   /* last cycle's change — the one we report */
+    int    fb_samples;      /* samples seen this homing run */
+
     /* HAL pins */
     linmot_pins_t pins;
 
@@ -102,6 +115,38 @@ typedef struct {
 *               DRIVE HOMING STATE MACHINE                            *
 ***********************************************************************/
 
+/* A CiA402 drive is expected to be standing still when it asserts
+ * HomingAttained.  Some drives assert it while the homing move is still
+ * running, and nothing in the statusword tells them apart (bit 10 "target
+ * reached" can assert on the same cycle), so the damage is silent: the
+ * reference gets captured on the fly, turning one cycle of PDO latency into
+ * |vel| * servo_period of home-position scatter.  The cure belongs in the
+ * drive's homing parameters, so report it rather than compensate here.
+ *
+ * Uses LAST cycle's motion, not this one: the drive redefines its position
+ * origin on the very cycle it asserts HomingAttained, so this cycle's delta
+ * is the origin step rather than a velocity. */
+static void warn_if_still_moving(linmot_inst_t *inst)
+{
+    double vel, vel_limit;
+
+    if (inst->fb_samples < 3 || inst->servo_period <= 0.0)
+        return;
+    vel_limit = inst->mot->joint_get_vel_limit(inst->mot->ctx, inst->jno);
+    if (vel_limit <= 0.0)
+        return;
+
+    vel = inst->fb_delta_prev / inst->servo_period;
+    if (fabs(vel) <= vel_limit * STANDSTILL_FRACTION)
+        return;
+
+    stmak_log_warnf(inst->log, inst->name,
+        "j%d: HomingAttained asserted while still moving at %.2f u/s; reference "
+        "captured on the fly (~%.4f u scatter per servo cycle) -- check the "
+        "drive's homing deceleration",
+        inst->jno, vel, fabs(vel) * inst->servo_period);
+}
+
 /* Track drive position during drive-internal homing.
  * While the drive is in homing mode, it controls the axis independently.
  * We update free_tp.curr_pos so motmod's pos_cmd follows the actual
@@ -113,6 +158,12 @@ static void track_drive_position(linmot_inst_t *inst)
     double backlash = inst->mot->joint_get_backlash_filt(inst->mot->ctx, jno);
     double offset   = inst->mot->joint_get_motor_offset(inst->mot->ctx, jno);
     double pos = motor_fb - (backlash + offset);
+    if (inst->fb_samples > 0) {
+        inst->fb_delta_prev = inst->fb_delta;
+        inst->fb_delta = motor_fb - inst->fb_prev;
+    }
+    inst->fb_prev = motor_fb;
+    inst->fb_samples++;
     inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, pos);
 }
 
@@ -142,7 +193,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         }
         inst->mode_wait_count++;
         if (inst->mode_wait_count > MODE_SWITCH_TIMEOUT) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d: timeout waiting for homing mode", jno);
             inst->drv_state = DRV_HOME_ERROR;
         }
@@ -151,7 +202,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
     case DRV_HOME_WAIT_ATTAINED:
         track_drive_position(inst);
         if (*(p->homing_error)) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d: drive reported homing error", jno);
             *(p->home_cmd) = 0;
             inst->drv_state = DRV_HOME_ERROR;
@@ -159,6 +210,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         }
         if (*(p->homing_attained)) {
             *(p->home_cmd) = 0;
+            warn_if_still_moving(inst);
             /* Sync position while still in homing mode */
             double motor_fb = inst->mot->joint_get_motor_pos_fb(inst->mot->ctx, jno);
             double backlash = inst->mot->joint_get_backlash_filt(inst->mot->ctx, jno);
@@ -185,7 +237,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         }
         inst->mode_wait_count++;
         if (inst->mode_wait_count > MODE_SWITCH_TIMEOUT) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d: timeout waiting for CSP mode after homing", jno);
             inst->drv_state = DRV_HOME_ERROR;
         }
@@ -259,9 +311,9 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     int retval = 0;
-    (void)servo_period;
 
     inst->comp_id = comp_id;
+    inst->servo_period = servo_period;
 
     retval += stmak_hal_pin_u32_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.opmode_cmd, comp_id,
                               "%s.opmode-cmd", inst->name);
@@ -280,7 +332,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     retval += stmak_hal_pin_s32_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.home_state_pin, comp_id,
                               "%sjoint.%d.home-state", inst->pin_prefix, inst->jno);
     if (retval != 0) {
-        stmak_log_errorf(inst->log, inst->name, "failed to create HAL pins");
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to create HAL pins");
         return -1;
     }
 
@@ -346,6 +398,9 @@ static int32_t gmi_home_do_home(void *ctx) STMAK_NONBLOCKING
     inst->homing = 1;
     inst->homed = 0;
     inst->sync_final_move_released = 0;
+    /* drop the previous run's samples so the standstill check only ever
+       sees motion from this homing run */
+    inst->fb_samples = 0;
     inst->drv_state = DRV_HOME_SWITCH_MODE;
     return 0;
 }
@@ -493,7 +548,7 @@ int New(const cmod_env_t *env, const char *name,
     if (dot && dot[1] >= '0' && dot[1] <= '9') {
         inst->jno = atoi(dot + 1);
     } else {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot parse joint number from instance name '%s'", name);
         free(inst);
         return -1;
@@ -522,7 +577,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = home_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name, "failed to register home API: %d", rc);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to register home API: %d", rc);
         free(inst);
         return rc;
     }

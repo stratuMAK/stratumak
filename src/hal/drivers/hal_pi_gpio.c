@@ -156,7 +156,7 @@ void bcm2835_gpio_fsel(inst_t *inst, uint8_t pin, uint8_t mode)
 static int setup_gpiomem_access(inst_t *inst)
 {
   if ((inst->mem_fd = open("/dev/gpiomem", O_RDWR|O_SYNC)) < 0) {
-    stmak_log_errorf(inst->log, "hal_pi_gpio","HAL_PI_GPIO: can't open /dev/gpiomem:  %d - %s"
+    stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,"HAL_PI_GPIO: can't open /dev/gpiomem:  %d - %s"
         "If the error is 'permission denied' then try adding the user who runs"
         "LinuxCNC to the gpio group: sudo gpasswd -a username gpio", errno, strerror(errno));
     return -1;
@@ -167,7 +167,7 @@ static int setup_gpiomem_access(inst_t *inst)
   if (inst->gpio == MAP_FAILED) {
     close(inst->mem_fd);
     inst->mem_fd = -1;
-    stmak_log_errorf(inst->log, "hal_pi_gpio", "HAL_PI_GPIO: mmap failed: %d - %s", errno, strerror(errno));
+    stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL_PI_GPIO: mmap failed: %d - %s", errno, strerror(errno));
     return -1;
   }
 
@@ -178,7 +178,7 @@ static int  setup_gpio_access(inst_t *inst, int rev, int ncores)
 {
   // open /dev/mem
   if ((inst->mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
-      stmak_log_errorf(inst->log, "hal_pi_gpio","HAL_PI_GPIO: can't open /dev/mem:  %d - %s",
+      stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,"HAL_PI_GPIO: can't open /dev/mem:  %d - %s",
 		      errno, strerror(errno));
     return -1;
   }
@@ -191,7 +191,7 @@ static int  setup_gpio_access(inst_t *inst, int rev, int ncores)
 		   MAP_SHARED, inst->mem_fd, BCM2709_GPIO_BASE);
 
   if (inst->gpio == MAP_FAILED) {
-    stmak_log_errorf(inst->log, "hal_pi_gpio",
+    stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		    "HAL_PI_GPIO: mmap failed: %d - %s",
 		    errno, strerror(errno));
     return -1;;
@@ -210,7 +210,7 @@ static int number_of_cores(const stmak_log_t *log)
 	    if( !memcmp(str, "processor", 9) ) procCount++;
     }
     if ( !procCount ) {
-	stmak_log_errorf(log, "hal_pi_gpio","Unable to get proc count. Defaulting to 2");
+	stmak_logf(log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,"Unable to get proc count. Defaulting to 2");
 	procCount = 2;
     }
     return procCount;
@@ -249,7 +249,7 @@ int New(const cmod_env_t *env, const char *name,
     parse_argv(inst, argc, argv);
 
     if ((rev = get_rpi_revision(inst->log)) < 0) {
-      stmak_log_errorf(inst->log, "hal_pi_gpio",
+      stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		      "unrecognized Raspberry revision, see /proc/cpuinfo");
       inst->rtapi->free(inst->rtapi->ctx, inst);
       return -EINVAL;
@@ -282,13 +282,13 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (inst->dir == 0) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio", "HAL_PI_GPIO: ERROR: no config string");
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL_PI_GPIO: ERROR: no config string");
 	inst->rtapi->free(inst->rtapi->ctx, inst);
 	return -1;
     }
     inst->dir_map = strtoul(inst->dir, &endptr,0);
     if (*endptr) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio",
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 			"HAL_PI_GPIO: dir=%s - trailing garbage: '%s'",
 			inst->dir, endptr);
 	inst->rtapi->free(inst->rtapi->ctx, inst);
@@ -296,13 +296,13 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (inst->exclude == 0) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio", "HAL_PI_GPIO: ERROR: no exclude string");
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL_PI_GPIO: ERROR: no exclude string");
 	inst->rtapi->free(inst->rtapi->ctx, inst);
 	return -1;
     }
     inst->exclude_map = strtoul(inst->exclude, &endptr,0);
     if (*endptr) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio",
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 			"HAL_PI_GPIO: exclude=%s - trailing garbage: '%s'",
 			inst->exclude, endptr);
 	inst->rtapi->free(inst->rtapi->ctx, inst);
@@ -318,7 +318,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int r = hal->init(hal->ctx, "hal_pi_gpio", env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio",
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "HAL_PI_GPIO: ERROR: hal_init() failed");
 	if (inst->gpio)
 	    munmap((void *)inst->gpio, BCM2835_BLOCK_SIZE);
@@ -331,7 +331,7 @@ int New(const cmod_env_t *env, const char *name,
 
     inst->port_data = hal->malloc(hal->ctx, inst->npins * sizeof(void *));
     if (inst->port_data == 0) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio",
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "HAL_PI_GPIO: ERROR: hal->malloc(hal->ctx, ) failed");
 	hal->exit(hal->ctx, inst->comp_id);
 	if (inst->gpio)
@@ -359,7 +359,7 @@ int New(const cmod_env_t *env, const char *name,
       }
     }
     if (retval < 0) {
-      stmak_log_errorf(inst->log, "hal_pi_gpio",
+      stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		      "HAL_PI_GPIO: ERROR: pin %d export failed with err=%i",
 		      n,retval);
       hal->exit(hal->ctx, inst->comp_id);
@@ -374,7 +374,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = hal->export_funct(hal->ctx, "hal_pi_gpio.write", write_port, inst,
 			      0, 0, inst->comp_id);
     if (retval < 0) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio",
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "HAL_PI_GPIO: ERROR: write funct export failed");
 	hal->exit(hal->ctx, inst->comp_id);
 	if (inst->gpio)
@@ -387,7 +387,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = hal->export_funct(hal->ctx, "hal_pi_gpio.read", read_port, inst,
 			      0, 0, inst->comp_id);
     if (retval < 0) {
-	stmak_log_errorf(inst->log, "hal_pi_gpio",
+	stmak_logf(inst->log, "hal_pi_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "HAL_PI_GPIO: ERROR: read funct export failed");
 	hal->exit(hal->ctx, inst->comp_id);
 	if (inst->gpio)

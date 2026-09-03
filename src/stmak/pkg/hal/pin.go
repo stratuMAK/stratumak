@@ -74,45 +74,35 @@ type Pin[T PinValue] struct {
 //	pin, err := NewPin[bool](comp, "enable", hal.In)
 //	pin, err := NewPin[int32](comp, "count", hal.Out)
 func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], error) {
-	if c == nil {
-		return nil, newError("NewPin", "component is nil", -22)
-	}
-
-	if name == "" {
-		return nil, newError("NewPin", ErrInvalidName.Message, ErrInvalidName.Code)
+	fullName, err := qualifyName(c, "NewPin", name)
+	if err != nil {
+		return nil, err
 	}
 
 	if dir != In && dir != Out && dir != IO {
 		return nil, newError("NewPin", "invalid direction", -22)
 	}
 
-	// Build fully-qualified pin name
-	fullName := fmt.Sprintf("%s.%s", c.Name(), name)
-	if len(fullName) > NameLen {
-		return nil, newError("NewPin", ErrInvalidName.Message, ErrInvalidName.Code)
-	}
-
 	// Map the generic type parameter T to its HAL type, then create the pin via
 	// the single halPinNew wrapper (dispatched C-side by hal_type_t).
-	var typ PinType
-	var zeroValue T
-	switch any(zeroValue).(type) {
-	case bool:
-		typ = TypeBit
-	case float64:
-		typ = TypeFloat
-	case int32:
-		typ = TypeS32
-	case uint32:
-		typ = TypeU32
-	case string:
-		typ = TypePort
-	default:
+	typ, ok := pinTypeOf[T]()
+	if !ok {
 		return nil, newError("NewPin", "unsupported pin type", -22)
 	}
 
-	ptr, err := halPinNew(fullName, dir, c.id, typ)
-	if err != nil {
+	// The creation guard rejects duplicates and ready/exited components before
+	// the pointer slot is allocated (HAL shm has no free), and holds the
+	// component write lock across halPinNew so the C call can never race
+	// Component.Exit() into a freed component id.
+	var ptr unsafe.Pointer
+	if err := c.create("NewPin", fullName, func() error {
+		p, err := halPinNew(fullName, dir, c.id, typ)
+		if err != nil {
+			return err
+		}
+		ptr = p
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -134,6 +124,13 @@ func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], erro
 // This dereferences the pointer to HAL shared memory. If the owning component
 // has already been released with Exit(), the pin's HAL memory is gone; Get then
 // takes no dereference and returns the zero value of T.
+//
+// The cell is read with a plain (non-atomic) load, HAL's own concurrency model:
+// the pin mutex serializes Go-side callers only, an RT function writing the
+// cell (through RTDataPtr or a linked signal) never takes it. On 64-bit targets
+// a naturally aligned scalar cannot tear; on 32-bit targets a concurrent RT
+// write to an 8-byte (float) pin can in principle be observed torn, exactly as
+// any C HAL component observes it.
 func (p *Pin[T]) Get() T {
 	// Liveness barrier: refuse to dereference freed HAL memory if the owning
 	// component has exited (see Component.enter). Held across the whole read.
@@ -294,6 +291,30 @@ func (p *Pin[T]) TrySet(value T) error {
 	return nil
 }
 
+// RTDataPtr returns the pin's HAL data-pointer slot, for a cyclic function
+// exported with ExportFunct to read or write the pin from the servo thread.
+//
+// The value is a "double pointer": HAL stores the address of the data cell in
+// this slot and REPOINTS it at the signal's cell when the pin is linked with
+// net, so the C side must dereference twice, at access time, exactly as Get and
+// Set do — a cyclic function that caches the inner pointer at init reads the
+// pin's private dummy cell forever and never sees the signal.
+//
+//	hal_bit_t **slot;   // what this returns
+//	**slot = 1;         // publish
+//
+// This is the one escape hatch in an otherwise fully guarded API, and it hands
+// out an address into HAL shared memory with no liveness barrier attached: none
+// of the checks that make Get and Set safe against Component.Exit apply to what
+// C does with the result. That is sound only under the ExportFunct contract —
+// the launcher removes the component's functions and waits for a full RT cycle
+// before Destroy, and Destroy is where Exit belongs — and it is why this is
+// spelled RT rather than offered as a general accessor. Go code has Get and Set
+// and should use them.
+func (p *Pin[T]) RTDataPtr() unsafe.Pointer {
+	return p.ptr
+}
+
 // Name returns the fully-qualified pin name.
 func (p *Pin[T]) Name() string {
 	return p.name
@@ -306,22 +327,10 @@ func (p *Pin[T]) Direction() Direction {
 
 // Type returns the HAL type of the pin.
 func (p *Pin[T]) Type() PinType {
-	// Use type assertion to determine the HAL type
-	var t T
-	switch any(t).(type) {
-	case bool:
-		return TypeBit
-	case float64:
-		return TypeFloat
-	case int32:
-		return TypeS32
-	case uint32:
-		return TypeU32
-	case string:
-		return TypePort
-	default:
-		return -1 // Should never happen due to PinValue constraint
+	if typ, ok := pinTypeOf[T](); ok {
+		return typ
 	}
+	return -1 // Should never happen due to PinValue constraint
 }
 
 // String returns a string representation of the pin.

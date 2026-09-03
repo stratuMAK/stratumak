@@ -113,8 +113,6 @@ func (m *monitor) loop() {
 	ticker := time.NewTicker(monitorInterval)
 	defer ticker.Stop()
 
-	var softLimitReported bool
-
 	for {
 		select {
 		case <-m.stopCh:
@@ -129,7 +127,7 @@ func (m *monitor) loop() {
 				ms, err := m.task.status.GetStatus()
 				m.checkCommWatchdog(err)
 				m.checkMotionEnabled(ms, err)
-				m.checkMotionErrors(ms, err, &softLimitReported)
+				m.checkMotionErrors(ms, err)
 			}
 			m.checkJogWatchdog()
 			if m.inihal != nil {
@@ -349,25 +347,21 @@ func (m *monitor) checkMotionEnabled(ms motstat.MotionStatus, err error) {
 	})
 }
 
-// checkMotionErrors polls motion status for errors and soft limits.
+// checkMotionErrors polls motion status for motion and IO errors.
 // ms/err are the tick's shared status read (see loop).
-func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error, softLimitReported *bool) {
+//
+// Deliberately silent about soft limits, unlike C milltask.  motmod already
+// reports the trip and names the joint and the limit value it exceeded; "On
+// Soft Limit" adds nothing to that.  Its companion "Identity kinematics are
+// MISCONFIGURED" fired on every soft-limit event under identity kins, but the
+// condition it names — joint limits tighter than the axis limits the planner
+// clamps to — is checked against the actual numbers at startup by
+// ccValidateIdentityKinsLimits.  A blanket runtime accusation that also fires
+// when the machine was simply pushed out of range by hand only teaches
+// operators to ignore the panel.
+func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error) {
 	if err != nil {
 		return // split-read, skip this cycle (sustained failure: comm watchdog)
-	}
-
-	// Check soft limit.
-	if ms.OnSoftLimit != 0 {
-		if !*softLimitReported {
-			*softLimitReported = true
-			m.task.operatorError("On Soft Limit")
-			// Matches C milltask: warn if identity kinematics are misconfigured.
-			if ms.KinType == 1 { // KINEMATICS_IDENTITY
-				m.task.operatorError("Identity kinematics are MISCONFIGURED")
-			}
-		}
-	} else {
-		*softLimitReported = false
 	}
 
 	// Check motion error (any non-OK command status or Error bit set by control loop).

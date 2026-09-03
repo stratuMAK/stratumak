@@ -1845,7 +1845,7 @@ int New(const cmod_env_t *env, const char *name,
     // Allocate instance state.
     hm2_inst_t *inst = calloc(1, sizeof(*inst));
     if (!inst) {
-        stmak_log_errorf(log, name, "hostmot2: out of memory\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hostmot2: out of memory\n");
         return -1;
     }
     inst->env = env;
@@ -1854,7 +1854,7 @@ int New(const cmod_env_t *env, const char *name,
     // Initialize HAL component.
     comp_id = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (comp_id < 0) {
-        stmak_log_errorf(log, name, "hostmot2: hal_init failed\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hostmot2: hal_init failed\n");
         free(inst);
         return -1;
     }
@@ -1873,14 +1873,14 @@ int New(const cmod_env_t *env, const char *name,
     if (env->api) {
         int r = hm2_core_api_register(env->api, name, &inst->core_api);
         if (r != 0) {
-            stmak_log_errorf(log, name, "hostmot2: failed to register hm2_core API: %d\n", r);
+            stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hostmot2: failed to register hm2_core API: %d\n", r);
             hal->exit(hal->ctx, comp_id);
             free(inst);
             return -1;
         }
         r = hm2_serial_api_register(env->api, name, &inst->serial_api);
         if (r != 0) {
-            stmak_log_errorf(log, name, "hostmot2: failed to register hm2_serial API: %d\n", r);
+            stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hostmot2: failed to register hm2_serial API: %d\n", r);
             hal->exit(hal->ctx, comp_id);
             free(inst);
             return -1;

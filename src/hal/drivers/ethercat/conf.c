@@ -500,7 +500,7 @@ static int parseSyncCycle(LCEC_CONF_XML_STATE_T *state, const char *nptr);
 
 /** @brief Log an error from the cmod lifecycle context (m = lcec_conf_module *). */
 #define CONF_ERR(m, fmt, ...) \
-  stmak_log_errorf((m)->env->log, (m)->name, fmt, ##__VA_ARGS__)
+  stmak_logf((m)->env->log, (m)->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ##__VA_ARGS__)
 
 /********************************************************************
  * cmod lifecycle functions

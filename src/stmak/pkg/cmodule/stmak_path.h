@@ -35,7 +35,7 @@
 //   const char *path = env->path->resolve(env->path->ctx, filename,
 //                                         STMAK_PATH_READ, &err);
 //   if (!path) {
-//       stmak_log_errorf(env->log, name, "config file %s: %s", filename, err);
+//       stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "config file %s: %s", filename, err);
 //       goto fail;
 //   }
 //   FILE *f = fopen(path, "r");

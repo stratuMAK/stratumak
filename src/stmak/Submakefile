@@ -49,6 +49,7 @@ STMAK_BUILD_FLAGS := $(subst $(space),$(comma),$(strip \
     $(if $(filter yes,$(BUILD_HALJSON)),HALJSON) \
     $(if $(filter yes,$(BUILD_NGCPREVIEW)),NGCPREVIEW) \
     $(if $(filter yes,$(BUILD_MILLTASK_GO)),MILLTASK_GO) \
+    $(if $(filter yes,$(BUILD_PNPTASK_GO)),PNPTASK_GO) \
     $(if $(filter yes,$(BUILD_MQTTBRIDGE)),MQTTBRIDGE) \
     $(if $(filter yes,$(BUILD_PYVCP)),PYVCP) \
     $(if $(filter yes,$(BUILD_TASKTEST)),TASKTEST) \
@@ -246,6 +247,8 @@ STMAK_PKG_FILES := \
     ../share/stratumak/stmak/pkg/hal/types.go \
     ../share/stratumak/stmak/pkg/hal/errors.go \
     ../share/stratumak/stmak/pkg/hal/cgo.go \
+    ../share/stratumak/stmak/pkg/hal/funct.go \
+    ../share/stratumak/stmak/pkg/hal/param.go \
     ../share/stratumak/stmak/pkg/hal/doc.go \
     ../share/stratumak/stmak/pkg/stmak/stmak.go \
     ../share/stratumak/stmak/pkg/inifile/types.go \

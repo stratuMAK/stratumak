@@ -1,0 +1,913 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package pnptask
+
+import (
+	"fmt"
+	"log/slog"
+	"math"
+	"strings"
+
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
+)
+
+// SlotCount returns how many slots the tray has. An endless tray has its
+// CAPACITY — 1 unless the section gives it more, in which case every slot is
+// at First and they exist only to be counted. A single-position grid tray has
+// exactly one.
+func (d TrayDef) SlotCount() int {
+	if d.Endless() {
+		if d.Capacity > 1 {
+			return d.Capacity
+		}
+		return 1
+	}
+	return d.Rows * d.Cols
+}
+
+// SlotPos returns the absolute machine coordinates of slot (col, row).
+//
+// The grid is the step widths laid out in the tray's own frame — col·ColStep
+// along the column axis, row·RowStep along the row axis — turned by Angle
+// about FIRST, the tilt the load derived from the taught LAST (D24). A tray
+// without LAST — endless or single-position — has one position, at FIRST.
+//
+// Out-of-range indices are not rejected here: the callers (config validation
+// and the slot search) iterate the tray's own extent, and clamping or erroring
+// on an index would only hide a bug in them.
+func (d TrayDef) SlotPos(col, row int) pnproute.Point {
+	if !d.HasLast {
+		return d.First
+	}
+	local := pnproute.Point{
+		X: d.ColStep * float64(col),
+		Y: d.RowStep * float64(row),
+	}
+	s, c := math.Sincos(d.Angle)
+	return pnproute.Point{
+		X: d.First.X + local.X*c - local.Y*s,
+		Y: d.First.Y + local.X*s + local.Y*c,
+	}
+}
+
+// SlotAxis names one of the two indices of a tray grid.
+type SlotAxis int
+
+const (
+	// AxisCol is the column index, running FIRST -> LAST_X.
+	AxisCol SlotAxis = iota
+	// AxisRow is the row index, running FIRST -> LAST_Y.
+	AxisRow
+)
+
+func (a SlotAxis) String() string {
+	if a == AxisRow {
+		return "R"
+	}
+	return "C"
+}
+
+// other returns the axis that is not a.
+func (a SlotAxis) other() SlotAxis {
+	if a == AxisRow {
+		return AxisCol
+	}
+	return AxisRow
+}
+
+// DirMode is a parsed [PNPTASK_TRAYDEF_x]DIR_MODE: the order slots are visited
+// in when a pick looks for material or a place looks for a free slot.
+//
+// The syntax is two axis tokens, each an axis letter (C or R) followed by a
+// direction (+ or -), plus an optional trailing "~" for meander:
+//
+//	C+R+     columns left to right, then the next row upwards
+//	R-C+     rows top to bottom within a column, then the next column
+//	C+R+~    same as C+R+, but every second row runs backwards
+//
+// The first token is the fast-varying (inner) axis, the second the slow one.
+// Both axes must appear exactly once.
+type DirMode struct {
+	// Primary is the inner axis — the one that advances from slot to slot.
+	Primary SlotAxis
+	// PrimaryUp and SecondaryUp are the directions the two axes run in.
+	PrimaryUp   bool
+	SecondaryUp bool
+	// Meander reverses the primary direction on every second pass, so the
+	// head does not travel back across the whole tray between passes.
+	Meander bool
+}
+
+// Secondary is the outer axis, implied by Primary.
+func (m DirMode) Secondary() SlotAxis { return m.Primary.other() }
+
+// String renders the mode back in DIR_MODE syntax.
+func (m DirMode) String() string {
+	s := m.Primary.String() + sign(m.PrimaryUp) + m.Secondary().String() + sign(m.SecondaryUp)
+	if m.Meander {
+		s += "~"
+	}
+	return s
+}
+
+func sign(up bool) string {
+	if up {
+		return "+"
+	}
+	return "-"
+}
+
+// defaultDirMode is what an omitted DIR_MODE means: columns left to right, rows
+// bottom to top, no meander — the reading order of a tray whose FIRST slot is
+// the lower-left one.
+var defaultDirMode = DirMode{Primary: AxisCol, PrimaryUp: true, SecondaryUp: true}
+
+// parseDirMode parses a DIR_MODE value. An empty string yields the default
+// mode; anything that is not well-formed is an error rather than a fallback —
+// a mis-typed mode would otherwise silently reorder a whole tray.
+func parseDirMode(s string) (DirMode, error) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if s == "" {
+		return defaultDirMode, nil
+	}
+	var m DirMode
+	rest := s
+	primary, primaryUp, rest, err := parseDirToken(rest)
+	if err != nil {
+		return m, err
+	}
+	secondary, secondaryUp, rest, err := parseDirToken(rest)
+	if err != nil {
+		return m, err
+	}
+	if primary == secondary {
+		return m, fmt.Errorf("%q: axis %s given twice, expected one C and one R token", s, primary)
+	}
+	if rest == "~" {
+		m.Meander = true
+		rest = ""
+	}
+	if rest != "" {
+		return m, fmt.Errorf("%q: trailing %q, expected two axis tokens and an optional %q", s, rest, "~")
+	}
+	m.Primary, m.PrimaryUp, m.SecondaryUp = primary, primaryUp, secondaryUp
+	return m, nil
+}
+
+// parseDirToken consumes one "<axis><sign>" token from the front of s.
+func parseDirToken(s string) (axis SlotAxis, up bool, rest string, err error) {
+	if len(s) < 2 {
+		return 0, false, s, fmt.Errorf("%q: expected an axis token (C+, C-, R+ or R-)", s)
+	}
+	switch s[0] {
+	case 'C':
+		axis = AxisCol
+	case 'R':
+		axis = AxisRow
+	default:
+		return 0, false, s, fmt.Errorf("%q: unknown axis %q, expected C or R", s, string(s[0]))
+	}
+	switch s[1] {
+	case '+':
+		up = true
+	case '-':
+		up = false
+	default:
+		return 0, false, s, fmt.Errorf("%q: unknown direction %q, expected + or -", s, string(s[1]))
+	}
+	return axis, up, s[2:], nil
+}
+
+// ---------------------------------------------------------------------------
+// Slot iteration order
+// ---------------------------------------------------------------------------
+
+// slotOrder is the sequence of linear slot indices a tray is visited in, derived
+// once from its DIR_MODE. A linear index is row*Cols + col, the layout the slot
+// state slice uses.
+//
+// The order is precomputed rather than iterated live because it is the same for
+// every pick and every place on that geometry, and because having it as a plain
+// slice makes "continue the search after the slot that turned out to be empty"
+// (§7.1's probing) a position in a list instead of a nested-loop resumption.
+//
+// A tray with a single position — endless or without LAST — has exactly one
+// slot, whatever its DIR_MODE says.
+func slotOrder(d TrayDef) []int {
+	if d.SlotCount() <= 1 {
+		return []int{0}
+	}
+	// A CAPACITY bin has slots but no grid to walk: every one of them is at
+	// FIRST, so the only order that exists is the index order. Falling through
+	// to the grid loop below would derive the extents from ROWS/COLS, which are
+	// both 0 here, and hand back an empty order — a tray with slots that can
+	// never be reached.
+	if d.Endless() {
+		order := make([]int, d.SlotCount())
+		for i := range order {
+			order[i] = i
+		}
+		return order
+	}
+	m := d.Dir
+	// The primary axis is the inner loop, so its extent is the inner count.
+	inner, outer := d.Cols, d.Rows
+	if m.Primary == AxisRow {
+		inner, outer = d.Rows, d.Cols
+	}
+	order := make([]int, 0, inner*outer)
+	for o := 0; o < outer; o++ {
+		oi := o
+		if !m.SecondaryUp {
+			oi = outer - 1 - o
+		}
+		// Meander flips the primary direction on every second *pass*, counted by
+		// the pass number and not by the geometric index: the point is that a
+		// pass ends where the next one starts, whichever end of the tray the
+		// secondary direction started from.
+		up := m.PrimaryUp
+		if m.Meander && o%2 == 1 {
+			up = !up
+		}
+		for i := 0; i < inner; i++ {
+			ii := i
+			if !up {
+				ii = inner - 1 - i
+			}
+			col, row := ii, oi
+			if m.Primary == AxisRow {
+				col, row = oi, ii
+			}
+			order = append(order, row*d.Cols+col)
+		}
+	}
+	return order
+}
+
+// ---------------------------------------------------------------------------
+// Runtime state: trays, process stations, held material (§7.1)
+// ---------------------------------------------------------------------------
+
+// slotEmpty is the state of a slot that holds nothing. Every other value is a
+// process step: 0 is unprocessed material, a positive value material processed
+// at that step (§7.1).
+//
+// The states are int64 rather than the design's int32 so that every value the
+// u32 process-step pin can carry fits alongside the -1 marker. With int32 a
+// process step above 2^31 would wrap into a negative number and a step of
+// exactly 2^32-1 would collide with "empty" — a PLC word being read as "this
+// slot is free" is not a failure mode worth the four bytes it saves.
+const slotEmpty int64 = -1
+
+// trayGeometry is one TrayDef plus its precomputed visit order. Immutable after
+// construction and shared by every tray station whose tray-id selects it.
+type trayGeometry struct {
+	def   TrayDef
+	order []int
+}
+
+func newTrayGeometry(d TrayDef) *trayGeometry {
+	return &trayGeometry{def: d, order: slotOrder(d)}
+}
+
+// trayState is the live state of one tray *station*: which geometry its tray-id
+// pin currently selects, what its slots hold, and how many successive picks have
+// come up empty.
+//
+// Slot state is authoritative for which slots to try (D9); the picker's
+// material-present feedback only validates and corrects it, which is what
+// misses/probedEmpty record.
+type trayState struct {
+	cfg  TrayStation
+	pins *trayPins
+
+	// defs is the shared tray-id -> geometry lookup, so a tray-id change can
+	// re-select without going back to the config.
+	defs map[uint32]*trayGeometry
+
+	// geom is the selected geometry, nil while tray-id names none (which
+	// includes the unwired 0 every u32 pin starts at).
+	geom   *trayGeometry
+	trayID uint32
+
+	// slots is indexed row*Cols + col; empty while no geometry is selected.
+	slots []int64
+
+	// misses counts successive empty picks; MAX_UNPOPULATED of them declare the
+	// tray empty by probing. probedEmpty is that declaration, and only a
+	// set-full/set-empty edge or a tray change clears it — the tracked state
+	// cannot tell us the tray was refilled.
+	misses      int
+	probedEmpty bool
+
+	// pending is a restored record whose tray-id the pin has not confirmed yet;
+	// see world.restore.
+	pending *trayRecord
+
+	// dirty marks state the persistence has not seen yet (see world.flush).
+	dirty bool
+}
+
+// selectDef points the station at the geometry tray-id names and starts it from
+// the empty state (D17: a tray-id change resets all slots to -1, which is also
+// the startup state). It reports whether the id named a known TRAYDEF.
+//
+// The geometry-less branch deliberately does NOT mark the state dirty: there is
+// no state worth a record, and flush skips geometry-less stations anyway — a
+// {TrayID: garbage} write would only ever destroy a record that may still be
+// the valid one (see applyTrayID for the id-0 case, which never even reaches
+// this function).
+func (t *trayState) selectDef(id uint32) bool {
+	t.trayID = id
+	t.geom = t.defs[id]
+	if t.geom == nil {
+		t.slots = nil
+		t.misses, t.probedEmpty = 0, false
+		return false
+	}
+	t.slots = make([]int64, t.geom.def.SlotCount())
+	t.resetSlots()
+	return true
+}
+
+// applyTrayID is the single owner of the tray-id policy: what a new selector
+// value means for the station's live state, its pending record and the
+// persistence. The control loop routes every pin change through here, and the
+// restore path shares its adoption half (adoptTray), so the rule cannot drift
+// between the two.
+func (w *world) applyTrayID(t *trayState, id uint32) {
+	if id == t.trayID {
+		return
+	}
+	if id == 0 {
+		// "Not told yet" — an unwired selector, or a PLC rebooting while
+		// stmakd keeps running. That is a dropout, not a tray change: the live
+		// state is parked as pending exactly like a restart parks the restored
+		// record, so the id coming back adopts it unchanged — and nothing is
+		// marked dirty, because the persisted record has to survive the blip
+		// too (it may be the only copy if stmakd dies mid-blip).
+		if t.geom != nil {
+			t.pending = &trayRecord{TrayID: t.trayID, Slots: append([]int64(nil), t.slots...)}
+		}
+		t.trayID, t.geom, t.slots = 0, nil, nil
+		t.misses, t.probedEmpty = 0, false
+		w.logger.Info("pnptask: tray-id cleared, station has no geometry", "station", t.cfg.ID)
+		return
+	}
+	// A record waiting for its tray-id — restored at boot, or parked by the
+	// dropout branch above — is adopted the moment the pin names the geometry
+	// it was recorded under.
+	if t.pending != nil && t.pending.TrayID == id {
+		rec := *t.pending
+		t.pending = nil
+		if w.adoptTray(t, rec) {
+			w.logger.Info("pnptask: tray state restored",
+				"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
+			return
+		}
+	}
+	t.pending = nil
+	if !t.selectDef(id) {
+		// Not fatal — the id is a PLC value, not configuration. The station
+		// simply has no geometry, and a job against it raises INVALID_TRAY_ID.
+		w.logger.Warn("pnptask: tray-id names no TRAYDEF", "station", t.cfg.ID, "tray_id", id)
+		return
+	}
+	w.logger.Info("pnptask: tray changed, slot state reset",
+		"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
+}
+
+// resetSlots empties every slot and forgets the probing history.
+func (t *trayState) resetSlots() { t.setAll(slotEmpty) }
+
+// setAll writes one state into every slot — the set-full/set-empty edges (D8).
+// It also clears the probing history: whoever pressed the button knows better
+// than the counters do what is in the tray.
+func (t *trayState) setAll(v int64) {
+	for i := range t.slots {
+		t.slots[i] = v
+	}
+	t.misses, t.probedEmpty = 0, false
+	t.dirty = true
+}
+
+// endless reports whether the selected geometry is an endless tray: one
+// position at FIRST, however many slots it counts there.
+func (t *trayState) endless() bool { return t.geom != nil && t.geom.def.Endless() }
+
+// counted reports whether the station tracks per-slot state. Everything except
+// the plain one-position endless tray does — including a CAPACITY bin, which
+// has one position but a fill level worth knowing.
+func (t *trayState) counted() bool { return t.geom != nil && t.geom.def.Counted() }
+
+// slotPos is the absolute machine position of a linear slot index.
+func (t *trayState) slotPos(slot int) pnproute.Point {
+	cols := t.geom.def.Cols
+	if cols < 1 {
+		return t.geom.def.First
+	}
+	return t.geom.def.SlotPos(slot%cols, slot/cols)
+}
+
+// nextPick returns the next slot to try a pick at, searching the DIR_MODE order
+// from position from onwards, plus the position to resume at after a miss.
+//
+// The step matching is what makes the tray a work-in-progress store rather than
+// a bin: a job asking for step 0 picks unprocessed material, a job asking for
+// step 1 picks what a previous job put back after its first process station.
+func (t *trayState) nextPick(step int64, from int) (slot, next int, ok bool) {
+	if t.geom == nil || t.probedEmpty {
+		return 0, 0, false
+	}
+	if !t.counted() {
+		// One position, no bookkeeping: the same position is worth retrying
+		// after a miss — only probing can say the tray is empty (§7.1), and
+		// the probedEmpty check above is what ends the retries. Bailing after
+		// one miss would turn every transient mis-feed into a latched
+		// TRAY_EMPTY while the tray's own empty pin stays low.
+		return 0, from + 1, true
+	}
+	for p := from; p < len(t.geom.order); p++ {
+		if s := t.geom.order[p]; t.slots[s] == step {
+			return s, p + 1, true
+		}
+	}
+	return 0, 0, false
+}
+
+// freeSlot returns the first empty slot in DIR_MODE order. Places follow the
+// same order as picks: it is the order the tray is meant to be worked through,
+// and a place that ignored it would scatter material across a tray a later pick
+// then travels back and forth over.
+//
+// exclude names a linear slot index the place must not use, or -1: a
+// tray-to-itself job passes the slot its own pick just emptied, because
+// putting the part back where it came from is a successful-looking physical
+// no-op — a PLC compacting a tray with such jobs would loop on it forever.
+// Endless trays have only the one position, so there is nothing to exclude.
+func (t *trayState) freeSlot(exclude int) (slot int, ok bool) {
+	if t.geom == nil {
+		return 0, false
+	}
+	if !t.counted() {
+		return 0, true
+	}
+	for _, s := range t.geom.order {
+		if t.slots[s] == slotEmpty && s != exclude {
+			return s, true
+		}
+	}
+	return 0, false
+}
+
+// markEmpty records that a slot turned out to hold nothing (D9: the physical
+// feedback corrects the tracked state) and counts the miss.
+func (t *trayState) markEmpty(slot int) {
+	if t.counted() {
+		t.slots[slot] = slotEmpty
+	}
+	t.misses++
+	t.dirty = true
+	if t.geom != nil && t.misses >= t.geom.def.MaxUnpopulated {
+		t.probedEmpty = true
+	}
+}
+
+// markPicked records a successful pick: the slot is now empty and the tray is
+// demonstrably not exhausted.
+func (t *trayState) markPicked(slot int) {
+	if t.counted() {
+		t.slots[slot] = slotEmpty
+	}
+	t.misses, t.probedEmpty = 0, false
+	t.dirty = true
+}
+
+// markPlaced records material placed into a slot at the job's process step. The
+// probing state clears with it: material demonstrably went in, so a tray that
+// probing declared empty is empty no longer — a latch that survived the place
+// would keep refusing picks from a tray the module itself just refilled, which
+// permanently deadlocks a place-then-pick transfer station.
+func (t *trayState) markPlaced(slot int, step int64) {
+	if t.counted() {
+		t.slots[slot] = step
+	}
+	t.misses, t.probedEmpty = 0, false
+	t.dirty = true
+}
+
+// full reports whether the tray has no empty slot left. A plain endless tray is
+// never full and a station with no geometry selected reports neither full nor
+// empty — it has no slot state at all, and the operator's cue for that is the
+// INVALID_TRAY_ID a job raises, not a pin that guesses.
+func (t *trayState) full() bool {
+	if !t.counted() {
+		return false
+	}
+	for _, v := range t.slots {
+		if v == slotEmpty {
+			return false
+		}
+	}
+	return true
+}
+
+// allEmpty reports whether every slot is empty — the tray is physically bare,
+// whatever step anyone is asking about. This is what the empty pin publishes,
+// and it is a different question from emptyFor: a material tray part-filled
+// with finished work is not empty, but it may well have nothing left to
+// process. See avail for that one.
+func (t *trayState) allEmpty() bool {
+	if !t.counted() {
+		return false
+	}
+	for _, v := range t.slots {
+		if v != slotEmpty {
+			return false
+		}
+	}
+	return true
+}
+
+// filled counts the slots holding something — the fill level of a bin, and the
+// only number that makes a one-position reject magazine legible from outside.
+func (t *trayState) filled() int {
+	if !t.counted() {
+		return 0
+	}
+	n := 0
+	for _, v := range t.slots {
+		if v != slotEmpty {
+			n++
+		}
+	}
+	return n
+}
+
+// emptyFor reports whether the tray has nothing to offer a pick at that step,
+// either because no slot matches or because probing declared it empty.
+func (t *trayState) emptyFor(step int64) bool {
+	if t.geom == nil {
+		return false
+	}
+	if t.probedEmpty {
+		return true
+	}
+	if !t.counted() {
+		return false
+	}
+	_, _, ok := t.nextPick(step, 0)
+	return !ok
+}
+
+// procState is the live state of one process station. has-material is an output
+// pin because pnptask owns that knowledge: the station itself has no way to tell
+// whether the fixture holds a part.
+type procState struct {
+	cfg  ProcStation
+	pins *procPins
+
+	// idx is this station's position in the config (and so in the control loop's
+	// per-station input slices), kept so a sequence holding a *procState can
+	// still read the busy/released feedback of this cycle's snapshot.
+	idx int
+
+	hasMaterial bool
+	dirty       bool
+}
+
+func (p *procState) setHasMaterial(v bool) {
+	if p.hasMaterial != v {
+		p.hasMaterial = v
+		p.dirty = true
+	}
+}
+
+// station is one addressable station: exactly one of tray/proc is set. The two
+// kinds share one id space (config.go enforces that), because origin-id and
+// dest-id name a station without saying which kind it is.
+type station struct {
+	id   uint32
+	tray *trayState
+	proc *procState
+}
+
+func (s *station) isTray() bool { return s.tray != nil }
+
+// heldMaterial is one picker's held-material record (D20). Roles are not fixed:
+// the free picker performs the next pick, the picker holding the job's material
+// performs the place, so "which picker" is a question the engine has to ask
+// rather than assume. With pickers=1 the slice has one entry and the answer is
+// always the same — but it is still asked, which is what keeps phase 6 additive.
+type heldMaterial struct {
+	// present is whether the picker holds material at all; station is where that
+	// material came from, which is what the §8 sequence constraint is about.
+	present bool
+	station uint32
+
+	// step is the process step of the held material, as the job that picked it
+	// declared it (the latched process-step pin). stepKnown is false for
+	// swap-removed material — the occupant's step is whatever the earlier
+	// place put there, which the model does not track. A skipPick job whose
+	// latched step mismatches a known step is refused: matching by station
+	// alone silently delivered a step-0 part as step-3 material.
+	step      int64
+	stepKnown bool
+
+	// swap marks material a swap took out of an occupied process station (§8).
+	// That part has nowhere else to be: the station is running its process on
+	// the piece that replaced it, so until a job carries it away no other job
+	// may run (see swapStations).
+	swap bool
+
+	// retained says station/swap describe material a MANUAL open let go of
+	// (§8.1): the part is out of the picker in an operator's hands, and the
+	// station id (and swap obligation) is kept so the following manual close
+	// can be judged — grips material again → the record is restored; grips
+	// nothing → it is dropped. A retained record is a RESERVATION: the picker
+	// counts occupied (see occupied) and jobs are refused until the close
+	// decides, because a job grabbing the picker inside that window would
+	// drive a possibly loaded gripper into a pick.
+	retained bool
+}
+
+// world is the module's model of everything it tracks: tray contents, process
+// station occupancy and which picker holds what. It belongs to the control
+// goroutine like the rest of the module's state, so nothing in it is locked.
+type world struct {
+	logger *slog.Logger
+
+	trays []*trayState
+	procs []*procState
+	byID  map[uint32]*station
+
+	// held is indexed by picker number (D20). pickerClose holds the close
+	// output of each picker, parallel to held: the restore path re-drives a
+	// restored record's grip through it (see world.restore). restoredHeld
+	// marks the records that came from storage — the only ones the one-shot
+	// grip validation (verifyRestoredHeld) may judge, because only they had
+	// their close output re-driven from the record.
+	held         []heldMaterial
+	heldDirty    bool
+	pickerClose  []*hal.Pin[bool]
+	restoredHeld []bool
+
+	// persist is nil unless persist_instance= was given (D6: no default lookup,
+	// absent means in-memory only).
+	persist *persistStore
+}
+
+// newWorld builds the runtime model from the parsed config and the exported pin
+// tree. It does not touch the pins: the tray-id sampling and the first publish
+// belong to the control loop, and the persistence restore between them needs the
+// model to exist first.
+func newWorld(cfg *Config, pins *pinSet, pickers int, logger *slog.Logger) *world {
+	w := &world{
+		logger:       logger,
+		byID:         make(map[uint32]*station, len(cfg.Trays)+len(cfg.Procs)),
+		held:         make([]heldMaterial, pickers),
+		restoredHeld: make([]bool, pickers),
+	}
+	for n := 0; n < pickers; n++ {
+		w.pickerClose = append(w.pickerClose, pins.pickers[n].close)
+	}
+
+	defs := make(map[uint32]*trayGeometry, len(cfg.TrayDefs))
+	for _, d := range cfg.TrayDefs {
+		defs[d.ID] = newTrayGeometry(d)
+	}
+
+	for i := range cfg.Trays {
+		t := &trayState{cfg: cfg.Trays[i], pins: &pins.trays[i], defs: defs}
+		w.trays = append(w.trays, t)
+		w.byID[t.cfg.ID] = &station{id: t.cfg.ID, tray: t}
+	}
+	for i := range cfg.Procs {
+		p := &procState{cfg: cfg.Procs[i], pins: &pins.procs[i], idx: i}
+		w.procs = append(w.procs, p)
+		w.byID[p.cfg.ID] = &station{id: p.cfg.ID, proc: p}
+	}
+	return w
+}
+
+// station looks a station up by the id an origin-id/dest-id pin carries.
+func (w *world) station(id uint32) *station { return w.byID[id] }
+
+// start seeds the model from the pins and the persisted state. It runs once,
+// before the control loop begins, so the loop's first publish already carries
+// the restored tray contents.
+//
+// The tray-id pins are read here and not only watched for changes: a config
+// whose PLC (or HAL file) has the pin at its final value before stmakd starts
+// never produces a change, and a station left without geometry because its
+// selector happened to be correct from the first cycle would refuse every job.
+func (w *world) start() {
+	for _, t := range w.trays {
+		id := t.pins.trayID.Get()
+		if id == 0 {
+			// Not told yet: id 0 is no valid TRAYDEF (config.go refuses it
+			// because an unconnected u32 pin reads 0).
+			continue
+		}
+		if !t.selectDef(id) {
+			w.logger.Warn("pnptask: tray-id names no TRAYDEF",
+				"station", t.cfg.ID, "tray_id", id)
+		}
+	}
+	w.restore()
+}
+
+// occupied reports whether the picker is unavailable to the engine: it holds
+// material, or an operator is mid-way through handling the material it let go
+// of (retained, §8.1). A retained picker counts as occupied on purpose — the
+// next manual close is what decides whether the part is back, and a job
+// grabbing the picker inside that window would drive a possibly loaded gripper
+// into a pick.
+func (h heldMaterial) occupied() bool { return h.present || h.retained }
+
+// freePicker returns a picker that holds nothing, lowest number first (§8:
+// picker 0 is preferred when both are free). Only *a* free picker is needed for
+// a pick, not a specific one (D20).
+func (w *world) freePicker() (int, bool) {
+	for n := range w.held {
+		if !w.held[n].occupied() {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// freeCount is how many pickers hold nothing. The job engine needs it as a
+// number rather than as one answer: a job into an occupied process station
+// takes two free pickers (§8) — one to carry the job's material, one to take
+// the occupant out — and finding that out at the swap would mean discovering it
+// with a part already in the air.
+func (w *world) freeCount() int {
+	free := 0
+	for n := range w.held {
+		if !w.held[n].occupied() {
+			free++
+		}
+	}
+	return free
+}
+
+// retainedPicker returns the first picker whose record is retained — a manual
+// intervention in progress (§8.1). Jobs are refused while one exists: the part
+// is in an operator's hands and the next manual close is what decides where it
+// went; a world in that limbo has nothing a job can safely reason about.
+func (w *world) retainedPicker() (picker int, station uint32, ok bool) {
+	for n := range w.held {
+		if w.held[n].retained {
+			return n, w.held[n].station, true
+		}
+	}
+	return 0, 0, false
+}
+
+// holderOf returns the picker holding material that came from that station, if
+// any. This is the question the place phase asks (D20) — never "picker 0" — and
+// the question §8's pick phase asks to find out that there is nothing to pick.
+func (w *world) holderOf(station uint32) (int, bool) {
+	for n := range w.held {
+		if w.held[n].present && w.held[n].station == station {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// swapStations lists every station a swap took material out of while a picker
+// still holds (or retains, §8.1) it — §8's sequence constraint keys off these.
+// Normally at most one exists: a swap needs a free picker and the swapping
+// picker is not free afterwards. A place that fails AFTER its swap-out leaves
+// two — both parts really are in pickers, each with its obligation — and the
+// constraint then accepts a job from either station, which is exactly the
+// recovery: carry one of them away, then the other.
+func (w *world) swapStations() []uint32 {
+	var out []uint32
+	for n := range w.held {
+		if w.held[n].occupied() && w.held[n].swap {
+			out = append(out, w.held[n].station)
+		}
+	}
+	return out
+}
+
+// setHeld records that picker n now holds material from that station. swap says
+// the material came out of a station a place is about to fill again (§8); step
+// is the material's process step where the picking job knew it (stepKnown),
+// which a later skipPick is checked against.
+func (w *world) setHeld(n int, station uint32, swap bool, step int64, stepKnown bool) {
+	if n < 0 || n >= len(w.held) {
+		return
+	}
+	w.held[n] = heldMaterial{
+		present: true, station: station, swap: swap,
+		step: step, stepKnown: stepKnown,
+	}
+	w.heldDirty = true
+}
+
+// clearHeld forgets picker n's record entirely — the material was placed, or
+// the estop dropped it. A retained id (see releaseHeld) goes with it.
+func (w *world) clearHeld(n int) {
+	if n < 0 || n >= len(w.held) || w.held[n] == (heldMaterial{}) {
+		return
+	}
+	// Retained records are persisted too (§8.1), so clearing one is as much a
+	// storage change as clearing a present one.
+	w.heldDirty = w.heldDirty || w.held[n].occupied()
+	w.held[n] = heldMaterial{}
+}
+
+// releaseHeld is the manual open of §8: the material has left the picker, but
+// where it came from is kept, so a following manual close that grips something
+// again can restore the record instead of leaving the engine with a loaded
+// picker it believes to be empty.
+//
+// Idempotent: a second open press on an already-open picker is physically a
+// no-op and must not touch the record — wiping an already-retained id here
+// would erase the station (and the swap obligation) behind the operator's
+// back, and the eventual close would have nothing to restore. A picker that
+// holds nothing and retains nothing stays empty.
+func (w *world) releaseHeld(n int) {
+	if n < 0 || n >= len(w.held) || !w.held[n].present {
+		return
+	}
+	h := w.held[n]
+	w.held[n] = heldMaterial{
+		station: h.station, swap: h.swap,
+		step: h.step, stepKnown: h.stepKnown,
+		retained: true,
+	}
+	w.heldDirty = true
+}
+
+// restoreHeld puts a retained record back: the picker was closed again by hand
+// and its feedback says it gripped material, so it is the same part it let go
+// of a moment ago (§8).
+func (w *world) restoreHeld(n int) (uint32, bool) {
+	if n < 0 || n >= len(w.held) || !w.held[n].retained {
+		return 0, false
+	}
+	h := w.held[n]
+	w.held[n] = heldMaterial{
+		present: true, station: h.station, swap: h.swap,
+		step: h.step, stepKnown: h.stepKnown,
+	}
+	w.heldDirty = true
+	return h.station, true
+}
+
+// dropRetained forgets a retained id: the manual close gripped nothing, so the
+// part really is gone from the machine's world and the operator has it.
+func (w *world) dropRetained(n int) (uint32, bool) {
+	if n < 0 || n >= len(w.held) || !w.held[n].retained {
+		return 0, false
+	}
+	station := w.held[n].station
+	w.held[n] = heldMaterial{}
+	w.heldDirty = true
+	return station, true
+}
+
+// clearAllHeld forgets every held record. Estop opens all pickers (D14), so
+// whatever they held is on the table now and the records would be fiction —
+// including the retained ids, which describe material an operator was in the
+// middle of handling.
+func (w *world) clearAllHeld() {
+	for n := range w.held {
+		w.clearHeld(n)
+	}
+}
+
+// publish writes the station output pins. It runs every control cycle, so the
+// PLC sees a tray fill up slot by slot rather than in one jump at the end of a
+// job.
+//
+// trayStep is this cycle's per-tray step pin reading, parallel to w.trays. Each
+// tray's own step — not a job's latched process-step and not the live job
+// request pin — is what avail is measured against: a station's step describes
+// what the tray is FOR, and it has to stay still while a sequencer varies the
+// job step from leg to leg. Reading the job pin here made every one of these
+// outputs change meaning mid-cascade.
+//
+// The picker contents pins are published alongside these, from the control
+// loop's own picker walk (see control.publish).
+func (w *world) publish(trayStep []int64) {
+	for i, t := range w.trays {
+		step := int64(0)
+		if i < len(trayStep) {
+			step = trayStep[i]
+		}
+		t.pins.empty.Set(t.allEmpty())
+		t.pins.avail.Set(!t.emptyFor(step))
+		t.pins.full.Set(t.full())
+		t.pins.count.Set(uint32(t.filled()))
+	}
+	for _, p := range w.procs {
+		p.pins.hasMaterial.Set(p.hasMaterial)
+	}
+}

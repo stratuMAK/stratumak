@@ -276,3 +276,46 @@ func near(a, b float64) bool {
 	d := a - b
 	return d < 1e-6 && d > -1e-6
 }
+
+// A program that uses user-defined M-codes must still preview.
+//
+// convert_m rejects any M100-M199 whose interpreter slot is empty, and the
+// shim left all hundred empty — so a machine whose workflow runs through
+// M-code handlers (a coating cell calling M101 for every part) could not show
+// a toolpath at all: the preview stopped at the first M-code with "unknown m
+// code used". Preview must not EXECUTE them, but reading one is not executing
+// it. #5399 reads 0, so a program that branches on the result takes the
+// simulation path, which is what a preview should show.
+func TestGenPreviewAcceptsUserDefinedMCodes(t *testing.T) {
+	dir := t.TempDir()
+	p := writeProg(t, dir, "mcode.ngc",
+		"g21\nm102 p5.4\ng1 x10 f100\nm101\n#<r> = #5399\n"+
+			"o101 if [#<r> GT 32]\n  g1 x99\no101 endif\n"+
+			"g1 x20\nm102 p0\nm2\n")
+	m := newTestPreview(t, dir)
+	res, err := m.GenPreview(p, "", "g21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Error != "" {
+		t.Fatalf("preview refused a user-defined M-code: %q", res.Error)
+	}
+	var feeds int
+	var maxX float64
+	for _, s := range res.Segments {
+		if s.Type == 2 {
+			feeds++
+			if s.End.X > maxX {
+				maxX = s.End.X
+			}
+		}
+	}
+	if feeds < 2 {
+		t.Fatalf("preview truncated at the M-code: %d feed segments, want >= 2", feeds)
+	}
+	// #5399 is 0 in preview, so the GT 32 branch must not have been taken.
+	if maxX > 50 {
+		t.Fatalf("preview took the branch guarded by #5399 (reached x%.0f); "+
+			"the user-defined result should read 0", maxX)
+	}
+}
