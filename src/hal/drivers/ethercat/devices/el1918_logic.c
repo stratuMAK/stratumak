@@ -60,9 +60,21 @@
 #include "el6910.h"
 
 /**
- * @brief CRC PDO data for one FSoE data channel within a slave connection.
+ * @brief Transparency data for one FSoE data channel within a slave connection.
+ *
+ * The safety data is what the safety application actually exchanges, and both
+ * directions are published because they are independent: the master word is
+ * what is being asked of the slave, the slave word is the state it is actually
+ * in, and the two can differ in either direction.  A bit is only meaningful
+ * next to its counterpart.
+ *
+ * It is deliberately a raw word, passed through unaltered.  The logic device
+ * cannot know what the bits mean - that is the business of the driver at the
+ * far end of the connection - so nothing here is inverted or interpreted.
  */
 typedef struct {
+  stmak_hal_u32_t *fsoe_master_data; /**< HAL output: commanded FSoE safety data for this channel. */
+  stmak_hal_u32_t *fsoe_slave_data;  /**< HAL output: reported FSoE safety data for this channel. */
   stmak_hal_u32_t *fsoe_master_crc; /**< HAL output: FSoE master CRC for this data channel. */
   stmak_hal_u32_t *fsoe_slave_crc;  /**< HAL output: FSoE slave CRC for this data channel. */
   unsigned int fsoe_master_crc_os; /**< PDO offset: FSoE master CRC. */
@@ -132,6 +144,8 @@ static const lcec_pindesc_t fsoe_pins[] = {
 };
 
 static const lcec_pindesc_t fsoe_crc_pins[] = {
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_master_data), "%s.%s.%s.fsoe-%d-master-data%d" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_slave_data), "%s.%s.%s.fsoe-%d-slave-data%d" },
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_master_crc), "%s.%s.%s.fsoe-%d-master-crc%d" },
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_slave_crc), "%s.%s.%s.fsoe-%d-slave-crc%d" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
@@ -392,6 +406,7 @@ void lcec_el1918_logic_read(struct lcec_slave *slave, long period) {
   lcec_el1918_logic_fsoe_crc_t *crc;
   struct lcec_slave *fsoe_slave;
   const LCEC_CONF_FSOE_T *fsoeConf;
+  unsigned int master_data_os, slave_data_os;
 
   *(hal_data->state) = EC_READ_U8(&pd[hal_data->state_os]);
   *(hal_data->cycle_counter) = EC_READ_U8(&pd[hal_data->cycle_counter_os]);
@@ -413,6 +428,20 @@ void lcec_el1918_logic_read(struct lcec_slave *slave, long period) {
     for (crc_idx = 0, crc = fsoe_data->fsoe_crc; crc_idx < fsoeConf->data_channels; crc_idx++, crc++) {
       *(crc->fsoe_master_crc) = EC_READ_U16(&pd[crc->fsoe_master_crc_os]);
       *(crc->fsoe_slave_crc) = EC_READ_U16(&pd[crc->fsoe_slave_crc_os]);
+      // Safety data is not registered as a PDO entry - the logic device leaves
+      // the second and later channels unmapped - so it is located in the frame:
+      //     cmd(1) | [ data(data_len) crc(2) ] * channels | connid(2)
+      // Derived here, not in init: LCEC_PDO_INIT() only records where the master
+      // should later store an offset, and nothing is resolved until
+      // ecrt_domain_reg_pdo_entry_list() runs, well after proc_init.
+      master_data_os = fsoe_data->fsoe_master_cmd_os + LCEC_FSOE_CMD_LEN
+          + crc_idx * (fsoeConf->master_data_len + LCEC_FSOE_CRC_LEN);
+      slave_data_os = fsoe_data->fsoe_slave_cmd_os + LCEC_FSOE_CMD_LEN
+          + crc_idx * (fsoeConf->slave_data_len + LCEC_FSOE_CRC_LEN);
+      *(crc->fsoe_master_data) = (fsoeConf->master_data_len > 1)
+          ? EC_READ_U16(&pd[master_data_os]) : EC_READ_U8(&pd[master_data_os]);
+      *(crc->fsoe_slave_data) = (fsoeConf->slave_data_len > 1)
+          ? EC_READ_U16(&pd[slave_data_os]) : EC_READ_U8(&pd[slave_data_os]);
     }
   }
 }

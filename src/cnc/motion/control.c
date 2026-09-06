@@ -610,12 +610,34 @@ static void process_inputs(motmod_inst_t *inst)
 	    scale = 0;
 	}
     }
-    /*non maskable (except during spinndle synch move) feed hold inhibit pin */
-	if ( enables & *inst->hal_data->feed_inhibit ) {
+    /* Non-maskable (except during spindle synch move) feed inhibit pin.
+       Not gated on any enables bit: this was "enables & *feed_inhibit", and
+       since the pin is 0 or 1 that ANDed against 0x01 == SS_ENABLED -- the
+       feed inhibit silently stopped working whenever spindle-scale override
+       was switched off.  An inhibit that a UI action can disable is not an
+       inhibit. */
+	if ( *inst->hal_data->feed_inhibit ) {
 	    scale = 0;
 	}
     /* save the resulting combined scale factor */
     inst->status->net_feed_scale = scale;
+
+    /* Hold the spindle stopped for as long as start-inhibit is asserted.
+       Enforced here, at level, rather than only refusing the SPINDLE_ON
+       command: the pin has to stop a spindle that is already turning when the
+       interlock opens, and it must not be possible for the spindle to resume
+       when the pin drops.  spindle_force_off clears the run state, so this
+       reports once per stop rather than every servo cycle -- anything that
+       turns the spindle back on under an asserted inhibit is a real event and
+       is meant to be reported again. */
+    for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
+	if (*inst->hal_data->spindle[spindle_num].spindle_start_inhibit
+	    && inst->status->spindle_status[spindle_num].state != 0) {
+	    stmak_log_errorf(inst->log, inst->name,
+		_("Spindle %d stopped: start-inhibit is active"), spindle_num);
+	    spindle_force_off(inst, spindle_num, "start-inhibit");
+	}
+    }
 
     /* now do spindle scaling */
     for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
@@ -623,8 +645,10 @@ static void process_inputs(motmod_inst_t *inst)
 		if ( enables & SS_ENABLED ) {
 			scale *= inst->status->spindle_status[spindle_num].scale;
 		}
-		/*non maskable (except during spindle synch move) spindle inhibit pin */
-		if ( enables & *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
+		/* Non-maskable (except during spindle synch move) spindle inhibit
+		   pin.  Was "enables & *spindle_inhibit", i.e. gated on SS_ENABLED --
+		   see the feed inhibit above. */
+		if ( *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
 			scale = 0;
 		}
 		/* save the resulting combined scale factor */
@@ -1005,6 +1029,7 @@ static void check_for_faults(motmod_inst_t *inst)
 	joint = &inst->joints[joint_num];
 	/* only check active, enabled axes */
 	if ( GET_JOINT_ACTIVE_FLAG(joint) && GET_JOINT_ENABLE_FLAG(joint) ) {
+	    int joint_faulted = 0;
 	    /* are any limits for this joint overridden? */
 	    neg_limit_override = inst->status->overrideLimitMask & ( 1 << (joint_num*2));
 	    pos_limit_override = inst->status->overrideLimitMask & ( 2 << (joint_num*2));
@@ -1016,11 +1041,13 @@ static void check_for_faults(motmod_inst_t *inst)
 		    /* no, ignore limits */
 		} else {
 		    /* trip on limits */
-		    if (!GET_JOINT_ERROR_FLAG(joint)) {
-			/* report the error just this once */
+		    if (!joint->fault_reported) {
+			/* name the primary cause; knock-on faults stay quiet */
 			stmak_log_errorf(inst->log, inst->name, _("joint %d on limit switch error"),
 			    joint_num);
+			joint->fault_reported = 1;
 		    }
+		    joint_faulted = 1;
 		    SET_JOINT_ERROR_FLAG(joint, 1);
 		    SET_MOTION_ERROR_FLAG(1);
 		    inst->internal->enabling = 0;
@@ -1029,23 +1056,31 @@ static void check_for_faults(motmod_inst_t *inst)
 	    /* check for amp fault */
 	    if (GET_JOINT_FAULT_FLAG(joint)) {
 		/* joint is faulted, trip */
-		if (!GET_JOINT_ERROR_FLAG(joint)) {
-		    /* report the error just this once */
+		if (!joint->fault_reported) {
+		    /* name the primary cause; knock-on faults stay quiet */
 		    stmak_log_errorf(inst->log, inst->name, _("joint %d amplifier fault"), joint_num);
+		    joint->fault_reported = 1;
 		}
+		joint_faulted = 1;
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
 		inst->internal->enabling = 0;
 	    }
 	    /* check for excessive following error */
 	    if (GET_JOINT_FERROR_FLAG(joint)) {
-		if (!GET_JOINT_ERROR_FLAG(joint)) {
-		    /* report the error just this once */
+		if (!joint->fault_reported) {
+		    /* name the primary cause; knock-on faults stay quiet */
 		    stmak_log_errorf(inst->log, inst->name, _("joint %d following error"), joint_num);
+		    joint->fault_reported = 1;
 		}
+		joint_faulted = 1;
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
 		inst->internal->enabling = 0;
+	    }
+	    if (!joint_faulted) {
+		/* joint is clean again: re-arm reporting for the next episode */
+		joint->fault_reported = 0;
 	    }
 	/* end of if JOINT_ACTIVE_FLAG(joint) */
 	}

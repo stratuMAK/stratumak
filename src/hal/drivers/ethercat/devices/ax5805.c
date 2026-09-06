@@ -7,8 +7,21 @@
  * exports HAL pins for:
  *   - fsoe-master-cmd / fsoe-master-connid / fsoe-master-crc[-0/-1]
  *   - fsoe-slave-cmd  / fsoe-slave-connid  / fsoe-slave-crc[-0/-1]
- *   - fsoe-in-sto[-0/-1]  (Safe Torque Off status per axis)
+ *   - fsoe-cmd-data-N / fsoe-cmd-sto-N / fsoe-cmd-err-ack-N   (commanded, per axis)
+ *   - fsoe-sts-data-N / fsoe-sts-sto-N / fsoe-sts-err-N       (reported,  per axis)
  * The read callback copies FSoE data and updates all HAL pin values.
+ *
+ * Both directions of the safety payload are published deliberately, because they
+ * are independent: the command is what the safety application asks of the card,
+ * the status is the state the card is actually in, and the two can differ in
+ * either direction.  A card can report a function active that was never
+ * demanded - after an internal error, say - and reading only one side hides
+ * exactly that case.
+ *
+ * The pins carry the payload as transmitted.  Nothing is inverted or otherwise
+ * interpreted: what a given bit means, and in which sense, is the device's
+ * business and is documented by the vendor.  A configuration that wants the
+ * opposite sense should invert it explicitly in HAL.
  *
  * @par Configuration
  * The card is a modular device: object @c 0x2F10 selects the safety process
@@ -143,10 +156,38 @@ static const lcec_ax5805_pdo_entry_t tx_axis2[] = {
 };
 
 /**
+ * @brief Safety data transparency for one axis of the AX5805.
+ *
+ * The card's safety payload is one byte per axis in each direction, laid out
+ * the same way in both: bit 0 STO, then SS1/SS2/SOS/SSR and SDI, and bit 7 the
+ * error.  Commanded and reported are both published because they are separate
+ * quantities - the status is the card's own state, not an echo of the command,
+ * and the two are observed to differ - so a bit is only meaningful next to its
+ * counterpart.  The whole byte is published alongside the named bits so the
+ * remaining functions never need a driver change to inspect.
+ *
+ * Values are passed through unaltered; see the note in the file header.
+ */
+typedef struct {
+  stmak_hal_u32_t *cmd_data;   /**< HAL OUT: commanded safety byte (master to card). */
+  stmak_hal_bit_t *cmd_sto;    /**< HAL OUT: commanded STO bit, as transmitted. */
+  stmak_hal_bit_t *cmd_err_ack; /**< HAL OUT: commanded error acknowledge. */
+  stmak_hal_u32_t *sts_data;   /**< HAL OUT: reported safety byte (card to master). */
+  stmak_hal_bit_t *sts_sto;    /**< HAL OUT: reported STO bit, as received. */
+  stmak_hal_bit_t *sts_err;    /**< HAL OUT: reported error state. */
+} lcec_ax5805_axis_t;
+
+/** @brief Bit position of STO within an AX5805 safety data byte. */
+#define LCEC_AX5805_BIT_STO 0
+/** @brief Bit position of the error / error-acknowledge flag. */
+#define LCEC_AX5805_BIT_ERR 7
+
+/**
  * @brief Internal HAL data for the AX5805 TwinSAFE card.
  */
 typedef struct {
   lcec_syncs_t syncs;                    /**< Declared sync-manager / PDO layout. */
+  lcec_ax5805_axis_t axes[2];            /**< Per-axis safety data transparency. */
 
   stmak_hal_u32_t *fsoe_master_cmd;      /**< HAL OUT: FSoE master command byte. */
   stmak_hal_u32_t *fsoe_master_crc0;     /**< HAL OUT: FSoE master CRC for channel 0. */
@@ -158,8 +199,6 @@ typedef struct {
   stmak_hal_u32_t *fsoe_slave_crc1;      /**< HAL OUT: FSoE slave CRC for channel 1 (dual-axis only). */
   stmak_hal_u32_t *fsoe_slave_connid;    /**< HAL OUT: FSoE slave connection ID. */
 
-  stmak_hal_bit_t *fsoe_in_sto0;         /**< HAL OUT: Safe Torque Off status for axis 0. */
-  stmak_hal_bit_t *fsoe_in_sto1;         /**< HAL OUT: Safe Torque Off status for axis 1 (dual-axis only). */
 
   unsigned int fsoe_master_cmd_os;    /**< PDO byte offset: FSoE master command. */
   unsigned int fsoe_master_crc0_os;   /**< PDO byte offset: FSoE master CRC channel 0. */
@@ -171,10 +210,6 @@ typedef struct {
   unsigned int fsoe_slave_crc1_os;    /**< PDO byte offset: FSoE slave CRC channel 1. */
   unsigned int fsoe_slave_connid_os;  /**< PDO byte offset: FSoE slave connection ID. */
 
-  unsigned int fsoe_in_sto0_os;    /**< PDO byte offset: STO input axis 0. */
-  unsigned int fsoe_in_sto0_bp;    /**< PDO bit position: STO input axis 0. */
-  unsigned int fsoe_in_sto1_os;    /**< PDO byte offset: STO input axis 1. */
-  unsigned int fsoe_in_sto1_bp;    /**< PDO bit position: STO input axis 1. */
 
 } lcec_ax5805_data_t;
 
@@ -185,7 +220,6 @@ static const lcec_pindesc_t slave_pins_1ch[] = {
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_slave_cmd), "%s.%s.%s.fsoe-slave-cmd" },
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_slave_crc0), "%s.%s.%s.fsoe-slave-crc" },
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_slave_connid), "%s.%s.%s.fsoe-slave-connid" },
-  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_in_sto0), "%s.%s.%s.fsoe-in-sto" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
@@ -198,8 +232,17 @@ static const lcec_pindesc_t slave_pins_2ch[] = {
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_slave_crc0), "%s.%s.%s.fsoe-slave-crc-0" },
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_slave_crc1), "%s.%s.%s.fsoe-slave-crc-1" },
   { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_slave_connid), "%s.%s.%s.fsoe-slave-connid" },
-  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_in_sto0), "%s.%s.%s.fsoe-in-sto-0" },
-  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_data_t, fsoe_in_sto1), "%s.%s.%s.fsoe-in-sto-1" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
+};
+
+/** @brief Per-axis safety transparency pins; %d is the axis index. */
+static const lcec_pindesc_t axis_pins[] = {
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_axis_t, cmd_data), "%s.%s.%s.fsoe-cmd-data-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_axis_t, cmd_sto), "%s.%s.%s.fsoe-cmd-sto-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_axis_t, cmd_err_ack), "%s.%s.%s.fsoe-cmd-err-ack-%d" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ax5805_axis_t, sts_data), "%s.%s.%s.fsoe-sts-data-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_axis_t, sts_sto), "%s.%s.%s.fsoe-sts-sto-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ax5805_axis_t, sts_err), "%s.%s.%s.fsoe-sts-err-%d" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
@@ -272,7 +315,9 @@ int lcec_ax5805_preinit(struct lcec_slave *slave) {
   slave->fsoeConf = (axes >= 2) ? &fsoe_conf_2ch : &fsoe_conf_1ch;
 
   // set PDO count
-  slave->pdo_entry_count = 4 + 3 * slave->fsoeConf->data_channels;
+  // 4 base entries (cmd + connid, each direction) plus a CRC pair per channel.
+  // The safety data itself is not registered - see lcec_ax5805_read().
+  slave->pdo_entry_count = 4 + 2 * slave->fsoeConf->data_channels;
 
   return 0;
 }
@@ -281,7 +326,7 @@ int lcec_ax5805_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   lcec_master_t *master = slave->master;
   const cmod_env_t *env = master->env;
   lcec_ax5805_data_t *hal_data;
-  int err;
+  int err, i;
   const lcec_pindesc_t *slave_pins;
 
   // initialize callbacks
@@ -303,12 +348,10 @@ int lcec_ax5805_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
 
   LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0xE700, 0x03, &hal_data->fsoe_master_crc0_os, NULL);
   LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0xE600, 0x03, &hal_data->fsoe_slave_crc0_os, NULL);
-  LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6640, 0x00, &hal_data->fsoe_in_sto0_os, &hal_data->fsoe_in_sto0_bp);
 
   if (slave->fsoeConf->data_channels >= 2) {
     LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0xE700, 0x04, &hal_data->fsoe_master_crc1_os, NULL);
     LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0xE600, 0x04, &hal_data->fsoe_slave_crc1_os, NULL);
-    LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6E40, 0x00, &hal_data->fsoe_in_sto1_os, &hal_data->fsoe_in_sto1_bp);
 
     slave_pins = slave_pins_2ch;
   } else {
@@ -318,6 +361,14 @@ int lcec_ax5805_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   // export pins
   if ((err = lcec_pin_newf_list(env, comp_id, hal_data, slave_pins, master->instance_name, master->name, slave->name)) != 0) {
     return err;
+  }
+
+  // export per-axis safety transparency pins
+  for (i = 0; i < slave->fsoeConf->data_channels; i++) {
+    if ((err = lcec_pin_newf_list(env, comp_id, &hal_data->axes[i], axis_pins,
+            master->instance_name, master->name, slave->name, i)) != 0) {
+      return err;
+    }
   }
 
   // Declare the process image the 0x2F10 module select will produce.  Without
@@ -414,6 +465,9 @@ void lcec_ax5805_read(struct lcec_slave *slave, long period) {
   lcec_master_t *master = slave->master;
   lcec_ax5805_data_t *hal_data = (lcec_ax5805_data_t *) slave->hal_data;
   uint8_t *pd = master->process_data;
+  lcec_ax5805_axis_t *axis;
+  uint8_t cmd, sts;
+  int i;
 
   copy_fsoe_data(slave, hal_data->fsoe_slave_cmd_os, hal_data->fsoe_master_cmd_os);
 
@@ -424,11 +478,34 @@ void lcec_ax5805_read(struct lcec_slave *slave, long period) {
 
   *(hal_data->fsoe_master_crc0) = EC_READ_U16(&pd[hal_data->fsoe_master_crc0_os]);
   *(hal_data->fsoe_slave_crc0) = EC_READ_U16(&pd[hal_data->fsoe_slave_crc0_os]);
-  *(hal_data->fsoe_in_sto0) = EC_READ_BIT(&pd[hal_data->fsoe_in_sto0_os], hal_data->fsoe_in_sto0_bp);
 
   if (slave->fsoeConf->data_channels >= 2) {
     *(hal_data->fsoe_master_crc1) = EC_READ_U16(&pd[hal_data->fsoe_master_crc1_os]);
     *(hal_data->fsoe_slave_crc1) = EC_READ_U16(&pd[hal_data->fsoe_slave_crc1_os]);
-    *(hal_data->fsoe_in_sto1) = EC_READ_BIT(&pd[hal_data->fsoe_in_sto1_os], hal_data->fsoe_in_sto1_bp);
+  }
+
+  // Per-axis safety data, both directions.
+  //
+  // These are located in the frame rather than registered as PDO entries.  The
+  // same object carries the command in 0x1600 and the status in 0x1A00, so a
+  // registration resolves to whichever sync manager the master walks first -
+  // SM2, the command - and there is no way to ask for the status copy.  That is
+  // what the old fsoe-in-sto pins were unknowingly reporting.  The frame is
+  //     cmd(1) | [ data(2) crc(2) ] * axes | connid(2)
+  // so axis a's byte sits at cmd + 1 + a * 4.  Derived here and not in init
+  // because LCEC_PDO_INIT() only records where the master should later store an
+  // offset; nothing is resolved until ecrt_domain_reg_pdo_entry_list() runs.
+  for (i = 0; i < slave->fsoeConf->data_channels; i++) {
+    axis = &hal_data->axes[i];
+    cmd = EC_READ_U8(&pd[hal_data->fsoe_master_cmd_os + LCEC_FSOE_CMD_LEN
+        + i * (slave->fsoeConf->master_data_len + LCEC_FSOE_CRC_LEN)]);
+    sts = EC_READ_U8(&pd[hal_data->fsoe_slave_cmd_os + LCEC_FSOE_CMD_LEN
+        + i * (slave->fsoeConf->slave_data_len + LCEC_FSOE_CRC_LEN)]);
+    *(axis->cmd_data) = cmd;
+    *(axis->cmd_sto) = (cmd >> LCEC_AX5805_BIT_STO) & 1;
+    *(axis->cmd_err_ack) = (cmd >> LCEC_AX5805_BIT_ERR) & 1;
+    *(axis->sts_data) = sts;
+    *(axis->sts_sto) = (sts >> LCEC_AX5805_BIT_STO) & 1;
+    *(axis->sts_err) = (sts >> LCEC_AX5805_BIT_ERR) & 1;
   }
 }

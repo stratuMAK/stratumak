@@ -453,6 +453,14 @@ type Task struct {
 	// need not add two contended t.mu round-trips per dequeued command.
 	seqInflight atomic.Bool
 
+	// autoInhibit mirrors the halui auto-inhibit pin, sampled once per monitor
+	// tick. Read by the AUTO guards, which run on command goroutines, so it is
+	// atomic rather than under t.mu: a stale-by-one-tick value is fine (the
+	// interlock it reflects is a physical condition, not a command race) and
+	// taking t.mu here would invert the lock order the guards already hold.
+	autoInhibit atomic.Bool
+	mdiInhibit  atomic.Bool
+
 	// motionDispatched is true once a motion segment has been sent since the
 	// last completed drain. waitMotionDone applies its servo-settle skip only
 	// when this is set — an empty barrier (back-to-back S/M-code drains with no
@@ -713,3 +721,27 @@ func (t *Task) updateActiveCodes(interp Interpreter) (gc, mc []int32, st []float
 	t.mu.Unlock()
 	return gc, mc, st
 }
+
+// setAutoInhibit records the halui auto-inhibit pin state.
+func (t *Task) setAutoInhibit(v bool) { t.autoInhibit.Store(v) }
+
+// autoInhibited reports whether AUTO is currently forbidden by the interlock.
+func (t *Task) autoInhibited() bool { return t.autoInhibit.Load() }
+
+// programRunning reports whether an AUTO program is mid-run, paused included:
+// a paused program resumes into the same cut, so an interlock has to stop it
+// too. Takes t.mu and releases it before the caller acts, so the caller can go
+// on to take cmdMu without inverting the lock order.
+func (t *Task) programRunning() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.interpState == InterpReading ||
+		t.interpState == InterpWaiting ||
+		t.interpState == InterpPaused
+}
+
+// setMDIInhibit records the halui mdi-inhibit pin state.
+func (t *Task) setMDIInhibit(v bool) { t.mdiInhibit.Store(v) }
+
+// mdiInhibited reports whether MDI is currently forbidden by the interlock.
+func (t *Task) mdiInhibited() bool { return t.mdiInhibit.Load() }

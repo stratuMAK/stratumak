@@ -1813,8 +1813,10 @@ proc update_state {args} {
     state  {$interp_state == $INTERP_IDLE} .toolbar.file_open \
         {.menu.file "_Open..." "_Quit" "Recent _Files"} \
         {.menu.machine "Skip lines with '_/'"} .toolbar.program_blockdelete
+    state  {$task_state == $STATE_ON && $interp_state == $INTERP_IDLE \
+            && !$auto_inhibit} \
+        .toolbar.program_run {.menu.machine "_Run program"}
     state  {$task_state == $STATE_ON && $interp_state == $INTERP_IDLE } \
-        .toolbar.program_run {.menu.machine "_Run program"} \
         {.menu.file "Reload tool _data"}
     state  {$interp_state == $INTERP_IDLE} \
         {.menu.file "Edit _tool data..."}
@@ -1877,6 +1879,7 @@ proc update_state {args} {
     # an AUTO program run. Without the interp/mode term the widgets stayed
     # enabled during a run while send_mdi silently dropped the command.
     if {   $::task_state == $::STATE_ON
+        && !$::mdi_inhibit
         && (   $::interp_state == $::INTERP_IDLE
             || (   $::task_mode == $::TASK_MODE_MDI
                 && $::queued_mdi_commands < $::max_queued_mdi_commands))} {
@@ -1993,6 +1996,8 @@ set motion_mode 0
 set kinematics_type -1
 set metric 0
 set max_speed 1
+set auto_inhibit 0
+set mdi_inhibit 0
 set queued_mdi_commands 0
 set max_queued_mdi_commands 10
 trace variable taskfile w update_title
@@ -2015,6 +2020,8 @@ trace variable kinematics_type w queue_update_state
 trace variable on_any_limit w queue_update_state
 trace variable motion_mode w joint_mode_switch
 trace variable queued_mdi_commands  w queue_update_state
+trace variable auto_inhibit          w queue_update_state
+trace variable mdi_inhibit           w queue_update_state
 
 set editor_deleted 0
 

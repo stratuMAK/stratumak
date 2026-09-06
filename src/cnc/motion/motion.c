@@ -1338,8 +1338,10 @@ static int export_spindle(motmod_inst_t *inst, int num, spindle_hal_t * addr){
     if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_out_rps_abs), inst->comp_id, PFMT("spindle.%d.speed-out-rps-abs"), num)) != 0) return retval;
     if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_cmd_rps), inst->comp_id, PFMT("spindle.%d.speed-cmd-rps"), num)) != 0) return retval;
     if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_inhibit), inst->comp_id, PFMT("spindle.%d.inhibit"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_start_inhibit), inst->comp_id, PFMT("spindle.%d.start-inhibit"), num)) != 0) return retval;
     if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_amp_fault), inst->comp_id, PFMT("spindle.%d.amp-fault-in"), num)) != 0) return retval;
     *(addr->spindle_inhibit) = 0;
+    *(addr->spindle_start_inhibit) = 0;
 
     // spindle orient pins
     if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_orient_angle), inst->comp_id, PFMT("spindle.%d.orient-angle"), num)) < 0) return retval;
@@ -1575,6 +1577,7 @@ static int init_comm_buffers(motmod_inst_t *inst)
 	joint->ferror = 0.0;
 	joint->ferror_limit = joint->min_ferror;
 	joint->ferror_high_mark = 0.0;
+	joint->fault_reported = 0;
 
 	/* init internal info */
 	cubicInit(&(joint->cubic));
