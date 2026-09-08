@@ -205,8 +205,9 @@ pin for stopping a program
 .SS Inhibits
 .TP
 .B halui.auto\-inhibit\fR bit in \fR
-When TRUE, AUTO mode may not be selected and no program may be started, each
-refused with an operator error.
+When TRUE, AUTO mode may not be selected and no program may be started --
+stepping one included, since a step starts a program too -- each refused with
+an operator error.
 Asserting it while a program is running (paused included) aborts that program.
 This refuses the run up front, instead of letting it start and then dropping
 the machine's enable -- which reaches the operator as an E\-stop they did not

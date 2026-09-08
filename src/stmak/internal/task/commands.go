@@ -154,6 +154,14 @@ func (t *Task) autoRunGuardLocked() error {
 // loaded, and when starting fresh (interp idle) the machine must be homed and no
 // other run in progress. Shared by preflightAuto and autoCommand. Must hold t.mu.
 func (t *Task) autoStepGuardLocked() error {
+	// Same interlock as autoRunGuardLocked, and unconditional rather than
+	// folded into the idle branch below: a step is a way to start a program,
+	// and one that reached AUTO before the pin went active must not be able to
+	// inch forward either.
+	if t.autoInhibited() {
+		t.operatorError("Cannot step a program while auto-inhibit is active")
+		return ErrBusy
+	}
 	if err := t.requireProgram(); err != nil {
 		return err
 	}

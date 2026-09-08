@@ -12,6 +12,7 @@ also pins down that each inhibit leaves the other alone.
 """
 
 import subprocess
+import time
 
 import gmi
 import stmak_test
@@ -100,6 +101,38 @@ if s.interp_state != INTERP_IDLE:
 print("ok: MDI command refused while mdi-inhibit is set")
 
 pin_set("halui.mdi-inhibit", False)
+
+# --- auto-inhibit refuses the run itself, not merely the mode -------------
+# The mode gate is the front door but not the only one: autoCommand switches
+# into AUTO by itself, so a Run or a Step issued from any mode would otherwise
+# walk straight past a refused mode change.  Step is checked as well as Run
+# because stepping is a way to start a program too -- it was the hole the mode
+# gate and the Run guard between them left open.
+c.mode(MODE_AUTO)
+c.wait_complete()
+c.program_open("slow.ngc")
+pin_set("halui.auto-inhibit", True)
+
+for auto_cmd, name in ((AUTO_RUN, "run"), (AUTO_STEP, "step")):
+    try:
+        c.auto(auto_cmd)
+        c.wait_complete()
+    except Exception:
+        pass  # a refused command may surface as an error; the state decides
+    # A program that did start needs a moment to show up as one: polling the
+    # instant after the command would pass whether it was refused or merely
+    # slow off the mark.
+    time.sleep(0.3 * stmak_test.scale())
+    s.poll()
+    if s.interp_state != INTERP_IDLE:
+        started = s.interp_state
+        c.abort()
+        c.wait_complete()
+        stmak_test.fail("a program %s while auto-inhibit was set "
+                        "(interp_state=%d)" % (name, started))
+    print("ok: %s refused while auto-inhibit is set" % name)
+
+pin_set("halui.auto-inhibit", False)
 
 # --- auto-inhibit stops a program that is already running -----------------
 # Refusing new runs is only half an interlock: if the guard opens mid-program

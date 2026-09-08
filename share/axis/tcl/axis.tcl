@@ -1825,7 +1825,7 @@ proc update_state {args} {
         {.menu.machine "Homin_g" "_Unhoming" "_Zero coordinate system"}
 
     relief {$interp_state != $INTERP_IDLE} .toolbar.program_run
-    state  {$task_state == $STATE_ON && $taskfile != ""} \
+    state  {$task_state == $STATE_ON && $taskfile != "" && !$auto_inhibit} \
                 .toolbar.program_step {.menu.machine "S_tep"}
     state  {$task_state == $STATE_ON && \
       ($interp_state == $INTERP_READING || $interp_state == $INTERP_WAITING) } \
