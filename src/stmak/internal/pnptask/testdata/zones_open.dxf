@@ -1,0 +1,34 @@
+999
+pnptask test fixture: the same 600x500 outer limit with no dead zone at all — the scene a station inside another drawing's zone becomes reachable in.
+0
+SECTION
+2
+ENTITIES
+0
+LWPOLYLINE
+8
+Outer Limits
+90
+4
+70
+1
+10
+0.0
+20
+0.0
+10
+600.0
+20
+0.0
+10
+600.0
+20
+500.0
+10
+0.0
+20
+500.0
+0
+ENDSEC
+0
+EOF

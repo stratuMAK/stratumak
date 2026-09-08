@@ -230,7 +230,7 @@ int New(const cmod_env_t *env, const char *name,
 
     /* test for config string */
     if (inst->cfg == 0) {
-	stmak_log_errorf(inst->env->log, "parport", "PARPORT: ERROR: no config string\n");
+	stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER, "PARPORT: ERROR: no config string\n");
 	inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
 	return -1;
     }
@@ -278,7 +278,7 @@ stmak_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 	retval = hal->export_funct(hal->ctx, fname, read_port, &(inst->port_data_array[n]),
 	    0, 0, inst->comp_id);
 	if (retval != 0) {
-	    stmak_log_errorf(inst->env->log, "parport",
+	    stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PARPORT: ERROR: port %d read funct export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -290,7 +290,7 @@ stmak_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 	retval = hal->export_funct(hal->ctx, fname, write_port, &(inst->port_data_array[n]),
 	    0, 0, inst->comp_id);
 	if (retval != 0) {
-	    stmak_log_errorf(inst->env->log, "parport",
+	    stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PARPORT: ERROR: port %d write funct export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -302,7 +302,7 @@ stmak_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 	retval = hal->export_funct(hal->ctx, fname, reset_port, &(inst->port_data_array[n]),
 	    0, 0, inst->comp_id);
 	if (retval != 0) {
-	    stmak_log_errorf(inst->env->log, "parport",
+	    stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PARPORT: ERROR: port %d reset funct export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -313,7 +313,7 @@ stmak_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
     retval = hal->export_funct(hal->ctx, "parport.read-all", read_all,
 	inst, 0, 0, inst->comp_id);
     if (retval != 0) {
-	stmak_log_errorf(inst->env->log, "parport",
+	stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PARPORT: ERROR: read all funct export failed\n");
 	hal->exit(hal->ctx, inst->comp_id);
 	inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -322,7 +322,7 @@ stmak_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
     retval = hal->export_funct(hal->ctx, "parport.write-all", write_all,
 	inst, 0, 0, inst->comp_id);
     if (retval != 0) {
-	stmak_log_errorf(inst->env->log, "parport",
+	stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PARPORT: ERROR: write all funct export failed\n");
 	hal->exit(hal->ctx, inst->comp_id);
 	inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -542,7 +542,7 @@ static int pins_and_params(inst_t *inst, char *argv[])
     while ((inst->num_ports < MAX_PORTS) && (argv[n] != 0)) {
 	port_addr[inst->num_ports] = parse_port_addr(argv[n]);
 	if (port_addr[inst->num_ports] < 0) {
-	    stmak_log_errorf(inst->env->log, "parport",
+	    stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PARPORT: ERROR: bad port address '%s'\n", argv[n]);
 	    return -1;
 	}
@@ -582,7 +582,7 @@ static int pins_and_params(inst_t *inst, char *argv[])
     }
     /* OK, now we've parsed everything */
     if (inst->num_ports == 0) {
-	stmak_log_errorf(inst->env->log, "parport",
+	stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PARPORT: ERROR: no ports configured\n");
 	return -1;
     }
@@ -590,14 +590,14 @@ static int pins_and_params(inst_t *inst, char *argv[])
     const stmak_hal_t *hal = inst->env->hal;
     int r = hal->init(hal->ctx, "hal_parport", inst->env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
-	stmak_log_errorf(inst->env->log, "parport", "PARPORT: ERROR: hal_init() failed\n");
+	stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER, "PARPORT: ERROR: hal_init() failed\n");
 	return -1;
     }
     inst->comp_id = r;
     /* allocate shared memory for parport data */
     inst->port_data_array = hal->malloc(hal->ctx, inst->num_ports * sizeof(parport_t));
     if (inst->port_data_array == 0) {
-	stmak_log_errorf(inst->env->log, "parport",
+	stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PARPORT: ERROR: hal->malloc(hal->ctx, ) failed\n");
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
@@ -640,7 +640,7 @@ static int pins_and_params(inst_t *inst, char *argv[])
 	/* export all vars */
 	retval = export_port(hal, n, &(inst->port_data_array[n]), inst->comp_id);
 	if (retval != 0) {
-	    stmak_log_errorf(inst->env->log, "parport",
+	    stmak_logf(inst->env->log, "parport", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PARPORT: ERROR: port %d var export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    return retval;

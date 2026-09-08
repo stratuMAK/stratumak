@@ -236,32 +236,32 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!cfg_str || !cfg_str[0]) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "streamer requires a 'cfg=' parameter (e.g. cfg=uffb)");
         return -EINVAL;
     }
 
     if (!env->hal) {
-        stmak_log_errorf(env->log, name, "HAL API not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available");
         return -EINVAL;
     }
 
     if (!env->api) {
-        stmak_log_errorf(env->log, name, "API registry not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "API registry not available");
         return -EINVAL;
     }
 
     // Count and validate pins
     int num_pins = strlen(cfg_str);
     if (num_pins > MAX_PINS) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "too many pins (%d), max is %d", num_pins, MAX_PINS);
         return -EINVAL;
     }
     for (int i = 0; i < num_pins; i++) {
         char c = cfg_str[i];
         if (c != 'f' && c != 'b' && c != 'u' && c != 's') {
-            stmak_log_errorf(env->log, name,
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                             "invalid pin type '%c' in cfg string", c);
             return -EINVAL;
         }
@@ -290,7 +290,7 @@ int New(const cmod_env_t *env, const char *name,
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
                                    STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        stmak_log_errorf(env->log, name, "hal_init failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal_init failed");
         free(inst->ring);
         free(priv);
         return -1;
@@ -377,7 +377,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = env->hal->export_funct(env->hal->ctx, name,
                                     update_funct, inst, usefp, 0, priv->comp_id);
     if (retval < 0) {
-        stmak_log_errorf(env->log, name, "function export failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "function export failed");
         goto fail;
     }
 
@@ -391,7 +391,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = hal_streamer_stream_register(
         (stmak_api_t *)env->api, name, &priv->stream_cb);
     if (retval != 0) {
-        stmak_log_errorf(env->log, name, "stream_register failed: %d", retval);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "stream_register failed: %d", retval);
         goto fail;
     }
 

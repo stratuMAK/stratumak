@@ -248,14 +248,14 @@ static int iocontrol_hal_init(iocontrol_module *m)
     /* STEP 1: initialise the hal component */
     m->comp_id = m->env->hal->init(m->env->hal->ctx, m->name, m->env->dl_handle, STMAK_HAL_COMP_USER);
     if (m->comp_id < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: hal_init() failed");
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: hal_init() failed");
         return -1;
     }
 
     /* STEP 2: allocate shared memory for iocontrol data */
     m->hal_data = (iocontrol_str *) m->env->hal->malloc(m->env->hal->ctx, sizeof(iocontrol_str));
     if (m->hal_data == 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: hal_malloc() failed");
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: hal_malloc() failed");
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
@@ -266,7 +266,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->user_enable_out), m->comp_id,
                               "%s.user-enable-out", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin user-enable-out export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin user-enable-out export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -275,7 +275,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->user_request_enable), m->comp_id,
                              "%s.user-request-enable", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin user-request-enable export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin user-request-enable export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -284,7 +284,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->coolant_flood), m->comp_id,
                          "%s.coolant-flood", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin coolant-flood export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin coolant-flood export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -293,7 +293,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->coolant_mist), m->comp_id,
                               "%s.coolant-mist", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin coolant-mist export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin coolant-mist export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -302,7 +302,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->lube), m->comp_id,
                               "%s.lube", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin lube export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin lube export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -311,7 +311,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_number), m->comp_id,
                               "%s.tool-number", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-number export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-number export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -320,7 +320,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prep_number), m->comp_id,
                               "%s.tool-prep-number", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-number export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-prep-number export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -329,7 +329,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prep_pocket), m->comp_id,
                               "%s.tool-prep-pocket", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-pocket export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-prep-pocket export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -338,7 +338,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prep_index), m->comp_id,
                               "%s.tool-prep-index", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-index export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-prep-index export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -347,7 +347,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prepare), m->comp_id,
                               "%s.tool-prepare", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prepare export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-prepare export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -356,7 +356,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->tool_prepared), m->comp_id,
                               "%s.tool-prepared", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prepared export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-prepared export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -365,7 +365,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_change), m->comp_id,
                               "%s.tool-change", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-change export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-change export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -374,7 +374,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->tool_changed), m->comp_id,
                         "%s.tool-changed", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-changed export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin tool-changed export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -386,7 +386,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->emc_enable_in), m->comp_id,
                              "%s.emc-enable-in", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-enable-in export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin emc-enable-in export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -395,7 +395,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->lube_level), m->comp_id,
                              "%s.lube_level", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin lube_level export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin lube_level export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -405,7 +405,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
     retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->state), m->comp_id,
                               "%s.state", m->name);
     if (retval < 0) {
-        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin state export failed with err=%i",
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin state export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -416,7 +416,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->emc_abort), m->comp_id,
                                   "%s.emc-abort", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-abort export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin emc-abort export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -424,7 +424,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->emc_abort_ack), m->comp_id,
                                   "%s.emc-abort-ack", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-abort-ack export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin emc-abort-ack export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -432,7 +432,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->emc_reason), m->comp_id,
                                   "%s.emc-reason", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-reason export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin emc-reason export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -440,7 +440,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->toolchanger_fault), m->comp_id,
                                   "%s.toolchanger-fault", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-fault export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin toolchanger-fault export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -448,7 +448,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->toolchanger_fault_ack), m->comp_id,
                                   "%s.toolchanger-fault-ack", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-fault-ack export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin toolchanger-fault-ack export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -456,7 +456,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->toolchanger_reason), m->comp_id,
                                   "%s.toolchanger-reason", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-reason export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin toolchanger-reason export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -464,7 +464,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->toolchanger_faulted), m->comp_id,
                                   "%s.toolchanger-faulted", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-faulted export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin toolchanger-faulted export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -472,7 +472,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->toolchanger_clear_fault), m->comp_id,
                                   "%s.toolchanger-clear-fault", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-clear-fault export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin toolchanger-clear-fault export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -480,7 +480,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->start_change), m->comp_id,
                                   "%s.start-change", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin start-change export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin start-change export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -488,7 +488,7 @@ static int iocontrol_hal_init(iocontrol_module *m)
         retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->start_change_ack), m->comp_id,
                                   "%s.start-change-ack", m->name);
         if (retval < 0) {
-            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin start-change-ack export failed with err=%i",
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "IOV2: ERROR: %s pin start-change-ack export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
@@ -552,7 +552,7 @@ static int tt_get_tool(iocontrol_module *m, int32_t idx,
     memset(entry, 0, sizeof(*entry));
     if (m->tt->get_tool(m->tt->ctx, idx, entry) != 0) {
         memset(entry, 0, sizeof(*entry));
-        stmak_log_errorf(m->env->log, m->name,
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "IOV2: ERROR: tool table read failed for slot %d", idx);
         return -1;
     }
@@ -572,7 +572,7 @@ static int tt_put_tool(iocontrol_module *m, int32_t idx,
     tooltable_tool_entry_t e = *entry;
     e.updated = 0;
     if (m->tt->put_tool(m->tt->ctx, idx, &e, &res) != 0 || !res.ok) {
-        stmak_log_errorf(m->env->log, m->name,
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "IOV2: ERROR: tool table write failed for slot %d", idx);
         return -1;
     }
@@ -588,7 +588,7 @@ static int tt_find_idx(iocontrol_module *m, int32_t toolno)
     tooltable_index_result_t res;
     memset(&res, 0, sizeof(res));
     if (m->tt->find_index_for_tool(m->tt->ctx, toolno, &res) != 0) {
-        stmak_log_errorf(m->env->log, m->name,
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "IOV2: ERROR: tool table lookup failed for tool %d", toolno);
         return -2;
     }
@@ -1181,7 +1181,7 @@ static int iocontrol_start(cmod_t *self)
     // Look up the tooltable API (must have been loaded before us)
     m->tt = tooltable_api_get(m->env->api, m->tooltable_instance);
     if (!m->tt) {
-        stmak_log_errorf(m->env->log, m->name,
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "IOV2: tooltable instance '%s' not found — "
             "ensure 'load tooltable' appears before 'load iov2' in HAL",
             m->tooltable_instance);
@@ -1196,7 +1196,7 @@ static int iocontrol_start(cmod_t *self)
     // store it was wired to.
     tooltable_store_info_t ttinfo;
     if (m->tt->get_info(m->tt->ctx, &ttinfo) != 0) {
-        stmak_log_errorf(m->env->log, m->name,
+        stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "IOV2: ERROR: tool table '%s' would not say whether it is a "
             "random changer", m->tooltable_instance);
         return -1;
@@ -1214,7 +1214,7 @@ static int iocontrol_start(cmod_t *self)
             // A tool table that cannot be read at startup must not be taken
             // for an empty one: that would silently report an empty spindle
             // and lose the tool physically loaded in it.
-            stmak_log_errorf(m->env->log, m->name,
+            stmak_logf(m->env->log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "IOV2: ERROR: tool table read failed at startup");
             return -1;
         }

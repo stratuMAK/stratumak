@@ -118,7 +118,6 @@ typedef struct {
     double execFeedMmPerMin;         /* feed rate of executing motion in mm/min */
     int termCond;
     int done;
-    int depth;			/* number of total queued motions */
     int activeDepth;		/* number of motions blending */
     int aborting;
     int pausing;

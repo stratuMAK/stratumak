@@ -136,10 +136,10 @@ static inline const char *xml_modname(const LCEC_CONF_XML_INST_T *inst) {
 }
 
 #define xml_log_error(inst, msg) \
-  stmak_log_errorf((inst)->mod->env->log, (inst)->mod->name, "%s", (msg))
+  stmak_logf((inst)->mod->env->log, (inst)->mod->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s", (msg))
 
 #define xml_log_error_fmt(inst, fmt, ...) \
-  stmak_log_errorf((inst)->mod->env->log, (inst)->mod->name, fmt, ##__VA_ARGS__)
+  stmak_logf((inst)->mod->env->log, (inst)->mod->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ##__VA_ARGS__)
 
 #define xml_log_info(inst, msg) \
   stmak_log_infof((inst)->mod->env->log, (inst)->mod->name, "%s", (msg))

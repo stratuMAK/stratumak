@@ -21,6 +21,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/tooltable"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
@@ -32,6 +33,10 @@ func init() {
 
 // Compile-time interface checks.
 var _ MotionConfig = (*motctl.MotctlClient)(nil)
+
+// stmakLogError mirrors STMAK_LOG_ERROR in stmak_log.h -- the severity at or
+// above which an operator message is a fault rather than a notice.
+const stmakLogError = 3
 
 func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	logger = logger.With("module", name)
@@ -148,7 +153,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		numJoints := getIntOr(ini, "KINS", "JOINTS", 3)
 		numSpindles := getIntOr(ini, "TRAJ", "SPINDLES", 1)
 		coord := ini.Get("TRAJ", "COORDINATES")
-		axisMask := parseAxisMask(coord)
+		axisMask := motsetup.ParseAxisMask(coord)
 		mdiCmds := ini.GetAll("HALUI", "MDI_COMMAND")
 		hu, err := newHalUI(m.haluiPrefix, numJoints, numSpindles, axisMask, mdiCmds)
 		if err != nil {
@@ -368,11 +373,19 @@ func (m *milltaskModule) Start() error {
 	// final flush runs after Go modules are destroyed, so a hook left registered
 	// would forward a late error into this freed task (operatorError on a stopped
 	// task). Unregistering at Destroy closes that window.
-	unregisterLogHook := stmak.OnLogError(func(component, msg string) {
+	unregisterLogHook := stmak.OnLogError(func(component, msg string, severity int) {
 		if !m.forwardsErrorFrom(component) {
 			return
 		}
-		t.operatorError(msg)
+		// The severity the component gave the message decides how it reaches
+		// the operator: a fault is an error, anything milder is a notice.
+		// Without this a "batch finished" would arrive looking like a failure,
+		// which is how operators learn to ignore the red ones.
+		if severity >= int(stmakLogError) {
+			t.operatorError(msg)
+		} else {
+			t.operatorText(msg)
+		}
 	})
 	prevCleanupLog := m.apiCleanup
 	m.apiCleanup = func() {
@@ -470,6 +483,19 @@ func (m *milltaskModule) Stop() {
 		// The shared parent goes with the last instance out: Remove refuses
 		// a non-empty directory, which is exactly the point.
 		_ = os.Remove(pathres.FilteredDir())
+
+		// Leave motion disabled. This is the last thing Stop does, after the
+		// sequencer is down, so nothing can re-enable behind it — and it is
+		// deliberately here rather than in Destroy: Stop runs ahead of the
+		// realtime barrier, so the servo cycles that carry the disable out to
+		// the drives are still running, and a cycle advance follows before the
+		// fieldbus driver's LateStop takes the bus down.
+		//
+		// Joints left enabled into that window are joints motion still polices
+		// while their feedback has stopped arriving, which is a shutdown that
+		// ends in "joint N following error" for no reason anyone can act on.
+		_ = m.task.motion.Abort()
+		_ = m.task.motion.Disable()
 	}
 	m.logger.Info("milltask stopping")
 }

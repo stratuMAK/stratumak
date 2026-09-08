@@ -1,0 +1,159 @@
+# pnptask simulation: its own motion stack plus the task module.
+#
+# No io/iocontrol instance is loaded — a pick-and-place machine has no
+# toolchanger, and pnptask sequences estop/enable against motctl itself.
+
+# Motion stack for this instance.
+load tpmod    <pnp.tp>   mot_instance=pnp.mot
+load homemod  <pnp.home.0,pnp.home.1,pnp.home.2> mot_instance=pnp.mot
+load trivkins <pnp.kins> coordinates=XYZ
+load motmod   <pnp.mot>  num_joints=3 kins_instance=pnp.kins \
+                         tp_instance=pnp.tp home_instance=pnp.home
+
+# Tray contents, process-station occupancy and held material survive a restart
+# (D6). The default dbpath is db/ next to the INI, which is scratch: delete it
+# and the machine comes up with empty trays and empty stations.
+load persist_sqlite <persist>
+
+# The task. pickers=2 exports the second picker and enables the alternating
+# picker logic; drop it (or pass pickers=1) for the single-picker machine.
+# The motion instance comes from [EMCMOT]MOTION_INSTANCE in the INI; a
+# motion_instance= load arg would override it.
+#
+# Deliberately loaded AFTER its motion stack for readability only: pnptask
+# resolves motctl/motstat in Start, which the launcher runs once every module
+# has been constructed, so the load order of these lines does not matter.
+load pnptask  <pnp.task> pickers=2 persist_instance=persist
+
+addf pnp.mot.motion-command-handler servo-thread
+addf pnp.mot.motion-controller      servo-thread
+
+# The dead-zone clearance check, pnptask's one realtime function. It must come
+# AFTER motion-controller: the position it tests is the Cartesian feedback the
+# motion controller computes, so ordering it earlier would answer from the
+# previous cycle. Without this line the deadzone.N.free pins stay at "not clear"
+# and the module warns at start.
+addf pnp.task.deadzone-check        servo-thread
+
+# --- Simulated machine ------------------------------------------------------
+
+# Position loop-back: the commanded position is the feedback -- through a
+# selectable source, so a scenario can put a hand on a de-energised axis.
+#
+# sel = 0 is the plain loopback every other scenario runs on.  sel = 1 holds the
+# axis at in1 whatever the command says, which is what an operator can do to any
+# joint whose amps are off: shove it, including past a soft limit.  Dropping sel
+# again leaves the axis where the hand left it, because the disabled machine's
+# command has been tracking the feedback all along (motion sets pos_cmd =
+# pos_fb while disabled, so enabling does not jump).
+load mux2 <pnp.hand.0,pnp.hand.1,pnp.hand.2>
+addf pnp.hand.0 servo-thread
+addf pnp.hand.1 servo-thread
+addf pnp.hand.2 servo-thread
+
+net pnp-x-cmd pnp.mot.joint.0.motor-pos-cmd => pnp.hand.0.in0
+net pnp-x-fb  pnp.hand.0.out                => pnp.mot.joint.0.motor-pos-fb
+net pnp-y-cmd pnp.mot.joint.1.motor-pos-cmd => pnp.hand.1.in0
+net pnp-y-fb  pnp.hand.1.out                => pnp.mot.joint.1.motor-pos-fb
+net pnp-z-cmd pnp.mot.joint.2.motor-pos-cmd => pnp.hand.2.in0
+net pnp-z-fb  pnp.hand.2.out                => pnp.mot.joint.2.motor-pos-fb
+
+# Instant home: the switch is always made, so a home search finishes at once.
+setp pnp.home.joint.0.home-sw-in 1
+setp pnp.home.joint.1.home-sw-in 1
+setp pnp.home.joint.2.home-sw-in 1
+
+# Grippers and fixtures: one pnpsim instance carries one of each (see
+# pnpsim(9)), so three instances cover this machine's two pickers and three
+# process stations — instance 2's gripper is simply unused. Out of the box every
+# close finds a part and every fixture answers its request, which is a machine
+# that runs jobs; the knobs that make it fail on purpose — gripper.miss-count,
+# gripper.stuck, fixture.stuck — are pins the integration suite flips between
+# jobs.
+load pnpsim <pnp.sim.0,pnp.sim.1,pnp.sim.2>
+addf pnp.sim.0 servo-thread
+addf pnp.sim.1 servo-thread
+addf pnp.sim.2 servo-thread
+
+net pnp-p0-close  pnp.task.picker.0.close    => pnp.sim.0.gripper.close
+net pnp-p0-opened pnp.sim.0.gripper.opened   => pnp.task.picker.0.opened
+net pnp-p0-closed pnp.sim.0.gripper.closed   => pnp.task.picker.0.closed
+net pnp-p1-close  pnp.task.picker.1.close    => pnp.sim.1.gripper.close
+net pnp-p1-opened pnp.sim.1.gripper.opened   => pnp.task.picker.1.opened
+net pnp-p1-closed pnp.sim.1.gripper.closed   => pnp.task.picker.1.closed
+
+# The gripper settling delay is what makes the pick-settle-time param mean
+# something here: feedback that answered within the same servo cycle would let a
+# machine with the settle times at 0 pass a test a real one fails.
+setp pnp.sim.0.gripper.settle-time 0.03
+setp pnp.sim.1.gripper.settle-time 0.03
+
+# Fixture 0 belongs to station 20, fixture 1 to station 21. A real config wires
+# "released" to the clamp's sensor and "busy" to the process the station runs;
+# here "busy" is left unconnected, for the PLC (or the test) to drive.
+net pnp-proc20-release  pnp.task.proc.20.release  => pnp.sim.0.fixture.release
+net pnp-proc20-released pnp.sim.0.fixture.released => pnp.task.proc.20.released
+net pnp-proc21-release  pnp.task.proc.21.release  => pnp.sim.1.fixture.release
+net pnp-proc21-released pnp.sim.1.fixture.released => pnp.task.proc.21.released
+net pnp-proc22-release  pnp.task.proc.22.release  => pnp.sim.2.fixture.release
+net pnp-proc22-released pnp.sim.2.fixture.released => pnp.task.proc.22.released
+setp pnp.task.proc.20.busy 0
+setp pnp.task.proc.21.busy 0
+setp pnp.task.proc.22.busy 0
+
+# Which tray geometry each station holds. A real config has the PLC set these
+# when a tray is loaded; a change resets the station's slot state (D17).
+setp pnp.task.tray.10.tray-id 1
+setp pnp.task.tray.11.tray-id 2
+
+# What each tray is FOR: the step set-full writes into every slot and the step
+# "avail" looks for. Separate from the job's process-step, which says what one
+# job carries and changes from job to job — station 10 holds raw material and
+# station 11 takes it back finished, and neither description moves.
+setp pnp.task.tray.10.step 0
+setp pnp.task.tray.11.step 1
+
+# --- Machine control --------------------------------------------------------
+
+# Nothing simulates an estop chain here, so hold pnptask's estop input low and
+# ask for the machine to be enabled. A real config wires estop-on to the chain
+# and machine-on to the operator's button (or a PLC output).
+setp pnp.task.estop-on   0
+setp pnp.task.machine-on 1
+
+# Auto mode: start-job edges are accepted. Pull this low for manual jogging and
+# manual picker control.
+setp pnp.task.auto-enable 1
+
+# Homing is requested on a rising edge of "home" (D25) and automatically at the
+# first job, because AUTOHOME = 1. With nothing wired here, home the machine by
+# hand:
+#
+#     halcmd setp pnp.task.home 1 ; halcmd setp pnp.task.home 0
+#     halcmd show pin pnp.task.homed
+#
+# Jogging then works with auto-enable low:
+#
+#     halcmd setp pnp.task.auto-enable 0
+#     halcmd setp pnp.task.jog-speed 100
+#     halcmd setp pnp.task.jog-x-pos 1     # ... and 0 to stop
+setp pnp.task.home 0
+
+# --- Running a job ----------------------------------------------------------
+#
+# The job handshake (process-step, origin-id, dest-id, start-job) is what a PLC
+# drives; here it is left unconnected so it can be driven by hand. Tell the module
+# what the trays hold, then command a job:
+#
+#     halcmd setp pnp.task.tray.10.set-full 1   # tray 10 is full of step-0 parts
+#     halcmd show pin pnp.task.tray.10.avail    # ... and now has some to offer
+#     halcmd setp pnp.task.process-step 0
+#     halcmd setp pnp.task.origin-id 10
+#     halcmd setp pnp.task.dest-id   20
+#     halcmd setp pnp.task.start-job 1          # cleared by the module when done
+#     halcmd show pin pnp.task.error
+#
+# Then 20 -> 11 moves the finished part into the output tray. The scripted
+# version of all of this — the misses, the stuck devices, the busy stations and
+# the assertions over them — is the integration suite in the scenario
+# directories next to this file (phase 7 of docs/dev/PNPTASK_DESIGN.md).

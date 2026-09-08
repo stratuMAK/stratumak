@@ -81,7 +81,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (count < 1 || count > MAX_FILTERS) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "count=%d out of range (1..%d)", count, MAX_FILTERS);
         return -EINVAL;
     }

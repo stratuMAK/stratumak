@@ -469,15 +469,15 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!env->hal) {
-        stmak_log_errorf(env->log, name, "HAL API not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available");
         return -EINVAL;
     }
     if (!env->rtapi) {
-        stmak_log_errorf(env->log, name, "RTAPI not available (need get_time)");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "RTAPI not available (need get_time)");
         return -EINVAL;
     }
     if (!env->api) {
-        stmak_log_errorf(env->log, name, "API registry not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "API registry not available");
         return -EINVAL;
     }
 
@@ -503,7 +503,7 @@ int New(const cmod_env_t *env, const char *name,
         return -ENOMEM;
     }
     if (lat_ring_init(&inst->ring, ringbuf, cap) != 0) {
-        stmak_log_errorf(env->log, name, "ring init failed (cap=%u)", cap);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "ring init failed (cap=%u)", cap);
         env->rtapi->free(env->rtapi->ctx, ringbuf);
         env->rtapi->free(env->rtapi->ctx, priv);
         return -EINVAL;
@@ -535,7 +535,7 @@ int New(const cmod_env_t *env, const char *name,
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
                                    STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        stmak_log_errorf(env->log, name, "hal_init failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal_init failed");
         retval = -1;
         goto fail;
     }
@@ -562,7 +562,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = env->hal->export_funct(env->hal->ctx, name,
                                     latency_funct, inst, 0, 0, priv->comp_id);
     if (retval < 0) {
-        stmak_log_errorf(env->log, name, "function export failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "function export failed");
         goto fail;
     }
 
@@ -571,7 +571,7 @@ int New(const cmod_env_t *env, const char *name,
     // Start the non-RT drainer.
     priv->io_stop = 0;
     if (pthread_create(&priv->io_tid, NULL, drain_thread, priv) != 0) {
-        stmak_log_errorf(env->log, name, "pthread_create failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "pthread_create failed");
         retval = -1;
         goto fail;
     }
@@ -583,7 +583,7 @@ int New(const cmod_env_t *env, const char *name,
     priv->cb.ctx = priv;
     retval = latency_api_register(env->api, name, &priv->cb);
     if (retval != 0) {
-        stmak_log_errorf(env->log, name, "api register failed: %d", retval);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "api register failed: %d", retval);
         goto fail;
     }
 

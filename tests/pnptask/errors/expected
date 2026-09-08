@@ -1,0 +1,16 @@
+PASS an unknown origin-id raises INVALID_ORIGIN
+PASS an unknown dest-id raises INVALID_DEST
+PASS a dead-zone selector past the DEADZONE_FILE list raises INVALID_DEADZONE_SELECT
+PASS picking from an empty process station raises PROC_NO_MATERIAL
+PASS none of the refusals moved the machine — it is still unhomed
+PASS a fixture that never reports released raises RELEASE_TIMEOUT
+PASS the failed action withdrew its release request (D19)
+PASS the station is not credited with the part
+PASS the material is still in the picker, where the job left it
+PASS with the fixture working the job completes
+PASS and the part moves on to the output tray
+PASS a gripper still reporting opened after the settle raises PICKER_CLOSE_FAILED
+PASS the handshake completed with the error flag standing
+PASS a job started while an error is latched is refused, id unchanged
+PASS error-reset clears flag and id
+ALL OK

@@ -513,7 +513,7 @@ static void handle_kinematicsSwitch(motmod_inst_t *inst) {
     }
 
     if (motmod_kinematicsSwitch(inst, ctl_switchkins_type)) {
-        stmak_log_errorf(inst->log, inst->name, "kinematicsSwitch() FAIL<%f>\n",
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "kinematicsSwitch() FAIL<%f>\n",
                         *inst->hal_data->switchkins_type);
         SET_MOTION_ERROR_FLAG(1);  // abort
         return; // no updates for abort
@@ -633,7 +633,7 @@ static void process_inputs(motmod_inst_t *inst)
     for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
 	if (*inst->hal_data->spindle[spindle_num].spindle_start_inhibit
 	    && inst->status->spindle_status[spindle_num].state != 0) {
-	    stmak_log_errorf(inst->log, inst->name,
+	    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		_("Spindle %d stopped: start-inhibit is active"), spindle_num);
 	    spindle_force_off(inst, spindle_num, "start-inhibit");
 	}
@@ -745,7 +745,7 @@ static void process_inputs(motmod_inst_t *inst)
 				*(inst->hal_data->spindle[spindle_num].spindle_orient) = 0;
 				inst->status->spindle_status[spindle_num].orient_fault =
 						*(inst->hal_data->spindle[spindle_num].spindle_orient_fault);
-				stmak_log_errorf(inst->log, inst->name, _("fault %d during orient in progress"),
+				stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("fault %d during orient in progress"),
 						inst->status->spindle_status[spindle_num].orient_fault);
 				inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 				inst->tp_api->abort(inst->tp_api->ctx);
@@ -765,9 +765,9 @@ static void process_inputs(motmod_inst_t *inst)
         joint_jog_abort_all(inst, *(inst->hal_data->jog_stop_immediate));
         axis_jog_abort_all(ai, *(inst->hal_data->jog_stop_immediate));
         if (*(inst->hal_data->jog_stop_immediate)) {
-          stmak_log_errorf(inst->log, inst->name, "Jog aborted by jog-stop-immediate");
+          stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Jog aborted by jog-stop-immediate");
         } else {
-          stmak_log_errorf(inst->log, inst->name, "Jog aborted by jog-stop");
+          stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Jog aborted by jog-stop");
         }
     }
 }
@@ -929,10 +929,10 @@ static void process_probe_inputs(motmod_inst_t *inst)
             if (probe_suppress) {
                 inst->status->probeTripped = 0;
             } else if(probe_whenclears) {
-                stmak_log_errorf(inst->log, inst->name, _("G38.4 move finished without breaking contact."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("G38.4 move finished without breaking contact."));
                 SET_MOTION_ERROR_FLAG(1);
             } else {
-                stmak_log_errorf(inst->log, inst->name, _("G38.2 move finished without making contact."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("G38.2 move finished without making contact."));
                 SET_MOTION_ERROR_FLAG(1);
             }
         }
@@ -944,7 +944,7 @@ static void process_probe_inputs(motmod_inst_t *inst)
             // running an command
             if (inst->status->motionType != EMC_MOTION_TYPE_PROBING) {
                 inst->tp_api->abort(inst->tp_api->ctx);
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during non-probe move."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during non-probe move."));
                 SET_MOTION_ERROR_FLAG(1);
             }
         } else {
@@ -987,14 +987,14 @@ static void process_probe_inputs(motmod_inst_t *inst)
             }
 
             if(aborted == 1) {
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during homing motion."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during homing motion."));
             }
 
             if(aborted == 2) {
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during a joint jog."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during a joint jog."));
             }
             if(aborted == 3) {
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during a coordinate jog."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during a coordinate jog."));
             }
         }
     }
@@ -1012,14 +1012,14 @@ static void check_for_faults(motmod_inst_t *inst)
     /* only check enable input if running */
     if ( GET_MOTION_ENABLE_FLAG() != 0 ) {
 	if ( *(inst->hal_data->enable) == 0 ) {
-	    stmak_log_errorf(inst->log, inst->name, _("motion stopped by enable input"));
+	    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("motion stopped by enable input"));
 	    inst->internal->enabling = 0;
 	}
     }
     /* check for spindle ampfifier errors */
     for (spindle_num = 0; spindle_num < inst->config->numSpindles; spindle_num++){
         if(inst->status->spindle_status[spindle_num].fault && GET_MOTION_ENABLE_FLAG()){
-            stmak_log_errorf(inst->log, inst->name, _("spindle %d amplifier fault"), spindle_num);
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("spindle %d amplifier fault"), spindle_num);
             inst->internal->enabling = 0;
         }
     }
@@ -1043,7 +1043,7 @@ static void check_for_faults(motmod_inst_t *inst)
 		    /* trip on limits */
 		    if (!joint->fault_reported) {
 			/* name the primary cause; knock-on faults stay quiet */
-			stmak_log_errorf(inst->log, inst->name, _("joint %d on limit switch error"),
+			stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d on limit switch error"),
 			    joint_num);
 			joint->fault_reported = 1;
 		    }
@@ -1058,7 +1058,7 @@ static void check_for_faults(motmod_inst_t *inst)
 		/* joint is faulted, trip */
 		if (!joint->fault_reported) {
 		    /* name the primary cause; knock-on faults stay quiet */
-		    stmak_log_errorf(inst->log, inst->name, _("joint %d amplifier fault"), joint_num);
+		    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d amplifier fault"), joint_num);
 		    joint->fault_reported = 1;
 		}
 		joint_faulted = 1;
@@ -1070,7 +1070,7 @@ static void check_for_faults(motmod_inst_t *inst)
 	    if (GET_JOINT_FERROR_FLAG(joint)) {
 		if (!joint->fault_reported) {
 		    /* name the primary cause; knock-on faults stay quiet */
-		    stmak_log_errorf(inst->log, inst->name, _("joint %d following error"), joint_num);
+		    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d following error"), joint_num);
 		    joint->fault_reported = 1;
 		}
 		joint_faulted = 1;
@@ -1090,7 +1090,7 @@ static void check_for_faults(motmod_inst_t *inst)
     /* Check Miscellaneous faults */
     for (error_num=0; error_num < inst->config->numMiscError; error_num++){
       if(inst->status->misc_error[error_num] && GET_MOTION_ENABLE_FLAG()) {
-        stmak_log_errorf(inst->log, inst->name, _("Motion Stopped by misc error %d"), error_num);
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Motion Stopped by misc error %d"), error_num);
         inst->internal->enabling = 0;
       }
     }
@@ -1134,7 +1134,7 @@ static void set_operating_mode(motmod_inst_t *inst)
     /* check for inst->internal->enabling */
     if (inst->internal->enabling && !GET_MOTION_ENABLE_FLAG()) {
         if (*(inst->hal_data->eoffset_limited)) {
-            stmak_log_errorf(inst->log, inst->name, "Note: Motion enabled after reaching a coordinate "
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Note: Motion enabled after reaching a coordinate "
                         "soft limit with active external offsets");
             *(inst->hal_data->eoffset_limited) = 0;
         }
@@ -1344,17 +1344,17 @@ static void handle_jjogwheels(motmod_inst_t *inst)
 	    break;
 	}
         if (JOINT_HOME_API(joint)->get_needs_unlock_first(JOINT_HOME_API(joint)->ctx) ) {
-            stmak_log_errorf(inst->log, inst->name, "Can't wheel jog locking joint_num=%d",joint_num);
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Can't wheel jog locking joint_num=%d",joint_num);
             continue;
         }
         if (joint->home_sequence < 0) { /* negative = synchronized homing */
             if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                stmak_log_errorf(inst->log, inst->name, 
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, 
                 "Homing is REQUIRED to wheel jog requested coordinate\n"
                 "because joint (%d) home_sequence is synchronized (%d)\n"
                 ,joint_num, joint->home_sequence );
             } else {
-                stmak_log_errorf(inst->log, inst->name, 
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, 
                 "Cannot wheel jog joint %d because home_sequence synchronized (%d)\n"
                 ,joint_num, joint->home_sequence );
             }
@@ -1473,7 +1473,7 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
            limit becomes max_acc/(cap*servo_period) for the driving joint,
            i.e. higher (less smooth) than requested, but the motion stays
            stable.  Logged only on an actual window change to avoid spam. */
-        stmak_log_errorf(inst->log, inst->name,
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "MOTION: jerk-filter window clamped to cap %d; jerk limited to a "
             "higher (less smooth) value than requested. Raise MAX_JERK or "
             "JERK_FILTER_MAX_WINDOW for smoother motion.\n",
@@ -1491,7 +1491,7 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
     if (max_window > 0 && nj > 0) {
         if (!inst->jerk_filter.buf || !inst->jerk_filter.sum ||
             nj != inst->jerk_filter.num_joints) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "MOTION: jerk filter buffers not preallocated "
                 "(joints=%d window=%d) - filter disabled\n", nj, max_window);
             inst->jerk_filter.window_size = 0;
@@ -1826,7 +1826,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 		for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
 		    if(!isfinite(positions[joint_num]))
 		    {
-                       stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse gave non-finite joint location on joint %d"),
+                       stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse gave non-finite joint location on joint %d"),
                            joint_num);
                        SET_MOTION_ERROR_FLAG(1);
                        inst->internal->enabling = 0;
@@ -1843,7 +1843,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    }
 	    else
 	    {
-	       stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse failed"));
+	       stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse failed"));
 	       SET_MOTION_ERROR_FLAG(1);
 	       inst->internal->enabling = 0;
 	       break;
@@ -1896,7 +1896,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
 		if(!isfinite(positions[joint_num]))
 		{
-		   stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse gave non-finite joint location on joint %d"),
+		   stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse gave non-finite joint location on joint %d"),
 		         joint_num);
 		   SET_MOTION_ERROR_FLAG(1);
 		   inst->internal->enabling = 0;
@@ -1915,7 +1915,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	}
 	else
 	{
-	   stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse failed"));
+	   stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse failed"));
 	   SET_MOTION_ERROR_FLAG(1);
 	   inst->internal->enabling = 0;
 	   break;
@@ -1968,8 +1968,19 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	joint_limit[joint_num][0] = 0;
 	joint_limit[joint_num][1] = 0;
 	
-	/* skip inactive or unhomed axes */
-	if ((!GET_JOINT_ACTIVE_FLAG(joint)) || (!JOINT_HOME_API(joint)->get_homed(JOINT_HOME_API(joint)->ctx))) {
+	/* Skip inactive or unhomed joints: without a home, pos_cmd is not in
+	   machine coordinates and the limits mean nothing yet.  A disabled
+	   machine is NOT skipped: with motion disabled the DISABLED case above
+	   slaves pos_cmd to pos_fb, so the check measures where the machine
+	   *is* -- which is exactly what the on-soft-limit pin promises ("TRUE
+	   if outside a limit"), an operator pushing a de-energised axis out of
+	   range by hand included.  What a disabled machine must not do is
+	   *fault* over that mirror -- it is not a command, and the axis has to
+	   stay powerable so it can be driven back in -- so the operator
+	   message and the motion-error flag below are gated on enable, while
+	   the pin is not. */
+	if (   (!GET_JOINT_ACTIVE_FLAG(joint))
+	    || (!JOINT_HOME_API(joint)->get_homed(JOINT_HOME_API(joint)->ctx))) {
 	    continue;
         }
 
@@ -1983,8 +1994,14 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
             onlimit = 1;
         }
     }
-    if ( onlimit ) {
-	if ( ! inst->status->on_soft_limit ) {
+    /* The status flag (and the on-soft-limit pin mirroring it) is live state,
+       refreshed every cycle: TRUE if outside a limit, enabled or not. */
+    inst->status->on_soft_limit = onlimit;
+    /* The fault is enable-gated and edge-latched separately (see
+       emcmot_internal_t.soft_limit_reported): once per trip, and once more on
+       an enable with the machine still outside. */
+    if ( onlimit && GET_MOTION_ENABLE_FLAG() ) {
+	if ( ! inst->internal->soft_limit_reported ) {
         /* Unexpectedly hit a joint soft limit.
         ** Possible causes:
         **  1) a joint positional limit was reduced by an INI halpin
@@ -1994,45 +2011,94 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
         **  3) kins module misbehavior
         **  4) poorly tuned servo motion (not detected by ferror settings)
         **
-        ** Non-identity kins can often be switched to joint mode to recover
-        ** using the '$' shortcut provided by the gui.
-        ** Guis may not provide a means to recover for identity kins except
-        ** by unhoming/jogging/rehoming.  (For trivkins, using kinstype=both
-        ** can be used as a workaround).
-        **
+        ** Recovery differs by kins type — non-identity kins can usually be
+        ** switched to joint mode ('$' in most guis), identity kins often need
+        ** unhoming/jogging/rehoming (or trivkins kinstype=both).  C milltask
+        ** logged that advice as a second operator message per trip; it belongs
+        ** in the manual, not on the panel, so only the trip itself is reported
+        ** here — one message, naming the joint and the limit it exceeded.
         */
 	    for (joint_num = 0; joint_num < inst->config->numJoints; joint_num++) {
 	        if (joint_limit[joint_num][0] == 1) {
                     joint = &inst->joints[joint_num];
-                    stmak_log_errorf(inst->log, inst->name, _("Exceeded NEGATIVE soft limit (%.5f) on joint %d"),
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Exceeded NEGATIVE soft limit (%.5f) on joint %d"),
                                   joint->min_pos_limit, joint_num);
-                    if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                        stmak_log_errorf(inst->log, inst->name, _("Joint must be unhomed, jogged into limits, rehomed"));
-                    } else {
-                        stmak_log_errorf(inst->log, inst->name, _("Hint: switch to joint mode to jog off soft limit"));
-                    }
                 } else if (joint_limit[joint_num][1] == 1) {
                     joint = &inst->joints[joint_num];
-                    stmak_log_errorf(inst->log, inst->name, _("Exceeded POSITIVE soft limit (%.5f) on joint %d"),
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Exceeded POSITIVE soft limit (%.5f) on joint %d"),
                                   joint->max_pos_limit,joint_num);
-                    if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                        stmak_log_errorf(inst->log, inst->name, _("Joint must be unhomed, jogged into limits, rehomed"));
-                    } else {
-                        stmak_log_errorf(inst->log, inst->name, _("Hint: switch to joint mode to jog off soft limit"));
-                    }
                 }
 	    }
 	    SET_MOTION_ERROR_FLAG(1);
-	    inst->status->on_soft_limit = 1;
+	    inst->internal->soft_limit_reported = 1;
 	}
     } else {
-	inst->status->on_soft_limit = 0;
+	inst->internal->soft_limit_reported = 0;
     }
+    /* The realtime backstop for teleop jogs.  The task monitor's abort is
+       10 ms and a running task module away, and it latches after the first
+       trip; what stops a jog that is carrying a joint past a soft limit is
+       this block, at servo rate.
+
+       The rule is per joint and asks one question of it: is its command
+       beyond a limit AND still heading further out?  Only that has to be
+       stopped.  A joint standing outside (pushed there by hand with the
+       amps off) or coming back in (the recovery jog, which is how the
+       machine leaves this state) needs nothing done to it.
+
+       This deliberately does not classify the trip by frame.  An
+       axis-frame trip -- identity kins, the joint limit no tighter than the
+       axis limit -- is contained by the teleop clamp: every jog targets a
+       point inside the axis limits and update_teleop_with_check undoes any
+       update heading out, so a joint's command can never move further out
+       and this block never fires for it.  So "heading further out past a
+       limit" is by itself the signature of a trip nothing upstream could
+       contain: a joint limit tightened under the axis limit by an ini.N
+       halpin, non-identity kins.  Classifying by frame instead, with a
+       whole-machine "is any axis outside" predicate, got it wrong three
+       ways: one axis legitimately outside masked a joint-frame trip on a
+       different joint; a jog target set against the bare limits was judged
+       with the external offset added and the way back in was aborted every
+       cycle; and on re-entry the fresh axis sum was already inside while the
+       joint command -- two cycles of cubic interpolation and the jerk
+       window behind it -- was still outside, so the recovery jog was
+       hard-stopped at the limit edge every time.  Judging direction on the
+       joint command itself (the position the trip check uses, vel_cmd being
+       its derivative) has none of those: it is per joint, offsets are
+       already in it, and it lags by exactly as much as the trip does.
+
+       Every jog is stopped, not only the one on the tripped joint's axis:
+       under non-identity kins any axis jog can be the one moving the joint,
+       and there is no per-axis answer.  Stopped immediately (a velocity
+       step) because it is a backstop: the joint is already past the limit
+       and every further cycle at jog speed carries it further.  The motion
+       error flag is asserted on the cycle a jog was actually cancelled, not
+       for as long as the machine is outside: re-asserting it every cycle
+       kept the task monitor's error latch closed, so its own abort never
+       fired again either.
+
+       "Heading further out" needs a velocity floor.  With the jerk filter
+       on, its running boxcar sum drifts by rounding while a joint stands
+       still, and the cubic turns that into a vel_cmd around 1e-7.  One servo
+       cycle of a real move from rest is acc_limit * period; a hundredth of
+       that is well above the drift and well below any jog. */
     if (   inst->internal->teleoperating
         && GET_MOTION_TELEOP_FLAG()
-        && inst->status->on_soft_limit ) {
-        SET_MOTION_ERROR_FLAG(1);
-        axis_jog_abort_all(ai, 1);
+        && GET_MOTION_ENABLE_FLAG()
+        && onlimit ) {
+        int heading_out = 0;
+        for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
+            double v_eps;
+            joint = &inst->joints[joint_num];
+            v_eps = 0.01 * joint->acc_limit * servo_period;
+            if (   (joint_limit[joint_num][1] && joint->vel_cmd >  v_eps)
+                || (joint_limit[joint_num][0] && joint->vel_cmd < -v_eps)) {
+                heading_out = 1;
+            }
+        }
+        if (heading_out && axis_jog_abort_all(ai, 1)) {
+            SET_MOTION_ERROR_FLAG(1);
+        }
     }
     if (ext_offset_teleop_limit || ext_offset_coord_limit) {
         *(inst->hal_data->eoffset_limited) = 1;
@@ -2410,6 +2476,9 @@ static void output_to_hal(motmod_inst_t *inst)
     *(inst->hal_data->tp_reverse) = inst->status->reverse_run;
     *(inst->hal_data->motion_type) = inst->status->motionType;
     *(inst->hal_data->distance_to_go) = inst->status->distance_to_go;
+    /* One servo cycle behind, like segment-id and motion-type above: the depth
+       is read from the TP in update_status, which runs after this. */
+    *(inst->hal_data->queue_depth) = (hal_s32_t)inst->status->depth;
     if(GET_MOTION_COORD_FLAG()) {
         *(inst->hal_data->current_vel) = inst->status->current_vel;
         *(inst->hal_data->requested_vel) = inst->status->requested_vel;

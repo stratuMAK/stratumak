@@ -197,14 +197,14 @@ EXTRA_SETUP()
             }
             fclose(fp);
         } else {
-            STMAK_LOG_ERR("cannot open INI file '%s'\n", inifile);
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "cannot open INI file '%s'\n", inifile);
             data.init_error = 1;
             return 0;
         }
     }
 
     if (data.conn_type < 0) {
-        STMAK_LOG_ERR("connection type must be specified (type=rtu|tcpserver|tcpclient)\n");
+        STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "connection type must be specified (type=rtu|tcpserver|tcpclient)\n");
         data.init_error = 1;
         return 0;
     }
@@ -213,13 +213,13 @@ EXTRA_SETUP()
     case CONN_RTU:
         data.ctx = modbus_new_rtu(dev, cfg_baud, par, cfg_bits, cfg_stopbits);
         if (!data.ctx) {
-            STMAK_LOG_ERR("modbus_new_rtu(%s): %s\n", dev, modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "modbus_new_rtu(%s): %s\n", dev, modbus_strerror(errno));
             data.init_error = 1;
             return 0;
         }
         modbus_set_slave(data.ctx, cfg_target);
         if (modbus_connect(data.ctx) != 0) {
-            STMAK_LOG_ERR("unable to connect to %s: %s\n", dev, modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "unable to connect to %s: %s\n", dev, modbus_strerror(errno));
             modbus_free(data.ctx);
             data.ctx = NULL;
             data.init_error = 1;
@@ -230,20 +230,20 @@ EXTRA_SETUP()
     case CONN_TCP_SERVER:
         data.ctx = modbus_new_tcp("127.0.0.1", cfg_tcp_port);
         if (!data.ctx) {
-            STMAK_LOG_ERR("modbus_new_tcp(port %d): %s\n", cfg_tcp_port, modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "modbus_new_tcp(port %d): %s\n", cfg_tcp_port, modbus_strerror(errno));
             data.init_error = 1;
             return 0;
         }
         data.tcp_socket = modbus_tcp_listen(data.ctx, 1);
         if (data.tcp_socket < 0) {
-            STMAK_LOG_ERR("modbus_tcp_listen(): %s\n", modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "modbus_tcp_listen(): %s\n", modbus_strerror(errno));
             modbus_free(data.ctx);
             data.ctx = NULL;
             data.init_error = 1;
             return 0;
         }
         if (modbus_tcp_accept(data.ctx, &data.tcp_socket) < 0) {
-            STMAK_LOG_ERR("modbus_tcp_accept(): %s\n", modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "modbus_tcp_accept(): %s\n", modbus_strerror(errno));
             modbus_free(data.ctx);
             data.ctx = NULL;
             data.init_error = 1;
@@ -254,12 +254,12 @@ EXTRA_SETUP()
     case CONN_TCP_CLIENT:
         data.ctx = modbus_new_tcp(cfg_tcpdest, cfg_tcp_port);
         if (!data.ctx) {
-            STMAK_LOG_ERR("modbus_new_tcp(%s:%d): %s\n", cfg_tcpdest, cfg_tcp_port, modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "modbus_new_tcp(%s:%d): %s\n", cfg_tcpdest, cfg_tcp_port, modbus_strerror(errno));
             data.init_error = 1;
             return 0;
         }
         if (modbus_connect(data.ctx) < 0) {
-            STMAK_LOG_ERR("TCP connect to %s:%d failed: %s\n", cfg_tcpdest, cfg_tcp_port, modbus_strerror(errno));
+            STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "TCP connect to %s:%d failed: %s\n", cfg_tcpdest, cfg_tcp_port, modbus_strerror(errno));
             modbus_free(data.ctx);
             data.ctx = NULL;
             data.init_error = 1;
@@ -481,7 +481,7 @@ void user_mainloop(void) {
                 data.read_initial_done = 0;
                 sleep(data.cfg_reconnect_delay);
                 if (modbus_connect(data.ctx) != 0)
-                    STMAK_LOG_ERR("reconnect failed: %s\n", modbus_strerror(errno));
+                    STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "reconnect failed: %s\n", modbus_strerror(errno));
             }
         }
 

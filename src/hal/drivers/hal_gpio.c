@@ -196,7 +196,7 @@ int allocate_lines(inst_t *inst, char **names, hal_gpio_bulk_t **bulk){
 // Get a list of all chips. the "filter" function identifies gpiochips
     n = scandir("/dev", &namelist, filter, alphasort);
     if (n == -1) {
-	stmak_log_errorf(inst->log, "hal_gpio", "No valid gpio devices recognized by gpiod in /dev");
+	stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "No valid gpio devices recognized by gpiod in /dev");
 	return -1;
     }
 
@@ -298,7 +298,7 @@ int build_chips_collection(inst_t *inst, char **names, hal_gpio_bulk_t **ptr){
 	name = names[i];
 	temp_line = gpiod_line_find(name);
 	if (!temp_line) {
-		stmak_log_errorf(inst->log, "hal_gpio", "The GPIO line %s can not be found", name);
+		stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "The GPIO line %s can not be found", name);
 		return -EINVAL;
 	}
 	temp_chip = gpiod_line_get_chip(temp_line);
@@ -398,7 +398,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     
     int r = hal->init(hal->ctx, "hal_gpio", env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
-        stmak_log_errorf(inst->log, "hal_gpio", "ERROR: hal_init() failed");
+        stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "ERROR: hal_init() failed");
         inst->rtapi->free(inst->rtapi->ctx, inst);
         return r;
     }
@@ -407,7 +407,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     // allocate shared memory for the base struct
     inst->gpio = inst->rtapi->calloc(inst->rtapi->ctx, sizeof(hal_gpio_t));
     if (inst->gpio == 0) {
-        stmak_log_errorf(inst->log, "hal_gpio",
+        stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "component: Out of Memory");
         goto fail0;
     }
@@ -426,7 +426,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     gpio->num_in_chips = build_chips_collection(inst, inst->inputs, &gpio->in_chips);
 #endif
     if (gpio->num_in_chips < 0){
-	stmak_log_errorf(inst->log, "hal_gpio", "Failed to identify all specified input pins");
+	stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Failed to identify all specified input pins");
 	goto fail0;
     }
     for (c = 0; c < gpio->num_in_chips; c++){
@@ -437,7 +437,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	retval = gpiod_line_request_bulk_input(gpio->in_chips[c].lines, "linuxcnc");
 #endif
 	if (retval < 0) {
-	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to register input pin collection");
+	    stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Failed to register input pin collection");
 	    goto fail0;
 	}
 
@@ -448,7 +448,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &(gpio->in_chips[c].hal[i].value_not), inst->comp_id, "hal_gpio.%s-in-not", line_name);
 	}
 	if (retval < 0){
-	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to allocate GPIO input HAL pins");
+	    stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Failed to allocate GPIO input HAL pins");
 	    goto fail0;
 	}
 	    
@@ -463,7 +463,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     gpio->num_out_chips = build_chips_collection(inst, inst->outputs, &gpio->out_chips);
 #endif
     if (gpio->num_in_chips < 0){
-	stmak_log_errorf(inst->log, "hal_gpio", "Failed to identify all specified output pins");
+	stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Failed to identify all specified output pins");
 	goto fail0;
     }
     for (c = 0; c < gpio->num_out_chips; c++){
@@ -474,7 +474,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	retval = gpiod_line_request_bulk_output(gpio->out_chips[c].lines, "linuxcnc", gpio->out_chips[c].vals);
 #endif
 	if (retval < 0){
-	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to register output pin collection");
+	    stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Failed to register output pin collection");
 	    goto fail0;
 	}
 
@@ -484,7 +484,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(gpio->out_chips[c].hal[i].value), inst->comp_id, "hal_gpio.%s-out", line_name);
 	}
 	if (retval < 0){
-	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to allocate GPIO output HAL pins");
+	    stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Failed to allocate GPIO output HAL pins");
 	    goto fail0;
 	}
     }
@@ -501,7 +501,7 @@ stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	retval += hal->export_funct(hal->ctx, hal_name, hal_gpio_reset, inst, 0, 0, inst->comp_id);
     }
     if (retval < 0){
-	stmak_log_errorf(inst->log, "hal_gpio", "failed to export functions");
+	stmak_logf(inst->log, "hal_gpio", STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to export functions");
 	goto fail0;
     }
     hal->ready(hal->ctx, inst->comp_id);

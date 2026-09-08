@@ -1,0 +1,64 @@
+999
+pnptask test fixture: 600x500 outer limit with a dead zone in the MACHINE-frame
+999
+corridor between the tray row and the press for a picker with x-offset 40 —
+999
+and clear of the pick-point corridor, so a route planned in the wrong frame
+999
+runs straight through it (TestTravelPlansInMachineFrame).
+0
+SECTION
+2
+ENTITIES
+0
+LWPOLYLINE
+8
+Outer Limits
+90
+4
+70
+1
+10
+0.0
+20
+0.0
+10
+600.0
+20
+0.0
+10
+600.0
+20
+500.0
+10
+0.0
+20
+500.0
+0
+LWPOLYLINE
+8
+deadzones
+90
+4
+70
+1
+10
+100.0
+20
+250.0
+10
+135.0
+20
+250.0
+10
+135.0
+20
+350.0
+10
+100.0
+20
+350.0
+0
+ENDSEC
+0
+EOF

@@ -1629,7 +1629,7 @@ int New(const cmod_env_t *env, const char *name,
     // Look up hm2_core API from hostmot2 module.
     inst->core = hm2_core_api_get(env->api, "hostmot2");
     if (!inst->core) {
-        stmak_log_errorf(log, name, "hm2_eth: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hm2_eth: hostmot2 core API not found (is hostmot2 loaded?)\n");
         inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
         return -1;
     }

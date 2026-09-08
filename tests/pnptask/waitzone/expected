@@ -1,0 +1,18 @@
+PASS the job stopped just clear of the enclosure it may not enter
+PASS the job is still running while it waits
+PASS the picker holds its material through the wait
+PASS nothing was placed into the busy station
+PASS the machine stands still while the station is busy
+PASS the last leg drives into the once-blocked station
+PASS the station holds the part
+PASS the stop at the wait position was counted
+PASS the station is emptied back into the tray
+PASS the job that never had to wait
+PASS the station holds the part
+PASS the approach did not stop, so nothing was counted
+PASS the station is emptied back into the tray
+PASS clearing in the wrong scene is WAIT_SCENE_MISMATCH
+PASS the picker still holds the material
+PASS the head never entered the enclosure
+PASS it stands where it stopped, clear of the zone
+ALL OK

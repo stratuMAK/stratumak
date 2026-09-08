@@ -171,7 +171,7 @@ FUNCTION(_) {
         // require an enable_in 0-->1 transition to advance to READY
         if (enable_in) {
             if (!messaged) {
-                STMAK_LOG_ERR(
+                STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, 
                 "eoffset_per_angle: active enable-in not honored at start");
                 messaged = 1;
             }
@@ -264,7 +264,7 @@ FUNCTION(_) {
         dptr->ovalue = 0;
         kcounts      = 0; eoffset_dbg = 0;
         STATE        = STOPPING;
-        STMAK_LOG_ERR(
+        STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, 
              "eoffset_per_angle stopping:func%d problem\n",fnum);
         return;
     }

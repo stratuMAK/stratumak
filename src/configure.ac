@@ -1520,6 +1520,7 @@ HAVE_EMCCALIB=no
 HAVE_HALJSON=no
 HAVE_NGCPREVIEW=no
 HAVE_MILLTASK_GO=no
+HAVE_PNPTASK_GO=no
 HAVE_MQTTBRIDGE=no
 HAVE_PYVCP=no
 HAVE_TASKTEST=no
@@ -1583,6 +1584,14 @@ if test "x$HAVE_GOLANG" = "xyes"; then
         HAVE_MILLTASK_GO=yes
     fi
 
+    AC_ARG_ENABLE([pnptask-go],
+        AS_HELP_STRING([--enable-pnptask-go], [Build Go pick-and-place task module (default: yes)]),
+        [enable_pnptask_go=$enableval],
+        [enable_pnptask_go=yes])
+    if test "x$enable_pnptask_go" = "xyes"; then
+        HAVE_PNPTASK_GO=yes
+    fi
+
     AC_ARG_ENABLE([mqttbridge],
         AS_HELP_STRING([--enable-mqttbridge], [Build MQTT bridge Go module (default: yes)]),
         [enable_mqttbridge=$enableval],
@@ -1631,6 +1640,7 @@ AC_SUBST([HAVE_EMCCALIB])
 AC_SUBST([HAVE_HALJSON])
 AC_SUBST([HAVE_NGCPREVIEW])
 AC_SUBST([HAVE_MILLTASK_GO])
+AC_SUBST([HAVE_PNPTASK_GO])
 AC_SUBST([HAVE_MQTTBRIDGE])
 AC_SUBST([HAVE_PYVCP])
 AC_SUBST([HAVE_TASKTEST])
@@ -1780,6 +1790,7 @@ echo "    ADS server module:          $HAVE_ADSSERVER"
 echo "    HAL oscilloscope module:    $HAVE_HALSCOPE"
 echo "    Classic Ladder PLC module:  $HAVE_CLASSICLADDER"
 echo "    Go milltask module:         $HAVE_MILLTASK_GO"
+echo "    Go pnptask module:          $HAVE_PNPTASK_GO"
 echo "    MQTT bridge module:         $HAVE_MQTTBRIDGE"
 echo "    PyVCP module:               $HAVE_PYVCP"
 echo "    Task test module:           $HAVE_TASKTEST"

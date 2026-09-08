@@ -7,9 +7,11 @@ import (
 	"sync"
 )
 
-// LogErrorFunc is called when a C module emits an ERROR-level log message.
-// component is the module instance name (e.g. "motmod"), msg is the text.
-type LogErrorFunc func(component, msg string)
+// LogErrorFunc is called when a C module emits a message marked for the
+// operator (STMAK_LOG_OPER). component is the module instance name (e.g.
+// "motmod"), msg is the text, severity is the message's own level
+// (STMAK_LOG_INFO/WARN/ERROR) so the receiver can tell a fault from a notice.
+type LogErrorFunc func(component, msg string, severity int)
 
 // logHook pairs a registered callback with the id used to unregister it.
 type logHook struct {
@@ -23,10 +25,14 @@ var (
 	nextHookID uint64
 )
 
-// OnLogError registers a callback invoked for every ERROR-level log message from
-// C modules, and returns an unregister function that removes it. Used by
-// milltask to forward motion error messages (like "joint N following error") to
-// the operator message list, matching the old reportError() → error buffer path.
+// OnLogError registers a callback invoked for every C-module log message marked
+// STMAK_LOG_OPER, and returns an unregister function that removes it. Used by
+// milltask to forward them to the operator message list, matching the old
+// reportError() → error buffer path.
+//
+// The mark is explicit at the call site rather than inferred from severity: an
+// error the operator can do nothing with should stay in the log, and a notice
+// worth showing them ("batch finished") is not an error.
 //
 // A module that registers a hook MUST call the returned unregister function when
 // it is torn down (Stop/Destroy). The registry is a process-global with no owner;
@@ -63,24 +69,24 @@ func removeLogHook(id uint64) {
 // so a panic in any hook would otherwise take down the whole process (and the
 // log drain with it). Each hook call is therefore isolated: a panicking hook is
 // recovered and reported, and the remaining hooks still run.
-func NotifyLogError(component, msg string) {
+func NotifyOperatorMessage(component, msg string, severity int) {
 	hookMu.RLock()
 	defer hookMu.RUnlock()
 	for _, h := range logHooks {
-		callLogHook(h.fn, component, msg)
+		callLogHook(h.fn, component, msg, severity)
 	}
 }
 
 // callLogHook invokes one hook with panic isolation so a buggy or racing hook
 // cannot kill the drain goroutine.
-func callLogHook(fn LogErrorFunc, component, msg string) {
+func callLogHook(fn LogErrorFunc, component, msg string, severity int) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("stratuMAK: log-error hook panicked",
 				"panic", r, "component", component, "msg", msg)
 		}
 	}()
-	fn(component, msg)
+	fn(component, msg, severity)
 }
 
 // resetLogHooks clears all registered hooks. Test-only: even with the unregister

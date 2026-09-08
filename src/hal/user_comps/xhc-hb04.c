@@ -172,7 +172,7 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
                                                    inst->button_cfg_file,
                                                    STMAK_PATH_READ, &reserr);
     if (!cfgpath) {
-        stmak_log_errorf(inst->env->log, "xhc-hb04",
+        stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "button config %s: %s\n", inst->button_cfg_file,
             reserr ? reserr : "cannot be resolved");
         return -1;
@@ -180,7 +180,7 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
 
     FILE *fd = fopen(cfgpath, "r");
     if (!fd) {
-        stmak_log_errorf(inst->env->log, "xhc-hb04",
+        stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "cannot open button config: %s\n", cfgpath);
         return -1;
     }
@@ -191,7 +191,7 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
            (bt = ini_find(fd, "BUTTON", "XHC-HB04", nb_buttons + 1)) != NULL) {
         if (sscanf(bt, "%x:%255s", &inst->xhc.buttons[nb_buttons].code,
                    inst->xhc.buttons[nb_buttons].pin_name) != 2) {
-            stmak_log_errorf(inst->env->log, "xhc-hb04",
+            stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "button config syntax error: %s\n", bt);
             fclose(fd);
             return -1;
@@ -479,7 +479,7 @@ static void *xhc_hb04_loop(void *arg) {
 
         int r = libusb_init(&ctx);
         if (r < 0) {
-            stmak_log_errorf(inst->env->log, "xhc-hb04", "libusb_init failed\n");
+            stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER, "libusb_init failed\n");
             break;
         }
 
@@ -498,7 +498,7 @@ static void *xhc_hb04_loop(void *arg) {
                 poll(&pfd, 1, 1000);
                 wait_count++;
                 if (inst->wait_for_pendant && wait_count > 10) {
-                    stmak_log_errorf(inst->env->log, "xhc-hb04",
+                    stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "pendant not found, timeout\n");
                     libusb_exit(ctx);
                     return NULL;
@@ -519,7 +519,7 @@ static void *xhc_hb04_loop(void *arg) {
 
             r = libusb_claim_interface(dev_handle, 0);
             if (r < 0) {
-                stmak_log_errorf(inst->env->log, "xhc-hb04",
+                stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "libusb_claim_interface failed: %s\n", libusb_strerror(r));
                 libusb_close(dev_handle);
                 libusb_exit(ctx);

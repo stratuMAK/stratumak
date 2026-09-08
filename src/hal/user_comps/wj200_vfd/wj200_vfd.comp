@@ -152,7 +152,7 @@ bool wj200_getStatus(modbus_t* ctx, wj200_status* status)
 
 void print_modbus_error(inst_t *__comp_inst, const char* msg)
 {
-	STMAK_LOG_ERR(
+	STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, 
 		"slave(%d): %s - Modbus error (%d) -  %s\n",
 		mbslaveaddr,
 		msg,
@@ -175,14 +175,14 @@ EXTRA_SETUP() {
 
 	data.ctx = modbus_new_rtu(dev, baud, par, databits, stopbits);
 	if (data.ctx == NULL) {
-		STMAK_LOG_ERR("unable to create libmodbus context for %s - %s\n",
+		STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "unable to create libmodbus context for %s - %s\n",
 			dev, modbus_strerror(errno));
 		data.init_error = 1;
 		return -1;
 	}
 
 	if (modbus_connect(data.ctx)) {
-		STMAK_LOG_ERR("unable to connect to %s - %s\n",
+		STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "unable to connect to %s - %s\n",
 			dev, modbus_strerror(errno));
 		modbus_free(data.ctx);
 		data.ctx = NULL;

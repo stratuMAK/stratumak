@@ -58,14 +58,14 @@ int lcec_read_sdo(struct lcec_slave *slave, uint16_t index, uint8_t subindex, ui
   uint32_t abort_code;
 
   if ((err = ecrt_master_sdo_upload(master->master, slave->index, index, subindex, target, size, &result_size, &abort_code))) {
-    stmak_log_errorf(master->rt_ctx->env->log, master->instance_name,
+    stmak_logf(master->rt_ctx->env->log, master->instance_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
       "slave %s.%s: Failed to execute SDO upload (0x%04x:0x%02x, error %d, abort_code %08x)",
       master->name, slave->name, index, subindex, err, abort_code);
     return -1;
   }
 
   if (result_size != size) {
-    stmak_log_errorf(master->rt_ctx->env->log, master->instance_name,
+    stmak_logf(master->rt_ctx->env->log, master->instance_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
       "slave %s.%s: Invalid result size on SDO upload (0x%04x:0x%02x, req: %u, res: %u)",
       master->name, slave->name, index, subindex, (unsigned int) size, (unsigned int) result_size);
     return -1;
@@ -104,14 +104,14 @@ int lcec_read_idn(struct lcec_slave *slave, uint8_t drive_no, uint16_t idn, uint
   uint16_t error_code;
 
   if ((err = ecrt_master_read_idn(master->master, slave->index, drive_no, idn, target, size, &result_size, &error_code))) {
-    stmak_log_errorf(master->rt_ctx->env->log, master->instance_name,
+    stmak_logf(master->rt_ctx->env->log, master->instance_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
       "slave %s.%s: Failed to execute IDN read (drive %u idn %c-%u-%u, error %d, error_code %08x)",
       master->name, slave->name, drive_no, (idn & 0x8000) ? 'P' : 'S', (idn >> 12) & 0x0007, idn & 0x0fff, err, error_code);
     return -1;
   }
 
   if (result_size != size) {
-    stmak_log_errorf(master->rt_ctx->env->log, master->instance_name,
+    stmak_logf(master->rt_ctx->env->log, master->instance_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
       "slave %s.%s: Invalid result size on IDN read (drive %u idn %c-%d-%d, req: %u, res: %u)",
       master->name, slave->name, drive_no, (idn & 0x8000) ? 'P' : 'S', (idn >> 12) & 0x0007, idn & 0x0fff, (unsigned int) size, (unsigned int) result_size);
     return -1;
@@ -144,13 +144,13 @@ int lcec_pin_newfv(const cmod_env_t *env, int comp_id, stmak_hal_type_t type, in
 
   sz = vsnprintf(name, sizeof(name), fmt, ap);
   if(sz == -1 || sz > STMAK_HAL_NAME_LEN) {
-    stmak_log_errorf(env->log, "ethercat", "length %d too long for name starting '%s'", sz, name);
+    stmak_logf(env->log, "ethercat", STMAK_LOG_ERROR | STMAK_LOG_OPER, "length %d too long for name starting '%s'", sz, name);
     return -ENOMEM;
   }
 
   err = env->hal->pin_new(env->hal->ctx, name, type, dir, data_ptr_addr, comp_id);
   if (err) {
-    stmak_log_errorf(env->log, "ethercat", "exporting pin %s failed", name);
+    stmak_logf(env->log, "ethercat", STMAK_LOG_ERROR | STMAK_LOG_OPER, "exporting pin %s failed", name);
     return err;
   }
 
@@ -278,13 +278,13 @@ int lcec_param_newfv(const cmod_env_t *env, int comp_id, stmak_hal_type_t type, 
 
   sz = vsnprintf(name, sizeof(name), fmt, ap);
   if(sz == -1 || sz > STMAK_HAL_NAME_LEN) {
-    stmak_log_errorf(env->log, "ethercat", "length %d too long for name starting '%s'", sz, name);
+    stmak_logf(env->log, "ethercat", STMAK_LOG_ERROR | STMAK_LOG_OPER, "length %d too long for name starting '%s'", sz, name);
     return -ENOMEM;
   }
 
   err = env->hal->param_new(env->hal->ctx, name, type, dir, data_addr, comp_id);
   if (err) {
-    stmak_log_errorf(env->log, "ethercat", "exporting param %s failed", name);
+    stmak_logf(env->log, "ethercat", STMAK_LOG_ERROR | STMAK_LOG_OPER, "exporting param %s failed", name);
     return err;
   }
 
@@ -514,7 +514,7 @@ void lcec_syncs_init(lcec_syncs_t *syncs, struct lcec_master *master) {
  */
 void lcec_syncs_add_sync(lcec_syncs_t *syncs, ec_direction_t dir, ec_watchdog_mode_t watchdog_mode) {
   if (syncs->sync_count >= LCEC_MAX_SYNC_COUNT) {
-    stmak_log_errorf(syncs->log, syncs->comp_name, "too many syncs (max %d)", LCEC_MAX_SYNC_COUNT);
+    stmak_logf(syncs->log, syncs->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "too many syncs (max %d)", LCEC_MAX_SYNC_COUNT);
     syncs->overflow = 1;
     return;
   }
@@ -549,7 +549,7 @@ void lcec_syncs_add_sync(lcec_syncs_t *syncs, ec_direction_t dir, ec_watchdog_mo
  */
 void lcec_syncs_add_pdo_info(lcec_syncs_t *syncs, uint16_t index) {
   if (syncs->pdo_info_count >= LCEC_MAX_PDO_INFO_COUNT) {
-    stmak_log_errorf(syncs->log, syncs->comp_name, "too many PDO infos (max %d)", LCEC_MAX_PDO_INFO_COUNT);
+    stmak_logf(syncs->log, syncs->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "too many PDO infos (max %d)", LCEC_MAX_PDO_INFO_COUNT);
     syncs->overflow = 1;
     return;
   }
@@ -586,7 +586,7 @@ void lcec_syncs_add_pdo_info(lcec_syncs_t *syncs, uint16_t index) {
  */
 void lcec_syncs_add_pdo_entry(lcec_syncs_t *syncs, uint16_t index, uint8_t subindex, uint8_t bit_length) {
   if (syncs->pdo_entry_count >= LCEC_MAX_PDO_ENTRY_COUNT) {
-    stmak_log_errorf(syncs->log, syncs->comp_name, "too many PDO entries (max %d)", LCEC_MAX_PDO_ENTRY_COUNT);
+    stmak_logf(syncs->log, syncs->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "too many PDO entries (max %d)", LCEC_MAX_PDO_ENTRY_COUNT);
     syncs->overflow = 1;
     return;
   }
