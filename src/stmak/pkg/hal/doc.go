@@ -19,7 +19,7 @@ all data in shared memory, enabling efficient communication between components.
 The typical flow for a HAL component is:
 
  1. Create a component with NewComponent()
- 2. Create pins with NewPin[T]()
+ 2. Create pins with NewPin[T]() and parameters with NewParam[T]()
  3. Mark the component ready with Ready()
  4. Read and write pins as data flows through HAL
  5. Release the component with Exit() when it is torn down
@@ -98,6 +98,77 @@ Pins have a direction that specifies how data flows:
   - Out: Component writes the pin value (output)
   - IO: Component can both read and write (bidirectional)
 
+# Parameters
+
+A parameter is a value that lives inside a component but may need to be
+inspected or adjusted from outside it. Unlike a pin it is never linked to a
+signal and never carries data between components — reach for a parameter when a
+value is a tuning knob or a diagnostic view, and for a pin when it has to be
+wired.
+
+Parameters are created with the generic NewParam[T]() and support the four
+scalar HAL types (bool, float64, int32, uint32); there is no string parameter,
+because HAL has no HAL_PORT parameter type. Their direction describes access
+from outside only — the owning component always writes its own parameters with
+Set():
+
+  - RO: read-only from outside; "halcmd setp" is refused
+  - RW: writable from outside with "halcmd setp"
+
+Like pins, parameters must be created before Ready(). A new parameter starts at
+the zero value of T, so the component loads its configured default (typically
+from INI) before marking itself ready:
+
+	settle, _ := hal.NewParam[float64](comp, "settle-time", hal.RW)
+	settle.Set(iniSettleTime)            // initial value
+	// ... later, per cycle: an operator may have retuned it with
+	//     halcmd setp mycomp.settle-time 0.25
+	dwell := settle.Get()
+
+# Realtime Functions
+
+A Go module that needs one cyclic function no longer has to be a C module. It
+contains a C function and registers it — the function itself is C and calls no
+Go, which is what keeps the invariant recorded in
+docs/dev/RT_HARDENING_CHECKLIST.md §0 ("the RT cycle dispatches only C function
+pointers — no Go in the cycle by construction") true by construction rather than
+by convention. Three pieces make that up:
+
+  - NewRTComponent, because HAL only accepts a cyclic function from a
+    COMPONENT_TYPE_REALTIME component.
+  - Component.ExportFunct, which takes a CFunct — the address of a C function —
+    and deliberately offers no overload taking a Go func.
+  - RTCalloc / RTFree, the RT-hardened allocator, for the structure the cyclic
+    function walks. Pin.RTDataPtr hands that structure a pin to publish on.
+
+The division of labour is the one the EtherCAT driver already uses: the
+high-level work happens once at init, in whatever language suits it, and
+assembles a flat structure; the cyclic function then walks that structure and
+nothing else. Sketch:
+
+	// The factory. addf lines run after every load and before any Start, so
+	// the export belongs here — as it does in a cmod's New().
+	comp, err := hal.NewRTComponent(name)
+	free, err := hal.NewPin[bool](comp, "clear", hal.Out)
+
+	scene := hal.RTCalloc(sizeOfScene)      // never Go memory
+	fillFromGo(scene, zones)                // copies; stores no Go pointer
+	setOutputPin(scene, free.RTDataPtr())
+
+	fn := hal.CFunct(unsafe.Pointer(C.my_funct_fp))
+	usesFP, reentrant := true, false
+	err = comp.ExportFunct("check", fn, scene, usesFP, reentrant)
+	err = comp.Ready()
+
+	// Destroy — and only Destroy, which runs after the launcher's RT barrier.
+	_ = comp.Exit()
+	hal.RTFree(scene)
+
+See CFunct for where the C must live (a real .c file, added to
+"make rt-effects-check" in the same change) and ExportFunct for the teardown
+contract. The full design, including why a cgo call into Go from the servo
+thread is not an option, is docs/dev/GOMOD_RT_DESIGN.md.
+
 # Build Requirements
 
 This package uses CGO to interface with the LinuxCNC HAL library. To build
@@ -114,6 +185,7 @@ HAL components written in Go integrate seamlessly with the rest of LinuxCNC:
   - Use 'halcmd show comp' to see loaded components
   - Use 'halcmd show pin' to see exported pins
   - Use 'halcmd net' to connect pins to signals
+  - Use 'halcmd show param' / 'halcmd setp' to inspect and tune parameters
 
 # Lifecycle and Shutdown
 

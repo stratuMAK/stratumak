@@ -138,7 +138,7 @@ int axis_init_hal_io(axis_inst_t *ai, const stmak_hal_t *hal, const stmak_log_t 
     ai->log = log;
     ai->hal_data = hal->malloc(hal->ctx, sizeof(axis_hal_data_t));
     if (!ai->hal_data) {
-        stmak_log_errorf(log, "motmod", "MOTION: axis_hal_data hal_malloc() failed");
+        stmak_logf(log, "motmod", STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: axis_hal_data hal_malloc() failed");
         return -1;
     }
 
@@ -162,7 +162,7 @@ int axis_init_hal_io(axis_inst_t *ai, const stmak_hal_t *hal, const stmak_log_t 
 
         retval = export_axis(hal, comp_id, c, axis_data, P);
         if (retval) {
-            stmak_log_errorf(log, "motmod", "MOTION: axis %c pin/param export failed", c);
+            stmak_logf(log, "motmod", STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: axis %c pin/param export failed", c);
             return -1;
         }
     }
@@ -418,7 +418,7 @@ void axis_handle_jogwheels(axis_inst_t *ai, bool motion_teleop_flag, bool motion
         if (axis->kb_ajog_active)             { continue; }
 
         if (axis->locking_joint >= 0) {
-            stmak_log_errorf(ai->log, "motmod",
+            stmak_logf(ai->log, "motmod", STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot wheel jog a locking indexer AXIS_%c",
             "XYZABCUVW"[axis_num]);
             continue;
@@ -653,15 +653,23 @@ static int update_teleop_with_check(axis_inst_t *ai, int axis_num, simple_tp_t *
     if  ( (0 == axis->max_pos_limit) && (0 == axis->min_pos_limit) ) {
         return 0;
     }
-    if  ( (axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos)
-          >= axis->max_pos_limit) {
+    // Undo an update that carries the axis *further* out, not every update made
+    // while it is out. An axis can be outside its limits without having been
+    // driven there -- an operator can push any joint whose amps are off -- and
+    // undoing the move back in as well leaves it frozen in place, recoverable
+    // only by unhoming and rehoming. Which way the update went is the whole
+    // question, so it is measured rather than inferred from where the axis
+    // ended up: delta is what this planner just contributed.
+    double sum = axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos;
+    double delta = the_tp->curr_pos - save_curr_pos;
+
+    if  ( sum >= axis->max_pos_limit && delta > 0) {
         // positive error, restore save_curr_pos
         the_tp->curr_pos = save_curr_pos;
         the_tp->curr_vel = 0;
         return 1;
     }
-    if  ( (axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos)
-           <= axis->min_pos_limit) {
+    if  ( sum <= axis->min_pos_limit && delta < 0) {
         // negative error, restore save_curr_pos
         the_tp->curr_pos = save_curr_pos;
         the_tp->curr_vel = 0;

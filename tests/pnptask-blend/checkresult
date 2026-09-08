@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Velocity at the leg boundary, from the servo-rate capture.
+
+The boundary is at a known coordinate, so the answer is the minimum velocity in
+a tight band around it -- no run-splitting heuristics, which is what produced
+false readings here before. The acceleration ramp at the start of the approach
+and the Z stroke at the end both fall outside the band by construction.
+
+The approach is collinear from end to end, so a boundary that blends costs
+nothing: anything below cruise is the join, and a reading near zero is the head
+stopping dead at the wait position with the second leg already queued.
+"""
+import sys, os
+
+import configparser
+WAIT_X, BAND = -600.0, 10.0
+CRUISE = 50.0
+for ln in open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "blend.ini")):
+    if ln.startswith("MOVE_VEL"): CRUISE = float(ln.split("=")[1])
+FLOOR = 0.90                       # of cruise; below this the join cost speed
+
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
+band = []
+for line in open(os.path.join(here, 'vel.txt')):
+    p = line.split()
+    if len(p) >= 3:
+        v, x = float(p[0]), float(p[1])
+        # The cap excludes the homing pass, which crosses the same coordinate at
+        # the axis maximum rather than at MOVE_VEL.
+        if abs(x - WAIT_X) <= BAND and v <= CRUISE * 1.2:
+            band.append(v)
+
+if not band:
+    print("FAIL no samples within %g mm of the wait position" % BAND)
+    sys.exit(1)
+
+vmin = min(band)
+held = 100.0 * vmin / CRUISE
+if vmin < FLOOR * CRUISE:
+    print("FAIL the leg boundary cost speed: %.3f of %.1f mm/s (%.0f%% held)"
+          % (vmin, CRUISE, held))
+    sys.exit(1)
+print("PASS the leg boundary held speed: %.3f of %.1f mm/s (%.0f%% held)"
+      % (vmin, CRUISE, held))
+print("ALL OK")

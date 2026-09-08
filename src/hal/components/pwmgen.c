@@ -227,7 +227,7 @@ int New(const cmod_env_t *env, const char *name,
             output_type = atoi(argv[i] + 12);
     }
     if (output_type < 0 || output_type > 2) {
-        stmak_log_errorf(env->log, name, "output_type=%d out of range (0..2)", output_type);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "output_type=%d out of range (0..2)", output_type);
         return -EINVAL;
     }
 

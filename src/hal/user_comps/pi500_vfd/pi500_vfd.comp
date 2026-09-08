@@ -144,7 +144,7 @@ bool pi500_getStatus(modbus_t* ctx, pi500_status* status)
 
 void print_modbus_error(inst_t *__comp_inst, const char* msg)
 {
-	STMAK_LOG_ERR(
+	STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, 
 		"slave(%d): %s - Modbus error (%d) -  %s\n",
 		mbslaveaddr,
 		msg,
@@ -159,7 +159,7 @@ EXTRA_SETUP()
 	char par = parity && parity[0] ? toupper(parity[0]) : 'N';
 
 	if (par != 'E' && par != 'O' && par != 'N') {
-		STMAK_LOG_ERR("Invalid parity '%s', must be 'E', 'O', or 'N'\n", parity);
+		STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "Invalid parity '%s', must be 'E', 'O', or 'N'\n", parity);
 		data.init_error = 1;
 		return 0;
 	}
@@ -167,15 +167,15 @@ EXTRA_SETUP()
 	data.ctx = modbus_new_rtu(dev, baud, par, databits, stopbits);
 
 	if (data.ctx == NULL) {
-		STMAK_LOG_ERR("unable to create libmodbus context. - %s\n",
+		STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "unable to create libmodbus context. - %s\n",
 			modbus_strerror(errno));
-		STMAK_LOG_ERR("Check your commandline!\n");
+		STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "Check your commandline!\n");
 		data.init_error = 1;
 		return 0;
 	}
 		
 	if (modbus_connect(data.ctx)) {
-		STMAK_LOG_ERR("unable to create libmodbus connection. - %s\n",
+		STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "unable to create libmodbus connection. - %s\n",
 			modbus_strerror(errno));
 		data.init_error = 1;
 		return 0;

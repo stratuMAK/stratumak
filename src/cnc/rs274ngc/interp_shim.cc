@@ -41,9 +41,31 @@ void interp_shim_set_ini_accessor(interp_handle_t *h,
     }
 }
 
+// Preview never EXECUTES a user-defined M-code: it has no HAL, no machine and
+// no handler registry.  But refusing to READ one is a different thing, and
+// that is what happens by default -- convert_m rejects any M100-M199 whose
+// slot is empty (interp_convert.cc, NCE_UNKNOWN_M_CODE_USED), so a program
+// that uses them cannot be previewed at all.  A machine whose whole workflow
+// runs through M-code handlers therefore cannot show a toolpath.
+//
+// A no-op in every slot lets the preview walk the program.  What the program
+// then reads back from #5399 is 0, because that is what the preview canon's
+// get_user_defined_result reports -- and a program that branches on it takes
+// its "simulation" path, which is exactly what a preview should show.
+static void shim_user_defined_noop(int num, double arg1, double arg2) {
+    (void)num; (void)arg1; (void)arg2;
+}
+
 int interp_shim_init(interp_handle_t *h) {
     if (!h || !h->interp) return INTERP_SHIM_ERROR;
-    return h->interp->init();
+    int rc = h->interp->init();
+    // After init(), not before: init() clears the table (interp_setup.cc).
+    if (rc == INTERP_OK) {
+        for (int i = 0; i < USER_DEFINED_FUNCTION_NUM; i++) {
+            h->interp->_setup.user_defined_function[i] = shim_user_defined_noop;
+        }
+    }
+    return rc;
 }
 
 int interp_shim_open(interp_handle_t *h, const char *filename) {

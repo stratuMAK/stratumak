@@ -6,7 +6,7 @@
 @api mot
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 1
+@version 2
 @prefix mot
 @rest_export false
 
@@ -137,6 +137,22 @@ func status_get_enables_new() -> u8
 @doc "Get commanded spindle speed for a given spindle"
 @rt_safe "true"
 func status_get_spindle_speed(spindle: i32) -> f64
+
+# The RT-side Cartesian feedback position. control.c runs the forward
+# kinematics on joint->pos_fb into status->carte_pos_fb every servo cycle, so a
+# cyclic function that needs a machine point reads it here instead of
+# recomputing it — and instead of reaching for motstat, which is the non-RT
+# snapshot interface (its h_get_pos_fb takes the reader mutex and copies the
+# whole emcmot_status_t; @rt_safe on it would be a false claim that
+# -Wfunction-effects would reject).
+#
+# The return value is carte_pos_fb_ok: 0 when the feedback means something,
+# -EINVAL when it does not (joints not all homed on a non-identity kinematics).
+# A caller that gates an interlock on the position MUST honour it and fail
+# towards "the machine might be in there" — pos is left untouched in that case.
+@doc "Get actual Cartesian position (RT-side, no snapshot)"
+@rt_safe "true"
+func status_get_carte_pos_fb(pos: Pose out) -> i32
 
 # ─── Status setters (emcmot_status_t fields, write) ───
 

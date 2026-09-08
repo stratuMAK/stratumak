@@ -1,0 +1,23 @@
+PASS job 10 -> 20 fills the empty press
+PASS the press holds part A
+PASS both pickers are empty afterwards
+PASS job 10 -> 20 into the occupied press swaps
+PASS the press holds part B — it never stood empty
+PASS one picker came away with the part it took out
+PASS a job from anywhere else is refused with ALT_PICKER_SEQUENCE
+PASS job 20 -> 21 places the held part with no pick
+PASS the test station holds part A
+PASS the press still holds part B
+PASS both pickers are free again
+PASS job 10 -> 20 swaps part B out for part C
+PASS a picker holds part B
+PASS job 20 -> 21 swaps part A out of the test station and puts part B in
+PASS the test station holds part B
+PASS a picker holds part A, taken out of station 21
+PASS the obligation moved with it: only a job from 21 is accepted now
+PASS job 21 -> 11 carries part A to the output tray
+PASS the output tray took it
+PASS the test station kept part B
+PASS no picker is loaded any more
+PASS with no obligation standing, any job runs again
+ALL OK

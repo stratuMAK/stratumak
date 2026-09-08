@@ -1,0 +1,22 @@
+PASS the machine enabled itself from the held machine-on
+PASS no error is latched at startup
+PASS the joints start unhomed
+PASS the module starts idle
+PASS the component tray starts empty with free slots
+PASS set-full filled every slot of the component tray
+PASS the tray -> press job completed without an error
+PASS the first job homed the machine on its own (AUTOHOME = 1)
+PASS the press holds the part
+PASS the component tray gave up a slot
+PASS the handshake completed
+PASS the error flag stayed low
+PASS picker 0 is no longer holding anything
+PASS picker 0's close output is low again
+PASS plan-time reported the job's planning latency
+PASS planning stayed inside the 100 ms budget (D13)
+PASS the press -> output tray job completed without an error
+PASS the press is empty again
+PASS the single-position output tray took the part
+PASS plan-time was re-measured for the second job
+PASS a job into a full tray is refused with TRAY_FULL
+ALL OK

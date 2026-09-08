@@ -231,7 +231,7 @@ static int do_pending(hm2_spi_t *this) STMAK_NONBLOCKING {
     }
     int r = spi_ioc_message(this->fd, &t);
     if(r < 0) {
-        stmak_log_errorf(hm2_log, HM2_LLIO_NAME,             "hm2_spi: SPI_IOC_MESSAGE: %s\n", hm2_rt_strerror());
+        stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,             "hm2_spi: SPI_IOC_MESSAGE: %s\n", hm2_rt_strerror());
         this->nbuf = 0;
         return -hm2_rt_errno();
     }
@@ -394,8 +394,8 @@ static int check_cookie(hm2_spi_t *board) {
     if(r < 0) return -errno;
 
     if(memcmp(cookie, xcookie, sizeof(cookie))) {
-        stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "Invalid cookie\n");
-        stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "Read: %08x %08x %08x %08x\n",
+        stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Invalid cookie\n");
+        stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Read: %08x %08x %08x %08x\n",
             cookie[0], cookie[1], cookie[2], cookie[3]);
         return -ENODEV;
     }
@@ -471,7 +471,7 @@ static int probe(hm2_spi_inst_t *inst, char *dev, int rate) {
         int i=0;
         for(i=0; (size_t)i<sizeof(ident); i++)
             if(!isprint(ident[i])) ident[i] = '?';
-        stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "Unknown board: %.8s\n", ident);
+        stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Unknown board: %.8s\n", ident);
         goto fail;
     }
 
@@ -541,7 +541,7 @@ int New(const cmod_env_t *env, const char *name,
 
     inst->core = hm2_core_api_get(env->api, "hostmot2");
     if (!inst->core) {
-        stmak_log_errorf(env->log, name, "hm2_spi: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hm2_spi: hostmot2 core API not found (is hostmot2 loaded?)\n");
         free(inst);
         return -1;
     }

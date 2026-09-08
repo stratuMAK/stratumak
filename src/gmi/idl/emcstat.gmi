@@ -173,6 +173,12 @@ type StatTaskInfo {
     delay_left: f64         # seconds remaining in a G4 dwell
     call_level: i32         # interpreter subroutine nesting (0 = top level)
     input_timeout: i32      # M66 wait: 0=none/cleared, 1=timed out, 2=waiting
+    # Interlocks refusing AUTO / MDI before anything starts, mirroring the
+    # halui auto-inhibit and mdi-inhibit pins. Published so a UI can disable
+    # the controls rather than offer a button whose command will be refused:
+    # AXIS decides what to grey out from this buffer and reads no HAL pins.
+    auto_inhibit: bool
+    mdi_inhibit: bool
 }
 
 type StatMotionInfo {

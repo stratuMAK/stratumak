@@ -1,0 +1,15 @@
+PASS a hand on a disabled axis is not reported as a soft-limit fault
+PASS the on-soft-limit pin reports the pushed-out machine while off
+PASS the machine switches on with a joint outside its limits
+PASS the axis really is outside its soft limit
+PASS jogging back toward the valid range moves the axis
+PASS the recovery jog re-enters the limit without a velocity step
+PASS no motion error is raised on the re-entry
+PASS the on-soft-limit pin clears once, on the re-entry, and stays clear
+PASS jogging toward the limit stops at it
+PASS tightening the joint limit under the machine reports the trip
+PASS a jog is stopped by the RT backstop when the trip is joint-frame
+PASS restoring the joint limit gives the jogs back
+PASS a joint-frame trip on Y is stopped while X sits outside its axis limits
+PASS the jog back in is not aborted over an external offset in the recovery direction
+ALL OK

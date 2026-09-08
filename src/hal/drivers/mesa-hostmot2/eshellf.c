@@ -60,7 +60,7 @@ int eshellf(const char *errpfx, const char *fmt, ...)
 	if(res == EXIT_SUCCESS)
 		return 0;
 
-	stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "%s: ERROR: Failed to execute '%s'\n", errpfx ? errpfx : "eshellf()", commandbuf);
+	stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s: ERROR: Failed to execute '%s'\n", errpfx ? errpfx : "eshellf()", commandbuf);
 	return -EINVAL;
 }
 

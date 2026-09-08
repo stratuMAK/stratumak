@@ -120,7 +120,7 @@ int New(const cmod_env_t *env, const char *name,
     (void)argc; (void)argv;
 
     if (!env->hal) {
-        stmak_log_errorf(env->log, name, "HAL API not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
@@ -149,7 +149,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &tripodkins_callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "failed to register kinematics API: %d", rc);
         goto fail;
     }

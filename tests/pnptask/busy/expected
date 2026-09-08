@@ -1,0 +1,17 @@
+PASS the job parked at the station's wait position
+PASS the job is still running while it waits
+PASS the picker holds its material through the wait
+PASS the gripper really has the part
+PASS nothing was placed into the busy station
+PASS the machine stands still while the station is busy
+PASS the job finishes once busy clears
+PASS the press holds the part
+PASS the press is emptied again
+PASS auto-enable going low aborts the wait with WAIT_ABORTED
+PASS the picker keeps holding the material for manual handling
+PASS the part is still physically gripped
+PASS the station never received it
+PASS re-commanding the job places the held material
+PASS the press holds it, with no second pick
+PASS no close happened at the tray — the pick was skipped
+ALL OK

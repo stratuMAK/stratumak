@@ -645,41 +645,21 @@ func TestMonitor_SoftLimit(t *testing.T) {
 
 	// Trigger soft limit.
 	stat.setSoftLimit()
+	time.Sleep(50 * time.Millisecond)
 
-	// Wait for operator error.
-	deadline := time.Now().Add(50 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if errs := ep.getErrors(); len(errs) > 0 {
-			break
-		}
-		time.Sleep(2 * time.Millisecond)
+	// The task must stay quiet: motmod owns the soft-limit message and names
+	// the joint and the limit value, so a task-side "On Soft Limit" would only
+	// duplicate it, and "Identity kinematics are MISCONFIGURED" would accuse
+	// the config of a fault ccValidateIdentityKinsLimits already cleared at
+	// startup (an axis pushed out of range by hand trips this path too).
+	if errs := ep.getErrors(); len(errs) != 0 {
+		t.Errorf("soft limit must not raise a task-side operator error, got %v", errs)
 	}
 
-	errs := ep.getErrors()
-	found := false
-	for _, e := range errs {
-		if e == "On Soft Limit" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected 'On Soft Limit' error, got %v", errs)
-	}
-
-	// Clear soft limit — should not report again.
 	stat.clearSoftLimit()
 	time.Sleep(30 * time.Millisecond)
-
-	// Count how many soft limit messages (should be exactly 1).
-	count := 0
-	for _, e := range ep.getErrors() {
-		if e == "On Soft Limit" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Errorf("expected exactly 1 soft limit message, got %d", count)
+	if errs := ep.getErrors(); len(errs) != 0 {
+		t.Errorf("clearing the soft limit must stay quiet too, got %v", errs)
 	}
 }
 

@@ -225,7 +225,7 @@ static int ml_Init(cmod_t *self)
     m->real_ctl = motctl_api_get(m->env->api, m->mot_inst);
     m->real_stat = motstat_api_get(m->env->api, m->mot_inst);
     if (!m->real_ctl || !m->real_stat) {
-        stmak_log_errorf(log, m->name,
+        stmak_logf(log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "motion-logger: could not find real motion instance '%s' (motctl=%p motstat=%p)\n",
             m->mot_inst, (void *)m->real_ctl, (void *)m->real_stat);
         return -1;
@@ -277,7 +277,7 @@ int New(const cmod_env_t *env, const char *name,
 
     m->log = fopen(logfile, "w");
     if (!m->log) {
-        stmak_log_errorf(log, name, "motion-logger: cannot open logfile '%s'\n", logfile);
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "motion-logger: cannot open logfile '%s'\n", logfile);
         free(m);
         return -1;
     }
@@ -285,7 +285,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Register a HAL component so we are a well-formed RT module. */
     m->comp_id = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (m->comp_id < 0) {
-        stmak_log_errorf(log, name, "motion-logger: hal init failed\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "motion-logger: hal init failed\n");
         fclose(m->log);
         free(m);
         return -1;
@@ -332,7 +332,7 @@ int New(const cmod_env_t *env, const char *name,
         .set_world_home = w_set_world_home, .set_debug = w_set_debug,
     };
     if (motctl_api_register(env->api, name, m->ctl_cb) != 0) {
-        stmak_log_errorf(log, name, "motion-logger: motctl register failed\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "motion-logger: motctl register failed\n");
         hal->exit(hal->ctx, m->comp_id); fclose(m->log); free(m->ctl_cb); free(m->stat_cb); free(m); return -1;
     }
 
@@ -344,7 +344,7 @@ int New(const cmod_env_t *env, const char *name,
         .get_synch_di = s_get_synch_di, .get_analog_input = s_get_analog_input,
     };
     if (motstat_api_register(env->api, name, m->stat_cb) != 0) {
-        stmak_log_errorf(log, name, "motion-logger: motstat register failed\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "motion-logger: motstat register failed\n");
         hal->exit(hal->ctx, m->comp_id); fclose(m->log); free(m->ctl_cb); free(m->stat_cb); free(m); return -1;
     }
 

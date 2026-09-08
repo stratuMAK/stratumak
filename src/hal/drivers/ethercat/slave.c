@@ -382,7 +382,7 @@ lcec_slave_state_t *lcec_init_slave_state_hal(const cmod_env_t *env, int comp_id
 
   // alloc hal data
   if ((hal_data = env->hal->malloc(env->hal->ctx, sizeof(lcec_slave_state_t))) == NULL) {
-    stmak_log_errorf(env->log, instance_name,
+    stmak_logf(env->log, instance_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
         "hal_malloc() for %s.%s.%s failed", instance_name, master_name, slave_name);
     return NULL;
   }

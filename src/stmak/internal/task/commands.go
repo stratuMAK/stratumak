@@ -105,6 +105,14 @@ func (t *Task) preflightSetState(target TaskState) error {
 
 // preflightSetMode mirrors SetMode's AUTO-running guard.
 func (t *Task) preflightSetMode(target TaskMode) error {
+	if target == ModeAuto && t.autoInhibited() {
+		t.operatorError("Cannot select AUTO while auto-inhibit is active")
+		return ErrBusy
+	}
+	if target == ModeMDI && t.mdiInhibited() {
+		t.operatorError("Cannot select MDI while mdi-inhibit is active")
+		return ErrBusy
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.canSwitchModeAutoLocked(target)
@@ -120,6 +128,10 @@ func (t *Task) preflightNotBusy(msg string) error {
 // lock-free early reject) and by autoCommand (the authoritative check). Must be
 // called with t.mu held; it does not release it.
 func (t *Task) autoRunGuardLocked() error {
+	if t.autoInhibited() {
+		t.operatorError("Cannot run a program while auto-inhibit is active")
+		return ErrBusy
+	}
 	if t.programBusy() {
 		t.operatorError("Can't run a program while one is running")
 		return ErrBusy
@@ -194,6 +206,14 @@ func (t *Task) requireHomedForMDILocked() error {
 // preflightMDI mirrors MDI's guard chain (mode check via canSwitchMode; the body
 // switches via ensureMode).
 func (t *Task) preflightMDI() error {
+	// Checked before the mode/homing guards so an inhibited MDI is refused for
+	// the reason that actually applies. Covers [HALUI]MDI_COMMAND too: those
+	// reach the machine through this same path, and an inhibit some MDI
+	// sources bypass would be worse than none.
+	if t.mdiInhibited() {
+		t.operatorError("Cannot issue an MDI command while mdi-inhibit is active")
+		return ErrBusy
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if err := t.requireOn(); err != nil {

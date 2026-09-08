@@ -201,7 +201,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->comp_id = env->hal->init(env->hal->ctx, "matrix_kb",
                                    env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-        stmak_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: ERROR: hal_init() failed\n");
+        stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER, "matrix_kb: ERROR: hal_init() failed\n");
         env->rtapi->free(env->rtapi->ctx, inst);
         return -1;
     }
@@ -209,7 +209,7 @@ int New(const cmod_env_t *env, const char *name,
     // allocate shared memory for data
     kb = env->hal->malloc(env->hal->ctx, sizeof(kb_t));
     if (kb == 0) {
-        stmak_log_errorf(inst->env->log, "matrix_kb",
+        stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "matrix_kb component: Out of Memory\n");
         env->hal->exit(env->hal->ctx, inst->comp_id);
         env->rtapi->free(env->rtapi->ctx, inst);
@@ -223,7 +223,7 @@ int New(const cmod_env_t *env, const char *name,
     for (n = 0; inst->names[n];n++);
     
     if (n && n != kb->num_insts){
-        stmak_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: Number of sizes and number"
+        stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER, "matrix_kb: Number of sizes and number"
                         " of names must match\n");
         env->hal->exit(env->hal->ctx, inst->comp_id);
         env->rtapi->free(env->rtapi->ctx, inst);
@@ -260,7 +260,7 @@ int New(const cmod_env_t *env, const char *name,
         kinst->ncols = a;
         
         if (kinst->ncols == 0 || kinst->nrows == 0){
-            stmak_log_errorf(inst->env->log, "matrix_kb",
+            stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                             "matrix_kb: Invalid size format. should be NxN\n");
             env->hal->exit(env->hal->ctx, inst->comp_id);
             env->rtapi->free(env->rtapi->ctx, inst);
@@ -268,7 +268,7 @@ int New(const cmod_env_t *env, const char *name,
         }
         
         if (kinst->ncols > 32){
-            stmak_log_errorf(inst->env->log, "matrix_kb",
+            stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                             "matrix_kb: maximum number of columns is 32. Sorry\n");
             env->hal->exit(env->hal->ctx, inst->comp_id);
             env->rtapi->free(env->rtapi->ctx, inst);
@@ -303,7 +303,7 @@ int New(const cmod_env_t *env, const char *name,
                                           "%s.key.r%xc%x", 
                                           kinst->name, r, c);
                 if (retval != 0) {
-                    stmak_log_errorf(inst->env->log, "matrix_kb",
+                    stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                     "matrix_kb: Failed to create output pin\n");
                     env->hal->exit(env->hal->ctx, inst->comp_id);
                     env->rtapi->free(env->rtapi->ctx, inst);
@@ -321,7 +321,7 @@ int New(const cmod_env_t *env, const char *name,
                                           &(kinst->hal.rows[r]), inst->comp_id,
                                           "%s.row-%02i-out",kinst->name, r);
                 if (retval != 0) {
-                    stmak_log_errorf(inst->env->log, "matrix_kb",
+                    stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                     "matrix_kb: Failed to create output row pin\n");
                     env->hal->exit(env->hal->ctx, inst->comp_id);
                     env->rtapi->free(env->rtapi->ctx, inst);
@@ -333,7 +333,7 @@ int New(const cmod_env_t *env, const char *name,
                                           &(kinst->hal.cols[c]), inst->comp_id,
                                           "%s.col-%02i-in",kinst->name, c);
                 if (retval != 0) {
-                    stmak_log_errorf(inst->env->log, "matrix_kb",
+                    stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                     "matrix_kb: Failed to create input col pin\n");
                     env->hal->exit(env->hal->ctx, inst->comp_id);
                     env->rtapi->free(env->rtapi->ctx, inst);
@@ -345,7 +345,7 @@ int New(const cmod_env_t *env, const char *name,
                                       &(kinst->hal.keycode), inst->comp_id,
                                       "%s.keycode",kinst->name);
             if (retval != 0) {
-                stmak_log_errorf(inst->env->log, "matrix_kb",
+                stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                 "matrix_kb: Failed to create output pin\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -356,7 +356,7 @@ int New(const cmod_env_t *env, const char *name,
                                       &(kinst->param.invert), inst->comp_id,
                                       "%s.negative-logic",kinst->name);
             if (retval != 0) {
-                stmak_log_errorf(inst->env->log, "matrix_kb",
+                stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                 "matrix_kb: Failed to create output pin\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -368,7 +368,7 @@ int New(const cmod_env_t *env, const char *name,
                                       &(kinst->param.rollover), inst->comp_id,
                                       "%s.key_rollover",kinst->name);
             if (retval != 0) {
-                stmak_log_errorf(inst->env->log, "matrix_kb",
+                stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                 "matrix_kb: Failed to create rollover param\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -382,7 +382,7 @@ int New(const cmod_env_t *env, const char *name,
                                       &(kinst->hal.keycode), inst->comp_id,
                                       "%s.keycode",kinst->name);
             if (retval != 0) {
-                stmak_log_errorf(inst->env->log, "matrix_kb",
+                stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                 "matrix_kb: Failed to create input pin\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -392,7 +392,7 @@ int New(const cmod_env_t *env, const char *name,
         
         retval = hal->export_funct(hal->ctx, kinst->name, loop, kinst, 1, 0, inst->comp_id); //needs fp?
         if (retval < 0) {
-            stmak_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: ERROR: function export failed\n");
+            stmak_logf(inst->env->log, "matrix_kb", STMAK_LOG_ERROR | STMAK_LOG_OPER, "matrix_kb: ERROR: function export failed\n");
             env->hal->exit(env->hal->ctx, inst->comp_id);
             env->rtapi->free(env->rtapi->ctx, inst);
             return -1;

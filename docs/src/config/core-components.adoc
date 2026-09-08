@@ -148,6 +148,13 @@ module.
 * 'motion.program-line' -
   (s32, out) The current program line while executing. Zero if not
   running or between lines while single stepping.
+* 'motion.queue-depth' -
+  (s32, out) The number of motion segments the trajectory planner still has
+  to run. Reaching zero while a move is in progress means the queue ran dry
+  and the machine came to a stop; a task that streams segments ahead of the
+  planner can use this to tell a genuine stop from a blend, which the
+  velocity pins alone cannot show once the stop is shorter than the sampling
+  interval.
 * 'motion.requested-vel' -
   (float, out) The current requested velocity in user units per
   second.  This value is the F-word setting from the G-code file,

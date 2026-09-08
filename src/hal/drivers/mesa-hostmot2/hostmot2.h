@@ -45,7 +45,7 @@
 
 #define HM2_PRINT_NO_LL(fmt, args...)  stmak_log_infof(hm2_log, HM2_NAME, fmt, ## args)
 
-#define HM2_ERR_NO_LL(fmt, args...)    stmak_log_errorf(hm2_log, HM2_NAME, fmt, ## args)
+#define HM2_ERR_NO_LL(fmt, args...)    stmak_logf(hm2_log, HM2_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ## args)
 #define HM2_WARN_NO_LL(fmt, args...)   stmak_log_warnf(hm2_log, HM2_NAME, fmt, ## args)
 #define HM2_INFO_NO_LL(fmt, args...)   stmak_log_infof(hm2_log, HM2_NAME, fmt, ## args)
 #define HM2_DBG_NO_LL(fmt, args...)    stmak_log_debugf(hm2_log, HM2_NAME, fmt, ## args)
@@ -53,7 +53,7 @@
 
 #define HM2_PRINT(fmt, args...)  stmak_log_infof(hm2->llio->log, hm2->llio->name, fmt, ## args)
 
-#define HM2_ERR(fmt, args...)    stmak_log_errorf(hm2->llio->log, hm2->llio->name, fmt, ## args)
+#define HM2_ERR(fmt, args...)    stmak_logf(hm2->llio->log, hm2->llio->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ## args)
 #define HM2_WARN(fmt, args...)   stmak_log_warnf(hm2->llio->log, hm2->llio->name, fmt, ## args)
 #define HM2_INFO(fmt, args...)   stmak_log_infof(hm2->llio->log, hm2->llio->name, fmt, ## args)
 #define HM2_DBG(fmt, args...)    stmak_log_debugf(hm2->llio->log, hm2->llio->name, fmt, ## args)

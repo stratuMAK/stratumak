@@ -105,7 +105,7 @@ static void *sendkeys_loop(void *arg) {
             if (*hal->init && !param->inited) {
                 param->fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
                 if (param->fd < 0) {
-                    stmak_log_errorf(inst->env->log, "sendkeys",
+                    stmak_logf(inst->env->log, "sendkeys", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "Cannot open /dev/uinput. Suggest chmod 666 /dev/uinput\n");
                     continue;
                 }
@@ -220,7 +220,7 @@ static int parse_config(sendkeys_inst_t *inst, int argc, const char **argv) {
 
     inst->num_insts = index + 1;
     if (inst->num_insts <= 0) {
-        stmak_log_errorf(inst->env->log, "sendkeys",
+        stmak_logf(inst->env->log, "sendkeys", STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "no config= argument provided (e.g. config=S5T2)\n");
         free(codes); free(pins); return -1;
     }

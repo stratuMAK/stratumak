@@ -647,6 +647,17 @@ $(GMI_INI_PY): $(GMI_INI_IDL) $(GMICOMPILE_BIN) $(GMI_INIT_DST)
 
 TARGETS += $(GMI_INI_PY)
 
+# --- halcmd Python client (pin access for the pnptask test drivers) ---
+
+GMI_HALCMD_PY := ../lib/python/gmi/halcmd_client.py
+
+$(GMI_HALCMD_PY): $(GMI_HALCMD_IDL) $(GMICOMPILE_BIN) $(GMI_INIT_DST)
+	$(ECHO) "Generating GMI halcmd Python client"
+	@mkdir -p $(dir $(GMI_HALCMD_PY))
+	$(Q)$(GMICOMPILE) --client-python $(GMI_HALCMD_IDL) -o $(GMI_HALCMD_PY)
+
+TARGETS += $(GMI_HALCMD_PY)
+
 # --- ngcpreview Python client ---
 
 GMI_NGCPREVIEW_PY := ../lib/python/gmi/ngcpreview.py

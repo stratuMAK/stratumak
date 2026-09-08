@@ -514,7 +514,7 @@ static void emcstatFree(emcstat_stat_full_t *s)
 static int updateStatus(void)
 {
   if (!emcstat_cb) {
-    stmak_log_errorf(the_log, mod_name, "%s: no emcstat API", __func__);
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s: no emcstat API", __func__);
     return -1;
     }
   emcstatFree(&lcd_stat);
@@ -1657,19 +1657,19 @@ static int lcd_start(cmod_t *self)
   struct lcd_module *m = (struct lcd_module *)self->priv;
 
   if (!the_env->api) {
-    stmak_log_errorf(the_log, mod_name, "no API registry available");
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "no API registry available");
     return -1;
     }
   emccmd = emccmd_api_get(the_env->api, milltask_instance);
   if (!emccmd) {
-    stmak_log_errorf(the_log, mod_name,
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "emccmd API not registered (instance '%s', is milltask loaded?)",
                     milltask_instance);
     return -1;
     }
   emcstat_cb = emcstat_api_get(the_env->api, milltask_instance);
   if (!emcstat_cb) {
-    stmak_log_errorf(the_log, mod_name,
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "emcstat API not registered (instance '%s', is milltask loaded?)",
                     milltask_instance);
     return -1;
@@ -1681,7 +1681,7 @@ static int lcd_start(cmod_t *self)
   atomic_store(&done, 0);
   atomic_store(&m->thread_started, 1);
   if (pthread_create(&m->loop_thread, NULL, lcdLoop, m) != 0) {
-    stmak_log_errorf(the_log, mod_name, "failed to create loop thread");
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to create loop thread");
     atomic_store(&m->thread_started, 0);
     return -1;
     }
@@ -1732,7 +1732,7 @@ int New(const cmod_env_t *env, const char *name,
   int i;
 
   if (the_mod != NULL) {
-    stmak_log_errorf(env->log, name, "only one linuxcnclcd instance is supported");
+    stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "only one linuxcnclcd instance is supported");
     return -1;
     }
 
@@ -1756,17 +1756,17 @@ int New(const cmod_env_t *env, const char *name,
     else if (!strncmp(argv[i], "milltask_instance=", 18))
       milltask_instance = argv[i] + 18;
     else {
-      stmak_log_errorf(the_log, mod_name, "unknown parameter '%s'", argv[i]);
+      stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "unknown parameter '%s'", argv[i]);
       return -1;
       }
     }
 
   if (port <= 0 || port > 65535) {
-    stmak_log_errorf(the_log, mod_name, "invalid port %d", port);
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "invalid port %d", port);
     return -1;
     }
   if (delay < 0.0 || delay > 1.0) {
-    stmak_log_errorf(the_log, mod_name, "invalid delay %f", delay);
+    stmak_logf(the_log, mod_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "invalid delay %f", delay);
     return -1;
     }
 

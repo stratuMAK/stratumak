@@ -179,6 +179,10 @@ extern int jerk_filter_alloc(motmod_inst_t *inst);
 extern void jerk_filter_recompute_window(motmod_inst_t *inst) STMAK_NONBLOCKING;
 extern void jerk_filter_shift_joint(motmod_inst_t *inst, int jno, double delta) STMAK_NONBLOCKING;
 extern void clearHomes(motmod_inst_t *inst, int joint_num) STMAK_NONBLOCKING;
+/* Stop spindle n dead: clears the run state, speed and direction, engages the
+   brake and cancels any orient.  Shared by the SPINDLE_OFF command and the
+   start-inhibit interlock so both leave identical state behind. */
+extern void spindle_force_off(motmod_inst_t *inst, int n, const char *why) STMAK_NONBLOCKING;
 extern void emcmot_config_change(motmod_inst_t *inst) STMAK_NONBLOCKING;
 int joint_is_lockable(motmod_inst_t *inst, int joint_num) STMAK_NONBLOCKING;
 

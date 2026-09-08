@@ -218,7 +218,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!config_arg || !*config_arg) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "mux_generic requires config= argument (e.g. config=\"ff8\")");
         return -EINVAL;
     }
@@ -232,7 +232,7 @@ int New(const cmod_env_t *env, const char *name,
             else if (out_type == -1)
                 out_type = type;
             else {
-                stmak_log_errorf(env->log, name,
+                stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                 "too many type specifiers in config string");
                 return -EINVAL;
             }
@@ -240,20 +240,20 @@ int New(const cmod_env_t *env, const char *name,
             size = size * 10 + (config_arg[i] - '0');
             if (size > MAX_SIZE) size = MAX_SIZE;
         } else {
-            stmak_log_errorf(env->log, name,
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                             "invalid character '%c' in config string", config_arg[i]);
             return -EINVAL;
         }
     }
 
     if (in_type == -1) {
-        stmak_log_errorf(env->log, name, "no type specifiers in config string");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "no type specifiers in config string");
         return -EINVAL;
     }
     if (out_type == -1)
         out_type = in_type;
     if (size < 2) {
-        stmak_log_errorf(env->log, name, "mux size must be >= 2");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "mux size must be >= 2");
         return -EINVAL;
     }
 

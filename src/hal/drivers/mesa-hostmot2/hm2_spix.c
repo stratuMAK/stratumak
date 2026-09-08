@@ -733,7 +733,7 @@ int New(const cmod_env_t *env, const char *name,
 
 	inst->hm2_core = hm2_core_api_get(env->api, "hostmot2");
 	if (!inst->hm2_core) {
-		stmak_log_errorf(env->log, name, "hm2_spix: hostmot2 core API not found (is hostmot2 loaded?)\n");
+		stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hm2_spix: hostmot2 core API not found (is hostmot2 loaded?)\n");
 		inst->mod_env->rtapi->free(inst->mod_env->rtapi->ctx, inst);
 		return -1;
 	}

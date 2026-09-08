@@ -157,7 +157,7 @@ int New(const cmod_env_t *env, const char *name,
 {
     g_log = env->log;
     if (!env->hal) {
-        stmak_log_errorf(env->log, name, "HAL API not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
@@ -175,7 +175,7 @@ int New(const cmod_env_t *env, const char *name,
 
     // Coordinate mapping (allow duplicates)
     if (sk_map_coordinates(&g_map, coordinates, 1) < 0) {
-        stmak_log_errorf(env->log, name, "bad coordinates string: %s",
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "bad coordinates string: %s",
                       coordinates);
         return -1;
     }
@@ -185,7 +185,7 @@ int New(const cmod_env_t *env, const char *name,
     for (int i = 0; reqd[i]; i++) {
         int ai = (int)(strchr("XYZABCUVW", reqd[i]) - "XYZABCUVW");
         if (g_map.principal[ai] < 0) {
-            stmak_log_errorf(env->log, name,
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "missing required coordinate '%c' in '%s'",
                 reqd[i], coordinates);
             return -1;
@@ -213,7 +213,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &fiveaxis_callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "failed to register kinematics API: %d", rc);
         goto fail;
     }

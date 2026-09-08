@@ -255,7 +255,7 @@ static int open_input_device(input_inst_t *inst, input_dev_t *dev)
 {
     dev->fd = open(dev->path, O_RDONLY | O_NONBLOCK);
     if (dev->fd < 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "cannot open %s: %s",
                         dev->path, strerror(errno));
         return -1;
     }
@@ -464,7 +464,7 @@ static int input_Start(cmod_t *self)
     input_inst_t *inst = (input_inst_t *)self->priv;
     inst->running = true;
     if (pthread_create(&inst->thread, NULL, input_thread, inst) != 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "thread creation failed");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "thread creation failed");
         return -1;
     }
     return 0;
@@ -537,7 +537,7 @@ int New(const cmod_env_t *env, const char *name,
         } else {
             /* Device path */
             if (inst->n_devs >= MAX_DEVICES) {
-                stmak_log_errorf(inst->log, COMP_NAME, "too many devices (max %d)", MAX_DEVICES);
+                stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "too many devices (max %d)", MAX_DEVICES);
                 free(inst);
                 return -1;
             }
@@ -557,7 +557,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (inst->n_devs == 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "no input devices specified");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "no input devices specified");
         free(inst);
         return -1;
     }
@@ -566,7 +566,7 @@ int New(const cmod_env_t *env, const char *name,
     const stmak_hal_t *hal = env->hal;
     inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal init failed");
         for (int i = 0; i < inst->n_devs; i++) close(inst->devs[i].fd);
         free(inst);
         return -1;

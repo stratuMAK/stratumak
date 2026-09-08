@@ -834,7 +834,7 @@ int New(const cmod_env_t *env, const char *name,
 
     p->core = hm2_core_api_get(env->api, "hostmot2");
     if (!p->core) {
-        stmak_log_errorf(env->log, name, "hm2_pci: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hm2_pci: hostmot2 core API not found (is hostmot2 loaded?)\n");
         free(p);
         return -1;
     }

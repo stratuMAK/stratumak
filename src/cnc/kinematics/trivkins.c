@@ -222,7 +222,7 @@ int New(
     // Register with the GMI kinematics API
     int rc = kins_api_register(env->api, name, cb);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "failed to register kinematics API: %d", rc);
         trivkins_Destroy(&tk->base);
         return rc;

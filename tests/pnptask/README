@@ -1,0 +1,167 @@
+pnptask simulation config
+=========================
+
+A runnable pick-and-place machine for the pnptask module: a 600 x 500 mm XYZ
+gantry with two pickers, two tray stations, two process stations and two
+dead-zone drawings. Everything is simulated — position feedback is looped back
+from the command and the home switches are always made — so it runs anywhere,
+with no hardware and no realtime privileges.
+
+    cd tests/pnptask
+    stmakd pnptask.ini
+
+    halcmd show pin pnp.task        # the whole HAL interface
+    halcmd show param pnp.task      # the tuning knobs (settle times, offsets)
+
+The machine comes up enabled (machine-on is held high in the HAL file) and runs
+jobs by hand. Tell it what the trays hold, then command one:
+
+    halcmd setp pnp.task.process-step 0
+    halcmd setp pnp.task.tray.10.set-full 1   # tray 10 is full of step-0 parts
+
+    halcmd setp pnp.task.origin-id 10         # component tray
+    halcmd setp pnp.task.dest-id   20         # press
+    halcmd setp pnp.task.start-job 1          # the module clears it when done
+
+    halcmd show pin pnp.task.error-id         # 0 = the job worked
+    halcmd show pin pnp.task.proc.20.has-material
+
+    halcmd setp pnp.task.start-job 0          # then 20 -> 11 empties the press
+    halcmd setp pnp.task.origin-id 20
+    halcmd setp pnp.task.dest-id   11
+    halcmd setp pnp.task.start-job 1
+
+The config loads with pickers=2, so the alternating picker of §8 is active.
+Commanding 10 -> 20 a second time, with the press still holding the first part,
+runs a swap: the free picker takes the finished part out, the other one puts the
+new one in, and the press never stands empty. The removed part is then in a
+picker, and the next job has to be the one that carries it away — any other
+origin is refused with error-id 19 (ALT_PICKER_SEQUENCE):
+
+    halcmd setp pnp.task.origin-id 10 ; halcmd setp pnp.task.dest-id 20
+    halcmd setp pnp.task.start-job 0 ; halcmd setp pnp.task.start-job 1
+
+    halcmd show pin pnp.task.picker.1.close   # the swapped-out part is held here
+
+    halcmd setp pnp.task.origin-id 20 ; halcmd setp pnp.task.dest-id 21
+    halcmd setp pnp.task.start-job 0 ; halcmd setp pnp.task.start-job 1
+                                              # no pick: the part is already held
+
+The first job homes the machine itself (AUTOHOME = 1). To home it and jog it
+around by hand instead:
+
+    halcmd setp pnp.task.home 1     # rising edge: home all joints
+    halcmd setp pnp.task.home 0
+    halcmd show pin pnp.task.homed
+
+    halcmd setp pnp.task.auto-enable 0   # manual mode
+    halcmd setp pnp.task.jog-speed 100
+    halcmd setp pnp.task.jog-x-pos 1
+    halcmd setp pnp.task.jog-x-pos 0
+
+    halcmd show pin pnp.task.picker      # picker.N.pos-x/pos-y follow the jog
+
+Files
+-----
+
+    pnptask.ini      machine + [PNPTASK*] configuration
+    pnptask.hal      motion stack, the task, and the simulated machine
+    zones.dxf        travel envelope and permanent obstacles (deadzone-select 0)
+    zones_alt.dxf    the same envelope plus a fixture plate (deadzone-select 1)
+    pnpdrv.sh        server lifecycle for the scenario tests
+    pnpdrv.py        pin access and job helpers for the scenario drivers
+    db/              persisted state (scratch — delete it for a fresh machine)
+
+The drawings are read in machine units, the same coordinates the INI stations
+are taught in. Layer "Outer Limits" carries the envelope, layer "deadzones" the
+obstacles; both must be closed and convex.
+
+The envelope is drawn wider than the axis soft limits (-20..620 x -20..520
+against 0..600 x 0..500) on purpose. CLEARANCE erodes it by 12 mm, and a route's
+start point has to lie inside the eroded boundary — including wherever the
+machine happens to be parked when a job starts, which after homing is the corner
+of the axis range.
+
+The layout
+----------
+
+    tray station 10   component tray   TRAYDEF 1: 10 x 4 grid, (100,380)..(280,440)
+    tray station 11   output tray      TRAYDEF 2: single position at (60,60)
+    proc station 20   press            (300,200), waits out "busy" at (250,120)
+    proc station 21   test             (450,250)
+    dead zone         frame post       (340,300)..(420,370)
+    dead zone         cable anchor     (500,60)..(560,140)
+    dead zone         fixture plate    (150,150)..(220,260)   [zones_alt.dxf only]
+
+Which tray geometry a tray station uses is a runtime choice: set its tray-id pin
+to a TRAYDEF ID. Both drawings are validated against every taught position when
+the module loads, so a station moved into an obstacle fails the load rather than
+a job.
+
+What the simulated machine does
+-------------------------------
+
+The field devices are two `pnpsim` instances (pnpsim(9)), one per
+picker/process-station pair: instance 0 carries picker 0's gripper and station
+20's fixture, instance 1 carries picker 1's and station 21's. Out of the box
+every close finds a part, every fixture answers its release request after a few
+milliseconds, and neither station is ever busy — a machine that runs jobs.
+
+The knobs that make it misbehave on purpose are pins, so a test (or you, with
+halcmd) can flip them between jobs:
+
+    halcmd setp pnp.sim.0.gripper.miss-count 2   # the next 2 closes grip nothing
+    halcmd setp pnp.sim.0.gripper.miss-count -1  # ... and -1 means every close
+    halcmd setp pnp.sim.0.gripper.stuck 1        # a gripper that never actuates
+    halcmd setp pnp.sim.0.fixture.stuck 1        # a clamp that never answers
+    halcmd setp pnp.task.proc.20.busy 1          # the station is working
+
+A miss run of -1 walks the tray until MAX_UNPOPULATED successive picks have
+found nothing, which is how the tray declares itself empty (error-id 11).
+
+Each tray station's tray-id is set in the HAL file, which a PLC would do when a
+tray is loaded. The job handshake itself (process-step, origin-id, dest-id,
+start-job) is left unconnected, because that is what a PLC drives and what the
+commands above poke by hand.
+
+Tray contents, station occupancy and held material are persisted (into db/ next
+to this file, by persist_sqlite) and restored at the next start. Delete db/ for
+a machine that comes up with empty trays and empty stations.
+
+The scenario directories
+------------------------
+
+    cycle/      a whole pick -> place cycle, and D13's plan-time budget
+    probing/    empty slots corrected by the gripper, up to TRAY_EMPTY (D9)
+    homing/     the home request and manual jog (D18, D25)
+    busy/       busy gating, the wait position, the auto-enable abort (D15)
+    waitzone/   the wait position derived from a dead zone, streamed (D29)
+    errors/     the error ids of §7.5 and the error-reset that clears them
+    estop/      an estop mid-job and the way back to a running machine (D14)
+    persist/    the tracked world surviving a restart (D6)
+    altpicker/  the alternating-picker reference flow of §8
+    manual/     the manual-handling retention round trip of §8.1
+
+Two related tests live outside this directory because they need their own
+config and a realtime instrument rather than the shared simulation:
+
+    ../pnptask-blend/                 whether the second leg of a streamed
+                                      approach blends into the first (D29).
+                                      Release and capture are both in the servo
+                                      thread — driving either from a script over
+                                      REST puts a non-realtime latency in series
+                                      with a realtime effect and the answer then
+                                      depends on the latency.
+    ../trajectory-planner/decel-rate/ the deceleration the TP actually applies
+                                      at the end of the queue, which is what
+                                      sets the length of that leg's tail.
+
+Each is a `runtests` test: a test.sh that starts stmakd on this config and a
+Python driver that commands jobs over the handshake pins and asserts what came
+back. They share pnpdrv.sh (server lifecycle) and pnpdrv.py (pin access over
+the halcmd REST API) from this directory. Run them all with
+
+    scripts/runtests tests/pnptask
+
+This directory itself holds no test.hal/test.sh, so `runtests` ignores it: it is
+the config the scenarios drive, and a machine to run by hand.

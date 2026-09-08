@@ -1,0 +1,13 @@
+PASS the estop ended the running job with ESTOP
+PASS machine-is-on dropped
+PASS the handshake completed
+PASS every picker was released — the one thing that drops held material (D14)
+PASS the gripper physically let go
+PASS no fixture was left commanded open (D19)
+PASS a machine-on still high from before the estop does not re-enable the machine
+PASS and a job is still refused, with the estop's own id latched
+PASS with the latch cleared the refusal names the real reason: MACHINE_OFF
+PASS cycling machine-on re-enables the machine
+PASS and it runs jobs again
+PASS the press holds the part
+ALL OK

@@ -85,7 +85,7 @@ static int32_t gmi_kins_switch(void *ctx, int32_t new_switchkins_type) STMAK_NON
                 kinstype_is_0 = 0;
                 kinstype_is_1 = 1;
                 break;
-       default: stmak_log_errorf(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:BAD VALUE <%d>",
+       default: stmak_logf(__comp_inst->env->log, __comp_inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "kinematicsSwitch:BAD VALUE <%d>",
                 switchkins_type);
                 kinstype_is_0 = 0;
                 kinstype_is_1 = 0;

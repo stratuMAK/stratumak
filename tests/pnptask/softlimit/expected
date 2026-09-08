@@ -1,0 +1,6 @@
+PASS a hand on a disabled axis is not reported as a soft-limit fault
+PASS the machine re-enables with a joint outside its limits
+PASS the axis really is outside its soft limit
+PASS jogging back toward the valid range moves the axis
+PASS jogging toward the limit stops at it
+ALL OK

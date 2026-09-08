@@ -250,7 +250,7 @@ const char *set_llio_info_spi(hm2_lowlevel_io_t *llio, const hm2_idrom_t *idrom)
 		if(!isprint(buf[i]))
 			buf[i] = '?';
 	}
-	stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "set_llio_info_spi(): Unknown hostmot2 board name: %.8s\n", buf);
+	stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "set_llio_info_spi(): Unknown hostmot2 board name: %.8s\n", buf);
 	return NULL;
 }
 

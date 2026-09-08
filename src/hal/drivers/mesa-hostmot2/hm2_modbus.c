@@ -141,7 +141,7 @@ static inline unsigned mtypesize(unsigned mtype) STMAK_NONBLOCKING {
 #define MSG_DBG(fmt...)		do { stmak_log_debugf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
 #endif
 #define MSG_INFO(fmt...)	do { stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
-#define MSG_ERR(fmt...)		do { stmak_log_errorf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
+#define MSG_ERR(fmt...)		do { stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt); } while(0)
 #define MSG_WARN(fmt...)	do { stmak_log_warnf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
 
 // State-machine states

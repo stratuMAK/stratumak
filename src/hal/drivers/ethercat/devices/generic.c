@@ -159,13 +159,13 @@ void lcec_generic_free_slave(const cmod_env_t *env, lcec_slave_t *slave) {
 int lcec_generic_conf_sm(lcec_generic_conf_state_t *state, LCEC_CONF_SYNCMANAGER_T *sm_conf) {
   // check for syncmanager
   if (state->sync_managers == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "Sync manager for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Sync manager for generic device missing");
     return -1;
   }
 
   // check for pdos
   if (state->pdos == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "PDOs for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "PDOs for generic device missing");
     return -1;
   }
 
@@ -207,13 +207,13 @@ int lcec_generic_conf_sm(lcec_generic_conf_state_t *state, LCEC_CONF_SYNCMANAGER
 int lcec_generic_conf_pdo(lcec_generic_conf_state_t *state, LCEC_CONF_PDO_T *pdo_conf) {
   // check for pdos
   if (state->pdos == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "PDOs for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "PDOs for generic device missing");
     return -1;
   }
 
   // check for pdos entries
   if (state->pdo_entries == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "PDO entries for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "PDO entries for generic device missing");
     return -1;
   }
 
@@ -243,19 +243,19 @@ int lcec_generic_conf_pdo(lcec_generic_conf_state_t *state, LCEC_CONF_PDO_T *pdo
 int lcec_generic_conf_pdo_entry(lcec_generic_conf_state_t *state, LCEC_CONF_PDOENTRY_T *pe_conf) {
   // check for pdos entries
   if (state->pdo_entries == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "PDO entries for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "PDO entries for generic device missing");
     return -1;
   }
 
   // check for hal data
   if (state->hal_data == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "HAL data for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL data for generic device missing");
     return -1;
   }
 
   // check for hal dir
   if (state->hal_dir == 0) {
-    stmak_log_errorf(state->log, state->comp_name, "HAL direction for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL direction for generic device missing");
     return -1;
   }
 
@@ -303,13 +303,13 @@ int lcec_generic_conf_pdo_entry(lcec_generic_conf_state_t *state, LCEC_CONF_PDOE
 int lcec_generic_conf_complex_entry(lcec_generic_conf_state_t *state, LCEC_CONF_COMPLEXENTRY_T *ce_conf) {
   // check for pdoEntry
   if (state->pe_conf == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "pdoEntry for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "pdoEntry for generic device missing");
     return -1;
   }
 
   // check for hal data
   if (state->hal_data == NULL) {
-    stmak_log_errorf(state->log, state->comp_name, "HAL data for generic device missing");
+    stmak_logf(state->log, state->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL data for generic device missing");
     return -1;
   }
 

@@ -40,7 +40,7 @@
  * @{
  */
 #define LCEC_CTX_ERR(ctx, fmt, ...) \
-  stmak_log_errorf((ctx)->env->log, (ctx)->instance_name, fmt, ##__VA_ARGS__)
+  stmak_logf((ctx)->env->log, (ctx)->instance_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ##__VA_ARGS__)
 #define LCEC_CTX_WARN(ctx, fmt, ...) \
   stmak_log_warnf((ctx)->env->log, (ctx)->instance_name, fmt, ##__VA_ARGS__)
 #define LCEC_CTX_INFO(ctx, fmt, ...) \

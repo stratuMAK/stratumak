@@ -1,0 +1,10 @@
+# Capture the TP's commanded path velocity every servo cycle.
+#
+# motion.current-vel is written in output_to_hal, so filestream.read has to run
+# after motion-controller in the same thread -- appended after core_sim.hal, it
+# does. The whole point of sampling here rather than polling from a script is
+# that a deceleration ramp is tens of milliseconds long: anything slower than
+# the servo rate cannot see its shape at all.
+load filestream sample_cfg=f outfile=vel.txt depth=32768 samples=0
+net tp-vel <= motion.current-vel => filestream.sample.0
+addf filestream.read servo-thread
