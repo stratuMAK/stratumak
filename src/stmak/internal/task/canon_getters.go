@@ -195,11 +195,20 @@ func (c *Canon) GetExternalSpeed(spindle int32) (float64, error) {
 
 func (c *Canon) GetExternalSpindle(spindle int32) (int32, error) {
 	// CANON_STOPPED=1, CANON_CLOCKWISE=2, CANON_COUNTERCLOCKWISE=3
-	if int(spindle) < len(c.state.spindleSpeed) {
-		speed := c.state.spindleSpeed[spindle]
-		if speed > 0 {
+	//
+	// Answered from spindleDir, not from the sign of spindleSpeed. Speed is
+	// stored as a magnitude (SetSpindleSpeed takes math.Abs), so the sign test
+	// this used to do could never report counterclockwise, and reported
+	// CLOCKWISE for any spindle that had ever been given an S word -- stopped
+	// or not. Interp::synch reads this into _setup.spindle_turning on every
+	// reset, so a machine-off that stops the spindle and resets the
+	// interpreter handed it straight back the belief that the spindle is
+	// turning, which is the state M3/M4 are supposed to establish.
+	if spindle >= 0 && int(spindle) < len(c.state.spindleDir) {
+		switch {
+		case c.state.spindleDir[spindle] > 0:
 			return 2, nil // CANON_CLOCKWISE
-		} else if speed < 0 {
+		case c.state.spindleDir[spindle] < 0:
 			return 3, nil // CANON_COUNTERCLOCKWISE
 		}
 	}

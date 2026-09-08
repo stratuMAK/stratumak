@@ -421,6 +421,10 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 	// Wait for the producer to stop before resetting the interpreter (motion/IO
 	// already stopped by stopSignals).
 	t.waitRunProgramDone()
+	// stopSignals broadcast SpindleOff(-1); the canon has to forget the
+	// direction with it, before the Synch below reads it back into the
+	// interpreter's spindle_turning.
+	t.canon.clearSpindleRunState()
 	if t.interp != nil {
 		t.abortInterp(o.abortReason, o.reason)
 		_ = t.interp.Close()
@@ -610,6 +614,7 @@ func (t *Task) setState(state int32) error {
 			// No producer can be alive in estop (every estop entry joined or
 			// precluded it), and setState holds cmdMu — the interp is ours.
 			t.waitRunProgramDone()
+			t.canon.clearSpindleRunState() // the broadcast above stopped them
 			t.abortInterp(emcAbortTaskStateEstopReset, "estop reset")
 			t.canon.syncEndPointFromMachine()
 			_ = t.interp.Synch()
@@ -1802,6 +1807,9 @@ func (t *Task) faultMDI(msg string) {
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.flushMDIQueue()
 	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
+	// Runs on the interpreter-owning goroutine (see faultProgram), so the canon
+	// is ours to update: the broadcast just stopped the spindles it describes.
+	t.canon.clearSpindleRunState()
 	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
 }
 
@@ -2605,6 +2613,13 @@ func (t *Task) abortMachineLocked(full bool) {
 	// the non-thread-safe interpreter). Only the interpreter reset waits — the
 	// machine has already been stopped above.
 	t.waitRunProgramDone()
+
+	if full {
+		// The SpindleOff(-1) broadcast above stopped every spindle; the canon
+		// must not keep reporting one as turning, or the next bare S word
+		// restarts it.
+		t.canon.clearSpindleRunState()
+	}
 
 	if interp != nil {
 		if full {
