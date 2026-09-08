@@ -60,6 +60,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
@@ -382,6 +383,20 @@ func (m *pnptaskModule) startControl() error {
 		}
 	}
 	m.limits = limits
+
+	// The picker offsets are params the HAL file sets after load, so the
+	// wait-zone containment of D29 is only now checkable per picker (see
+	// checkWaitZoneOffsets). Refused here rather than at the first job: a
+	// station whose pick point lies outside its zone for one of the pickers
+	// fails every approach with that picker, and PLANNING_FAILED at job time
+	// would name coordinates, not the offset that caused it.
+	offsets := make([]pnproute.Point, len(m.pins.pickers))
+	for pk := range m.pins.pickers {
+		offsets[pk] = pnproute.Point{X: m.pins.pickers[pk].xOffset.Get(), Y: m.pins.pickers[pk].yOffset.Get()}
+	}
+	if err := m.planners.checkWaitZoneOffsets(m.cfg, offsets); err != nil {
+		return fmt.Errorf("pnptask %q: %w", m.name, err)
+	}
 
 	// Seed the station model from its pins and from persistence before the loop
 	// exists: from here on the model belongs to the control goroutine.

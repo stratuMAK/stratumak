@@ -211,9 +211,18 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 // leaves nothing to derive a wait point from, and more than one leaves it
 // ambiguous which boundary the job should stop at.
 //
-// Like the taught positions above, the station point is read in the taught
-// frame; the run-time crossing is computed in machine coordinates, where the
-// route and the zones both live (D28).
+// It is asked in the frame and against the geometry the run-time crossing
+// uses (pre-merge review 2026-09-08): the station's MACHINE point — the
+// station minus the picker's offset, which is what a route ends at (D28) —
+// against the planner's OFFSET zone, the one waitPoint intersects the
+// reference route with. Checking the taught point against the drawn polygon
+// answered a different question: a station 15 mm inside the drawing with a
+// 40 mm offset picker passed here and had no crossing at job time, while one
+// in the clearance band outside the drawing was refused although its crossing
+// exists. The picker offsets are HAL params that do not exist yet when the
+// planners are built, so the load-time check runs with no offset; startControl
+// re-asks it for every picker's offset as set by then (checkWaitZoneOffsets),
+// and an offset changed by setp after that is diagnosed at leg time.
 func (s *plannerSet) checkWaitZone(p *ProcStation) error {
 	n := uint32(len(s.planners))
 	if p.WaitDeadzone >= n {
@@ -224,25 +233,37 @@ func (s *plannerSet) checkWaitZone(p *ProcStation) error {
 		return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d: only %d dead-zone file(s) are configured",
 			p.Section, p.WaitClearDeadzone, n)
 	}
+	idx, err := s.waitZoneFor(p, pnproute.Point{}, "the station")
+	if err != nil {
+		return err
+	}
+	p.WaitZoneIdx = idx
+	return nil
+}
 
+// waitZoneFor is checkWaitZone's geometric half for one picker offset: which
+// offset zone of the blocked drawing contains the station's machine point, and
+// whether that point is a legal goal in the clear drawing. who names the point
+// in the errors ("the station", "the station for picker 1 (offset ...)").
+func (s *plannerSet) waitZoneFor(p *ProcStation, off pnproute.Point, who string) (int, error) {
+	pt := pnproute.Point{X: p.Pos.X - off.X, Y: p.Pos.Y - off.Y}
 	blocked := s.planners[p.WaitDeadzone]
+	zones := blocked.OffsetZones()
 	found := -1
-	for i, dz := range blocked.Scene().Deadzones {
-		if !dz.Poly.Contains(p.Pos) {
+	for i, zone := range zones {
+		if !zone.Contains(pt) {
 			continue
 		}
 		if found >= 0 {
-			return fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): the station (%.3f, %.3f) is inside two overlapping zones (%d and %d) — which boundary the job waits at would be arbitrary",
-				p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], p.Pos.X, p.Pos.Y, found, i)
+			return 0, fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is inside two overlapping zones (%d and %d, grown by CLEARANCE) — which boundary the job waits at would be arbitrary",
+				p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], who, pt.X, pt.Y, found, i)
 		}
 		found = i
 	}
 	if found < 0 {
-		return fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): the station (%.3f, %.3f) is inside none of that drawing's %d dead zone(s) — a route to it would never cross one, so there would be no point to wait at",
-			p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], p.Pos.X, p.Pos.Y,
-			len(blocked.Scene().Deadzones))
+		return 0, fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is inside none of that drawing's %d dead zone(s) (grown by CLEARANCE) — a route to it would never cross one, so there would be no point to wait at",
+			p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], who, pt.X, pt.Y, len(zones))
 	}
-	p.WaitZoneIdx = found
 
 	// The reference route the wait point is derived from is planned in the
 	// clear drawing, so the station has to be a legal goal there. This is
@@ -250,9 +271,36 @@ func (s *plannerSet) checkWaitZone(p *ProcStation) error {
 	// the drawing that has to be the one: WAIT_CLEAR_DEADZONE names the machine
 	// as it is once the station opens up, and a station still blocked there is
 	// a station no job could ever drive into.
-	if err := s.planners[p.WaitClearDeadzone].CheckPoint(p.Pos); err != nil {
-		return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d (%s): the station (%.3f, %.3f) is not reachable in the drawing that is supposed to clear it: %w",
-			p.Section, p.WaitClearDeadzone, s.files[p.WaitClearDeadzone], p.Pos.X, p.Pos.Y, err)
+	if err := s.planners[p.WaitClearDeadzone].CheckPoint(pt); err != nil {
+		return 0, fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is not reachable in the drawing that is supposed to clear it: %w",
+			p.Section, p.WaitClearDeadzone, s.files[p.WaitClearDeadzone], who, pt.X, pt.Y, err)
+	}
+	return found, nil
+}
+
+// checkWaitZoneOffsets re-asks checkWaitZone's containment for every picker's
+// offset — the params exist by now, and the HAL file's setp lines have run.
+// Every picker has to find the station in the zone that was resolved at load:
+// a job may send either picker in (D20), and an offset that carries the
+// station's machine point out of its zone, or into a different one, is a
+// station that fails PLANNING_FAILED at every approach.
+func (s *plannerSet) checkWaitZoneOffsets(cfg *Config, offsets []pnproute.Point) error {
+	for i := range cfg.Procs {
+		p := &cfg.Procs[i]
+		if !p.HasWaitZone {
+			continue
+		}
+		for pk, off := range offsets {
+			who := fmt.Sprintf("the station for picker %d (offset (%g, %g))", pk, off.X, off.Y)
+			idx, err := s.waitZoneFor(p, off, who)
+			if err != nil {
+				return err
+			}
+			if idx != p.WaitZoneIdx {
+				return fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is inside zone %d, but the station itself is inside zone %d — the offset moves the pick point across a zone boundary",
+					p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], who, p.Pos.X-off.X, p.Pos.Y-off.Y, idx, p.WaitZoneIdx)
+			}
+		}
 	}
 	return nil
 }

@@ -198,6 +198,27 @@ WAIT_CLEAR_DEADZONE = %s
 		}
 	})
 
+	// The containment is asked the way the run-time crossing is: the station's
+	// machine point against the zone GROWN BY CLEARANCE (D29). zones_blocked
+	// draws its zone at x = 280..320 around station 20; with CLEARANCE = 10 the
+	// offset zone starts at x = 270, so a station at x = 275 is outside the
+	// drawing and inside the zone the reference route will actually cross.
+	t.Run("accepted in the clearance band", func(t *testing.T) {
+		setupPathsWith(t, map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock})
+		cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_PROC_0]
+ID = 20
+X = 275.0
+Y = 200.0
+Z_PICK = 5.0
+WAIT_DEADZONE = 1
+WAIT_CLEAR_DEADZONE = 0
+`)
+		if _, err := newPlanners(cfg); err != nil {
+			t.Fatalf("newPlanners refused a station inside the offset zone: %v", err)
+		}
+	})
+
 	cases := []struct {
 		name    string
 		ini     string
@@ -251,6 +272,32 @@ WAIT_CLEAR_DEADZONE = %s
 				t.Errorf("error = %v, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestStartControlRefusesAnOffsetOutsideTheWaitZone: the picker offsets do not
+// exist when the planners are built, so the containment is re-asked per picker
+// at start, once the HAL file's setp lines have run. A station 5 mm inside its
+// zone is carried out of it by a 40 mm offset — every approach with that picker
+// would fail — and start says so, naming the picker and the offset.
+func TestStartControlRefusesAnOffsetOutsideTheWaitZone(t *testing.T) {
+	fastLoop(t)
+	setupPathsWith(t, map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear})
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections+waitZoneEdgeSections,
+		testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc, m.ms = mot, mot
+	m.pins.pickers[0].xOffset.Set(40)
+
+	err := m.startControl()
+	if err == nil {
+		m.Stop()
+		t.Fatal("startControl accepted an offset that moves the station out of its wait zone")
+	}
+	for _, want := range []string{"[PNPTASK_PROC_1]", "picker 0", "offset (40, 0)", "inside none"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %v does not mention %q", err, want)
+		}
 	}
 }
 

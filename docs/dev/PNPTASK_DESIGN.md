@@ -46,7 +46,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
 | D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
 | D28 | Machine-frame planning + reachability at accept (2026-08-18) | Dead zones and the outer limit are **machine-position geometry**: the operator teaches them by driving the machine and noting machine positions into the DXF, so the outlines already embody the head's physical extent, both pickers included (picker offsets define pick *points*, never outlines). The route planner therefore runs **in machine coordinates per picker** — plan `cmdPos → target − offset` against the scene as-drawn, command the waypoints directly. (Planning in the pick-point frame and shifting the waypoints afterwards translated the polyline by the offset and let the machine cut a zone corner by up to \|offset\|.) On top of that, job **accept** validates every endpoint the job could command (every slot of an involved tray, proc position, wait point; travel height and station Z) minus every picker's offset against the **axis limits** — refusal is `TARGET_UNREACHABLE` (24), naming station, picker and limit, before any motion. The dead-zone *scene* is deliberately not part of that accept check: the selector describes the machine per leg (D15's enclosure workflow starts jobs whose destination is unreachable in the currently selected drawing), so scene reachability stays `PLANNING_FAILED` at leg time. |
-| D29 | Wait position derived from a dead zone (2026-08-28) | A process station may replace D15's taught `WAIT_X`/`WAIT_Y` with a pair of drawing indices, `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` (mutually exclusive with the taught pair). The approach is then planned as **two legs**: up to the last point on the way in that is still clear of the zone the station sits inside, and from there into the station — with the second leg queued into the TP **without draining the first**, the instant `busy` reads clear, so the two blend and the head does not stop. The wait point is where a reference route planned in the *clear* drawing (the station is not a legal goal in the blocked one, so no route to it exists there) first meets the *blocked* drawing's **offset** zone, pulled back by `BLEND_TOLERANCE`; taking the crossing on the offset zone rather than the drawn one is what leaves a full `CLEARANCE` after the TP rounds the corner inward. Leg 1 is replanned normally against the scene of the moment, so it is collision-free in the blocked drawing whatever the two drawings disagree about. Load time refuses a station that is not inside exactly one zone of `WAIT_DEADZONE` (a route in would never cross a boundary, so the head would drive straight through) or not reachable in `WAIT_CLEAR_DEADZONE`; leg time refuses a selector that is not `WAIT_CLEAR_DEADZONE` when the station clears (`WAIT_SCENE_MISMATCH`, 25). This does **not** remove the velocity dip when the clear lands inside the braking ramp — that needs a conditional segment gate in motmod/TP and should not be built on a hunch — so the module publishes `wait-stops` instead: how often the queue really ran dry at the wait point, which is the frequency that would justify the change. A station that is **not busy** is driven to in one continuous leg, which for such a station is already the outcome the two legs exist to produce — but the scene check still runs, so a station reporting done in the wrong drawing is `WAIT_SCENE_MISMATCH` rather than a `PLANNING_FAILED` about an obstructed route. Splitting unconditionally was considered and rejected: two approaches legitimately BEGIN inside the nominated zone — the second job at the same station, and the placer after a §8 swap — and there is no boundary crossing to derive a wait point from in there. The placer after a swap is for the same reason not gated at all: the removal already served the gate and left the head at the station. The picker the second leg is planned for has to be the one going in, so `placeToProc` resolves the swap's remover **before** the gate rather than inside `swapOut` (D20's re-ask). The two legs are made to blend by ending the first with a segment long enough to be ENTERED at travel speed. That length is derived: a segment's velocity ceiling in the planner is its triangle velocity `sqrt(L * a_eff)` (`tpCalculateOptimizationInitialVel`), and `a_eff` is half the commanded acceleration because a blended segment gets `tc->maxaccel * 0.5` (`tcGetOverallMaxAccel`, measured exactly by `tests/trajectory-planner/decel-rate`). Setting the ceiling equal to the leg's own speed gives `L = v^2/(a/2) = 2*v^2/a`, with no constant in it and correct at any speed. It was a tuned number first — braking distances, found on a machine at 2, 3, 4 — which was the right scale by accident: at 50 mm/s the factor 4 happens to reproduce the triangle length, and at 250 mm/s it is half of what is needed. The termination condition needs no help: the planner already promotes both joins to tangent itself (`acc_scale 0`, `Kink acceleration within 0.1`), which is why declaring it changed nothing. |
+| D29 | Wait position derived from a dead zone (2026-08-28) | A process station may replace D15's taught `WAIT_X`/`WAIT_Y` with a pair of drawing indices, `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` (mutually exclusive with the taught pair). The approach is then planned as **two legs**: up to the last point on the way in that is still clear of the zone the station sits inside, and from there into the station — with the second leg queued into the TP **without draining the first**, the instant `busy` reads clear, so the two blend and the head does not stop. The wait point is where a reference route planned in the *clear* drawing (the station is not a legal goal in the blocked one, so no route to it exists there) first meets the *blocked* drawing's **offset** zone, pulled back by `BLEND_TOLERANCE`; taking the crossing on the offset zone rather than the drawn one is what leaves a full `CLEARANCE` after the TP rounds the corner inward. Leg 1 is replanned normally against the scene of the moment, so it is collision-free in the blocked drawing whatever the two drawings disagree about. Load time refuses a station that is not inside exactly one zone of `WAIT_DEADZONE` (a route in would never cross a boundary, so the head would drive straight through) or not reachable in `WAIT_CLEAR_DEADZONE` — asked in the frame and against the geometry the crossing itself uses (§13): the station's **machine point** (station minus picker offset, D28) against the **offset** zone, with no offset at load (the picker params do not exist yet) and again per picker at start, once the HAL file's `setp` lines have run; an offset changed afterwards that carries the point out of its zone is a `PLANNING_FAILED` naming the offset at leg time. Such a station also needs `BLEND_TOLERANCE > 0`: the wait point is the boundary pulled back by it, and at 0 it would sit exactly on the boundary, where the planner cannot say whether it is inside. Leg time refuses a selector that is not `WAIT_CLEAR_DEADZONE` when the station clears (`WAIT_SCENE_MISMATCH`, 25). This does **not** remove the velocity dip when the clear lands inside the braking ramp — that needs a conditional segment gate in motmod/TP and should not be built on a hunch — so the module publishes `wait-stops` instead: how often the queue really ran dry at the wait point, which is the frequency that would justify the change. A station that is **not busy** is driven to in one continuous leg, which for such a station is already the outcome the two legs exist to produce — but the scene check still runs, so a station reporting done in the wrong drawing is `WAIT_SCENE_MISMATCH` rather than a `PLANNING_FAILED` about an obstructed route. Splitting unconditionally was considered and rejected: two approaches legitimately BEGIN inside the nominated zone — the second job at the same station, and the placer after a §8 swap — and there is no boundary crossing to derive a wait point from in there. The placer after a swap is for the same reason not gated at all: the removal already served the gate and left the head at the station. The picker the second leg is planned for has to be the one going in, so `placeToProc` resolves the swap's remover **before** the gate rather than inside `swapOut` (D20's re-ask). The two legs are made to blend by ending the first with a segment long enough to be ENTERED at travel speed. That length is derived: a segment's velocity ceiling in the planner is its triangle velocity `sqrt(L * a_eff)` (`tpCalculateOptimizationInitialVel`), and `a_eff` is half the commanded acceleration because a blended segment gets `tc->maxaccel * 0.5` (`tcGetOverallMaxAccel`, measured exactly by `tests/trajectory-planner/decel-rate`). Setting the ceiling equal to the leg's own speed gives `L = v^2/(a/2) = 2*v^2/a`, with no constant in it and correct at any speed. It was a tuned number first — braking distances, found on a machine at 2, 3, 4 — which was the right scale by accident: at 50 mm/s the factor 4 happens to reproduce the triangle length, and at 250 mm/s it is half of what is needed. The termination condition needs no help: the planner already promotes both joins to tangent itself (`acc_scale 0`, `Kink acceleration within 0.1`), which is why declaring it changed nothing. |
 | D30 | DXF loops from LINE/ARC segments (2026-09-08) | The loader accepts, on both recognized layers, closed loops **chained from separate `LINE` and `ARC` entities** — the way CAD users draw an outline with fillets — next to the closed polylines, circles and ellipses it read before. Per layer every LINE/ARC is collected and joined by endpoint coincidence within **1e-3 drawing units** (`chainJoinEps`: far above the 1e-9 geometry epsilon because a hand-snapped join is off by 1e-6..1e-4, and three orders below any clearance that matters; the join keeps one point, so the ring carries no jog), in any order and direction — the walk reverses segments as needed. Every endpoint must meet exactly one other: a dangling end is an **open chain** and three or more meeting is a **branch**, both refused naming the coordinates, like a segment shorter than the tolerance, an ARC closing on itself (that is a CIRCLE) or a missing/malformed center, radius or angle. Arcs are discretized **circumscribed** like circles are (the ring contains the drawn arc; `WithArcSegments` per full circle scaled by the sweep, at least 4), with tangents at the endpoints so a tangential LINE joins collinearly; the chained ring then passes the same `dedupeRing`/`checkConvex` as a drawn polyline, so a loop that loads guards its area. The outer layer still has to resolve to exactly one loop, polyline or chained. Still unsupported, deliberately: `SPLINE`, and bulge segments inside a polyline. |
 
 ---
@@ -286,7 +286,8 @@ CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOL
                               #   outlines already embody the head's physical
                               #   extent, both pickers included. The offsets
                               #   only define the pick points, not outlines.
-BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel
+BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel; must be
+                              #   > 0 for a WAIT_DEADZONE station (D29)
 POS_TOLERANCE = 0.1           # how far a computed position may sit from a
                               #   taught one before the load fails (D24)
 MOVE_VEL = 0                  # XY travel vel/acc, PER AXIS; 0 = axis limits only
@@ -417,7 +418,7 @@ normalized to HAL-conventional dashes.
 | `picker.N.pos-x-mu` | pin | float | out | same position in machine units — the value to paste into the INI (D26) |
 | `picker.N.pos-y-mu` | pin | float | out | same position in machine units (D26) |
 | `picker.N.holds` | pin | bit | out | the picker is carrying material |
-| `picker.N.origin-id` | pin | u32 | out | the station that material came from, 0 when holding nothing — the §8 swap obligation, made legible to the PLC that has to honour it |
+| `picker.N.origin-id` | pin | u32 | out | the station that material came from, 0 when holding nothing — the §8 swap obligation, made legible to the PLC that has to honour it. `holds` high with 0 here is material of unknown origin: a manual close that gripped something the model had no record of (§8.1), which only a manual open lets go of |
 | `picker.N.x-offset` | param | float RW | | XY offset vs. machine position (picker.0 default 0) |
 | `picker.N.y-offset` | param | float RW | | |
 
@@ -674,10 +675,11 @@ Jog (manual mode, idle, machine on, no estop):
 
 Manual picker control (manual mode, idle):
 
-- Rising edge on `picker.N.manual-close` → `close` := 1; on
-  `picker.N.manual-open` → `close` := 0. Works **regardless of machine-on**
-  (picker actuation is typically powered independently), but is inhibited
-  while `estop-on` is high.
+- Rising edge on `picker.N.manual-close` → `close` := 1, judged against the
+  gripper feedback after pick-settle-time (§8, every picker — not only one
+  with a retained record); on `picker.N.manual-open` → `close` := 0. Works
+  **regardless of machine-on** (picker actuation is typically powered
+  independently), but is inhibited while `estop-on` is high.
 - Picker `close` outputs are *never* touched by machine-off — held material
   stays held. Only estop clears them (§6.2).
 - **Position teach (D21):** `picker.N.pos-x`/`pos-y` continuously report
@@ -1120,7 +1122,12 @@ record marks the material as removed but retains the station id; a
 following manual close samples the picker feedback after pick-settle-time —
 material gripped again (not fully closed) → the record is restored with the
 retained station id; gripped nothing (`closed` high) → the record is
-cleared.
+cleared. A manual close on a picker with **no** record is judged the same way
+(§13): gripped nothing → the close is dropped again (jaws left shut would
+make the next job's grip check read "closed" whatever sits under the head);
+gripped something → a held record of **unknown origin** (`holds` high,
+`origin-id` 0) that counts the picker occupied — no job can place it — until
+a manual open lets it go; not actuated → re-armed, as for a retained record.
 
 ### 8.1 As built (2026-08-12)
 
@@ -1471,3 +1478,110 @@ milltask side must carry this.
   time, like the manual-picker edges are gated on manual mode — a press
   mid-job is ignored, not deferred, so a PLC glitch on the home line can no
   longer become a surprise homing run at job completion.
+
+---
+
+## 13. Pre-merge review (2026-09-08)
+
+Six confirmed findings from the whole-branch review before the merge, all
+fixed on the branch with unit tests; the integration scenarios under
+`tests/pnptask` are to be re-run against them.
+
+- **A. A manual close is judged on every picker** (`machine.go manualPickers`,
+  `updateManualGrip`; `stations.go reserveManualClose`). The grip judgement
+  of §8 was armed only for a retained record, so a manual close on a picker
+  that held nothing and retained nothing left `close` standing with no
+  verdict — and no step of the pick sequence opened a picker before
+  descending, so the next auto job drove shut jaws onto a populated slot,
+  `closeAndCheck` read "closed" as an empty slot, and with `MAX_UNPOPULATED`
+  at its default of 1 the tray was declared empty. Now every manual close on a
+  picker without a present record reserves it (a retained record with no
+  station) and is judged: fully closed → dropped and reopened; in between →
+  a present record of **unknown origin** (`holds` high, `origin-id` 0, §8)
+  that counts the picker occupied until a manual open, since a job cannot
+  place what it cannot name; still opened → re-armed with one warning. The
+  record persists like every other (station 0), so a restart mid-handling
+  restores it. Independently, the pick sequences are defensive (`actions.go
+  openForPick`, called by `pickFromTray` and `removeFromProc`, so the swap's
+  remover is covered too): a picker the engine counts free whose `close`
+  output is still high is opened and waited for (`PICKER_OPEN_FAILED` if it
+  will not) before any descent. Only a standing close is acted on — a picker
+  whose output is already low is left to `closeAndCheck`, as before.
+- **B. A restored held record is only cleared by a "closed" reading**
+  (`machine.go verifyRestoredHeld`, `settleRestoredHeld`). The one-shot
+  verification treated "opened still high" as "part gone" and dropped the
+  close output after `settleTicks(PICK_SETTLE_TIME)` — two cycles at the
+  allowed default of 0, during which no pneumatic gripper has moved — so the
+  part about to be re-gripped was released and its §8 swap obligation lost,
+  while `updateManualGrip` re-armed on the identical reading. Now only the
+  jaws meeting (`closed`) means the part is gone; `opened` after the settle
+  means the gripper has not actuated, and the verification re-arms (warned
+  once per picker) with the close output and the record standing. A job
+  arriving while it is still re-arming is **refused with
+  `PICKER_CLOSE_FAILED`** rather than parked: it is the id the auto path
+  gives the same reading, and a job silently waiting on a gripper with its
+  air off is one the PLC cannot tell from a hung one. The verification keeps
+  re-arming in `step()`, so the job can be re-commanded once the gripper
+  answers.
+- **C. `release` follows the busy gate** (`actions.go gatedTravel`,
+  `streamedApproach`, `placeToProc`). The non-swap place raised the fixture's
+  `release` before `gatedTravel`'s busy wait, telling a station whose process
+  was still running to unclamp — against §7.4's order (busy gating; `release`
+  := 1; route to station) and the pre-D29 code, and against the intent of
+  every error path, which withdraws the request "so the process does not run
+  unclamped". The gate now takes an `onClear` hook and runs it the instant
+  the station is known clear: at once for a station that is not busy (as
+  before), after the busy wait for a taught wait position, and on the
+  streamed approach right after the scene check and before the second leg is
+  queued — so `waitReleased` on arrival still overlaps with the drive in.
+  The swap path is unchanged: the removal raises `release` after its grip,
+  past the gate, and the placer's request finds it standing.
+- **D. A job failing with the streamed leg in flight aborts it**
+  (`actions.go streamedApproach`, `motion.go abortLeg`). Only estop,
+  machine-off and shutdown call `mc.Abort()`; the job-failure path does not
+  touch motion, and D29's first leg is the one leg a job can fail behind
+  (`WAIT_ABORTED`, `WAIT_SCENE_MISMATCH`, a planning failure of leg 2). The
+  head kept driving to the wait point in manual mode, and the operator's
+  first jog was refused by motion (no TELEOP while not in position), timing
+  out into a `MOTION_ERROR` that the latched `WAIT_ABORTED` hid.
+  `streamedApproach` now aborts the queue and waits for the machine to come
+  to rest on any failure after the leg was dispatched — while the machine is
+  still enabled; the teardowns that disable it have aborted it themselves.
+  The `awaitClear` comment that claimed "the job-abort path stops motion" is
+  corrected.
+- **E. The wait-zone containment is asked in the run-time frame**
+  (`planners.go checkWaitZone`, `waitZoneFor`, `checkWaitZoneOffsets`;
+  `module.go startControl`; `motion.go waitPoint`). Load time validated the
+  taught station point against the **drawn** polygon while `waitPoint`
+  intersects the reference route — planned to the **machine** point, station
+  minus picker offset — with the **offset** zone. The picker offsets are HAL
+  params set after load, so the "containment makes the crossing an invariant"
+  claim did not hold: a station 15 mm inside the drawing with a 40 mm offset
+  picker passed at load and faulted every approach with "the head is already
+  inside it"; a station in the clearance band outside the drawing was refused
+  although its crossing exists. The check now uses the machine point against
+  the offset zone — with no offset when the planners are built (the params do
+  not exist yet), and again per picker at start (`checkWaitZoneOffsets`,
+  refusing start with the picker and offset named, since every approach with
+  that picker would fail). At leg time the three ways a crossing can be
+  missing are told apart: the goal outside the zone ("the picker offsets
+  changed since the wait zone was validated"), the head already inside it,
+  and a reference route that never crosses. D29's wording is updated.
+- **F. `WAIT_DEADZONE` requires `BLEND_TOLERANCE > 0`** (`config.go
+  loadStations`). At the default of 0 — the only guard was `CLEARANCE >
+  BLEND_TOLERANCE` — the wait point's setback was 0 and `EntryPoint` returned
+  a point exactly on the offset zone's edge, where the planner's ray-cast
+  containment is undefined, so the leading leg could fail `ErrInDeadzone`
+  nondeterministically. Refused at config load rather than floored: D29's
+  derivation is *the boundary pulled back by the blend tolerance*, the
+  pull-back being what keeps the TP's inward rounding out of the zone, and
+  with a tolerance of 0 the TP blends without limit (tp.c caps the blend
+  velocity only for a tolerance > 0), so no floor would make the point safe.
+  A machine without such stations keeps the default.
+
+Noted, not changed: with `BLEND_TOLERANCE = 0` the trajectory planner's
+parabolic blend is unlimited (tp.c `tcFindBlendTolerance` branch), so the
+`CLEARANCE > BLEND_TOLERANCE` guard is vacuous at 0 for *every* route corner,
+not only the derived wait point — a corner can be rounded deeper than
+`CLEARANCE` toward the zone. Worth a decision (a required positive tolerance,
+or a documented minimum) before the first machine runs with the default.

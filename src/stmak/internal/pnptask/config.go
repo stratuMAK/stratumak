@@ -685,6 +685,16 @@ func loadStations(r *iniReader, cfg *Config) error {
 			if blocked == clear {
 				return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d: must name a different drawing than WAIT_DEADZONE — the station is blocked in one and reachable in the other", sec, clear)
 			}
+			// The derived wait point is the zone boundary pulled back by
+			// BLEND_TOLERANCE (D29). At 0 it would sit exactly ON the offset
+			// zone's edge, where the planner's containment test is undefined
+			// — the leg to it is then refused or not by rounding — and the
+			// pull-back is what keeps the TP's inward blend out of the zone
+			// in the first place; with no tolerance the TP blends without
+			// limit, so there is no setback that makes the point safe.
+			if cfg.BlendTolerance <= 0 {
+				return fmt.Errorf("[%s]: WAIT_DEADZONE needs [PNPTASK]BLEND_TOLERANCE > 0 (it is %g) — the derived wait point is the zone boundary pulled back by it, and a point exactly on the boundary is neither inside nor outside", sec, cfg.BlendTolerance)
+			}
 			s.HasWaitZone = true
 			s.WaitDeadzone = uint32(blocked)
 			s.WaitClearDeadzone = uint32(clear)

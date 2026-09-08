@@ -845,6 +845,23 @@ func (w *world) releaseHeld(n int) {
 	w.heldDirty = true
 }
 
+// reserveManualClose is the manual close of a picker the model has no record
+// for (§8.1, pre-merge review 2026-09-08): what the jaws are closing on is
+// unknown, so the picker is reserved — a retained record with no station —
+// until the grip judgement says whether they found anything. Judged like every
+// other retained record: gripped nothing → dropped and reopened; gripped
+// something → a present record of unknown origin (station 0) that counts the
+// picker occupied until a manual open lets the material go. Only an empty
+// record is reserved: a present one describes a grip the close does not
+// change, and a retained one is already waiting for the same judgement.
+func (w *world) reserveManualClose(n int) {
+	if n < 0 || n >= len(w.held) || w.held[n].occupied() {
+		return
+	}
+	w.held[n] = heldMaterial{retained: true}
+	w.heldDirty = true
+}
+
 // restoreHeld puts a retained record back: the picker was closed again by hand
 // and its feedback says it gripped material, so it is the same part it let go
 // of a moment ago (§8).

@@ -239,8 +239,28 @@ func newJobFixtureOpts(t *testing.T, o fixtureOpts) *jobFixture {
 	}
 	f := newMachineFixtureOpts(t, o)
 	jf := &jobFixture{machineFixture: f}
-	jf.sim = newMachineSim(f)
+	jf.sim = newMachineSimOpts(f, o.sim)
 	return jf
+}
+
+// logCapture is a logger sink the control goroutine and the test can share:
+// for the cases whose subject is the sentence a fault is reported with, which
+// the error-id pin cannot carry.
+type logCapture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *logCapture) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logCapture) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
 
 // newJobFixture is a machine ready to run jobs: enabled, homed and parked inside
@@ -965,6 +985,120 @@ func TestJobBusyGateWaitsAtTheWaitPosition(t *testing.T) {
 	}
 }
 
+// TestPlaceToProcRaisesReleaseOnlyWhenClear: §7.4's order for a place into a
+// busy station is busy gating, THEN release. A fixture whose process is still
+// running must not be told to unclamp — but the request has to go out the
+// instant busy drops, ahead of the drive in, so the fixture is open on arrival.
+func TestPlaceToProcRaisesReleaseOnlyWhenClear(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.setBit(f.proc().busy, true)
+
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.mot.resetCalls()
+	f.m.pins.startJob.Set(true)
+
+	f.eventually("arrival at the wait position", func() bool {
+		return len(zAtXY(f.mot.moveList(), 250, 150)) > 0
+	})
+	f.consistently("release withheld while the station is busy", func() bool {
+		return f.bit("busy") && !f.bit("proc.20.release")
+	})
+
+	f.setBit(f.proc().busy, false)
+	f.eventually("release raised once the station cleared", func() bool { return f.bit("proc.20.release") })
+	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("busy-gated place")
+
+	if f.bit("proc.20.release") {
+		t.Error("release is still asserted at the end of the job (D19)")
+	}
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds no material after the gated place")
+	}
+	if n := f.sim.releaseRiseCount(0); n != 1 {
+		t.Errorf("the fixture was asked to open %d times, want once", n)
+	}
+}
+
+// TestPlaceToProcWaitZoneRaisesReleaseOnlyWhenClear is the same rule on the
+// streamed approach (D29): the busy wait lives inside the first leg, and the
+// release is raised the moment the station clears — before the second leg is
+// queued, so the fixture still opens while the head drives in.
+func TestPlaceToProcWaitZoneRaisesReleaseOnlyWhenClear(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		ini:   waitZoneSections,
+		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.m.pins.deadzoneSelect.Set(1)
+	f.setBit(f.m.pins.procs[1].busy, true)
+
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(21)
+	f.m.pins.processStep.Set(0)
+	f.mot.resetCalls()
+	f.m.pins.startJob.Set(true)
+
+	// The approach starts from whichever tray slot the pick used, so the wait
+	// point is not a fixed coordinate here; what is checked is that the pick is
+	// done, the station has not been entered, and the fixture has not been
+	// asked to open.
+	f.eventually("the pick to complete", func() bool { return f.bit("picker.0.close") })
+	f.consistently("release withheld while the station is busy", func() bool {
+		return f.bit("busy") && !f.bit("proc.21.release") &&
+			len(zAtXY(f.mot.moveList(), procCamX, procCamY)) == 0
+	})
+
+	f.m.pins.deadzoneSelect.Set(0)
+	f.setBit(f.m.pins.procs[1].busy, false)
+	f.eventually("release raised once the station cleared", func() bool { return f.bit("proc.21.release") })
+	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("streamed place into a wait-zone station")
+
+	if !f.bit("proc.21.has-material") {
+		t.Error("the station holds no material after the place")
+	}
+	if n := f.sim.releaseRiseCount(1); n != 1 {
+		t.Errorf("the fixture was asked to open %d times, want once", n)
+	}
+}
+
+// TestPickOpensAStandingClose: a picker the engine counts free is opened before
+// it is sent down onto material, whatever left its close output standing. On
+// already-shut jaws the grip check reads "closed" — an empty verdict on a
+// populated slot — so without this the job would empty slot 0 in the model and
+// pick from slot 1.
+func TestPickOpensAStandingClose(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) { m.pins.pickers[0].close.Set(true) },
+		// The standing close is over nothing: the gripper reports fully
+		// closed for it, and grips material on the next close command.
+		sim: func(s *machineSim) { s.missesLeft = 1 },
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a pick with the picker's close output left standing")
+	if got := f.get("tray.10.count"); got != 39 {
+		t.Errorf("tray count after one pick = %v, want 39 — a populated slot was judged empty", got)
+	}
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds no material after the job")
+	}
+}
+
 // TestJobBusyWaitAbortedByAutoEnable: D15 — dropping auto-enable ends the wait
 // with WAIT_ABORTED, and the picker keeps holding its material for the manual
 // handling the operator just asked for.
@@ -1282,8 +1416,10 @@ func TestJobWaitZoneRefusesAWrongScene(t *testing.T) {
 }
 
 // TestJobWaitZoneAbortedByAutoEnable: D15's handover, now landing while the
-// first leg may still be running. The job ends with WAIT_ABORTED and the head
-// never enters the zone.
+// first leg may still be running. The job ends with WAIT_ABORTED, the head
+// never enters the zone — and the leg in flight is aborted, because nothing
+// else stops it: the job-failure path does not touch motion, and a head still
+// driving to the wait point in manual mode refuses the operator's first jog.
 func TestJobWaitZoneAbortedByAutoEnable(t *testing.T) {
 	f := newWaitZoneFixture(t)
 	f.mot.setMoveCycles(40)
@@ -1299,6 +1435,62 @@ func TestJobWaitZoneAbortedByAutoEnable(t *testing.T) {
 
 	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
 		t.Error("the head drove into the station after the wait was aborted")
+	}
+	if !f.mot.called("Abort") {
+		t.Error("the leg in flight was not aborted when the wait was")
+	}
+	if f.bit("machine-is-on") != true {
+		t.Error("the abort took the machine off; only estop and machine-off may")
+	}
+}
+
+// waitZoneEdgeSections is waitZoneSections with the station 5 mm inside the
+// zone's drawn edge (x = 450): inside for the picker at no offset, and carried
+// out of even the clearance-grown zone (x = 440) by a 40 mm x-offset.
+const waitZoneEdgeSections = `
+[PNPTASK_PROC_1]
+ID = 21
+X = 455.0
+Y = 100.0
+Z_PICK = 5.0
+WAIT_DEADZONE = 1
+WAIT_CLEAR_DEADZONE = 0
+`
+
+// TestJobWaitZoneOffsetChangedSinceValidation: the picker offsets are live
+// params, so an offset set after the containment was validated can carry the
+// station's machine point out of its zone — there is then no boundary to
+// derive a wait point from. That is refused, and the fault names the offset
+// rather than claiming the head is already inside the zone.
+func TestJobWaitZoneOffsetChangedSinceValidation(t *testing.T) {
+	logs := &logCapture{}
+	f := newJobFixtureOpts(t, fixtureOpts{
+		ini:   waitZoneEdgeSections,
+		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[1].setHasMaterial(true)
+			m.logger = slog.New(slog.NewTextHandler(logs, nil))
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.m.pins.deadzoneSelect.Set(1)
+	f.setBit(f.m.pins.procs[1].busy, true)
+	// Taught after start, as halcmd setp would.
+	f.m.pins.pickers[0].xOffset.Set(40)
+
+	startCamPick(f)
+	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireError("an offset that moved the station out of its zone", errPlanningFailed)
+
+	if len(travelMoves(f.mot.moveList())) > 0 {
+		t.Error("the approach was dispatched although it had no wait point")
+	}
+	if got := logs.String(); !strings.Contains(got, "offsets changed since the wait zone was validated") ||
+		strings.Contains(got, "already inside") {
+		t.Errorf("the fault does not name the offset as the cause:\n%s", got)
 	}
 }
 

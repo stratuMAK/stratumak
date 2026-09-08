@@ -76,6 +76,26 @@ func (c *control) waitPickerOpen(pk int) error {
 		fmt.Sprintf("picker %d to open", pk), func() bool { return c.in.pickerOpened[pk] })
 }
 
+// openForPick makes sure a picker the engine counts free really is open before
+// it is sent down onto material (pre-merge review 2026-09-08). The record says
+// the picker holds nothing; it says nothing about the close output, and a
+// close left standing — by anything the judgements of machine.go did not
+// cover — turns closeAndCheck into a lie: jaws that are already shut read
+// "closed" whatever lies under the head, which is an empty verdict on a
+// populated slot and, at MAX_UNPOPULATED's default of 1, a whole tray declared
+// empty. Only a standing close is acted on: the output is dropped and the
+// picker waited for, and one that will not open is PICKER_OPEN_FAILED before
+// any descent. A picker whose close output is already low is left to
+// closeAndCheck's own judgement, as before.
+func (c *control) openForPick(pk int) error {
+	if !c.m.pins.pickers[pk].close.Get() {
+		return nil
+	}
+	c.m.logger.Warn("pnptask: a picker counted free was still commanded closed, opening it before the pick",
+		"picker", pk)
+	return c.waitPickerOpen(pk)
+}
+
 // ---------------------------------------------------------------------------
 // Fixture release handshake (D19)
 // ---------------------------------------------------------------------------
@@ -175,16 +195,28 @@ func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) err
 // the approach legitimately BEGINS inside the nominated zone: the second job at
 // the same station, and the placer after a swap. What the scene check below
 // preserves is the diagnosis, which is the part worth having.
-func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool) error {
+//
+// onClear, if given, runs the moment the station is known to be clear — at
+// once for a station that is not busy, otherwise the instant busy drops and
+// before the leg into the station is dispatched. It is how place-to-proc
+// raises the fixture's release in §7.4's order (busy gating, THEN release):
+// the request has to overlap with the drive in, so that waitReleased on
+// arrival finds the fixture already open, but it must not reach a fixture
+// whose process is still running, which is what raising it before the gate
+// did (pre-merge review 2026-09-08).
+func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear func()) error {
 	if err := c.retract(j.height); err != nil {
 		return err
 	}
 	if s.cfg.HasWaitZone {
 		if busy {
-			return c.streamedApproach(j, pk, s)
+			return c.streamedApproach(j, pk, s, onClear)
 		}
 		if err := c.checkClearScene(s); err != nil {
 			return err
+		}
+		if onClear != nil {
+			onClear()
 		}
 		return c.travel(j, pk, s.cfg.Pos)
 	}
@@ -197,6 +229,9 @@ func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool) error {
 		if _, err := c.awaitClear(s, s.cfg.HasWait); err != nil {
 			return err
 		}
+	}
+	if onClear != nil {
+		onClear()
 	}
 	return c.travel(j, pk, s.cfg.Pos)
 }
@@ -213,11 +248,26 @@ func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool) error {
 // ramp begins, the two legs blend and nothing slows down; queued during the
 // ramp, the planner re-accelerates and the head dips rather than stops; never
 // queued, the queue runs dry exactly at the wait point.
-func (c *control) streamedApproach(j *job, pk int, s *procState) error {
+//
+// A failure while leg 1 is in flight stops it (pre-merge review 2026-09-08).
+// This is the one place a job can fail with motion still queued: every other
+// leg drains before anything can go wrong after it. Ending the job without an
+// abort left the head driving on to the wait point in manual mode — and the
+// operator's first jog was then refused by motion (TELEOP is not entered
+// while not in position), timing out into a MOTION_ERROR the latched
+// WAIT_ABORTED hid. Only the failures of this function's own making are
+// stopped here; an estop, a machine-off or the self-disable watchdog have
+// already aborted and disabled the machine themselves (see abortLeg).
+func (c *control) streamedApproach(j *job, pk int, s *procState, onClear func()) (err error) {
 	wp, err := c.waitPoint(j, pk, s)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			c.abortLeg()
+		}
+	}()
 	if err := c.dispatchLeadingLeg(j, pk, wp); err != nil {
 		return err
 	}
@@ -227,6 +277,9 @@ func (c *control) streamedApproach(j *job, pk int, s *procState) error {
 	}
 	if err := c.checkClearScene(s); err != nil {
 		return err
+	}
+	if onClear != nil {
+		onClear()
 	}
 	if stopped {
 		// The queue ran dry before the station cleared: the head really stopped
@@ -266,8 +319,10 @@ func (c *control) checkClearScene(s *procState) error {
 // auto-enable going low aborts the wait (D15): the operator wants the machine to
 // hand over to manual, and a job parked over a station forever is not a handover.
 // The picker keeps holding its material for exactly that manual handling. On the
-// streamed approach the abort can now land while the first leg is still running;
-// the job ends either way and the job-abort path stops motion.
+// streamed approach the abort can land while the first leg is still running;
+// streamedApproach stops that leg on the way out — nothing else would, the
+// job-failure path does not touch motion (only estop, machine-off and shutdown
+// abort it).
 //
 // stopped is what the streamed approach measures itself by: the wait normally
 // begins with a leg still running, and whether the queue ran dry before the
@@ -326,6 +381,9 @@ func (c *control) awaitClear(s *procState, atWait bool) (stopped bool, err error
 func (c *control) pickFromTray(j *job, pk int) error {
 	t := j.origin.tray
 	picker := &c.m.pins.pickers[pk]
+	if err := c.openForPick(pk); err != nil {
+		return err
+	}
 	from := 0
 	for {
 		slot, next, ok := t.nextPick(j.step, from)
@@ -404,7 +462,10 @@ func (c *control) pickFromProc(j *job, pk int) (err error) {
 // The caller owns the error-path release withdrawal (D19), because on the swap
 // path the request outlives this function.
 func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) error {
-	if err := c.gatedTravel(j, pk, s, busy); err != nil {
+	if err := c.openForPick(pk); err != nil {
+		return err
+	}
+	if err := c.gatedTravel(j, pk, s, busy, nil); err != nil {
 		return err
 	}
 	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get()); err != nil {
@@ -567,8 +628,11 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 			return err
 		}
 	} else {
-		c.requestRelease(s, true)
-		if err := c.gatedTravel(j, pk, s, busy); err != nil {
+		// The release is raised by the gate, once the station is clear (§7.4:
+		// busy gating, then release): a fixture whose process is still running
+		// must not be told to unclamp, and every error path below withdraws
+		// the request for exactly that reason.
+		if err := c.gatedTravel(j, pk, s, busy, func() { c.requestRelease(s, true) }); err != nil {
 			return err
 		}
 	}

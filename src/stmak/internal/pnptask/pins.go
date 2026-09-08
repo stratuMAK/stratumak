@@ -124,7 +124,10 @@ type pickerPins struct {
 	// swap obligation — the record that decides which job it is allowed to
 	// command next, and which survives a restart in persistence, so a
 	// sequencer cannot reconstruct it from its own history either. 0 on
-	// originID means "holding nothing"; station ids start at 1.
+	// originID means "holding nothing" while holds is low; station ids start
+	// at 1. holds high with originID 0 is material of unknown origin — a
+	// manual close that gripped something the model had no record of
+	// (§8.1) — which no job can place and only a manual open lets go of.
 	//
 	// A retained record (§8.1 — material a manual open let go of, still in the
 	// operator's hands) reads as holding nothing, because the picker is not

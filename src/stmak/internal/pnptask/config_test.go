@@ -331,6 +331,17 @@ Z_PICK = 5.0
 	}
 }
 
+// TestBlendToleranceZeroWithoutWaitZone: the default BLEND_TOLERANCE of 0 stays
+// legal for a machine with no WAIT_DEADZONE station — only the derived wait
+// point needs the pull-back.
+func TestBlendToleranceZeroWithoutWaitZone(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 0", 1)+stationSections)
+	if cfg.BlendTolerance != 0 {
+		t.Errorf("BLEND_TOLERANCE = %g, want 0", cfg.BlendTolerance)
+	}
+}
+
 // TestLoadConfigDefaultTrayDef checks the optional tray-id seed: present it is
 // the TRAYDEF id it names, absent it is 0, which is what tells the pin builder
 // to leave the selector alone.
@@ -1123,6 +1134,21 @@ WAIT_DEADZONE = -1
 WAIT_CLEAR_DEADZONE = 1
 `,
 		want: "cannot be negative",
+	}, {
+		// The derived wait point is the zone boundary pulled back by the
+		// blend tolerance (D29); at 0 it would sit exactly on the boundary,
+		// where the planner cannot say whether it is inside.
+		name: "dead-zone wait position without a blend tolerance",
+		ini: trajSection + strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 0", 1) + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 300.0
+Y = 200.0
+Z_PICK = 5.0
+WAIT_DEADZONE = 1
+WAIT_CLEAR_DEADZONE = 0
+`,
+		want: "[PNPTASK_PROC_0]: WAIT_DEADZONE needs [PNPTASK]BLEND_TOLERANCE > 0",
 	}, {
 		name: "route to unknown station",
 		ini: trajSection + pnptaskSection + stationSections + `

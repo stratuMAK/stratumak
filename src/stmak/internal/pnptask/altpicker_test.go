@@ -614,6 +614,84 @@ func TestSlowGripperKeepsJudging(t *testing.T) {
 	}
 }
 
+// TestManualCloseOnEmptyPickerDoesNotEmptyTheTray (pre-merge review
+// 2026-09-08): a manual close on a picker that holds nothing and retains nothing
+// is judged like any other — the jaws met each other, so the close is dropped
+// again. Left standing, it turned the next job's grip check into a lie: a shut
+// gripper reads "closed" over a populated slot, the slot is marked empty, and at
+// MAX_UNPOPULATED = 1 the tray is declared empty.
+func TestManualCloseOnEmptyPickerDoesNotEmptyTheTray(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	f.setBit(f.m.pins.autoEnable, false)
+	// Nothing between the jaws: the gripper runs to fully closed.
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+	f.press(f.m.pins.pickers[0].manualClose)
+	f.eventually("the picker to close", func() bool { return f.bit("picker.0.close") })
+	// The verdict: gripped nothing, and the picker is opened again.
+	f.waitDropped(0)
+
+	f.setBit(f.m.pins.autoEnable, true)
+	f.runJob(10, 20, 0)
+	f.requireOK("the first auto job after a manual close on nothing")
+	if got := f.get("tray.10.count"); got != 39 {
+		t.Errorf("tray count after one pick = %v, want 39 — a populated slot was judged empty", got)
+	}
+	if f.bit("tray.10.empty") {
+		t.Error("the tray was declared empty")
+	}
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds no material after the job")
+	}
+}
+
+// TestManualCloseOnEmptyPickerGrippingSomethingReservesIt: the other verdict on
+// a picker with no record — the jaws stopped on something. What it is, nobody
+// knows, so the picker counts occupied (holds high, origin-id 0) until a manual
+// open lets the material go; a close on the emptied picker frees it again.
+func TestManualCloseOnEmptyPickerGrippingSomethingReservesIt(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	f.setBit(f.m.pins.autoEnable, false)
+	f.press(f.m.pins.pickers[0].manualClose) // the sim's default close grips material
+	f.eventually("the picker reported loaded with material of unknown origin", func() bool {
+		return f.bit("picker.0.holds") && f.get("picker.0.origin-id") == 0
+	})
+
+	// The only picker is loaded: no job can run.
+	f.setBit(f.m.pins.autoEnable, true)
+	f.runJob(10, 20, 0)
+	f.requireError("a job with a picker loaded by hand", errNoFreePicker)
+	f.clearError()
+
+	// Open by hand: the material is let go, but the picker stays reserved until
+	// the next close judges what it finds (§8.1).
+	f.setBit(f.m.pins.autoEnable, false)
+	f.press(f.m.pins.pickers[0].manualOpen)
+	f.setBit(f.m.pins.autoEnable, true)
+	f.runJob(10, 20, 0)
+	f.requireError("a job mid manual handling", errNoFreePicker)
+	f.clearError()
+
+	// Closed on the emptied gripper: free again.
+	f.setBit(f.m.pins.autoEnable, false)
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+	f.press(f.m.pins.pickers[0].manualClose)
+	f.waitDropped(0)
+	f.setBit(f.m.pins.autoEnable, true)
+	f.runJob(10, 20, 0)
+	f.requireOK("a job after the picker was emptied by hand")
+
+	w := f.stopped()
+	if w.held[0].occupied() {
+		t.Errorf("held record after the job = %+v, want none", w.held[0])
+	}
+}
+
 // TestFailedPlaceLeavesTwoRecoverableSwaps: a place that fails after its
 // swap-out leaves BOTH pickers holding swap material — both parts really are in
 // pickers, each with its obligation. The sequence constraint then accepts a job

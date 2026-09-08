@@ -4,6 +4,7 @@ package pnptask
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -243,9 +244,13 @@ func (c *control) validateJob(j *job) error {
 	// limbo: the picker is not free, the material is not placeable, and the
 	// swap obligation may be attached to it.
 	if picker, station, ok := c.m.world.retainedPicker(); ok {
+		what := fmt.Sprintf("material from station %d was let go and not re-judged", station)
+		if station == 0 {
+			what = "a manual close has not been judged yet"
+		}
 		return faultf(errNoFreePicker,
-			"picker %d is mid manual handling (material from station %d was let go and not re-judged); close the picker — on the part to restore it, empty to clear it — before the next job",
-			picker, station)
+			"picker %d is mid manual handling (%s); close the picker — on the part to restore it, empty to clear it — before the next job",
+			picker, what)
 	}
 
 	// §8's sequence constraint. Material a swap took out of a process station is

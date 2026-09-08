@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"errors"
 	"math"
 	"time"
 
@@ -483,14 +484,28 @@ func (c *control) waitPoint(j *job, pk int, s *procState) (pnproute.Point, error
 	zone := blocked.OffsetZones()[s.cfg.WaitZoneIdx]
 	wp, ok := pnproute.EntryPoint(ref.Waypoints, zone, c.m.cfg.BlendTolerance)
 	if !ok {
-		// Load-time validation established that the station is inside the zone,
-		// so a route from outside it has to cross. What is left is a machine
-		// that is already in there — parked inside the enclosure by a jog or by
-		// an aborted job — and driving on from there is exactly what must not
-		// happen silently.
-		return pnproute.Point{}, faultf(errPlanningFailed,
-			"station %d: the route from machine (%.3f, %.3f) never enters zone %d of dead-zone file %d — the head is already inside it, so there is no point to wait at",
-			s.cfg.ID, start.X, start.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
+		// Validation established that the station's machine point is inside
+		// the zone (checkWaitZone, at load and at start), so a route from
+		// outside has to cross it. Two things can still defeat that, and they
+		// need different people: the picker offsets are live params, and one
+		// changed since the validation can carry the goal out of the zone; or
+		// the machine is already in there — parked inside the enclosure by a
+		// jog or by an aborted job — and driving on from there is exactly what
+		// must not happen silently.
+		switch {
+		case !zone.Contains(goal):
+			return pnproute.Point{}, faultf(errPlanningFailed,
+				"station %d: with picker %d's offset (%g, %g) the station's machine point (%.3f, %.3f) is not inside zone %d of dead-zone file %d (WAIT_DEADZONE) — the picker offsets changed since the wait zone was validated, so there is no boundary to derive a wait point from",
+				s.cfg.ID, pk, off.X, off.Y, goal.X, goal.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
+		case zone.Contains(start):
+			return pnproute.Point{}, faultf(errPlanningFailed,
+				"station %d: the head at machine (%.3f, %.3f) is already inside zone %d of dead-zone file %d, so there is no point to wait at",
+				s.cfg.ID, start.X, start.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
+		default:
+			return pnproute.Point{}, faultf(errPlanningFailed,
+				"station %d: the reference route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) never crosses the boundary of zone %d of dead-zone file %d",
+				s.cfg.ID, pk, start.X, start.Y, goal.X, goal.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
+		}
 	}
 	// Back into the taught frame: travel applies the offset again, from its own
 	// snapshot, and a point that went in through one conversion has to come out
@@ -530,6 +545,31 @@ func (c *control) retract(height float64) error {
 		return nil
 	}
 	return c.zStroke(height)
+}
+
+// abortLeg stops whatever this module has queued and waits for the machine to
+// come to rest — for a job that fails while a leg is still in flight, which
+// only D29's streamed approach can (every other leg drains before the next
+// thing that can fail). Best effort, like the release withdrawals on the error
+// paths: the job is already failing for another reason and that reason is the
+// one to report.
+//
+// Only while the machine is still enabled. The teardowns that disable it
+// (enterEstop, disable, the self-disable watchdog) abort motion themselves,
+// and a drain wait against a machine that is being disabled is not a wait
+// this module can bound. The drain wait still runs the abort check, so an
+// estop landing during the deceleration ends it like any other wait.
+func (c *control) abortLeg() {
+	if !c.enabled {
+		return
+	}
+	if err := c.m.mc.Abort(); err != nil {
+		c.m.logger.Warn("pnptask: aborting the leg in flight failed", "error", err)
+		return
+	}
+	if err := c.waitMotionDone(); err != nil && !errors.Is(err, errStopping) {
+		c.m.logger.Warn("pnptask: waiting for the aborted leg to stop", "error", err)
+	}
 }
 
 // ---------------------------------------------------------------------------

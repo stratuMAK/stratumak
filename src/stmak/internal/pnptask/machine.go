@@ -243,9 +243,12 @@ type control struct {
 	// overwrites an earlier one. See the latch gating in sample.
 	trayPending []*int64
 
-	// heldVerify counts down to the one-shot validation of restored held
-	// records against the picker feedback; see verifyRestoredHeld.
-	heldVerify int
+	// heldVerify counts down to the validation of restored held records
+	// against the picker feedback; see verifyRestoredHeld. heldVerifyWarned
+	// keeps the not-actuated warning to one per picker and restart (the
+	// validation re-arms until the gripper answers).
+	heldVerify       int
+	heldVerifyWarned []bool
 
 	// manualGrip counts down, per picker, to the validation of a manual close
 	// against the gripper feedback (§8's manual interplay); 0 = nothing
@@ -288,6 +291,7 @@ func newControl(m *pnptaskModule) *control {
 		procPending:      make([]*bool, procs),
 		manualGrip:       make([]int, pickers),
 		manualGripWarned: make([]bool, pickers),
+		heldVerifyWarned: make([]bool, pickers),
 	}
 }
 
@@ -321,30 +325,56 @@ func (c *control) start() {
 	go c.run()
 }
 
-// verifyRestoredHeld is the one-shot check behind a restored held record: the
-// record claims a part, the re-driven close output claims a grip — the gripper
-// feedback now says whether the part is actually there. Fully closed (or never
-// left opened) means it is not: the part was lost in the downtime, so the
+// verifyRestoredHeld is the check behind a restored held record: the record
+// claims a part, the re-driven close output claims a grip — the gripper
+// feedback now says whether the part is actually there. Fully closed means it
+// is not: the jaws met each other, the part was lost in the downtime, so the
 // record is cleared and the picker opened, with a warning naming the station
 // the part came from — the alternative was refusing every job with
 // NO_FREE_PICKER over a phantom part, with nothing telling the operator why.
-func (c *control) verifyRestoredHeld() {
+//
+// Still opened is NOT that (pre-merge review 2026-09-08): it means the gripper
+// has not actuated yet — the close output was re-driven a few cycles ago, and
+// a pneumatic gripper is nowhere near shut after PICK_SETTLE_TIME's default of
+// 0 (two cycles). Reading it as "part gone" dropped the close output on a part
+// the record correctly described, mid re-grip, and lost the §8 swap
+// obligation with it. The verdict is re-armed instead, warned once, exactly as
+// updateManualGrip treats the same reading: the close output stays high and
+// the record stands until the gripper answers.
+//
+// It reports whether any record is still waiting on that answer.
+func (c *control) verifyRestoredHeld() (pending bool) {
 	for n := range c.m.world.restoredHeld {
 		if !c.m.world.restoredHeld[n] {
 			continue
 		}
-		c.m.world.restoredHeld[n] = false
 		if !c.m.world.held[n].present {
+			c.m.world.restoredHeld[n] = false
 			continue // estop or a manual open already resolved it
 		}
-		if c.in.pickerClosed[n] || c.in.pickerOpened[n] {
+		switch {
+		case c.in.pickerClosed[n]:
+			c.m.world.restoredHeld[n] = false
 			station := c.m.world.held[n].station
 			c.m.world.clearHeld(n)
 			c.m.pins.pickers[n].close.Set(false)
 			c.m.logger.Warn("pnptask: restored held material is gone, record cleared — there is a part to find",
 				"picker", n, "station", station)
+		case c.in.pickerOpened[n]:
+			if !c.heldVerifyWarned[n] {
+				c.heldVerifyWarned[n] = true
+				c.m.logger.Warn("pnptask: the re-driven close has not actuated the picker, the restored held record is unverified until it does",
+					"picker", n, "station", c.m.world.held[n].station)
+			}
+			pending = true
+		default:
+			c.m.world.restoredHeld[n] = false
 		}
 	}
+	if pending {
+		c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
+	}
+	return pending
 }
 
 // settleRestoredHeld runs any pending restored-held validation to completion
@@ -353,6 +383,13 @@ func (c *control) verifyRestoredHeld() {
 // inside the settle window would otherwise validate against records nothing has
 // verified yet (runJob is the caller). The wait is bounded by the settle ticks
 // scheduled at start and still runs the abort check every cycle.
+//
+// A validation that re-arms — the gripper has not actuated — ends the job
+// with PICKER_CLOSE_FAILED rather than waiting on: the auto path faults the
+// same reading with that id, and a job silently parked on a gripper with its
+// air off is a job the PLC cannot tell from a hung one. The validation itself
+// keeps re-arming in step(), so the job can be re-commanded once the gripper
+// has answered.
 func (c *control) settleRestoredHeld() error {
 	for c.heldVerify > 0 {
 		if !c.tick() {
@@ -362,8 +399,14 @@ func (c *control) settleRestoredHeld() error {
 			return err
 		}
 		c.heldVerify--
-		if c.heldVerify == 0 {
-			c.verifyRestoredHeld()
+		if c.heldVerify == 0 && c.verifyRestoredHeld() {
+			for n := range c.m.world.restoredHeld {
+				if c.m.world.restoredHeld[n] {
+					return faultf(errPickerCloseFail,
+						"picker %d: opened is still high after the pick settle time, so the held record restored from storage (material from station %d) cannot be verified — the job is refused until the gripper actuates",
+						n, c.m.world.held[n].station)
+				}
+			}
 		}
 	}
 	return nil
@@ -1213,7 +1256,13 @@ func (c *control) manualPickers() {
 			c.m.pins.pickers[i].close.Set(true)
 			// §8: whether that grip restores the retained record depends on what
 			// the gripper feedback says once it has settled, which is a few
-			// cycles from now — see updateManualGrip.
+			// cycles from now — see updateManualGrip. A picker with no record
+			// is judged the same way (pre-merge review 2026-09-08): its close
+			// left standing over nothing would make the next job's grip check
+			// read "closed" whatever sits under the head, and a close that
+			// did grip something by hand is a loaded picker the engine must
+			// not count free.
+			c.m.world.reserveManualClose(i)
 			if c.m.world.held[i].retained {
 				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 				c.manualGripWarned[i] = false
@@ -1284,7 +1333,17 @@ func (c *control) updateManualGrip() {
 					"picker", i, "station", station)
 			}
 		default:
-			if station, ok := c.m.world.restoreHeld(i); ok {
+			station, ok := c.m.world.restoreHeld(i)
+			switch {
+			case !ok:
+			case station == 0:
+				// Nothing known about what the jaws closed on: the record
+				// says only that the picker is loaded (holds high, origin-id
+				// 0), and it stays that way until a manual open lets the
+				// material go — no job can place material of unknown origin.
+				c.m.logger.Warn("pnptask: manual close on a free picker gripped material of unknown origin; the picker counts occupied until it is opened by hand",
+					"picker", i)
+			default:
 				c.m.logger.Info("pnptask: manual close gripped material, held record restored",
 					"picker", i, "station", station)
 			}

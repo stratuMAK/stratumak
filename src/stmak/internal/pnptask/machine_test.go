@@ -468,6 +468,11 @@ type fixtureOpts struct {
 	// planners are built when the module loads, so the drawings must already be
 	// in place by then.
 	files map[string]string
+	// sim arms the simulated gripper/fixture before it publishes for the first
+	// time (job fixtures only): for a knob that has to judge a close command
+	// issued before the loop exists — a close output seeded by prep, or one
+	// re-driven from a persisted held record.
+	sim func(*machineSim)
 }
 
 // newMachineFixtureOpts loads a module, hands it a scripted motion stack and

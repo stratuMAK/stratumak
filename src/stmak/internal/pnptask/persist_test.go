@@ -417,6 +417,11 @@ func loadEventually(t *testing.T, p *persistStore, key string, v any, want loadR
 // TestRestoredHeldPartStillThere: a restored held record re-drives the picker
 // close output (D14's intent for a short restart), and when the gripper
 // feedback confirms the part is still gripped, the record stands.
+//
+// The proof is a job that needs the record — the place of that material into
+// the tray, which waits out the verification (settleRestoredHeld) and would be
+// refused without a holder. Asserting on the pins inside the settle window
+// proved nothing: the verification had not fired yet.
 func TestRestoredHeldPartStillThere(t *testing.T) {
 	dir := t.TempDir()
 	persistName := newTestPersist(t, dir)
@@ -429,23 +434,76 @@ func TestRestoredHeldPartStillThere(t *testing.T) {
 	})
 	first.m.Stop()
 
-	second := newMachineFixtureOpts(t, fixtureOpts{
-		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
-			m.pins.pickSettleTime.Set(pickSettleBudget.Seconds())
-		}),
-	})
-	sim := newMachineSim(second) // default: a close command grips material
-	defer sim.shutdown()
-
+	second := newJobFixtureOpts(t, fixtureOpts{prep: withPersist(persistName, ns, nil)})
+	second.homed()
+	second.mot.setPos(100, 100, 60)
+	second.selectTray(1)
 	second.eventually("close re-driven from the record", func() bool {
 		return second.bit("picker.0.close")
 	})
-	second.consistently("record and grip stand", func() bool {
+
+	second.runJob(20, 10, 0)
+	second.requireOK("placing the restored material")
+	if second.bit("picker.0.close") {
+		t.Error("the picker is still closed after placing the restored material")
+	}
+	if got := second.get("tray.10.count"); got != 1 {
+		t.Errorf("tray count = %v, want the one placed part", got)
+	}
+	w := second.stopped()
+	if w.held[0].occupied() {
+		t.Errorf("held record after the place = %+v, want none", w.held[0])
+	}
+	if w.restoredHeld[0] {
+		t.Error("the restore verification never concluded")
+	}
+}
+
+// TestRestoredHeldGripperNotActuated (pre-merge review 2026-09-08): after the
+// restart the gripper still reports opened once the settle time is up — it has
+// not moved yet, or its air is off. That is not "the part is gone": the record
+// and the re-driven close stand, the verification re-arms, and a job in the
+// meantime is refused with PICKER_CLOSE_FAILED rather than parked silently.
+// Once the gripper answers, the same job runs.
+func TestRestoredHeldGripperNotActuated(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_heldslow"
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.world.setHeld(0, 20, false, 0, true)
+		}),
+	})
+	first.m.Stop()
+
+	second := newJobFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, nil),
+		sim:  func(s *machineSim) { s.jammedClosed = true },
+	})
+	second.homed()
+	second.mot.setPos(100, 100, 60)
+	second.selectTray(1)
+	second.eventually("close re-driven from the record", func() bool {
 		return second.bit("picker.0.close")
 	})
-	w := second.stopped()
-	if !w.held[0].present || w.held[0].station != 20 {
-		t.Errorf("held record = %+v, want material from station 20", w.held[0])
+
+	second.runJob(20, 10, 0)
+	second.requireError("a job on an unverifiable restored record", errPickerCloseFail)
+	if !second.bit("picker.0.close") {
+		t.Error("the close output was dropped on a record the gripper never answered for")
+	}
+	if !second.bit("picker.0.holds") {
+		t.Error("the held record was cleared on a gripper that has not actuated")
+	}
+
+	// The air comes back.
+	second.clearError()
+	second.sim.set(func(s *machineSim) { s.jammedClosed = false })
+	second.runJob(20, 10, 0)
+	second.requireOK("the same job once the gripper answered")
+	if got := second.get("tray.10.count"); got != 1 {
+		t.Errorf("tray count = %v, want the one placed part", got)
 	}
 }
 
