@@ -136,7 +136,6 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
     int i, seen;
     int sequence_is_set = 0;
     /* all-homed state as of the previous cycle, before we re-aggregate below */
-    int beginning_allhomed = inst->all_homed;
 
     /* Always tick all joints' state machines and aggregate status */
     {
@@ -308,20 +307,38 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
         break;
     }
 
-    /* Return 1 only on the servo cycle where the machine transitions to
-       fully homed (rising edge of all-homed), matching the original
-       homing.c base_do_homing() contract ("return 1 if homing completed
-       this period"). The caller uses this to switch identity kinematics
-       into teleop mode exactly once. A level-triggered return here would
-       re-request switch_to_teleop_mode() on every cycle while homed,
-       instantly overriding an operator EMCMOT_FREE (teleop_enable(0)) and
-       trapping a homed machine in teleop so joint jogging is impossible.
-       Force homing_active clear on the completion edge (as the original did):
-       a joint can report homed and still-active on the same cycle, and once
-       the caller switches to teleop this function is no longer invoked
-       (short-circuited by motion_state==FREE), so a stale homing_active would
-       freeze and keep axis_handle_jogwheels() inhibited. */
-    if (!beginning_allhomed && inst->all_homed) {
+    /* Report completion once per "the machine became fully homed", which the
+       caller turns into a single switch into teleop.  It must not be reported
+       while a sequence is still running, and it cannot be a rising edge of
+       all-homed.
+
+       A Home All on an already-homed machine re-homes one sequence at a time
+       while the joints in the later sequences still carry their old homed
+       flags, so all_homed reads true again the moment the FIRST sequence
+       finishes.  Reporting there switched the machine into teleop, and the
+       FREE-mode gate on this function (see the call site) then stopped
+       ticking this state machine altogether: the remaining sequences never
+       ran, and the FSM sat frozen mid-sequence until something unhomed a
+       joint -- at which point motion returned to FREE, the frozen FSM
+       resumed, and it homed the rest unprompted.  On a machine homing Z, A,
+       C, then X+Y that made Home All on a homed machine re-home Z alone.
+
+       Level-triggered with an explicit reported-latch rather than an
+       all-homed edge: the edge can fall inside the sequence, and suppressing
+       it there would lose it for good -- all_homed never goes false again, so
+       the machine would stay in free mode after homing.  The latch clears
+       whenever the machine is not fully homed, so machine-off/on while homed
+       still reports nothing, as the edge did.
+
+       Force homing_active clear when reporting (as the original did): a joint
+       can report homed and still-active on the same cycle, and once the caller
+       switches to teleop this function is no longer invoked, so a stale
+       homing_active would freeze and keep axis_handle_jogwheels() inhibited. */
+    if (!inst->all_homed) {
+        inst->allhomed_reported = 0;
+    } else if (!inst->allhomed_reported &&
+               inst->sequence_state == HOME_SEQUENCE_IDLE) {
+        inst->allhomed_reported = 1;
         inst->homing_active = 0;
         return 1;
     }

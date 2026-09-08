@@ -57,6 +57,7 @@ typedef struct motmod_inst {
     int current_sequence;      /* which sequence number is currently active */
     int homing_active;         /* 1 if any joint is homing */
     int all_homed;             /* 1 if all joints homed */
+    int allhomed_reported;     /* completion already handed to the caller */
     int joint_in_sequence[EMCMOT_MAX_JOINTS]; /* per-joint participation flag */
 
     /* HAL data */
