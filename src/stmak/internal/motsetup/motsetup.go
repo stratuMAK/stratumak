@@ -110,6 +110,15 @@ type Result struct {
 	MaxVelocity     float64
 	MaxAcceleration float64
 
+	// Override ceilings from [DISPLAY], for the caller to clamp its own
+	// override commands to. 2.9 clamped these in halui, which was a separate
+	// process; here the single point of entry is the task setter, so the task
+	// needs the numbers. Defaults follow AXIS (axis.py), which is the in-tree
+	// behaviour operators already see on the sliders.
+	MaxFeedOverride    float64
+	MinSpindleOverride float64
+	MaxSpindleOverride float64
+
 	JointLinear [MaxJoints]bool         // per-joint linearity ([JOINT_n]TYPE)
 	JointMaxVel [MaxJoints]float64      // per-joint max velocity, for jog clamping
 	JointHoming [MaxJoints]HomingParams // INI-fixed homing params, for re-push
@@ -216,11 +225,19 @@ func pushTraj(ini *inifile.IniFile, opts Options, u units, mc MotionConfig, res 
 		return err
 	}
 
-	// Max feed override.
+	// Max feed override, and the spindle override window beside it. Only the
+	// feed ceiling goes to motion (it has a field for it); all three are
+	// returned so the task can clamp what it sends.
 	maxFeedScale := getFloatOr(ini, "DISPLAY", "MAX_FEED_OVERRIDE", 1.0)
 	if err := mc.SetMaxFeedOverride(maxFeedScale); err != nil {
 		return err
 	}
+	res.MaxFeedOverride = maxFeedScale
+	// AXIS's defaults: max spindle falls back to the feed ceiling, min to 0.
+	// Defaulting min to 1.0 would pin the override at 1.0 on every config that
+	// does not name it.
+	res.MaxSpindleOverride = getFloatOr(ini, "DISPLAY", "MAX_SPINDLE_OVERRIDE", maxFeedScale)
+	res.MinSpindleOverride = getFloatOr(ini, "DISPLAY", "MIN_SPINDLE_OVERRIDE", 0.0)
 
 	// Probe error inhibit.
 	jogInhibit := int32(getIntOr(ini, "TRAJ", "NO_PROBE_JOG_ERROR", 0))

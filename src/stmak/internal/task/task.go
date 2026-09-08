@@ -311,13 +311,19 @@ type Task struct {
 	angularUnits    float64
 	maxVelocity     float64
 	maxAcceleration float64
-	jointMaxVel     [16]float64           // per-joint max velocity for jog clamping
-	jointLinear     [16]bool              // per-joint linearity ([JOINT_n]TYPE); LINEAR joints scale machine->mm, ANGULAR don't
-	jointHoming     [16]jointHomingParams // INI-fixed homing params, cached so a HAL home/offset/seq change re-pushes them unchanged
-	axisMaxVel      [9]float64            // per-axis max velocity for jog clamping + canon blend
-	axisMaxAcc      [9]float64            // per-axis max acceleration for canon vel/acc blend
-	startupCode     string
-	debug           int32 // EMC_SET_DEBUG level, echoed to stat.debug
+	// Override ceilings from [DISPLAY] (see motsetup.Result). The setters
+	// clamp to these so every client is bound by them, not only the UI that
+	// happens to size its sliders from the same keys.
+	maxFeedOverride    float64
+	minSpindleOverride float64
+	maxSpindleOverride float64
+	jointMaxVel        [16]float64           // per-joint max velocity for jog clamping
+	jointLinear        [16]bool              // per-joint linearity ([JOINT_n]TYPE); LINEAR joints scale machine->mm, ANGULAR don't
+	jointHoming        [16]jointHomingParams // INI-fixed homing params, cached so a HAL home/offset/seq change re-pushes them unchanged
+	axisMaxVel         [9]float64            // per-axis max velocity for jog clamping + canon blend
+	axisMaxAcc         [9]float64            // per-axis max acceleration for canon vel/acc blend
+	startupCode        string
+	debug              int32 // EMC_SET_DEBUG level, echoed to stat.debug
 	// [EMCIO]RANDOM_TOOLCHANGER: flips the pocket semantics of the tool
 	// canon getters (spindle tool lives at pocket 0 vs the non-random
 	// "empty spindle = idx -1" convention).

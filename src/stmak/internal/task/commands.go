@@ -2338,8 +2338,15 @@ func (t *Task) TeleopEnable(enable bool) error {
 // Override setters are accepted in ANY state (including ESTOP/OFF), matching
 // C++ — the scale is stored in the motion controller and takes effect when the
 // machine runs, so a UI can set the sliders before enabling. No requireOn.
+// Clamped silently, like 2.9's halui. Motion clamps only the lower bound at 0,
+// and the [DISPLAY] ceilings were enforced nowhere but in the UIs that size
+// their sliders from the same keys -- so an incremental input (an encoder on
+// halui.feed-override.counts, say) walked straight past the configured limit.
+// Clamping here rather than in halui puts one bound in front of every client:
+// halui pins, REST, and any UI that does not clamp itself. 2.9 had to do it in
+// halui because halui was a separate process; here it is the task.
 func (t *Task) SetFeedOverride(rate float64) error {
-	return t.motion.SetFeedScale(rate)
+	return t.motion.SetFeedScale(clampRange(rate, 0, t.maxFeedOverride))
 }
 
 // SetSpindleOverride sets spindle speed override. spindleNum -1 broadcasts to
@@ -2349,12 +2356,15 @@ func (t *Task) SetSpindleOverride(rate float64, spindleNum int32) error {
 		t.operatorError(err.Error())
 		return err
 	}
-	return t.motion.SetSpindleScale(spindleNum, rate)
+	return t.motion.SetSpindleScale(spindleNum,
+		clampRange(rate, t.minSpindleOverride, t.maxSpindleOverride))
 }
 
-// SetRapidOverride sets the rapid override percentage.
+// SetRapidOverride sets the rapid override percentage. Ceiling 1.0, as in 2.9:
+// a rapid override scales the programmed rapid down, and there is no INI key to
+// raise it above the axis limits the rapid already runs at.
 func (t *Task) SetRapidOverride(rate float64) error {
-	return t.motion.SetRapidScale(rate)
+	return t.motion.SetRapidScale(clampRange(rate, 0, 1.0))
 }
 
 func boolToInt32(b bool) int32 {
@@ -2378,9 +2388,24 @@ func (t *Task) SetSpindleOverrideEnable(enable bool, spindleNum int32) error {
 	return t.motion.SpindleScaleEnable(spindleNum, boolToInt32(enable))
 }
 
-// SetMaxVelocity sets the maximum trajectory velocity.
+// SetMaxVelocity sets the maximum trajectory velocity, clamped to the
+// trajectory maximum the config declares ([TRAJ]MAX_LINEAR_VELOCITY, or the
+// slowest axis when unset -- see motsetup).
 func (t *Task) SetMaxVelocity(velocity float64) error {
-	return t.motion.SetVelLimit(velocity)
+	return t.motion.SetVelLimit(clampRange(velocity, 0, t.maxVelocity))
+}
+
+// clampRange bounds v to [lo, hi]. A hi of zero means "unconfigured": an INI
+// that names no ceiling must not have every override forced to zero, which is
+// what a naive clamp would do.
+func clampRange(v, lo, hi float64) float64 {
+	if hi > 0 && v > hi {
+		v = hi
+	}
+	if v < lo {
+		v = lo
+	}
+	return v
 }
 
 // Flood turns flood coolant on or off.
