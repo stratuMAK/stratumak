@@ -42,11 +42,17 @@ A Planner is immutable once built and safe for concurrent use.
 
 # Geometry rules
 
-Both the outer limit and every dead-zone polyline must be closed and *convex*;
-concave input is rejected at load time with a descriptive error. Circles and
-ellipses are convex by construction and are discretized on load. Dead zones may
-overlap: shortest paths only ever bend at convex corners, so the vertices of the
-individual offset shapes still carry every corner the route can use.
+Both the outer limit and every dead-zone loop must be closed and *convex*;
+concave input is rejected at load time with a descriptive error. A loop is a
+closed polyline (LWPOLYLINE/POLYLINE, no bulge segments) or a chain of separate
+LINE and ARC entities that meet end to end — the way CAD users draw an outline
+with fillets. Segments are chained by endpoint coincidence, in any order and
+direction; a chain that does not close, or a point where three or more segments
+meet, is an error naming the coordinates. Circles and ellipses are convex by
+construction and are discretized on load, as are the arcs of a chain. Dead
+zones may overlap: shortest paths only ever bend at convex corners, so the
+vertices of the individual offset shapes still carry every corner the route
+can use.
 
 Everything curved is approximated by polygons, and always in the conservative
 direction: a discretized circle contains the drawn one, and the polygonal corner
@@ -63,5 +69,8 @@ graph size and planning time.
     fixed scene; a changed world means a new Planner.
   - Arc output primitives. Routes are polylines only; corner rounding lives in
     the offset geometry and in the trajectory planner's blending.
+  - SPLINE entities and bulge (arc) segments inside a polyline. Draw the
+    outline as a closed polyline of straight segments, or as LINE and ARC
+    entities that meet end to end.
 */
 package pnproute

@@ -22,6 +22,8 @@ const (
 	ShapePolyline ShapeKind = "polyline"
 	ShapeCircle   ShapeKind = "circle"
 	ShapeEllipse  ShapeKind = "ellipse"
+	// ShapeSegments is a loop chained from separate LINE and ARC entities.
+	ShapeSegments ShapeKind = "segments"
 )
 
 // Shape is one loaded dead zone: the planning polygon plus what it came from.
@@ -83,9 +85,20 @@ var annotationEntities = map[string]bool{
 }
 
 // LoadDXF parses the ENTITIES section of a DXF drawing and returns the
-// validated scene. Exactly one closed convex polyline must sit on the
-// "outer limits" layer; closed convex polylines, circles and ellipses on the
+// validated scene. Exactly one closed convex loop must sit on the
+// "outer limits" layer; closed convex loops, circles and ellipses on the
 // "deadzones" layer become dead zones. Everything on other layers is ignored.
+//
+// A loop is either one closed polyline (LWPOLYLINE or POLYLINE, without bulge
+// segments) or a chain of separate LINE and ARC entities meeting end to end:
+// per layer, every LINE and ARC is collected and joined by endpoint
+// coincidence (within 1e-3 drawing units, see chainJoinEps) into closed
+// loops, whatever the entities' order and direction. Arcs are discretized
+// like circles are, conservatively, so the loop contains the drawn outline.
+// A chain that does not close, a point where three or more segments meet,
+// and a loop that is not convex are errors naming the coordinates. Chained
+// dead zones come after the ones drawn as single entities, in the order of
+// their first segment in the file.
 func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 	o := loadOptions{arcSegments: DefaultArcSegments}
 	for _, opt := range opts {
@@ -106,6 +119,7 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 
 	scene := &Scene{}
 	outerCount := 0
+	var outerSegs, zoneSegs []chainSeg
 	for _, e := range ents {
 		layer := normalizeLayer(valString(e, 8))
 		isOuter := layer == "outerlimits" || layer == "outerlimit"
@@ -138,9 +152,26 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 			}
 			scene.Deadzones = append(scene.Deadzones, Shape{Kind: ShapePolyline, Poly: poly})
 
+		case "LINE", "ARC":
+			// Chained after the loop, once the layer's segments are complete.
+			var seg chainSeg
+			if e.typ == "LINE" {
+				seg, err = parseLine(e)
+			} else {
+				seg, err = parseArc(e)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("pnproute: %s %v", what, err)
+			}
+			if isOuter {
+				outerSegs = append(outerSegs, seg)
+			} else {
+				zoneSegs = append(zoneSegs, seg)
+			}
+
 		case "CIRCLE":
 			if isOuter {
-				return nil, fmt.Errorf("pnproute: the outer limit must be a closed polyline, found a CIRCLE on layer %q", LayerOuterLimit)
+				return nil, fmt.Errorf("pnproute: the outer limit must be a closed polyline or a loop of LINE/ARC segments, found a CIRCLE on layer %q", LayerOuterLimit)
 			}
 			// The center is required, not defaulted: a missing group code
 			// falling back to 0 would silently relocate the zone to the
@@ -176,7 +207,7 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 
 		case "ELLIPSE":
 			if isOuter {
-				return nil, fmt.Errorf("pnproute: the outer limit must be a closed polyline, found an ELLIPSE on layer %q", LayerOuterLimit)
+				return nil, fmt.Errorf("pnproute: the outer limit must be a closed polyline or a loop of LINE/ARC segments, found an ELLIPSE on layer %q", LayerOuterLimit)
 			}
 			if err := checkPlanar(e); err != nil {
 				return nil, fmt.Errorf("pnproute: dead-zone ellipse %v", err)
@@ -236,17 +267,51 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 			if e.typ == "HATCH" {
 				return nil, fmt.Errorf("pnproute: a HATCH on the %s layer cannot be read; draw the region's outline as a closed polyline (the fill is only decoration)", what)
 			}
-			allowed := "closed polylines, circles and ellipses"
+			allowed := "closed polylines, circles, ellipses and closed loops of LINE/ARC segments"
 			if isOuter {
-				allowed = "a closed polyline"
+				allowed = "a closed polyline or a closed loop of LINE/ARC segments"
 			}
 			return nil, fmt.Errorf("pnproute: unsupported entity %s on the %s layer; only %s are read",
 				e.typ, what, allowed)
 		}
 	}
 
+	// The LINE/ARC segments of each layer are chained now that all of them
+	// are known. A chained loop is validated exactly like a drawn polyline:
+	// a loop that loads without error must guard its area.
+	for _, layer := range []struct {
+		segs  []chainSeg
+		what  string
+		name  string
+		outer bool
+	}{
+		{outerSegs, "outer limit", LayerOuterLimit, true},
+		{zoneSegs, "dead zone", LayerDeadzones, false},
+	} {
+		if len(layer.segs) == 0 {
+			continue
+		}
+		loops, err := chainLoops(layer.segs, o.arcSegments)
+		if err != nil {
+			return nil, fmt.Errorf("pnproute: %s LINE/ARC segments on layer %q %v", layer.what, layer.name, err)
+		}
+		for _, ring := range loops {
+			at := ring[0]
+			poly := dedupeRing(ring)
+			if err := checkConvex(poly); err != nil {
+				return nil, fmt.Errorf("pnproute: %s loop chained from LINE/ARC segments at (%.3f,%.3f) %v", layer.what, at.X, at.Y, err)
+			}
+			if layer.outer {
+				scene.Outer = poly
+				outerCount++
+				continue
+			}
+			scene.Deadzones = append(scene.Deadzones, Shape{Kind: ShapeSegments, Poly: poly})
+		}
+	}
+
 	if scene.Outer == nil {
-		return nil, fmt.Errorf("pnproute: no closed polyline found on layer %q", LayerOuterLimit)
+		return nil, fmt.Errorf("pnproute: no closed polyline or LINE/ARC loop found on layer %q", LayerOuterLimit)
 	}
 	if outerCount > 1 {
 		return nil, fmt.Errorf("pnproute: expected exactly one shape on layer %q, found %d", LayerOuterLimit, outerCount)

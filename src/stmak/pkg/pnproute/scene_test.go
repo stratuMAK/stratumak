@@ -93,6 +93,249 @@ func TestWithArcSegments(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
+// Loops chained from LINE/ARC entities
+// --------------------------------------------------------------------------
+
+// assertStadium checks a dead zone against the stadium every chained fixture
+// draws: centers (60,50) and (140,50), r=20, so it spans x 40..160 and
+// y 30..70. The arcs are discretized conservatively — the intermediate
+// vertices sit a hair outside the true arc — so the bounds may overshoot by
+// a fraction of a unit, but never fall short.
+func assertStadium(t *testing.T, dz Shape) {
+	t.Helper()
+	if dz.Kind != ShapeSegments {
+		t.Errorf("stadium is %q, want %q", dz.Kind, ShapeSegments)
+	}
+	// 4 endpoints + 2 arcs of ceil(96/2) = 48 intermediate vertices each.
+	if n := len(dz.Poly); n != 4+2*48 {
+		t.Errorf("stadium has %d vertices, want %d", n, 4+2*48)
+	}
+	b := boundsOf(dz.Poly)
+	for _, c := range []struct {
+		name      string
+		got, want float64
+		outward   float64 // sign of the allowed overshoot
+	}{
+		{"minX", b.minX, 40, -1}, {"maxX", b.maxX, 160, 1},
+		{"minY", b.minY, 30, -1}, {"maxY", b.maxY, 70, 1},
+	} {
+		over := (c.got - c.want) * c.outward
+		if over < -1e-9 || over > 0.05 {
+			t.Errorf("stadium %s is %.4f, want %.1f (overshoot outward by at most 0.05)", c.name, c.got, c.want)
+		}
+	}
+	if err := checkConvex(dz.Poly); err != nil {
+		t.Errorf("stadium is not convex: %v", err)
+	}
+	for _, in := range []Point{{100, 50}, {45, 50}, {155, 50}, {100, 31}, {100, 69}, {145, 65}} {
+		if !dz.Poly.Contains(in) {
+			t.Errorf("stadium does not contain %v", in)
+		}
+	}
+	for _, out := range []Point{{38, 50}, {162, 50}, {100, 28}, {100, 72}, {42, 32}, {158, 68}, {45, 67}} {
+		if dz.Poly.Contains(out) {
+			t.Errorf("stadium contains %v", out)
+		}
+	}
+}
+
+func assertOuterRect(t *testing.T, scene *Scene) {
+	t.Helper()
+	if len(scene.Outer) != 4 {
+		t.Fatalf("outer limit has %d vertices, want 4", len(scene.Outer))
+	}
+	min, max := scene.Bounds()
+	if min != (Point{0, 0}) || max != (Point{200, 100}) {
+		t.Fatalf("bounds are %v..%v, want (0,0)..(200,100)", min, max)
+	}
+}
+
+func TestLoadDXF_ChainedRect(t *testing.T) {
+	scene, err := LoadDXFFile("testdata/chained_rect.dxf")
+	if err != nil {
+		t.Fatalf("LoadDXFFile: %v", err)
+	}
+	assertOuterRect(t, scene)
+	if len(scene.Deadzones) != 1 || scene.Deadzones[0].Kind != ShapePolyline {
+		t.Fatalf("dead zones are %+v, want one polyline", scene.Deadzones)
+	}
+}
+
+func TestLoadDXF_ChainedStadium(t *testing.T) {
+	scene, err := LoadDXFFile("testdata/chained_stadium.dxf")
+	if err != nil {
+		t.Fatalf("LoadDXFFile: %v", err)
+	}
+	assertOuterRect(t, scene)
+	if len(scene.Deadzones) != 1 {
+		t.Fatalf("got %d dead zones, want 1", len(scene.Deadzones))
+	}
+	assertStadium(t, scene.Deadzones[0])
+	// The loop starts where its first segment in the file starts and runs
+	// that segment's way: the bottom line, left to right.
+	// (The second vertex is the right arc's start, computed from its angles,
+	// so it carries floating-point noise.)
+	if p := scene.Deadzones[0].Poly; p[0] != (Point{60, 30}) || p[1].dist(Point{140, 30}) > 1e-9 {
+		t.Errorf("stadium starts %v, %v, want (60,30), (140,30)", p[0], p[1])
+	}
+	if signedArea(scene.Deadzones[0].Poly) <= 0 {
+		t.Errorf("stadium drawn counter-clockwise loaded clockwise")
+	}
+}
+
+// The same shapes with the segments out of order and drawn in mixed
+// directions must load to the same rings; the stadium is walked clockwise
+// this time, which reverses both arcs.
+func TestLoadDXF_ChainedReversed(t *testing.T) {
+	scene, err := LoadDXFFile("testdata/chained_reversed.dxf")
+	if err != nil {
+		t.Fatalf("LoadDXFFile: %v", err)
+	}
+	assertOuterRect(t, scene)
+	if len(scene.Deadzones) != 1 {
+		t.Fatalf("got %d dead zones, want 1", len(scene.Deadzones))
+	}
+	assertStadium(t, scene.Deadzones[0])
+	if p := scene.Deadzones[0].Poly; p[0] != (Point{140, 30}) || p[1].dist(Point{60, 30}) > 1e-9 {
+		t.Errorf("stadium starts %v, %v, want (140,30), (60,30)", p[0], p[1])
+	}
+	if signedArea(scene.Deadzones[0].Poly) >= 0 {
+		t.Errorf("stadium drawn clockwise loaded counter-clockwise")
+	}
+	// Vertex for vertex the reversed ring is the forward one read backwards
+	// from the shared start — the arcs' intermediate points included.
+	fwd, err := LoadDXFFile("testdata/chained_stadium.dxf")
+	if err != nil {
+		t.Fatalf("LoadDXFFile: %v", err)
+	}
+	a, b := fwd.Deadzones[0].Poly, scene.Deadzones[0].Poly
+	for i := range a {
+		// a[1] == b[0]: both rings hold (140,30) there; a runs on from it, b
+		// runs back through a[0] = (60,30) and so on.
+		j := ((1 - i) + len(b)) % len(b)
+		if a[i].dist(b[j]) > 1e-9 {
+			t.Fatalf("vertex %d %v is not the reversed ring's vertex %d %v", i, a[i], j, b[j])
+		}
+	}
+}
+
+func TestLoadDXF_ChainedMixed(t *testing.T) {
+	scene, err := LoadDXFFile("testdata/chained_mixed.dxf")
+	if err != nil {
+		t.Fatalf("LoadDXFFile: %v", err)
+	}
+	assertOuterRect(t, scene)
+	if len(scene.Deadzones) != 4 {
+		t.Fatalf("got %d dead zones, want 4", len(scene.Deadzones))
+	}
+	// Single-entity shapes first, in file order; chained loops after them in
+	// the order of their first segment (the stadium's bottom line precedes
+	// the rotated square, though the square finishes first in the file).
+	kinds := []ShapeKind{ShapePolyline, ShapeCircle, ShapeSegments, ShapeSegments}
+	for i, want := range kinds {
+		if got := scene.Deadzones[i].Kind; got != want {
+			t.Errorf("dead zone %d is %q, want %q", i, got, want)
+		}
+	}
+	assertStadium(t, scene.Deadzones[2])
+	sq := scene.Deadzones[3]
+	if len(sq.Poly) != 4 || !sq.Poly.Contains(Point{170, 50}) || sq.Poly.Contains(Point{184, 64}) {
+		t.Errorf("rotated square loaded as %v", sq.Poly)
+	}
+	for i, dz := range scene.Deadzones {
+		if err := checkConvex(dz.Poly); err != nil {
+			t.Errorf("dead zone %d is not convex: %v", i, err)
+		}
+	}
+}
+
+func TestLoadDXF_ChainedInvalid(t *testing.T) {
+	tests := []struct {
+		file    string
+		wantErr string
+	}{
+		{"chained_open.dxf", `outer limit LINE/ARC segments on layer "outer limits" do not close: nothing is joined to (0.000,0.000) of LINE from (0.000,0.000) to (200.000,0.000), (0.000,100.000) of LINE from (200.000,100.000) to (0.000,100.000) (join tolerance 0.001)`},
+		{"chained_branch.dxf", `outer limit LINE/ARC segments on layer "outer limits" branch: 3 segments meet at (0.000,0.000)`},
+		{"chained_concave.dxf", "dead zone loop chained from LINE/ARC segments at (40.000,20.000) is not convex: vertex 3 (80.000,50.000) turns the wrong way"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			_, err := LoadDXFFile("testdata/" + tc.file)
+			if err == nil {
+				t.Fatalf("LoadDXFFile accepted the drawing, want error containing %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("LoadDXFFile: got %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestLoadDXF_ChainedJoinTolerance pins the join tolerance from both sides: a
+// hand-made join off by less than 1e-3 closes the loop, one off by more does
+// not — and is reported as the open chain it is.
+func TestLoadDXF_ChainedJoinTolerance(t *testing.T) {
+	loop := func(gap float64) string {
+		return lineEnt("deadzones", 10, 10, 40, 10) + lineEnt("deadzones", 40, 10, 40, 40) +
+			lineEnt("deadzones", 40, 40, 10, 40) + lineEnt("deadzones", 10, 40, 10, 10+gap)
+	}
+	outer := lwPolyline("outer limits", true, 0, 0, 100, 0, 100, 100, 0, 100)
+	scene, err := LoadDXF(strings.NewReader(dxfFile(outer, loop(4e-4))))
+	if err != nil {
+		t.Fatalf("a join off by 4e-4 was rejected: %v", err)
+	}
+	if n := len(scene.Deadzones[0].Poly); n != 4 {
+		t.Fatalf("joined loop has %d vertices, want 4 (the join must not leave a jog)", n)
+	}
+	_, err = LoadDXF(strings.NewReader(dxfFile(outer, loop(2e-3))))
+	if err == nil || !strings.Contains(err.Error(), "nothing is joined to (10.000,10.000) of LINE from (10.000,10.000) to (40.000,10.000), (10.000,10.002) of LINE from (10.000,40.000) to (10.000,10.002)") {
+		t.Fatalf("a join off by 2e-3: got %v, want an open-chain error", err)
+	}
+}
+
+// A chained dead zone is an obstacle like any other: a route across the
+// stadium's long axis has to go around it and keep the clearance.
+func TestPlanAroundChainedLoop(t *testing.T) {
+	const clearance = 5
+	p := newPlanner(t, "testdata/chained_stadium.dxf", clearance)
+	start, goal := Point{20, 50}, Point{180, 50}
+	r, err := p.Plan(start, goal)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if r.Waypoints[0] != start || r.Waypoints[len(r.Waypoints)-1] != goal {
+		t.Fatalf("route runs %v..%v, want %v..%v", r.Waypoints[0], r.Waypoints[len(r.Waypoints)-1], start, goal)
+	}
+	for i := 1; i < len(r.Waypoints); i++ {
+		if a, b := r.Waypoints[i-1], r.Waypoints[i]; !p.visible(a, b) {
+			t.Fatalf("route leg %d (%v -> %v) is not collision-free", i, a, b)
+		}
+	}
+	// Around the stadium, not through it: the straight line runs along the
+	// zone's long axis, so the route has to swing out past the offset
+	// stadium's half height, 20 + clearance.
+	excursion := 0.0
+	for _, w := range r.Waypoints {
+		excursion = math.Max(excursion, math.Abs(w.Y-50))
+	}
+	if excursion < 20+clearance-1e-6 || r.Length <= 160 {
+		t.Errorf("route (excursion %.3f, length %.1f) did not go around the stadium: %v", excursion, r.Length, r.Waypoints)
+	}
+	// The stadium's arcs are fine polygonal arcs, and on those the planner's
+	// grazing band (coreErode) lets a route chord dip that far inside the
+	// clearance — an ELLIPSE dead zone, offset the same way, shows the same
+	// ~0.04; only CIRCLE zones escape it, being offset analytically. So the
+	// assertion here is the documented band, not assertRoute's 1e-6.
+	p.Metrics(r)
+	if r.MinClear < clearance-DefaultCoreErode {
+		t.Errorf("route comes within %.3f of the stadium, clearance is %v", r.MinClear, clearance)
+	}
+	if _, err := p.Plan(Point{100, 50}, goal); err == nil {
+		t.Errorf("Plan accepted a start inside the chained dead zone")
+	}
+}
+
+// --------------------------------------------------------------------------
 // Rejected input — every one of these would otherwise plan against a world
 // that is not the drawn one
 // --------------------------------------------------------------------------
@@ -109,7 +352,7 @@ func TestLoadDXF_Invalid(t *testing.T) {
 		{
 			name:    "no outer limit",
 			body:    dxfFile(square("deadzones")),
-			wantErr: "no closed polyline found",
+			wantErr: "no closed polyline or LINE/ARC loop found",
 		},
 		{
 			name:    "two outer limits",
@@ -164,9 +407,87 @@ func TestLoadDXF_Invalid(t *testing.T) {
 			wantErr: "degenerate",
 		},
 		{
+			// A SPLINE cannot be read as a loop; the error must name what can.
 			name:    "unsupported entity on the dead-zone layer",
-			body:    dxfFile(square("outer limits"), "0\nLINE\n8\ndeadzones\n10\n0.0\n20\n0.0\n11\n10.0\n21\n10.0\n"),
-			wantErr: "unsupported entity LINE",
+			body:    dxfFile(square("outer limits"), "0\nSPLINE\n8\ndeadzones\n70\n8\n"),
+			wantErr: "unsupported entity SPLINE on the dead zone layer; only closed polylines, circles, ellipses and closed loops of LINE/ARC segments are read",
+		},
+		{
+			name:    "unsupported entity on the outer-limit layer",
+			body:    dxfFile(square("outer limits"), "0\nSPLINE\n8\nouter limits\n70\n8\n"),
+			wantErr: "only a closed polyline or a closed loop of LINE/ARC segments",
+		},
+
+		// LINE/ARC chains. Each of these closes on paper but not in the file,
+		// or carries a value the loader must not guess at.
+		{
+			name:    "chained loop next to an outer polyline",
+			body:    dxfFile(square("outer limits"), rectLines("outer limits", 10, 10, 20, 20)),
+			wantErr: "found 2",
+		},
+		{
+			name:    "line shorter than the join tolerance",
+			body:    dxfFile(square("outer limits"), rectLines("deadzones", 10, 10, 40, 40), lineEnt("deadzones", 10, 10, 10.0005, 10)),
+			wantErr: "dead zone LINE from (10.000,10.000) to (10.001,10.000) is shorter than the join tolerance 0.001",
+		},
+		{
+			name:    "arc shorter than the join tolerance",
+			body:    dxfFile(square("outer limits"), arcEnt("deadzones", 50, 50, 0.01, 0, 0.5)),
+			wantErr: "is shorter than the join tolerance 0.001",
+		},
+		{
+			name:    "arc closing on itself",
+			body:    dxfFile(square("outer limits"), arcEnt("deadzones", 50, 50, 10, 0, 360)),
+			wantErr: "closes on itself (sweep 360.0°); draw a full circle as a CIRCLE",
+		},
+		{
+			name:    "arc without a center",
+			body:    dxfFile(square("outer limits"), "0\nARC\n8\ndeadzones\n40\n10.0\n50\n0\n51\n90\n"),
+			wantErr: "dead zone ARC has no center",
+		},
+		{
+			name:    "arc with a corrupted radius",
+			body:    dxfFile(square("outer limits"), "0\nARC\n8\ndeadzones\n10\n50\n20\n50\n40\n1O\n50\n0\n51\n90\n"),
+			wantErr: "dead zone ARC at (50.000,50.000) has no radius",
+		},
+		{
+			name:    "arc with a negative radius",
+			body:    dxfFile(square("outer limits"), arcEnt("deadzones", 50, 50, -10, 0, 90)),
+			wantErr: "dead zone ARC at (50.000,50.000) has radius -10.000",
+		},
+		{
+			name:    "arc without angles",
+			body:    dxfFile(square("outer limits"), "0\nARC\n8\ndeadzones\n10\n50\n20\n50\n40\n10\n"),
+			wantErr: "dead zone ARC at (50.000,50.000) has no start/end angle",
+		},
+		{
+			name:    "arc with a corrupted end angle",
+			body:    dxfFile(square("outer limits"), "0\nARC\n8\ndeadzones\n10\n50\n20\n50\n40\n10\n50\n0\n51\n9O\n"),
+			wantErr: "has no start/end angle",
+		},
+		{
+			// Like a circle: in an OCS the 10/20 center is not a world
+			// coordinate, and the arc would join the wrong points, if any.
+			name:    "arc in a mirrored OCS",
+			body:    dxfFile(square("outer limits"), withPair(arcEnt("deadzones", 50, 50, 10, 0, 90), 230, "-1.0")),
+			wantErr: "dead zone ARC at (50.000,50.000) uses an object coordinate system",
+		},
+		{
+			name:    "line without an end point",
+			body:    dxfFile(square("outer limits"), "0\nLINE\n8\ndeadzones\n10\n10\n20\n10\n11\n4O\n21\n10\n"),
+			wantErr: "dead zone LINE starting at (10.000,10.000) has no end point",
+		},
+		{
+			name:    "line without a start point",
+			body:    dxfFile(square("outer limits"), "0\nLINE\n8\ndeadzones\n11\n40\n21\n10\n"),
+			wantErr: "dead zone LINE has no start point",
+		},
+		{
+			// Two collinear lines back and forth enclose nothing; the loop
+			// closes but has no area to guard.
+			name:    "two-line loop",
+			body:    dxfFile(square("outer limits"), lineEnt("deadzones", 10, 10, 40, 10), lineEnt("deadzones", 40, 10, 10, 10)),
+			wantErr: "dead zone loop chained from LINE/ARC segments at (10.000,10.000) needs at least 3 vertices",
 		},
 		{
 			// A filled hatch is the natural CAD idiom for a keep-out AREA;
@@ -328,6 +649,21 @@ func ellipseEnt(layer string, cx, cy, mx, my, ratio, start, end float64) string 
 	// sweep like 1e-7 rad would round to zero decimals under %f).
 	return fmt.Sprintf("0\nELLIPSE\n8\n%s\n10\n%g\n20\n%g\n11\n%g\n21\n%g\n40\n%g\n41\n%g\n42\n%g\n",
 		layer, cx, cy, mx, my, ratio, start, end)
+}
+
+func lineEnt(layer string, ax, ay, bx, by float64) string {
+	return fmt.Sprintf("0\nLINE\n8\n%s\n10\n%g\n20\n%g\n11\n%g\n21\n%g\n", layer, ax, ay, bx, by)
+}
+
+// arcEnt renders an ARC from its center, radius and start/end angle (degrees).
+func arcEnt(layer string, cx, cy, r, start, end float64) string {
+	return fmt.Sprintf("0\nARC\n8\n%s\n10\n%g\n20\n%g\n40\n%g\n50\n%g\n51\n%g\n", layer, cx, cy, r, start, end)
+}
+
+// rectLines renders an axis-aligned rectangle as four LINE entities.
+func rectLines(layer string, x0, y0, x1, y1 float64) string {
+	return lineEnt(layer, x0, y0, x1, y0) + lineEnt(layer, x1, y0, x1, y1) +
+		lineEnt(layer, x1, y1, x0, y1) + lineEnt(layer, x0, y1, x0, y0)
 }
 
 // withPair appends one group-code pair to an entity.
