@@ -429,7 +429,7 @@ static int tpClear(TP_STRUCT * const tp) STMAK_NONBLOCKING
     tp->execFeedMmPerMin = 0.0;
     tp->motionType = 0;
     tp->done = 1;
-    tp->depth = tp->activeDepth = 0;
+    tp->activeDepth = 0;
     tp->aborting = 0;
     tp->pausing = 0;
     tp->reverse_run = 0;
@@ -1509,7 +1509,6 @@ STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc
         tcGetEndpoint(tc, &tp->goalPos);
     }
     tp->done = 0;
-    tp->depth = tcqLen(&tp->queue);
     //Fixing issue with duplicate id's?
     tp_debug_print("Adding TC id %d of type %d, total length %0.08f\n",tc->id,tc->motion_type,tc->target);
 
@@ -2714,7 +2713,7 @@ STATIC void tpHandleEmptyQueue(TP_STRUCT * const tp) STMAK_NONBLOCKING
     tcqInit(&tp->queue);
     tp->goalPos = tp->currentPos;
     tp->done = 1;
-    tp->depth = tp->activeDepth = 0;
+    tp->activeDepth = 0;
     tp->aborting = 0;
     tp->execId = 0;
     tp->motionType = 0;
@@ -2814,7 +2813,7 @@ STATIC tp_err_t tpHandleAbort(TP_STRUCT * const tp, TC_STRUCT * const tc,
         tcqInit(&tp->queue);
         tp->goalPos = tp->currentPos;
         tp->done = 1;
-        tp->depth = tp->activeDepth = 0;
+        tp->activeDepth = 0;
         tp->aborting = 0;
         tp->execId = 0;
         tp->motionType = 0;
@@ -3646,13 +3645,25 @@ static int tpIsDone(TP_STRUCT * const tp)
     return tp->done;
 }
 
+/**
+ * The number of segments still queued, the live queue length.
+ *
+ * Read from the queue itself rather than from a cached count: the cache
+ * (tp->depth, now gone) was written at enqueue, on an empty queue and on
+ * abort, but never on the pops in tpCompleteSegment or on the tcqPopBack of
+ * a consumed blend, so it was a high-water mark that counted 1, 2, 3, 0 and
+ * never down.  motion publishes this on the motion.queue-depth pin, which is
+ * documented as the number of segments the planner still has to run, and a
+ * task streaming segments reads "0 while a move is in progress" off it as
+ * the queue having run dry.
+ */
 static int tpQueueDepth(TP_STRUCT * const tp)
 {
     if (0 == tp) {
         return TP_ERR_OK;
     }
 
-    return tp->depth;
+    return tcqLen(&tp->queue);
 }
 
 static int tpActiveDepth(TP_STRUCT * const tp)

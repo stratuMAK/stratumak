@@ -930,8 +930,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
                 // SET_LINE latches the flag with the machine still on), and
                 // the jog is contained regardless of the flag -- its target
                 // is clamped to the limits here, the teleop clamp undoes any
-                // outward update, and a trip the axis frame cannot explain
-                // aborts every jog at servo rate (get_pos_cmds). Faults that
+                // outward update, and a joint the clamp could not hold (a
+                // joint limit tightened under its axis limit, non-identity
+                // kins) that is heading further out past a limit aborts
+                // every jog at servo rate (get_pos_cmds). Faults that
                 // do disable the machine are refused by the "Can't jog joint
                 // when not enabled" check above.
                 for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {

@@ -2000,26 +2000,69 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
     } else {
 	inst->internal->soft_limit_reported = 0;
     }
+    /* The realtime backstop for teleop jogs.  The task monitor's abort is
+       10 ms and a running task module away, and it latches after the first
+       trip; what stops a jog that is carrying a joint past a soft limit is
+       this block, at servo rate.
+
+       The rule is per joint and asks one question of it: is its command
+       beyond a limit AND still heading further out?  Only that has to be
+       stopped.  A joint standing outside (pushed there by hand with the
+       amps off) or coming back in (the recovery jog, which is how the
+       machine leaves this state) needs nothing done to it.
+
+       This deliberately does not classify the trip by frame.  An
+       axis-frame trip -- identity kins, the joint limit no tighter than the
+       axis limit -- is contained by the teleop clamp: every jog targets a
+       point inside the axis limits and update_teleop_with_check undoes any
+       update heading out, so a joint's command can never move further out
+       and this block never fires for it.  So "heading further out past a
+       limit" is by itself the signature of a trip nothing upstream could
+       contain: a joint limit tightened under the axis limit by an ini.N
+       halpin, non-identity kins.  Classifying by frame instead, with a
+       whole-machine "is any axis outside" predicate, got it wrong three
+       ways: one axis legitimately outside masked a joint-frame trip on a
+       different joint; a jog target set against the bare limits was judged
+       with the external offset added and the way back in was aborted every
+       cycle; and on re-entry the fresh axis sum was already inside while the
+       joint command -- two cycles of cubic interpolation and the jerk
+       window behind it -- was still outside, so the recovery jog was
+       hard-stopped at the limit edge every time.  Judging direction on the
+       joint command itself (the position the trip check uses, vel_cmd being
+       its derivative) has none of those: it is per joint, offsets are
+       already in it, and it lags by exactly as much as the trip does.
+
+       Every jog is stopped, not only the one on the tripped joint's axis:
+       under non-identity kins any axis jog can be the one moving the joint,
+       and there is no per-axis answer.  Stopped immediately (a velocity
+       step) because it is a backstop: the joint is already past the limit
+       and every further cycle at jog speed carries it further.  The motion
+       error flag is asserted on the cycle a jog was actually cancelled, not
+       for as long as the machine is outside: re-asserting it every cycle
+       kept the task monitor's error latch closed, so its own abort never
+       fired again either.
+
+       "Heading further out" needs a velocity floor.  With the jerk filter
+       on, its running boxcar sum drifts by rounding while a joint stands
+       still, and the cubic turns that into a vel_cmd around 1e-7.  One servo
+       cycle of a real move from rest is acc_limit * period; a hundredth of
+       that is well above the drift and well below any jog. */
     if (   inst->internal->teleoperating
         && GET_MOTION_TELEOP_FLAG()
         && GET_MOTION_ENABLE_FLAG()
-        && inst->status->on_soft_limit ) {
-        SET_MOTION_ERROR_FLAG(1);
-        if (axis_outside_limits(ai)) {
-            // The trip is visible in axis frame, so the teleop clamp contains
-            // every jog — targets are always inside the limits, and
-            // update_teleop_with_check undoes any update heading further out.
-            // Cancel only the jogs heading further out (a limit moved under an
-            // active jog): the ones heading back in are how the machine leaves
-            // this state (see axis_jog_abort_outward).
-            axis_jog_abort_outward(ai, 1);
-        } else {
-            // No axis accounts for the trip, so it happened in joint space —
-            // a joint limit tightened by an INI halpin below its axis' limit,
-            // or non-identity kins — where the axis-frame clamps cannot
-            // contain the motion. Stop every jog, at servo rate; the task
-            // monitor's abort is 10 ms and a running task module away.
-            axis_jog_abort_all(ai, 1);
+        && onlimit ) {
+        int heading_out = 0;
+        for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
+            double v_eps;
+            joint = &inst->joints[joint_num];
+            v_eps = 0.01 * joint->acc_limit * servo_period;
+            if (   (joint_limit[joint_num][1] && joint->vel_cmd >  v_eps)
+                || (joint_limit[joint_num][0] && joint->vel_cmd < -v_eps)) {
+                heading_out = 1;
+            }
+        }
+        if (heading_out && axis_jog_abort_all(ai, 1)) {
+            SET_MOTION_ERROR_FLAG(1);
         }
     }
     if (ext_offset_teleop_limit || ext_offset_coord_limit) {

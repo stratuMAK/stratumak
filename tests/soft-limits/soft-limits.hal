@@ -25,3 +25,24 @@ net estop-out => iocontrol.emc-enable-in
 
 sets hand-pos 0
 sets hand-sel 0
+
+# --- Servo-rate capture ---------------------------------------------------
+#
+# Whether a recovery jog is hard-stopped at the limit edge is a question of
+# one servo cycle: the abort sets the velocity to zero in a single step, and a
+# poll over REST can neither see the step nor say which cycle it was. So the
+# jog is sampled in the servo thread, after motion-controller has written the
+# cycle's values. trace-mark is set by the test around the jog it wants to
+# look at, so the analysis reads one window and not the whole run.
+#
+# Columns: trace-mark, X teleop velocity, X command, X jog enabled,
+# on-soft-limit, motion error (coord-error is the motion error flag).
+load filestream sample_cfg=sffbbb outfile=trace.txt depth=32768 samples=0
+net trace-mark                              => filestream.sample.0
+net xvel      <= axis.x.teleop-vel-cmd      => filestream.sample.1
+net xcmd                                    => filestream.sample.2
+net x-jog-on  <= axis.x.teleop-tp-enable    => filestream.sample.3
+net on-soft   <= motion.on-soft-limit       => filestream.sample.4
+net mot-err   <= motion.coord-error         => filestream.sample.5
+addf filestream.read servo-thread
+sets trace-mark 0

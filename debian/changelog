@@ -21,10 +21,20 @@ stratumak (0.1.3) UNRELEASED; urgency=medium
     limit: being outside forbids a direction, not jogging, and the jog back
     in is how the machine leaves that state (unhome/rehome is no longer
     needed). Jogs stay contained: targets are clamped to the axis limits,
-    and a trip the axis frame cannot explain -- a joint limit tightened by
-    an ini.N halpin below its axis' limit, non-identity kins -- aborts
-    every jog at servo rate. Incremental jogs are likewise no longer
-    refused over an unrelated latched motion error.
+    and a joint whose command is past a soft limit and still heading
+    further out -- which the axis clamp never lets happen, so it means a
+    joint limit tightened by an ini.N halpin below its axis' limit, or
+    non-identity kins -- aborts every jog at servo rate. The rule is per
+    joint: an axis standing outside its limits does not stop the jogs on
+    the others, the way back in is never aborted (external offset or not),
+    and the motion error is raised once, on the cycle a jog is cancelled.
+    Incremental jogs are likewise no longer refused over an unrelated
+    latched motion error.
+  * motion.queue-depth counts down. The pin is documented as the number of
+    segments the planner still has to run, but it was fed from a count
+    that was refreshed on enqueue and never on a completed segment, so it
+    read 1, 2, 3, 0 over a three-segment move; it now reports the live
+    queue length every cycle.
   * A .comp can now declare the external libraries it needs: pkgconfig for a
     library that ships a .pc file, cflags and ldflags for one that does not.
     modcompile --compile links them, --deps prints them for a packager to
