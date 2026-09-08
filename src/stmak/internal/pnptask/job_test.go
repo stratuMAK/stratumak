@@ -52,11 +52,7 @@ type machineSim struct {
 	fixtureStuck bool
 }
 
-func newMachineSim(f *machineFixture) *machineSim {
-	return newMachineSimOpts(f, nil)
-}
-
-// newMachineSimOpts is newMachineSim with a hook that runs before the first
+// newMachineSimOpts builds the sim with a hook that runs before the first
 // step(): for knobs that must be armed before the sim ever publishes, like a
 // pre-armed miss judging a close command that was issued during startControl.
 func newMachineSimOpts(f *machineFixture, prep func(*machineSim)) *machineSim {

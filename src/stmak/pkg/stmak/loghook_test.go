@@ -89,7 +89,7 @@ func TestOnLogError_Unregister(t *testing.T) {
 	NotifyOperatorMessage("a.mot", "x", 3)
 	unregister()
 	NotifyOperatorMessage("b.mot", "y", 3) // must NOT reach the removed hook
-	unregister()                 // idempotent: second call is a no-op
+	unregister()                           // idempotent: second call is a no-op
 
 	if want := []string{"a.mot"}; !equalStrings(got, want) {
 		t.Errorf("after unregister got %v, want %v", got, want)
@@ -164,7 +164,7 @@ func TestOperatorMessageCarriesSeverity(t *testing.T) {
 	})
 	defer unregister()
 
-	NotifyOperatorMessage("coat.pnp", "keine Rohteile mehr", 1) // INFO
+	NotifyOperatorMessage("coat.pnp", "keine Rohteile mehr", 1)  // INFO
 	NotifyOperatorMessage("coat.pnp", "Portal nicht bereit!", 3) // ERROR
 
 	if len(seen) != 2 {
