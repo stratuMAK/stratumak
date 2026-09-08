@@ -327,3 +327,39 @@ func TestGetStat_NilTask(t *testing.T) {
 		t.Errorf("nil task: State = %d, want ESTOP", stat.Task.State)
 	}
 }
+
+// The canon's endPoint is the origin of the next commanded move, so it must be
+// seeded from the commanded Cartesian pose and not from the feedback pose.
+//
+// Sourcing it from feedback made every re-synced segment carry the standing
+// following error of every axis as a spurious displacement.  For a pure rotary
+// move that is fatal rather than cosmetic: pmLine9Target takes the first
+// non-zero component as the segment length, pmCartLineInit calls a delta
+// non-zero above CART_FUZZ (1e-8), and so a few microns of XYZ error became the
+// length of a thirty-degree A move.  The planner covered those microns in two
+// servo cycles and emitted the endpoint, and the joint chased a full-travel
+// step into a following error.
+//
+// The fixture's CartePosCmd and CartePosFb differ, so this distinguishes the
+// two rather than passing on either.
+func TestSyncEndPointUsesCommandedPose(t *testing.T) {
+	task, ms := newRichTestTask()
+	if task.canon == nil {
+		t.Fatal("test task has no canon")
+	}
+
+	task.canon.syncEndPointFromMachine()
+	got := task.canon.state.endPoint
+	cmd := ms.status.CartePosCmd
+	fb := ms.status.CartePosFb
+
+	if got.X != cmd.X || got.Y != cmd.Y || got.Z != cmd.Z ||
+		got.A != cmd.A || got.B != cmd.B || got.C != cmd.C {
+		t.Errorf("endPoint = (%g,%g,%g,%g,%g,%g), want CartePosCmd (%g,%g,%g,%g,%g,%g)",
+			got.X, got.Y, got.Z, got.A, got.B, got.C,
+			cmd.X, cmd.Y, cmd.Z, cmd.A, cmd.B, cmd.C)
+	}
+	if got.X == fb.X && got.Y == fb.Y && got.Z == fb.Z {
+		t.Errorf("endPoint took CartePosFb (%g,%g,%g)", fb.X, fb.Y, fb.Z)
+	}
+}

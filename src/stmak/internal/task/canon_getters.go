@@ -66,7 +66,7 @@ func (c *Canon) GetExternalMist() (int32, error) {
 
 // Position getters — return current position in program units.
 // Like the C canon (GET_EXTERNAL_POSITION), these read from endPoint
-// (absolute machine coordinates, synced from CartePosFb before each synch)
+// (absolute machine coordinates, synced from CartePosCmd before each synch)
 // and return the position with offsets removed, in program units.
 // This matches the C canon's unoffset_and_unrotate_pos + to_prog.
 
@@ -82,7 +82,23 @@ func (c *Canon) syncEndPointFromMachine() {
 	if err != nil {
 		return
 	}
-	p := ms.CartePosFb
+	// CartePosCmd, not CartePosFb: endPoint is the origin of the next
+	// commanded move, so it has to be where the planner will start from, not
+	// where the machine happens to be standing.  2.9 reads the commanded traj
+	// position here (GET_EXTERNAL_POSITION); only the probe getters read
+	// feedback.
+	//
+	// Sourcing it from feedback made every re-synced segment carry the
+	// standing following error of every axis as a spurious displacement.  On a
+	// pure rotary move that is fatal: pmLine9Target takes the first non-zero
+	// component as the segment length, pmCartLineInit calls a delta non-zero
+	// above CART_FUZZ (1e-8), and a few microns of XYZ error therefore became
+	// the length of a 30 degree A move.  The planner finished those microns in
+	// two servo cycles and emitted the endpoint, so the joint chased a
+	// full-travel step: measured on the bridge saw as 29.1 degrees of A in
+	// 16ms against a 4um Y mismatch, and it cost a C drive, whose following
+	// error window is tighter than A's.
+	p := ms.CartePosCmd
 	c.state.endPoint = Pose{
 		X: p.X, Y: p.Y, Z: p.Z,
 		A: p.A, B: p.B, C: p.C,
