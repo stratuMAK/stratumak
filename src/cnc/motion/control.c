@@ -629,10 +629,17 @@ static void process_inputs(motmod_inst_t *inst)
        when the pin drops.  spindle_force_off clears the run state, so this
        reports once per stop rather than every servo cycle -- anything that
        turns the spindle back on under an asserted inhibit is a real event and
-       is meant to be reported again. */
+       is meant to be reported again.
+
+       An orient counts as turning.  SPINDLE_ORIENT deliberately leaves
+       .state at 0 -- it is not an M3 -- but it opens the brake and hands the
+       spindle to the external orient loop, which turns it.  Testing .state
+       alone would let M19 through an interlock that says the spindle may not
+       run, so the orient pin is tested too; spindle_force_off clears both. */
     for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
 	if (*inst->hal_data->spindle[spindle_num].spindle_start_inhibit
-	    && inst->status->spindle_status[spindle_num].state != 0) {
+	    && (inst->status->spindle_status[spindle_num].state != 0
+		|| *inst->hal_data->spindle[spindle_num].spindle_orient)) {
 	    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		_("Spindle %d stopped: start-inhibit is active"), spindle_num);
 	    spindle_force_off(inst, spindle_num, "start-inhibit");

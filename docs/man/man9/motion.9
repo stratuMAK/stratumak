@@ -618,9 +618,9 @@ Use \fBspindle.M.start\-inhibit\fR for an interlock.
 .TP
 \fBspindle.M.start\-inhibit\fR IN BIT
 When TRUE, the spindle may not run.
-An M3/M4 or any other start request is refused with an operator error rather
-than started and then muted, and a spindle that is already turning is stopped
-as if by M5.
+An M3/M4, an M19 orient or any other start request is refused with an operator
+error rather than started and then muted, and a spindle that is already turning
+-- under an orient included -- is stopped as if by M5.
 Releasing the pin does not restart the spindle: a new start command is
 required.
 This pin stops the spindle only -- it does not stop the feed or the running

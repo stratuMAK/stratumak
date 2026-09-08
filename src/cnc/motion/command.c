@@ -1925,6 +1925,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
         }
         for (n = s0; n<=s1; n++){
 
+	        /* An orient is a start request too, even though it leaves .state
+	           at 0: it opens the brake and hands the spindle to the external
+	           orient loop, which turns it.  Refused here for the same reason
+	           SPINDLE_ON is -- start-inhibit says the spindle may not run, and
+	           a request that is accepted and then undone at level would leave
+	           the brake open for a servo cycle. */
+	        if (*(inst->hal_data->spindle[n].spindle_start_inhibit)) {
+	            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+	                _("Spindle %d orient refused: start-inhibit is active"), n);
+	            inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
+	            spindle_force_off(inst, n, "start-inhibit");
+	            continue;
+	        }
+
 	        if (*(inst->hal_data->spindle[n].spindle_orient)) {
 		    stmak_log_debugf(inst->log, inst->name, "orient already in progress");
 

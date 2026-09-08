@@ -132,4 +132,48 @@ c.wait_complete()
 pin_set("spindle.0.inhibit", False)
 c.mdi("M5")
 c.wait_complete()
+
+# --- start-inhibit also refuses an orient ---------------------------------
+# M19 leaves the spindle state at 0 -- it is not an M3 -- so a guard that only
+# tests the run state lets it through.  It still opens the brake and hands the
+# spindle to the external orient loop, which turns it, which is precisely what
+# an interlock saying "the spindle may not run" has to prevent.
+#
+# M19 without a Q word enqueues the orient and does not wait for it to
+# complete, so nothing here depends on a HAL loop driving is-oriented.
+
+
+def orient_state():
+    """(orient-pin, brake-pin) -- requested to turn, and free to."""
+    return (pin_get("spindle.0.orient") == "TRUE",
+            pin_get("spindle.0.brake") == "TRUE")
+
+
+def expect_orient(label, orient, brake):
+    got = orient_state()
+    want = (orient, brake)
+    if got != want:
+        stmak_test.fail("%s: expected orient/brake %r, got %r" % (label, want, got))
+    print("ok: %s" % label)
+
+
+# Positive control: without the inhibit an orient really is started, so the
+# refusal below is a refusal and not an M19 that does nothing in this config.
+c.mdi("M19 R0")
+c.wait_complete()
+expect_orient("M19 starts an orient with no inhibit", True, False)
+c.mdi("M5")
+c.wait_complete()
+expect_orient("M5 cancels the orient and engages the brake", False, True)
+
+pin_set("spindle.0.start-inhibit", True)
+try:
+    c.mdi("M19 R0")
+    c.wait_complete()
+except Exception:
+    pass  # refusal may surface as an error; the pins are what decide
+time.sleep(0.3)  # give the servo cycle a chance to act on it, if it would
+expect_orient("M19 refused while start-inhibit is set", False, True)
+pin_set("spindle.0.start-inhibit", False)
+
 print("PASS")
