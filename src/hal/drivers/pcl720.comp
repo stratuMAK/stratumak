@@ -142,13 +142,13 @@ EXTRA_SETUP(){
     unsigned long addr;
 
     if (ioaddr == NULL || ioaddr[0] == '\0') {
-        STMAK_LOG_ERR("%s: no ioaddr= given\n", name);
+        STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s: no ioaddr= given\n", name);
         return -EINVAL;
     }
 
     addr = strtoul(ioaddr, &endp, 0);
     if (*endp != '\0' || addr == 0) {
-        STMAK_LOG_ERR("%s: invalid ioaddr=%s\n", name, ioaddr);
+        STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s: invalid ioaddr=%s\n", name, ioaddr);
         return -EINVAL;
     }
 

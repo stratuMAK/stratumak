@@ -127,7 +127,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (num_inputs < 1 || num_inputs > MAX_INPUTS) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "num_inputs=%d out of range (1..%d)", num_inputs, MAX_INPUTS);
         return -EINVAL;
     }

@@ -80,7 +80,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = kins_api_register(env->api, name, &corexykins_callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "failed to register kinematics API: %d", rc);
         return rc;
     }

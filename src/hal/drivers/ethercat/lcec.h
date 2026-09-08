@@ -61,7 +61,7 @@
  * @{
  */
 #define LCEC_ERR(master, fmt, ...) \
-  stmak_log_errorf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
+  stmak_logf((master)->log, (master)->comp_name, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ##__VA_ARGS__)
 #define LCEC_WARN(master, fmt, ...) \
   stmak_log_warnf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
 #define LCEC_INFO(master, fmt, ...) \

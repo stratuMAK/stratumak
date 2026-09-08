@@ -79,7 +79,7 @@ lcec_master_data_t *lcec_init_master_hal(const cmod_env_t *env, int comp_id, con
 
   // alloc hal data
   if ((hal_data = env->hal->malloc(env->hal->ctx, sizeof(lcec_master_data_t))) == NULL) {
-    stmak_log_errorf(env->log, pfx, "hal_malloc() for %s failed", pfx);
+    stmak_logf(env->log, pfx, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal_malloc() for %s failed", pfx);
     return NULL;
   }
   memset(hal_data, 0, sizeof(lcec_master_data_t));
@@ -148,7 +148,7 @@ lcec_master_t * lcec_create_master(const cmod_env_t *env, LCEC_CONF_MASTER_T *ma
 
 #ifndef STMAK_RTAPI_TASK_PLL_SUPPORT
   if (master_conf->refClockSyncCycles < 0) {
-    stmak_log_errorf(env->log, "ethercat",
+    stmak_logf(env->log, "ethercat", STMAK_LOG_ERROR | STMAK_LOG_OPER,
       "Master %d: refClockSyncCycles < 0"
       " (sync master to ref) not available (STMAK_RTAPI_TASK_PLL_SUPPORT missing)",
       master_conf->index);
@@ -159,7 +159,7 @@ lcec_master_t * lcec_create_master(const cmod_env_t *env, LCEC_CONF_MASTER_T *ma
   // alloc master memory
   master = env->rtapi->calloc(env->rtapi->ctx, sizeof(lcec_master_t));
   if (master == NULL) {
-    stmak_log_errorf(env->log, "ethercat",
+    stmak_logf(env->log, "ethercat", STMAK_LOG_ERROR | STMAK_LOG_OPER,
         "Unable to allocate master %d structure memory", master_conf->index);
     goto fail0;
   }

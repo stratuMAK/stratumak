@@ -429,7 +429,7 @@ static int tpClear(TP_STRUCT * const tp) STMAK_NONBLOCKING
     tp->execFeedMmPerMin = 0.0;
     tp->motionType = 0;
     tp->done = 1;
-    tp->depth = tp->activeDepth = 0;
+    tp->activeDepth = 0;
     tp->aborting = 0;
     tp->pausing = 0;
     tp->reverse_run = 0;
@@ -467,7 +467,7 @@ static int tpInit(TP_STRUCT * const tp)
     PmCartesian acc_bound;
     //FIXME this acceleration bound isn't valid (nor is it used)
     if (mot == 0) {
-       stmak_log_errorf(tp->log, tp->log_comp,"!!!tpInit: NULL mot API, bye\n\n");
+       stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,"!!!tpInit: NULL mot API, bye\n\n");
        return -1;
     }
     tpGetMachineAccelBounds(tp, &acc_bound);
@@ -569,7 +569,7 @@ static int tpSetId(TP_STRUCT * const tp, int id)
 {
 
     if (!MOTION_ID_VALID(id)) {
-        stmak_log_errorf(tp->log, tp->log_comp, "tpSetId: invalid motion id %d\n", id);
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "tpSetId: invalid motion id %d\n", id);
         return TP_ERR_FAIL;
     }
 
@@ -668,7 +668,7 @@ static int tpSetCurrentPos(TP_STRUCT * const tp, EmcPose const * const pos)
         tp->currentPos = *pos;
         return TP_ERR_OK;
     } else {
-        stmak_log_errorf(tp->log, tp->log_comp, "Tried to set invalid pose in tpSetCurrentPos on id %d!"
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Tried to set invalid pose in tpSetCurrentPos on id %d!"
                 "pos is %.12g, %.12g, %.12g\n",
                 tp->execId,
                 pos->tran.x,
@@ -689,7 +689,7 @@ static int tpAddCurrentPos(TP_STRUCT * const tp, EmcPose const * const disp) STM
         emcPoseSelfAdd(&tp->currentPos, disp);
         return TP_ERR_OK;
     } else {
-        stmak_log_errorf(tp->log, tp->log_comp, "Tried to set invalid pose in tpAddCurrentPos on id %d!"
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Tried to set invalid pose in tpAddCurrentPos on id %d!"
                 "disp is %.12g, %.12g, %.12g\n",
                 tp->execId,
                 disp->tran.x,
@@ -706,11 +706,11 @@ static int tpAddCurrentPos(TP_STRUCT * const tp, EmcPose const * const disp) STM
 static int tpErrorCheck(TP_STRUCT const * const tp) {
 
     if (!tp) {
-        stmak_log_errorf(tp->log, tp->log_comp, "TP is null\n");
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "TP is null\n");
         return TP_ERR_FAIL;
     }
     if (tp->aborting) {
-        stmak_log_errorf(tp->log, tp->log_comp, "TP is aborting\n");
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "TP is aborting\n");
         return TP_ERR_FAIL;
     }
     return TP_ERR_OK;
@@ -822,7 +822,7 @@ STATIC int tcSetLineXYZ(TC_STRUCT * const tc, PmCartLine const * const line,
         return TP_ERR_FAIL;
     }
     if (!tc->coords.line.abc.tmag_zero || !tc->coords.line.uvw.tmag_zero) {
-        stmak_log_errorf(log, log_comp, "SetLineXYZ does not support ABC or UVW motion");
+        stmak_logf(log, log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "SetLineXYZ does not support ABC or UVW motion");
         return TP_ERR_FAIL;
     }
 
@@ -1471,7 +1471,7 @@ STATIC tp_err_t tpCreateLineLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pr
         retval = tcqPopBack(&tp->queue);
         if (retval) {
             //This is unrecoverable since we've already changed the line. Something is wrong if we get here...
-            stmak_log_errorf(tp->log, tp->log_comp, "PopBack failed\n");
+            stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "PopBack failed\n");
             return TP_ERR_FAIL;
         }
         //Since the blend arc meets the end of the previous line, we only need
@@ -1496,7 +1496,7 @@ STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc
 
     tc->id = tp->nextId;
     if (tcqPut(&tp->queue, tc) == -1) {
-        stmak_log_errorf(tp->log, tp->log_comp, "tcqPut failed.\n");
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "tcqPut failed.\n");
         return TP_ERR_FAIL;
     }
     if (inc_id) {
@@ -1509,7 +1509,6 @@ STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc
         tcGetEndpoint(tc, &tp->goalPos);
     }
     tp->done = 0;
-    tp->depth = tcqLen(&tp->queue);
     //Fixing issue with duplicate id's?
     tp_debug_print("Adding TC id %d of type %d, total length %0.08f\n",tc->id,tc->motion_type,tc->target);
 
@@ -1569,7 +1568,7 @@ static int tpAddRigidTap(TP_STRUCT * const tp,
     tp_info_print("== AddRigidTap ==\n");
 
     if(!tp->synchronized) {
-        stmak_log_errorf(tp->log, tp->log_comp, "Cannot add unsynchronized rigid tap move.\n");
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Cannot add unsynchronized rigid tap move.\n");
         return TP_ERR_FAIL;
     }
 
@@ -2374,7 +2373,7 @@ STATIC void tpDebugCycleInfo(TP_STRUCT const * const tp, TC_STRUCT const * const
     tc_debug_print("          motion type %d\n", tc->motion_type);
 
     if (tc->on_final_decel) {
-        stmak_log_errorf(tp->log, tp->log_comp," on final decel\n");
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER," on final decel\n");
     }
 #else
     (void)tp; (void)tc; (void)nexttc; (void)acc;
@@ -2402,7 +2401,7 @@ static void tpCalculateTrapezoidalAccel(TP_STRUCT const * const tp, TC_STRUCT * 
 
 #ifdef TP_PEDANTIC
     if (tc_finalvel > 0.0 && tc->term_cond != TC_TERM_COND_TANGENT) {
-        stmak_log_errorf(tp->log, tp->log_comp, "Final velocity of %f with non-tangent segment!\n",tc_finalvel);
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Final velocity of %f with non-tangent segment!\n",tc_finalvel);
         tc_finalvel = 0.0;
     }
 #endif
@@ -2423,7 +2422,7 @@ static void tpCalculateTrapezoidalAccel(TP_STRUCT const * const tp, TC_STRUCT * 
     // in this situation
 #ifdef TP_PEDANTIC
     if (discr < 0.0) {
-        stmak_log_errorf(tp->log, tp->log_comp,
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "discriminant %f < 0 in velocity calculation!\n", discr);
     }
 #endif
@@ -2714,7 +2713,7 @@ STATIC void tpHandleEmptyQueue(TP_STRUCT * const tp) STMAK_NONBLOCKING
     tcqInit(&tp->queue);
     tp->goalPos = tp->currentPos;
     tp->done = 1;
-    tp->depth = tp->activeDepth = 0;
+    tp->activeDepth = 0;
     tp->aborting = 0;
     tp->execId = 0;
     tp->motionType = 0;
@@ -2788,7 +2787,7 @@ STATIC int tpCompleteSegment(TP_STRUCT * const tp,
         tp_debug_print("Finished reverse run of tc id %d\n", tc->id);
     } else {
         int res_pop = tcqPop(&tp->queue);
-        if (res_pop) stmak_log_errorf(tp->log, tp->log_comp,"Got error %d from tcqPop!\n", res_pop);
+        if (res_pop) stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,"Got error %d from tcqPop!\n", res_pop);
         tp_debug_print("Finished tc id %d\n", tc->id);
     }
 
@@ -2814,7 +2813,7 @@ STATIC tp_err_t tpHandleAbort(TP_STRUCT * const tp, TC_STRUCT * const tc,
         tcqInit(&tp->queue);
         tp->goalPos = tp->currentPos;
         tp->done = 1;
-        tp->depth = tp->activeDepth = 0;
+        tp->activeDepth = 0;
         tp->aborting = 0;
         tp->execId = 0;
         tp->motionType = 0;
@@ -2842,7 +2841,7 @@ STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) STMAK
     // this is no longer the segment we were waiting_for_index for
     if (MOTION_ID_VALID(tp->spindle.waiting_for_index) && tp->spindle.waiting_for_index != tc->id)
     {
-        stmak_log_errorf(tp->log, tp->log_comp,
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "Was waiting for index on motion id %d, but reached id %d\n",
                 tp->spindle.waiting_for_index, tc->id);
         tp->spindle.waiting_for_index = MOTION_INVALID_ID;
@@ -2851,7 +2850,7 @@ STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) STMAK
     if (MOTION_ID_VALID(tp->spindle.waiting_for_atspeed) && tp->spindle.waiting_for_atspeed != tc->id)
     {
 
-        stmak_log_errorf(tp->log, tp->log_comp,
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "Was waiting for atspeed on motion id %d, but reached id %d\n",
                 tp->spindle.waiting_for_atspeed, tc->id);
         tp->spindle.waiting_for_atspeed = MOTION_INVALID_ID;
@@ -3206,7 +3205,7 @@ STATIC inline int tcSetSplitCycle(TC_STRUCT * const tc, double split_time,
 {
     tp_debug_print("split time for id %d is %.16g\n", tc->id, split_time);
     if (tc->splitting != 0 && split_time > 0.0) {
-        stmak_log_errorf(log, log_comp, "already splitting on id %d with cycle time %.16g, dx = %.16g, split time %.12g",
+        stmak_logf(log, log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "already splitting on id %d with cycle time %.16g, dx = %.16g, split time %.12g",
                 tc->id,
                 tc->cycle_time,
                 tc->target-tc->progress,
@@ -3383,7 +3382,7 @@ STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
         case TC_TERM_COND_EXACT:
             break;
         default:
-            stmak_log_errorf(tp->log, tp->log_comp,"unknown term cond %d in segment %d\n",
+            stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,"unknown term cond %d in segment %d\n",
                     tc->term_cond,
                     tc->id);
     }
@@ -3646,13 +3645,25 @@ static int tpIsDone(TP_STRUCT * const tp)
     return tp->done;
 }
 
+/**
+ * The number of segments still queued, the live queue length.
+ *
+ * Read from the queue itself rather than from a cached count: the cache
+ * (tp->depth, now gone) was written at enqueue, on an empty queue and on
+ * abort, but never on the pops in tpCompleteSegment or on the tcqPopBack of
+ * a consumed blend, so it was a high-water mark that counted 1, 2, 3, 0 and
+ * never down.  motion publishes this on the motion.queue-depth pin, which is
+ * documented as the number of segments the planner still has to run, and a
+ * task streaming segments reads "0 while a move is in progress" off it as
+ * the queue having run dry.
+ */
 static int tpQueueDepth(TP_STRUCT * const tp)
 {
     if (0 == tp) {
         return TP_ERR_OK;
     }
 
-    return tp->depth;
+    return tcqLen(&tp->queue);
 }
 
 static int tpActiveDepth(TP_STRUCT * const tp)
@@ -3702,7 +3713,7 @@ static int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir) STMAK_NONBLOCKI
             tp->reverse_run = dir;
             return TP_ERR_OK;
         default:
-            stmak_log_errorf(tp->log, tp->log_comp,"Invalid direction flag in SetRunDir");
+            stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,"Invalid direction flag in SetRunDir");
             return TP_ERR_FAIL;
     }
 }
@@ -3883,7 +3894,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = tp_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "failed to register tp API: %d", rc);
         free(inst);
         return rc;

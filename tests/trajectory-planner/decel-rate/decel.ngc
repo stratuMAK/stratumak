@@ -1,0 +1,12 @@
+( Effective deceleration at the end of the queue, exact-stop vs blended.       )
+( Each move is the last in the queue when it ends, so its final ramp is the    )
+( planner bringing the machine to rest. 180 mm is far more than the 15.6 mm    )
+( needed to reach 250 mm/s at 2000 mm/s^2, so both ramps start from cruise.    )
+G21 G90 G94
+G61                 ( exact stop: the segment carries TC_TERM_COND_STOP       )
+G0 X90
+G4 P0.5             ( let the queue drain and the velocity settle at zero      )
+G64 P0.05           ( blended: the segment carries TC_TERM_COND_PARABOLIC     )
+G0 X-90
+G4 P0.5
+M2

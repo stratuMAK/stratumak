@@ -148,13 +148,18 @@ func (r *stmakLogRing) drainAll(logger *slog.Logger) int {
 		msg := cStringFromBytes(msgBuf)
 		tsNano := int64(ts)
 
-		// Notify Go-level error hooks (e.g. milltask operator messages).
-		if int(level) >= 3 { // STMAK_LOG_ERROR
-			stmak.NotifyLogError(component, msg)
+		// The level word carries a severity in its low bits and flags above
+		// them, so everything here masks before comparing (stmak_log.h).
+		severity := int(level) & logLevelMask
+
+		// Operator messages are marked, not inferred from severity: audience
+		// and severity are independent axes.
+		if int(level)&logOperFlag != 0 {
+			stmak.NotifyOperatorMessage(component, msg, severity)
 		}
 
 		logLevel := slog.LevelInfo
-		switch int(level) {
+		switch severity {
 		case 0: // STMAK_LOG_DEBUG
 			logLevel = slog.LevelDebug
 		case 1: // STMAK_LOG_INFO
@@ -177,13 +182,22 @@ func (r *stmakLogRing) drainAll(logger *slog.Logger) int {
 	return count
 }
 
+// The level word's layout, mirroring stmak_log.h: severity in the low bits,
+// flags above.
+const (
+	logLevelMask = 0x0f
+	logOperFlag  = 0x10
+)
+
 // fanOut copies a log message to all subscriber rings whose level filter matches.
 func (r *stmakLogRing) fanOut(level C.uint32_t, ts C.int64_t, comp, msg []byte) {
 	r.subsMu.Lock()
 	defer r.subsMu.Unlock()
 
 	for _, sub := range r.subs {
-		if level < sub.min_level {
+		// Mask: a subscriber asked for a minimum SEVERITY, and an unmasked
+		// comparison against a word carrying a flag bit passes every filter.
+		if C.uint32_t(uint32(level)&logLevelMask) < sub.min_level {
 			continue
 		}
 		C.stmak_sub_ring_write(sub.ring,

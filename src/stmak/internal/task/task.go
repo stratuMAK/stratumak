@@ -693,6 +693,17 @@ func (t *Task) operatorError(text string) {
 	t.logger.Warn("operator error", "msg", text)
 }
 
+// operatorText sends an operator NOTICE to connected UIs -- something worth
+// telling them that is not a fault. The message list keeps the two kinds apart
+// (messageFlags), so a UI can show them differently.
+func (t *Task) operatorText(text string) {
+	t.appendMessage(emcerror.ErrorKind_OPERATOR_TEXT, text)
+	if t.errors != nil {
+		t.errors.OperatorText(text)
+	}
+	t.logger.Info("operator text", "msg", text)
+}
+
 // updateActiveCodes fetches the interpreter's active G/M codes and settings
 // and stores them in the task state for stat reporting. It also republishes
 // the canon state snapshot and call level — this is the single point where

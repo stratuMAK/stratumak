@@ -744,6 +744,14 @@ typedef struct emcmot_internal_t {
     int overriding;     /* non-zero means we've initiated an joint
                            move while overriding limits */
     int idForStep;      /* status id while stepping */
+    int soft_limit_reported; /* once-latch for the soft-limit trip fault:
+                                status->on_soft_limit is live state (the pin's
+                                contract), so the "report once per trip" edge
+                                needs its own memory. Set while the fault is
+                                being reported (on limit AND enabled), cleared
+                                when the machine leaves the limit or disables —
+                                so enabling a machine that is still outside
+                                reports the trip on the enable edge. */
     } emcmot_internal_t;
 
 #define GET_JOINT_ACTIVE_FLAG(joint) ((joint)->flag & EMCMOT_JOINT_ACTIVE_BIT ? 1 : 0)

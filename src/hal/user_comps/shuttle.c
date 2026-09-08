@@ -187,7 +187,7 @@ static void *shuttle_loop(void *arg) {
         for (int i = 0; i < inst->num_devices; i++) {
             if (pfds[i + 1].revents & POLLIN) {
                 if (read_update(&inst->devices[i]) < 0) {
-                    stmak_log_errorf(inst->env->log, "shuttle",
+                    stmak_logf(inst->env->log, "shuttle", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "error reading %s\n", inst->devices[i].device_file);
                     /* disable this fd */
                     pfds[i + 1].fd = -1;
@@ -381,7 +381,7 @@ int New(const cmod_env_t *env, const char *name,
     if (glob_used) globfree(&glob_buf);
 
     if (inst->num_devices == 0) {
-        stmak_log_errorf(env->log, "shuttle", "no devices found\n");
+        stmak_logf(env->log, "shuttle", STMAK_LOG_ERROR | STMAK_LOG_OPER, "no devices found\n");
         goto fail;
     }
 

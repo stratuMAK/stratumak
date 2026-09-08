@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
-package task
+package motsetup
 
 import (
 	"math"
@@ -46,7 +46,7 @@ func TestLoadJointComp(t *testing.T) {
 
 	t.Run("type0_positions_to_diffs", func(t *testing.T) {
 		var got []compTriplet
-		err := loadJointComp(2, file, 0, func(joint int32, nom, fwd, rev float64) error {
+		err := LoadJointComp(2, file, 0, func(joint int32, nom, fwd, rev float64) error {
 			if joint != 2 {
 				t.Errorf("joint = %d, want 2", joint)
 			}
@@ -54,7 +54,7 @@ func TestLoadJointComp(t *testing.T) {
 			return nil
 		})
 		if err != nil {
-			t.Fatalf("loadJointComp: %v", err)
+			t.Fatalf("LoadJointComp: %v", err)
 		}
 		// type 0: fwd/rev trims = nominal - value.
 		want := []compTriplet{
@@ -69,12 +69,12 @@ func TestLoadJointComp(t *testing.T) {
 
 	t.Run("type1_passthrough", func(t *testing.T) {
 		var got []compTriplet
-		err := loadJointComp(0, file, 1, func(_ int32, nom, fwd, rev float64) error {
+		err := LoadJointComp(0, file, 1, func(_ int32, nom, fwd, rev float64) error {
 			got = append(got, compTriplet{nom, fwd, rev})
 			return nil
 		})
 		if err != nil {
-			t.Fatalf("loadJointComp: %v", err)
+			t.Fatalf("LoadJointComp: %v", err)
 		}
 		want := []compTriplet{
 			{0.0, 0.0, -0.001},
@@ -91,13 +91,13 @@ func TestLoadJointComp(t *testing.T) {
 		if err := os.WriteFile(empty, []byte("# only a comment\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := loadJointComp(0, empty, 0, func(int32, float64, float64, float64) error { return nil }); err == nil {
+		if err := LoadJointComp(0, empty, 0, func(int32, float64, float64, float64) error { return nil }); err == nil {
 			t.Error("expected an error for a file with no triplets")
 		}
 	})
 
 	t.Run("missing_file_errors", func(t *testing.T) {
-		if err := loadJointComp(0, filepath.Join(dir, "nope.txt"), 0, func(int32, float64, float64, float64) error { return nil }); err == nil {
+		if err := LoadJointComp(0, filepath.Join(dir, "nope.txt"), 0, func(int32, float64, float64, float64) error { return nil }); err == nil {
 			t.Error("expected an error for a missing file")
 		}
 	})

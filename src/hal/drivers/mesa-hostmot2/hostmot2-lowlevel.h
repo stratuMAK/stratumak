@@ -41,12 +41,12 @@
 
 #define LL_PRINT_IF(enable, fmt, args...)  if (enable) { stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args); }
 
-#define LL_ERR(fmt, args...)   stmak_log_errorf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
+#define LL_ERR(fmt, args...)   stmak_logf(hm2_log, HM2_LLIO_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ## args);
 #define LL_WARN(fmt, args...)  stmak_log_warnf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
 #define LL_INFO(fmt, args...)  stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args);
 #define LL_DBG(fmt, args...)   stmak_log_debugf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
 
-#define THIS_ERR(fmt, args...)   stmak_log_errorf(this->log, this->name, fmt, ## args);
+#define THIS_ERR(fmt, args...)   stmak_logf(this->log, this->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ## args);
 #define THIS_WARN(fmt, args...)  stmak_log_warnf(this->log, this->name, fmt, ## args);
 #define THIS_INFO(fmt, args...)  stmak_log_infof(this->log, this->name, fmt, ## args);
 #define THIS_DBG(fmt, args...)   stmak_log_debugf(this->log, this->name, fmt, ## args);

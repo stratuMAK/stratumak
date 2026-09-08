@@ -7,3 +7,5 @@ out.txt
 *.db
 *.db-shm
 *.db-wal
+# servo-thread capture written by tests/soft-limits/soft-limits.hal
+trace.txt

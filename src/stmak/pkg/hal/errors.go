@@ -116,6 +116,35 @@ var (
 		Message: "HAL_PORT write failed (pin not linked to a sized port signal?)",
 	}
 
+	// ErrNameExists indicates a pin or parameter with this fully-qualified
+	// name was already created on the component. The duplicate is rejected on
+	// the Go side before any HAL shared memory is allocated: HAL shm is a
+	// bump allocator with no free, so a duplicate that only failed inside
+	// hal_pin_new/hal_param_new would permanently leak the already-allocated
+	// value cell (see Component.create).
+	ErrNameExists = &Error{
+		Code:    -17, // -EEXIST
+		Message: "pin or parameter name already exists on this component",
+	}
+
+	// ErrNotRealtime indicates ExportFunct was called on a component created
+	// with NewComponent. HAL only accepts a cyclic function from a component
+	// registered as COMPONENT_TYPE_REALTIME (hal_export_funct rejects any
+	// component with a non-zero pid), so the fix is the constructor, not the
+	// call.
+	ErrNotRealtime = &Error{
+		Code:    -22, // -EINVAL
+		Message: "component is not realtime; create it with NewRTComponent to export a function",
+	}
+
+	// ErrNilFunct indicates ExportFunct was given a nil function address. HAL
+	// would store it and the servo thread would call through it on the next
+	// cycle, so it is refused here.
+	ErrNilFunct = &Error{
+		Code:    -22, // -EINVAL
+		Message: "realtime function address is nil",
+	}
+
 	// ErrComponentExited indicates a pin was accessed after its owning
 	// component was released with Exit(). The pin's HAL shared memory has been
 	// freed, so the access is refused rather than dereferencing freed memory
