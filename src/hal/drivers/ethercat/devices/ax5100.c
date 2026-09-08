@@ -46,6 +46,10 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
 
 /** @brief Cyclic read callback — delegates to lcec_class_ax5_read(). */
 void lcec_ax5100_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+/** @brief Shutdown request — masks the enable on this axis. */
+void lcec_ax5100_shutdown_req(struct lcec_slave *slave);
+/** @brief Shutdown query — non-zero once the axis no longer reports itself enabled. */
+int lcec_ax5100_shutdown_done(struct lcec_slave *slave);
 /** @brief Cyclic write callback — delegates to lcec_class_ax5_write(). */
 void lcec_ax5100_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
@@ -79,6 +83,8 @@ int lcec_ax5100_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   // initialize callbacks
   slave->proc_read = lcec_ax5100_read;
   slave->proc_write = lcec_ax5100_write;
+  slave->proc_shutdown_req = lcec_ax5100_shutdown_req;
+  slave->proc_shutdown_done = lcec_ax5100_shutdown_done;
 
   // alloc hal memory
   if ((hal_data = env->hal->malloc(env->hal->ctx, sizeof(lcec_ax5100_data_t))) == NULL) {
@@ -122,6 +128,18 @@ void lcec_ax5100_read(struct lcec_slave *slave, long period) {
 
   // check inputs
   lcec_class_ax5_read(slave, &hal_data->chan);
+}
+
+void lcec_ax5100_shutdown_req(struct lcec_slave *slave) {
+  lcec_ax5100_data_t *hal_data = (lcec_ax5100_data_t *) slave->hal_data;
+
+  lcec_class_ax5_shutdown_req(&hal_data->chan);
+}
+
+int lcec_ax5100_shutdown_done(struct lcec_slave *slave) {
+  lcec_ax5100_data_t *hal_data = (lcec_ax5100_data_t *) slave->hal_data;
+
+  return lcec_class_ax5_shutdown_done(&hal_data->chan);
 }
 
 void lcec_ax5100_write(struct lcec_slave *slave, long period) {

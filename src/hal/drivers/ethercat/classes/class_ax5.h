@@ -93,6 +93,8 @@ typedef struct {
   double scale_fb2_old;   /**< Shadow copy of @p scale_fb2 used to detect HAL parameter changes. */
   double scale_fb2_rcpt;  /**< Reciprocal of @p scale_fb2, recomputed on change. */
 
+  int shutdown;           /**< Set at shutdown: masks the enable pin so the control word de-energises the axis. */
+
   double vel_output_scale; /**< Pre-computed factor converting user-units/s to drive velocity counts (60/vel_scale). */
 
   int toggle;             /**< Sync-bit toggled every cycle to signal life to the drive. */
@@ -151,5 +153,32 @@ void lcec_class_ax5_read(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) 
  * @param chan   Per-channel data structure for this axis.
  */
 void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) STMAK_NONBLOCKING;
+
+/**
+ * @brief Ask this axis to de-energise, for the shutdown request phase.
+ *
+ * Masks the HAL enable pin from the control word, so the next write drops the
+ * drive-enable and halt/restart bits regardless of what motion still has on
+ * the pin.  The power-stage bit is left to @c srv-drive-on: a drive holding
+ * only that bit is not "enabled" as far as its safety card is concerned, and
+ * removing STO in that state is the clean shutdown, not a fault.
+ *
+ * Returns immediately -- the caller notifies every device before waiting on
+ * any of them, so a bus full of drives costs one settle rather than N.
+ *
+ * @param chan  Per-channel data structure for this axis.
+ */
+void lcec_class_ax5_shutdown_req(lcec_class_ax5_chan_t *chan);
+
+/**
+ * @brief Report whether this axis has actually de-energised.
+ *
+ * Reads back the drive's own status (ready-to-operate level 3, i.e. the
+ * @c srv-enabled pin) rather than assuming a delay is long enough.
+ *
+ * @param chan  Per-channel data structure for this axis.
+ * @return      Non-zero once the drive no longer reports itself enabled.
+ */
+int lcec_class_ax5_shutdown_done(lcec_class_ax5_chan_t *chan);
 
 #endif

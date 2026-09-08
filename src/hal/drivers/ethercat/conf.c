@@ -549,6 +549,13 @@ static void lcec_conf_late_stop(cmod_t *self) {
   // a process image that is no longer going anywhere.  The drives would then
   // stay energised, which also turns a subsequent STO into a drive fault
   // rather than a clean stop.
+  // De-energise the drives before the bus goes, and wait for them to say they
+  // have: taking the bus out of OP stops the safety logic too, and a drive
+  // still enabled when its STO drops faults rather than stopping.  Ahead of
+  // the transition below, still inside the stop phases, so the cycles that
+  // carry it are running.
+  lcec_rt_drives_down(&m->rt_ctx);
+
   lcec_rt_bus_down(&m->rt_ctx);
 }
 

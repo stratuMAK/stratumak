@@ -278,6 +278,26 @@ typedef void (*lcec_slave_cleanup_t) (struct lcec_slave *slave);
 typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
+ * @brief Shutdown request callback: ask the device to de-energise.
+ *
+ * Called on every slave that declares one, before any of them is waited on
+ * (see lcec_rt_drives_down()), so that devices settle in parallel.  Runs on
+ * the shutdown path with the realtime threads still cycling, so whatever the
+ * callback writes still reaches the wire; it must not block.
+ */
+typedef void (*lcec_slave_shutdown_t) (struct lcec_slave *slave);
+
+/**
+ * @brief Shutdown query callback: has the device de-energised yet?
+ *
+ * Polled after every slave has been asked.  Should answer from the device's
+ * own status rather than from elapsed time -- the point of the query phase is
+ * to not guess.  Must return non-zero for a device that cannot answer, or the
+ * wait would always run to its timeout.
+ */
+typedef int (*lcec_slave_shutdown_q_t) (struct lcec_slave *slave);
+
+/**
  * @brief Distributed Clock synchronisation callback invoked at a specific
  *        point in the EtherCAT communication cycle.
  *
@@ -527,6 +547,8 @@ typedef struct lcec_slave {
   lcec_slave_cleanup_t proc_cleanup;   /**< Cleanup callback (frees driver resources), may be NULL. */
   lcec_slave_rw_t      proc_read;      /**< RT read callback executed each servo period, may be NULL. */
   lcec_slave_rw_t      proc_write;     /**< RT write callback executed each servo period, may be NULL. */
+  lcec_slave_shutdown_t   proc_shutdown_req;  /**< Shutdown: ask the device to de-energise, may be NULL. */
+  lcec_slave_shutdown_q_t proc_shutdown_done; /**< Shutdown: has it de-energised, may be NULL. */
   lcec_slave_state_t  *hal_state_data; /**< HAL pins for this slave's AL state. */
   void               *hal_data;        /**< Driver-private HAL data pointer (cast to driver's own struct). */
   lcec_generic_slave_t generic;        /**< PDO layout storage populated for generic slave configuration. */
