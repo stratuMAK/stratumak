@@ -56,7 +56,13 @@ import (
 // stmakLogRing wraps a C-allocated stmak_log_ring_t and provides the Go-side
 // drain loop that forwards log entries to the slog logger.
 type stmakLogRing struct {
-	ring    *C.stmak_log_ring_t
+	ring *C.stmak_log_ring_t
+	// drainMu serialises drainAll. The drain goroutine is not the only
+	// caller: the launcher flushes synchronously on a module load failure
+	// (drainLogRingNow) so the module's own explanation lands next to the
+	// error. Without this the two race on readPos, and two readers at the
+	// same position deliver one message twice and skip the next.
+	drainMu sync.Mutex
 	readPos uint32
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
@@ -120,6 +126,9 @@ func (r *stmakLogRing) drainLoop(ctx context.Context, logger *slog.Logger) {
 }
 
 func (r *stmakLogRing) drainAll(logger *slog.Logger) int {
+	r.drainMu.Lock()
+	defer r.drainMu.Unlock()
+
 	var (
 		level C.uint32_t
 		ts    C.int64_t
