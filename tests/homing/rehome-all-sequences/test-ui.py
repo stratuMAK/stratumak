@@ -6,19 +6,27 @@
 # call site of do_homing_sequence), and it told the caller to leave FREE the
 # moment all-homed first read true.  On a RE-home that is far too early: the
 # joints in the later sequences still carry their homed flags from the first
-# homing, so all-homed reads true again as soon as sequence 0 finishes.  Motion
-# switched to teleop there, the FSM stopped being ticked, and the remaining
-# sequences never ran -- Home All on a homed machine re-homed sequence 0 alone.
+# homing, so all-homed reads true again as soon as the first sequence finishes.
+# Motion switched to teleop there, the FSM stopped being ticked, and the
+# remaining sequences never ran -- Home All on a homed machine re-homed the
+# lowest sequence alone.
 #
-# Worse, the FSM kept its state: unhoming any joint dropped all-homed, motion
-# returned to FREE, the frozen FSM resumed and homed the rest unprompted.  That
-# second symptom is what this test asserts on, because it needs no timing --
-# the joint must simply stay unhomed until it is asked to home.
+# The joints are homed immediately at their current position (no search or
+# latch velocity), so a re-home is observable as a position: move the axes off
+# zero, Home All, and every joint that actually re-homes reads 0 again.  That
+# is a positive assertion about each joint and needs no timing assumptions
+# about the sequence -- unlike watching the homed flags, which never drop
+# observably here and are all still set from the first homing.
 #
-# PASS (fixed):   the second Home All homes all three joints; unhoming joint 1
-#                 afterwards leaves it unhomed.
-# FAIL (pre-fix): joint 1 (sequence 1) homes itself seconds after being
-#                 unhomed, with nothing having asked it to.
+# The FSM also kept its state across the freeze, which is how the bug
+# announced itself on the machine: unhome any joint afterwards, all-homed
+# drops, motion returns to FREE, and the stale sequence resumes and homes the
+# rest with nothing having asked it to.  Checked as a second phase.
+#
+# PASS (fixed):   all three joints read 0 after the second Home All, and
+#                 unhoming one afterwards leaves it unhomed.
+# FAIL (pre-fix): the joints in sequences 1 and 2 are still sitting at the
+#                 position they were moved to.
 
 import time
 
@@ -30,6 +38,8 @@ c = stmak_test.Command()
 s = gmi.Stat()
 
 NJ = 3
+OFF = 5.0
+TOL = 1e-3
 
 
 def homed():
@@ -37,43 +47,53 @@ def homed():
     return [bool(s.joint[j]["homed"]) for j in range(NJ)]
 
 
-def wait_homed(want, desc):
-    stmak_test.wait_stat(s, lambda st: homed() == want, desc)
+def positions():
+    s.poll()
+    return [s.joint_actual_position[j] for j in range(NJ)]
 
 
-# Machine on.
+# Machine on and homed: the fixture for the re-home.
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 stmak_test.wait_stat(s, lambda st: st.task_state == STATE_ON, "machine ON")
 c.mode(MODE_MANUAL)
-
-# First Home All: the uncontroversial case, and the fixture for the second.
 c.home(-1)
-wait_homed([True] * NJ, "all joints homed by the first Home All")
+stmak_test.wait_stat(s, lambda st: homed() == [True] * NJ,
+                     "all joints homed by the first Home All")
 
-# Second Home All, on an already-homed machine. Every joint must end homed --
-# with the bug the FSM freezes after sequence 0, but since nothing unhomes the
-# later joints they still *read* homed here, so this alone does not
-# discriminate. It does catch the sequence erroring out entirely.
+# Move every axis off zero so a re-home has something to show.
+c.mode(MODE_MDI)
+c.mdi("G0 X%g Y%g Z%g" % (OFF, OFF, OFF))
+stmak_test.drain_mdi(s)
+stmak_test.wait_stat(s, lambda st: all(abs(p - OFF) < TOL for p in positions()),
+                     "all three joints moved to %g" % OFF,
+                     detail=lambda st: "positions=%s" % (positions(),))
+c.mode(MODE_MANUAL)
+
+# The case under test.
 c.home(-1)
-wait_homed([True] * NJ, "all joints homed after the second Home All")
+try:
+    stmak_test.wait_stat(s, lambda st: all(abs(p) < TOL for p in positions()),
+                         "every joint re-homed by the second Home All",
+                         detail=lambda st: "positions=%s" % (positions(),))
+except Exception:
+    pos = positions()
+    stale = [j for j in range(NJ) if abs(pos[j]) >= TOL]
+    stmak_test.fail("second Home All left joints %s un-re-homed at %s — the "
+                    "sequence stopped after the first step" % (stale, pos))
 
-# The discriminator: with the FSM frozen mid-sequence, dropping all-homed
-# returns motion to FREE and the stale sequence resumes on its own. Joint 1 is
-# in sequence 1, i.e. the first sequence the frozen FSM would have gone on to.
+# Second phase: no sequence may be left pending. With the FSM frozen
+# mid-sequence, dropping all-homed returns motion to FREE and the stale
+# sequence resumes on its own. Joint 1 is in sequence 1, the first sequence a
+# frozen FSM would have gone on to.
 c.unhome(1)
 stmak_test.wait_stat(s, lambda st: homed() == [True, False, True],
-                     "joint 1 unhomed")
-
-# Nothing has asked joint 1 to home. It must stay unhomed. A stale sequence
-# resumes within a servo cycle of motion returning to FREE, so a short settle
-# is enough; scale it like every other wait in the suite.
+                     "joint 1 unhomed",
+                     detail=lambda st: "homed=%s" % (homed(),))
 time.sleep(3.0 * stmak_test.scale())
 now = homed()
-if now[1]:
+if now != [True, False, True]:
     stmak_test.fail("joint 1 homed itself after being unhomed — a stale "
                     "homing sequence resumed (homed=%s)" % (now,))
-if now != [True, False, True]:
-    stmak_test.fail("unexpected homed state after unhoming joint 1: %s" % (now,))
 
-print("ok: Home All on a homed machine leaves no pending sequence")
+print("ok: Home All on a homed machine re-homes every sequence")
