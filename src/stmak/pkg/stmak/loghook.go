@@ -13,6 +13,13 @@ import (
 // (STMAK_LOG_INFO/WARN/ERROR) so the receiver can tell a fault from a notice.
 type LogErrorFunc func(component, msg string, severity int)
 
+// LogSeverityError is STMAK_LOG_ERROR from stmak_log.h: the severity at and
+// above which a message is a fault rather than a notice. It lives here, beside
+// the callback whose severity argument it describes, because this package is
+// pure Go -- it cannot take the value from the header, and a receiver that
+// restates the number locally is a second place for it to go stale.
+const LogSeverityError = 3
+
 // logHook pairs a registered callback with the id used to unregister it.
 type logHook struct {
 	id uint64

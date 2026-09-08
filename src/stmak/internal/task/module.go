@@ -34,10 +34,6 @@ func init() {
 // Compile-time interface checks.
 var _ MotionConfig = (*motctl.MotctlClient)(nil)
 
-// stmakLogError mirrors STMAK_LOG_ERROR in stmak_log.h -- the severity at or
-// above which an operator message is a fault rather than a notice.
-const stmakLogError = 3
-
 func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	logger = logger.With("module", name)
 	// milltask is INI-driven throughout (loadConfig reads TRAJ/KINS/JOINT_n/…),
@@ -381,7 +377,7 @@ func (m *milltaskModule) Start() error {
 		// the operator: a fault is an error, anything milder is a notice.
 		// Without this a "batch finished" would arrive looking like a failure,
 		// which is how operators learn to ignore the red ones.
-		if severity >= int(stmakLogError) {
+		if severity >= stmak.LogSeverityError {
 			t.operatorError(msg)
 		} else {
 			t.operatorText(msg)

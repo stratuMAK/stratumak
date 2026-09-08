@@ -182,11 +182,22 @@ func (r *stmakLogRing) drainAll(logger *slog.Logger) int {
 	return count
 }
 
-// The level word's layout, mirroring stmak_log.h: severity in the low bits,
-// flags above.
+// The level word's layout: severity in the low bits, flags above. Taken from
+// stmak_log.h rather than restated, so the two cannot drift -- this file's cgo
+// preamble already includes the header that defines them.
 const (
-	logLevelMask = 0x0f
-	logOperFlag  = 0x10
+	logLevelMask = C.STMAK_LOG_LEVEL_MASK
+	logOperFlag  = C.STMAK_LOG_OPER
+)
+
+// stmak.LogSeverityError is the one value that still has to be written out by
+// hand, because pkg/stmak is pure Go. This is the nearest place that can see
+// both it and the header, so check them against each other here: a mismatch
+// makes one of the two array lengths negative and the build stops. Without it
+// the comment in loghook.go is a promise nothing keeps.
+var (
+	_ [C.STMAK_LOG_ERROR - stmak.LogSeverityError]struct{}
+	_ [stmak.LogSeverityError - C.STMAK_LOG_ERROR]struct{}
 )
 
 // fanOut copies a log message to all subscriber rings whose level filter matches.
