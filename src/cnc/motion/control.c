@@ -1175,6 +1175,13 @@ static void set_operating_mode(motmod_inst_t *inst)
 	    /* clear any outstanding joint errors when going into enabled
 	       state */
 	    SET_JOINT_ERROR_FLAG(joint, 0);
+	    /* A new enable is a new fault episode: re-arm the report gate here
+	       as well, not only when the joint is next seen clean.  A fault that
+	       holds across the off/on -- an amp fault the drive has not reset, a
+	       joint parked on a limit switch -- never reads clean while the
+	       joint is enabled, so without this it would be named on the first
+	       machine-on and refused silently on every one after. */
+	    joint->fault_reported = 0;
 	}
 	/* The DISABLED state tracked pos_cmd = pos_fb without running the
 	   jerk filter; its history still holds pre-disable positions and
