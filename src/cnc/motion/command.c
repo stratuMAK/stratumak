@@ -194,6 +194,19 @@ void spindle_force_off(motmod_inst_t *inst, int n, const char *why)
     inst->status->spindle_status[n].orient_state = EMCMOT_ORIENT_NONE;
 }
 
+/* Flag the joint a refused jog named -- if it named one.  A teleop jog
+   arrives with joint == -1 (it names an axis, not a joint), so `joint` is
+   NULL there, and the enable and homing refusals that sit above the teleop
+   split in the JOG handlers must not write through it.  They did: an axis
+   jog that raced the machine-on segfaulted the servo thread on
+   SET_JOINT_ERROR_FLAG(NULL). */
+static void jog_refused_joint_error(emcmot_joint_t *joint)
+{
+    if (joint) {
+        SET_JOINT_ERROR_FLAG(joint, 1);
+    }
+}
+
 void apply_spindle_limits(spindle_status_t *s){
     if (s->speed > 0) {
         if (s->speed > s->max_pos_speed) s->speed = s->max_pos_speed;
@@ -881,7 +894,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (!GET_MOTION_ENABLE_FLAG()) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog joint when not enabled."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
@@ -891,7 +904,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             }
 	    if ( inst->homing_active ) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog any joints while homing."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             if (!GET_MOTION_TELEOP_FLAG()) {
@@ -970,7 +983,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (!GET_MOTION_ENABLE_FLAG()) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog joint when not enabled."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
@@ -980,7 +993,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             }
 	    if ( inst->homing_active ) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog any joint while homing."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             if (!GET_MOTION_TELEOP_FLAG()) {
@@ -1056,7 +1069,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    }
 	    if (!GET_MOTION_ENABLE_FLAG()) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog joint when not enabled."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
@@ -1066,7 +1079,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             }
 	    if ( inst->homing_active ) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog any joints while homing."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             if (!GET_MOTION_TELEOP_FLAG()) {
