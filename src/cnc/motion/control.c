@@ -294,9 +294,35 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
                 }
             }
         } else if (!any_running && !any_paused) {
-            /* all joints at this step have finished, move on to next step */
-            inst->current_sequence++;
-            inst->sequence_state = HOME_SEQUENCE_START_JOINTS;
+            /* All joints at this step have finished.  Decide here whether a
+               next step exists, rather than letting START_JOINTS find out a
+               tick later: the last joint of the last step reports homed in
+               this same tick, and all_homed is already true in the status a
+               client reads.  A client that reacts to it by switching motion
+               out of FREE mode before the next tick -- pnptask does, the
+               moment its status poll shows every joint homed -- would freeze
+               this state machine in START_JOINTS with homing_active still
+               set from the aggregation above, and every later jog refused
+               with "Can't jog any joints while homing".  Finishing in the
+               same tick closes that window: the completion report below,
+               and the homing_active clear with it, never trail the status.
+               The test mirrors what START_JOINTS would decide: a step exists
+               iff some participating joint carries the next number. */
+            int next_step = 0;
+            for (i = 0; i < ALL_JOINTS; i++) {
+                if (inst->joint_in_sequence[i] &&
+                    abs(inst->joints[i].home_sequence) == inst->current_sequence + 1) {
+                    next_step = 1;
+                    break;
+                }
+            }
+            if (next_step) {
+                inst->current_sequence++;
+                inst->sequence_state = HOME_SEQUENCE_START_JOINTS;
+            } else {
+                inst->sequence_state = HOME_SEQUENCE_IDLE;
+                inst->homing_active = 0;
+            }
         }
         break;
     }
@@ -1183,6 +1209,15 @@ static void set_operating_mode(motmod_inst_t *inst)
 	       machine-on and refused silently on every one after. */
 	    joint->fault_reported = 0;
 	}
+	/* The joints' homing was cancelled just above, so a home sequence that
+	   was in progress when the machine went off is over: reset the sequence
+	   state machine with it, as the ABORT command does.  Left alone it would
+	   sit frozen (do_homing_sequence is not ticked while disabled), see the
+	   cancelled joints as idle on the first FREE tick after this enable, and
+	   start the next step -- the machine homing by itself, unprompted, right
+	   after a machine-on. */
+	inst->sequence_state = HOME_SEQUENCE_IDLE;
+	inst->homing_active = 0;
 	/* The DISABLED state tracked pos_cmd = pos_fb without running the
 	   jerk filter; its history still holds pre-disable positions and
 	   must be re-anchored with the rest of the command chain. */
