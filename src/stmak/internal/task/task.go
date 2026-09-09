@@ -747,14 +747,19 @@ func (t *Task) autoInhibited() bool { return t.autoInhibit.Load() }
 
 // programRunning reports whether an AUTO program is mid-run, paused included:
 // a paused program resumes into the same cut, so an interlock has to stop it
-// too. Takes t.mu and releases it before the caller acts, so the caller can go
-// on to take cmdMu without inverting the lock order.
+// too. The mode is tested as well as the interpreter state, because an MDI
+// command in flight also reads as InterpReading -- and auto-inhibit is
+// documented to leave MDI alone, so a rising edge must not abort a touch-off
+// move the operator is in the middle of. Takes t.mu and releases it before the
+// caller acts, so the caller can go on to take cmdMu without inverting the
+// lock order.
 func (t *Task) programRunning() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.interpState == InterpReading ||
-		t.interpState == InterpWaiting ||
-		t.interpState == InterpPaused
+	return t.mode == ModeAuto &&
+		(t.interpState == InterpReading ||
+			t.interpState == InterpWaiting ||
+			t.interpState == InterpPaused)
 }
 
 // setMDIInhibit records the halui mdi-inhibit pin state.

@@ -8,7 +8,8 @@ did not cause.  These refuse the mode change and the run outright.
 They are separate pins because an interlock that forbids running a program
 usually still has to allow the MDI routines an operator homes and touches off
 with -- [HALUI]MDI_COMMAND entries go through the same MDI path -- so the test
-also pins down that each inhibit leaves the other alone.
+also pins down that each inhibit leaves the other alone, an MDI move already
+in flight when auto-inhibit rises included.
 """
 
 import subprocess
@@ -154,6 +155,37 @@ stmak_test.wait_stat(
     "auto-inhibit to abort the running program",
     detail=lambda st: "interp_state=%d" % st.interp_state)
 print("ok: auto-inhibit aborts a running program")
+
+pin_set("halui.auto-inhibit", False)
+
+# --- auto-inhibit leaves an MDI command in flight alone -------------------
+# The abort above must stop at AUTO.  The interpreter reads as busy for an
+# MDI command exactly as it does for a program, so a rising edge that only
+# looked at the interpreter state would also cut short the touch-off or homing
+# move the operator is in the middle of -- the very MDI routines the pin is
+# documented to leave alone.  The move has to run to its endpoint, not merely
+# end: an aborted move and a finished one both leave the interpreter idle, so
+# the position is what decides.
+c.mode(MODE_MDI)
+c.wait_complete()
+c.mdi("G0 X0")
+c.wait_complete()
+stmak_test.drain_mdi(s)
+c.mdi("G1 F120 X5")  # 5 mm at 120 mm/min: 2.5 s in flight
+stmak_test.wait_stat(
+    s, lambda st: st.interp_state != INTERP_IDLE,
+    "the MDI move to be running",
+    detail=lambda st: "interp_state=%d" % st.interp_state)
+pin_set("halui.auto-inhibit", True)
+stmak_test.wait_stat(
+    s, lambda st: st.interp_state == INTERP_IDLE,
+    "the MDI move to end",
+    detail=lambda st: "interp_state=%d" % st.interp_state)
+s.poll()
+if abs(s.position[0] - 5.0) > 1e-3:
+    stmak_test.fail("the MDI move was cut short by auto-inhibit "
+                    "(X=%g, want 5)" % s.position[0])
+print("ok: auto-inhibit leaves a running MDI command alone")
 
 pin_set("halui.auto-inhibit", False)
 print("PASS")

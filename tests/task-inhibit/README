@@ -15,3 +15,7 @@ pin would quietly lose.
 
 mdi-inhibit deliberately covers [HALUI]MDI_COMMAND as well: an inhibit that
 some MDI sources bypass would be worse than none.
+
+The abort auto-inhibit performs on a running program must stop at AUTO.  An
+MDI command in flight reads as a busy interpreter too, so the test raises the
+pin mid-move and requires the move to reach its endpoint.
