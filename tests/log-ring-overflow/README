@@ -1,0 +1,26 @@
+A burst that overflows the C log ring must not silence it for good.
+
+stmak_log.h's ring: a producer claims a position (fetch-add on write_pos) and
+then its slot (CAS on seq).  With the ring full the CAS fails and the message
+is dropped -- but the position stays claimed, and nothing will ever be written
+there.  A consumer that waits at that position for its sequence number waits
+forever, the ring stays full behind it, and every later message is dropped as
+well.  One burst, and not a single C-module line reaches the log or the
+operator for the rest of the run.
+
+The coating machine did this at every thread start: 23 EtherCAT slaves going
+OP, HAL, motmod, DEBUG lines nobody prints -- more than 1024 rtapi_print_msg
+calls at RT priority before the drain goroutine's next poll.  From then on
+faults switched the machine off without a word.  ferror-message covers the
+delivery chain and passes, because the sim never bursts.
+
+logburst.comp makes the burst on demand: 3000 DEBUG messages in one servo
+cycle when its fire pin rises.  The test fires it, requires the drain to
+report the overflow ("log ring full ... dropped" in server.log -- proof that
+the test overflowed, not just that nothing broke), then opens a following
+error the way ferror-message does and requires it on the operator channel,
+and its C-module log line after the overflow report.
+
+Verified as a guard: with the consumer's hole-skipping in stmak_ring_try_read
+reverted, the overflow is still reported but the following error never
+arrives, and the test fails.

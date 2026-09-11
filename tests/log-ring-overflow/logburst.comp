@@ -1,0 +1,24 @@
+component logburst "floods the stmak log ring on demand";
+
+// The burst a machine makes at thread start -- more messages in one servo
+// cycle than the ring holds -- as a pin.  DEBUG level: the log does not
+// print them, which is the point; they take ring slots all the same.
+pin in bit fire;
+pin in u32 count = 3000;
+pin out u32 bursts;
+
+variable int fire_last;
+
+function _;
+license "GPL";
+;;
+
+FUNCTION(_) {
+  if (fire && !fire_last) {
+    for (uint32_t i = 0; i < count; i++) {
+      STMAK_LOG(STMAK_LOG_DEBUG, "burst %u of %u", i, count);
+    }
+    bursts++;
+  }
+  fire_last = fire;
+}
