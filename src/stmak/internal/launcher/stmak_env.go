@@ -10,6 +10,7 @@ package launcher
 
 /*
 #include "../../pkg/cmodule/stmak_log.h"
+#include <stdlib.h>
 #include <string.h>
 
 // stmak_sub_ring_write writes one message to a subscriber's ring.
@@ -34,6 +35,21 @@ static int stmak_sub_ring_write(stmak_log_ring_t *ring,
 
     __atomic_store_n(&slot->seq, pos + 1, __ATOMIC_RELEASE);
     return 0;
+}
+
+// stmak_ring_dropped reads the producers' drop counter.
+static uint32_t stmak_ring_dropped(stmak_log_ring_t *ring) {
+    return __atomic_load_n(&ring->dropped, __ATOMIC_RELAXED);
+}
+
+// stmak_ring_emit_str pushes one message the way a C module does -- the
+// test's producer, since a Go test file cannot call C.
+static int stmak_ring_emit_str(stmak_log_ring_t *ring, uint32_t level,
+                               const char *component, const char *msg) {
+    stmak_log_t log = { .ring = ring };
+    uint32_t before = __atomic_load_n(&ring->dropped, __ATOMIC_RELAXED);
+    stmak_logf(&log, component, level, "%s", msg);
+    return __atomic_load_n(&ring->dropped, __ATOMIC_RELAXED) == before ? 0 : -1;
 }
 */
 import "C"
@@ -64,6 +80,9 @@ type stmakLogRing struct {
 	// same position deliver one message twice and skip the next.
 	drainMu sync.Mutex
 	readPos uint32
+	// dropped mirrors the ring's producer-side counter as of the last drain,
+	// so a change can be reported once rather than the count re-logged.
+	dropped uint32
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 
@@ -148,6 +167,12 @@ func (r *stmakLogRing) drainAll(logger *slog.Logger) int {
 			break
 		}
 		r.readPos++
+		if ok == 2 {
+			// A position a producer claimed and dropped (ring full): nothing
+			// will ever be written there.  Stepped over, so one burst does
+			// not leave the consumer waiting on it for the rest of the run.
+			continue
+		}
 		count++
 
 		// Fan-out to subscribers whose level filter matches.
@@ -188,7 +213,23 @@ func (r *stmakLogRing) drainAll(logger *slog.Logger) int {
 		record.AddAttrs(slog.String("component", component))
 		_ = logger.Handler().Handle(context.Background(), record)
 	}
+
+	// Producers drop silently when the ring is full; say so here, once per
+	// batch, so a burst that outran this loop is at least visible.
+	if d := uint32(C.stmak_ring_dropped(r.ring)); d != r.dropped {
+		logger.Warn("log ring full: C-module log messages dropped",
+			"dropped", d-r.dropped, "total", d)
+		r.dropped = d
+	}
 	return count
+}
+
+// emit pushes one message into the ring as a C module would.  For tests.
+func (r *stmakLogRing) emit(level uint32, component, msg string) bool {
+	cc, cm := C.CString(component), C.CString(msg)
+	defer C.free(unsafe.Pointer(cc))
+	defer C.free(unsafe.Pointer(cm))
+	return C.stmak_ring_emit_str(r.ring, C.uint32_t(level), cc, cm) == 0
 }
 
 // The level word's layout, mirroring stmak_log.h: severity in the low bits,
@@ -197,6 +238,9 @@ const (
 	logLevelMask = 0x0f
 	logOperFlag  = 0x10
 )
+
+// The ring's capacity, for the test (a _test.go file cannot see C).
+const C_STMAK_LOG_RING_SIZE = C.STMAK_LOG_RING_SIZE
 
 // fanOut copies a log message to all subscriber rings whose level filter matches.
 func (r *stmakLogRing) fanOut(level C.uint32_t, ts C.int64_t, comp, msg []byte) {

@@ -96,10 +96,14 @@ typedef struct {
     // Producer side — each writer does atomic fetch-add on write_pos to
     // claim a slot, then fills it and publishes via store-release on seq.
     uint32_t write_pos;
+    // Messages that found their slot still occupied (ring full) and were
+    // dropped.  The position they claimed stays empty forever -- see
+    // stmak_ring_try_read for why the consumer has to know about it.
+    uint32_t dropped;
 
     // Consumer side — the Go drain goroutine tracks its own read position.
     // Padding avoids false sharing between producer and consumer cache lines.
-    char _pad[60];
+    char _pad[56];
     uint32_t read_pos;
 
     // Slot array.
@@ -183,12 +187,14 @@ stmak_log_emit(const stmak_log_t *log, stmak_log_level_t level,
     stmak_log_slot_t *slot = &ring->slots[idx];
 
     // Check if the consumer has drained this slot (seq == 0 means free).
-    // If not, the ring is full — drop the message to avoid blocking.
+    // If not, the ring is full — drop the message to avoid blocking.  The
+    // position is claimed all the same: write_pos has moved past it and
+    // nothing will ever be written there.  Counted, so the consumer can say
+    // how much it missed.
     uint32_t expected = 0;
     if (!__atomic_compare_exchange_n(&slot->seq, &expected, 1, 0,
                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
-        // Ring full — message dropped.  This should be rare if the Go drain
-        // goroutine keeps up.  A dropped-message counter could be added here.
+        __atomic_fetch_add(&ring->dropped, 1, __ATOMIC_RELAXED);
         return -1;
     }
 
@@ -287,6 +293,20 @@ static inline void stmak_ring_destroy(stmak_log_ring_t *r) {
 
 // Try to read the next slot from the ring at the given read position.
 // Returns 1 if a slot was read (output params filled), 0 otherwise.
+//
+// A position that was claimed and then dropped (ring full) is a hole: its
+// slot never gets seq == read_pos + 1.  A consumer that only ever waits for
+// that sequence waits forever, with the ring full behind it, and every
+// message from then on is dropped too -- one burst, and a machine that ran
+// for hours never logged a C-module line again.  So a hole is skipped: the
+// position has been claimed (write_pos is past it) and its slot is free, or
+// holds a message from an earlier lap that a producer left behind after the
+// consumer had already moved on (a claimant preempted between fetch-add and
+// its CAS).  Either way, nothing for this position is coming.  A slot marked
+// 1 is being filled right now and is waited for.
+//
+// The consumer's own read_pos is advanced by the caller on 1; on a skipped
+// hole this returns 2 and the caller advances without a message.
 static inline int
 stmak_ring_try_read(stmak_log_ring_t *ring, uint32_t read_pos,
                    uint32_t *out_level, int64_t *out_ts,
@@ -295,18 +315,40 @@ stmak_ring_try_read(stmak_log_ring_t *ring, uint32_t read_pos,
     stmak_log_slot_t *slot = &ring->slots[idx];
 
     uint32_t seq = __atomic_load_n(&slot->seq, __ATOMIC_ACQUIRE);
-    if (seq != read_pos + 1) {
-        return 0;  // slot not ready yet
+    if (seq == read_pos + 1) {
+        *out_level = slot->level;
+        *out_ts = slot->timestamp_ns;
+        memcpy(out_component, slot->component, STMAK_RTAPI_NAME_LEN + 1);
+        memcpy(out_msg, slot->msg, STMAK_LOG_MSG_LEN);
+
+        // Release the slot for reuse.
+        __atomic_store_n(&slot->seq, 0, __ATOMIC_RELEASE);
+        return 1;
+    }
+    if (seq == 1) {
+        return 0;  // being filled -- for this position or a later lap; wait
     }
 
-    *out_level = slot->level;
-    *out_ts = slot->timestamp_ns;
-    memcpy(out_component, slot->component, STMAK_RTAPI_NAME_LEN + 1);
-    memcpy(out_msg, slot->msg, STMAK_LOG_MSG_LEN);
-
-    // Release the slot for reuse.
+    // Not our message.  Has the position been claimed at all?  Compared as a
+    // difference so the wrap of write_pos does not matter.
+    uint32_t write_pos = __atomic_load_n(&ring->write_pos, __ATOMIC_ACQUIRE);
+    if ((int32_t)(write_pos - read_pos) <= 0) {
+        return 0;  // nothing written here yet
+    }
+    if (seq == 0) {
+        // Claimed and dropped: a hole.  One more position claimed after it
+        // is required, so a claimant that has not reached its CAS yet is
+        // not mistaken for one.
+        if ((int32_t)(write_pos - read_pos) < 2) {
+            return 0;
+        }
+        return 2;
+    }
+    // An orphan from an earlier lap (seq < read_pos + 1): free the slot and
+    // step over it.  A seq from a later lap cannot occur -- a producer only
+    // claims a free slot -- but is handled the same way rather than waited on.
     __atomic_store_n(&slot->seq, 0, __ATOMIC_RELEASE);
-    return 1;
+    return 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,8 +360,12 @@ static inline int
 stmak_log_sub_poll(stmak_log_sub_t *sub,
                   uint32_t *out_level, char *out_component, char *out_msg) {
     int64_t ts;  // discarded — subscribers don't need timestamps
-    int ok = stmak_ring_try_read(sub->ring, sub->read_pos,
-                                out_level, &ts, out_component, out_msg);
+    int ok;
+    // Holes (dropped messages) are stepped over, not reported.
+    while ((ok = stmak_ring_try_read(sub->ring, sub->read_pos,
+                                    out_level, &ts, out_component, out_msg)) == 2) {
+        sub->read_pos++;
+    }
     if (ok) sub->read_pos++;
     return ok;
 }
