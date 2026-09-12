@@ -61,7 +61,7 @@ extern "C" {
 // undefined behaviour with nothing to detect it at load time -- the symbols
 // all resolve, and the module reads the wrong offsets.  The launcher reads
 // this symbol before it calls New() and refuses a module that disagrees.
-#define CMOD_ABI_VERSION 2
+#define CMOD_ABI_VERSION 3
 
 // Every module carries the stamp automatically, by including this header:
 // the definition is emitted into each translation unit rather than left for a

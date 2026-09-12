@@ -90,7 +90,9 @@ func (l *Launcher) RunHalFile(halFile string, resident bool) (runErr error) {
 	}
 
 	l.ensureLogRing()
-	halcmd.SetLogRing(unsafe.Pointer(l.logRing.ring))
+	if err := halcmd.SetLogRing(unsafe.Pointer(l.logRing.ring), l.logRing.size()); err != nil {
+		return err
+	}
 	l.logger.Info("initializing RTAPI app (in-process)")
 	if err := halcmd.RtapiAppInit(); err != nil {
 		return fmt.Errorf("rtapi app init: %w", err)

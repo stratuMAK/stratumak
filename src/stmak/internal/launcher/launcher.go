@@ -276,7 +276,9 @@ func (l *Launcher) Run() (runErr error) {
 	// memory and routes RTAPI messages through the stmak_log ring.
 	// Must be called before hal.NewComponent() / hal_init().
 	l.ensureLogRing()
-	halcmd.SetLogRing(unsafe.Pointer(l.logRing.ring))
+	if err := halcmd.SetLogRing(unsafe.Pointer(l.logRing.ring), l.logRing.size()); err != nil {
+		return err
+	}
 	l.logger.Info("initializing RTAPI app (in-process)")
 	if err := halcmd.RtapiAppInit(); err != nil {
 		return fmt.Errorf("rtapi app init: %w", err)
