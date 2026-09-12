@@ -179,8 +179,8 @@ type trayPins struct {
 type procPins struct {
 	id uint32
 
-	zOffset     *hal.Pin[float64] // in:  added to Z_PICK
-	busy        *hal.Pin[bool]    // in:  gates the approach (D15)
+	zOffset *hal.Pin[float64] // in:  added to Z_PICK
+	busy    *hal.Pin[bool]    // in:  gates the approach (D15)
 
 	// releaseSettle is RELEASE_SETTLE: the dwell between this fixture
 	// confirming it released and the lift out of it. A param and not a pin
@@ -188,9 +188,9 @@ type procPins struct {
 	// describes the fixture -- see ProcStation.ReleaseSettle.
 	releaseSettle *hal.Param[float64]
 
-	hasMaterial *hal.Pin[bool]    // out: owned by pnptask, restored from persistence
-	release     *hal.Pin[bool]    // out: request fixture release
-	released    *hal.Pin[bool]    // in:  fixture released feedback
+	hasMaterial *hal.Pin[bool] // out: owned by pnptask, restored from persistence
+	release     *hal.Pin[bool] // out: request fixture release
+	released    *hal.Pin[bool] // in:  fixture released feedback
 
 	// setHasMaterial/setEmpty are the operator resync the tray resets have
 	// always had (§6.4). "Model occupied, fixture empty" self-corrects — a pick
