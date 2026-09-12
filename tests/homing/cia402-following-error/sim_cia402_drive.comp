@@ -13,6 +13,12 @@ behaviours that matter for the drive-internal homing path:
      home-fb. That step is what tripped a spurious following error before the
      get_at_index_search_wait() fix in homemod_cia402.c. In CSP mode (opmode 8)
      it is a plain position loopback (pos-fb follows pos-cmd): a perfect servo.
+  3. Optionally, the LinMot's early flag: with attained-lead > 0 the drive
+     redefines its origin and asserts homing-attained while still attained-lead
+     short of that origin, and keeps creeping toward it (approach-speed per
+     cycle) for as long as it stays in homing mode. A controller that samples
+     the position at the flag instead of adopting the drive's origin is off by
+     up to attained-lead. In CSP the loopback takes over wherever it is.
 
 Wire pos-cmd/pos-fb to motmod's joint.N.motor-pos-cmd/fb and the opmode/home
 pins to homemod.N.*.""";
@@ -28,6 +34,7 @@ pin out bit   homing_error    "Drive homing fault (always 0 here)";
 param rw float home_fb        = 0.0  "pos-fb after origin redefinition";
 param rw float approach_pos   = 5.0  "simulated home-switch position";
 param rw float approach_speed = 0.02 "pos-fb change per cycle while seeking";
+param rw float attained_lead  = 0.0  "assert homing-attained this far before home-fb (0 = on it)";
 param rw s32   mode_delay     = 5    "cycles to echo opmode-cmd -> opmode-fb";
 
 variable int mode_timer = 0;
@@ -62,16 +69,21 @@ if (opmode_fb == CIA402_OP_HOMING) {
         if (ad <= speed) {
             /* Reached the switch: atomically redefine the position origin.
                pos-fb STEPS to home-fb — the discontinuity that previously
-               tripped a following error. */
+               tripped a following error — or, with attained-lead, to
+               attained-lead short of it, the origin still being home-fb. */
             attained = 1;
             homing_attained = 1;
-            pos_fb = home_fb;
+            pos_fb = home_fb - attained_lead;
         } else {
             pos_fb += (d > 0.0) ? speed : -speed;
         }
     } else if (attained) {
-        /* Hold at the redefined origin while still in homing mode. */
-        pos_fb = home_fb;
+        /* Still in homing mode after the flag: finish the travel to the
+           redefined origin, then hold there. */
+        double speed = approach_speed < 0.0 ? -approach_speed : approach_speed;
+        double d = home_fb - pos_fb;
+        double ad = d < 0.0 ? -d : d;
+        pos_fb = (ad <= speed) ? home_fb : pos_fb + ((d > 0.0) ? speed : -speed);
         homing_attained = 1;
     }
     /* else: home-cmd not yet asserted — drive idle in homing mode, hold. */
