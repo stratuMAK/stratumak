@@ -64,8 +64,8 @@ typedef struct {
   stmak_hal_u32_t *error_code;                /**< Error/fault code from drive. */
   stmak_hal_float_t *drive_temp;              /**< IGBT temperature in degrees C. */
 
-  stmak_hal_u32_t *vel_ramp_up;               /**< Acceleration ramp time in units of 100 ms. */
-  stmak_hal_u32_t *vel_ramp_down;             /**< Deceleration ramp time in units of 100 ms. */
+  stmak_hal_u32_t *vel_ramp_up;               /**< Acceleration ramp time in ms (0x604F), referenced to the drive's maximum output frequency, not to the commanded speed. */
+  stmak_hal_u32_t *vel_ramp_down;             /**< Deceleration ramp time in ms (0x6050), same reference. */
 
   stmak_hal_bit_t auto_fault_reset;           /**< Parameter: enable automatic fault reset on enable edge. */
   stmak_hal_float_t vel_scale;                /**< Parameter: velocity scaling factor (RPM per raw unit). */
@@ -149,8 +149,8 @@ static ec_pdo_entry_info_t lcec_dems300_out[] = {
 };
 
 static ec_pdo_entry_info_t lcec_dems300_out2[] = {
-  {0x6050, 0x00, 32}, // ramp down time 100ms
-  {0x604f, 0x00, 32} // ramp up time 100ms
+  {0x6050, 0x00, 32}, // vl slow down time, ms
+  {0x604f, 0x00, 32} // vl ramp function time, ms
 };
 static ec_pdo_info_t lcec_dems300_pdos_out[] = {
    {0x1600,  4, lcec_dems300_out},
@@ -233,6 +233,10 @@ int lcec_dems300_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t 
   // initialize variables
   hal_data->enable_old = 0;
   hal_data->internal_fault = 0;
+
+  // Quick stop is optional wiring: control word bit 2 is active low, so an
+  // unconnected pin has to read 0 for the drive to run at all.
+  *(hal_data->quick_stop) = 0;
 
   hal_data->auto_fault_reset = 1;
   hal_data->vel_scale = 1.0;
@@ -380,8 +384,11 @@ void lcec_dems300_write(struct lcec_slave *slave, long period) {
   enable_edge = *(hal_data->enable) && !hal_data->enable_old;
   hal_data->enable_old = *(hal_data->enable);
 
-  // write control register
-  control = (!*(hal_data->fault_reset) << 2); // quick stop
+  // Write control register.  Bit 2 is Quick Stop, active low (1 = no quick
+  // stop), and comes from the pin named for it.  It used to be derived from
+  // fault-reset, which left quick-stop unread -- the pin did nothing -- and
+  // commanded a quick stop for as long as a fault reset was asserted.
+  control = ((!*(hal_data->quick_stop)) << 2);
 
   if (*(hal_data->stat_fault)) {
     if (*(hal_data->fault_reset)) {

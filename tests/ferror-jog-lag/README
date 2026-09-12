@@ -1,0 +1,22 @@
+A following error opened by jogging must reach the operator, named.
+
+joint 0 tracks its command through a scale block that covers only 90% of the
+commanded distance, so the following error grows with distance travelled --
+the shape of a mis-scaled axis.  A jog is started and is aborted by the trip,
+which is the path a real machine takes; tests/ferror-message covers the
+simpler case of a step injected into the feedback with no motion in progress.
+
+Without the message the operator sees only milltask's "motion error detected
+-- aborting", which names no cause, and the pins are no help either: once the
+trip disables motion, EMCMOT_MOTION_DISABLED slaves pos_cmd to pos_fb, so
+joint.N.f-error collapses to ~0 and f-errored goes FALSE within a cycle or two
+of the stop.
+
+Note the trip point.  The limit is velocity-scaled with a floor,
+
+    ferror_limit = FERROR * |vel_cmd| / vel_limit,  floored at MIN_FERROR
+
+so with FERROR=1.0, MIN_FERROR=0.5, vel_limit=10 and a 10% shortfall the limit
+sits at its 0.5 floor for jogs up to 5 mm/s and the error (0.1 * distance)
+reaches it after 5 mm at any speed.  A jog is also expired by the jog watchdog
+unless re-issued, which is why the test refreshes it while waiting.

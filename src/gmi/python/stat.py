@@ -250,6 +250,7 @@ class Stat:
         "command", "motion_line", "motion_file", "current_line",
         "read_line",
         "queued_mdi_commands", "optional_stop", "block_delete",
+        "auto_inhibit", "mdi_inhibit",
         "task_paused", "g5x_index",
         # Motion
         "motion_mode", "enabled", "inpos", "paused", "feedrate",
@@ -344,6 +345,11 @@ class Stat:
             "input_timeout": ("input_timeout", 0),
             "program_units": ("program_units", 0),
             "delay_left": ("delay_left", 0.0),
+            # Interlocks refusing AUTO / MDI before anything starts. Default
+            # False so a UI written against these stays usable against a
+            # controller that predates them.
+            "auto_inhibit": ("auto_inhibit", False),
+            "mdi_inhibit": ("mdi_inhibit", False),
         }
         if name in _TASK_MAP:
             key, default = _TASK_MAP[name]

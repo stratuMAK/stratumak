@@ -327,3 +327,99 @@ func TestGetStat_NilTask(t *testing.T) {
 		t.Errorf("nil task: State = %d, want ESTOP", stat.Task.State)
 	}
 }
+
+// The canon's endPoint is the origin of the next commanded move, so it must be
+// seeded from the commanded Cartesian pose and not from the feedback pose.
+//
+// Sourcing it from feedback made every re-synced segment carry the standing
+// following error of every axis as a spurious displacement.  For a pure rotary
+// move that is fatal rather than cosmetic: pmLine9Target takes the first
+// non-zero component as the segment length, pmCartLineInit calls a delta
+// non-zero above CART_FUZZ (1e-8), and so a few microns of XYZ error became the
+// length of a thirty-degree A move.  The planner covered those microns in two
+// servo cycles and emitted the endpoint, and the joint chased a full-travel
+// step into a following error.
+//
+// The fixture's CartePosCmd and CartePosFb differ, so this distinguishes the
+// two rather than passing on either.
+func TestSyncEndPointUsesCommandedPose(t *testing.T) {
+	task, ms := newRichTestTask()
+	if task.canon == nil {
+		t.Fatal("test task has no canon")
+	}
+
+	task.canon.syncEndPointFromMachine()
+	got := task.canon.state.endPoint
+	cmd := ms.status.CartePosCmd
+	fb := ms.status.CartePosFb
+
+	if got.X != cmd.X || got.Y != cmd.Y || got.Z != cmd.Z ||
+		got.A != cmd.A || got.B != cmd.B || got.C != cmd.C {
+		t.Errorf("endPoint = (%g,%g,%g,%g,%g,%g), want CartePosCmd (%g,%g,%g,%g,%g,%g)",
+			got.X, got.Y, got.Z, got.A, got.B, got.C,
+			cmd.X, cmd.Y, cmd.Z, cmd.A, cmd.B, cmd.C)
+	}
+	if got.X == fb.X && got.Y == fb.Y && got.Z == fb.Z {
+		t.Errorf("endPoint took CartePosFb (%g,%g,%g)", fb.X, fb.Y, fb.Z)
+	}
+}
+
+// The [DISPLAY] override ceilings must bind every client, not only a UI that
+// sizes its sliders from the same keys.
+//
+// Motion clamps these at 0 and nothing else, and 2.9's ceilings lived in
+// halui — a separate process there, gone in the port. So an incremental input
+// (an encoder wired to halui.feed-override.counts or
+// halui.spindle.0.override.counts) walked straight past MAX_FEED_OVERRIDE and
+// the spindle window: the value simply kept climbing, since the increment path
+// reads the current value back from the value pin rather than accumulating
+// privately. Clamped silently, as 2.9 did — an encoder parked at the end of
+// its travel should not fill the message area.
+func TestOverrideSettersClampToConfiguredLimits(t *testing.T) {
+	task, _ := newRichTestTask()
+	mot := task.motion.(*mockMotion)
+
+	// Stand in for the [DISPLAY] keys the machine that found this uses.
+	task.maxFeedOverride = 2.0
+	task.minSpindleOverride = 0.5
+	task.maxSpindleOverride = 1.5
+	task.maxVelocity = 700.0
+	task.numSpindles = 1
+
+	for _, c := range []struct {
+		name string
+		set  func()
+		pick func() float64
+		want float64
+	}{
+		{"feed over ceiling", func() { _ = task.SetFeedOverride(5.0) },
+			func() float64 { f, _, _, _ := mot.scales(); return f }, 2.0},
+		{"feed under floor", func() { _ = task.SetFeedOverride(-1.0) },
+			func() float64 { f, _, _, _ := mot.scales(); return f }, 0.0},
+		{"feed inside", func() { _ = task.SetFeedOverride(1.25) },
+			func() float64 { f, _, _, _ := mot.scales(); return f }, 1.25},
+		{"rapid over ceiling", func() { _ = task.SetRapidOverride(3.0) },
+			func() float64 { _, r, _, _ := mot.scales(); return r }, 1.0},
+		{"spindle over ceiling", func() { _ = task.SetSpindleOverride(9.0, 0) },
+			func() float64 { _, _, sp, _ := mot.scales(); return sp }, 1.5},
+		{"spindle under floor", func() { _ = task.SetSpindleOverride(0.1, 0) },
+			func() float64 { _, _, sp, _ := mot.scales(); return sp }, 0.5},
+		{"spindle inside", func() { _ = task.SetSpindleOverride(1.2, 0) },
+			func() float64 { _, _, sp, _ := mot.scales(); return sp }, 1.2},
+		{"max velocity over ceiling", func() { _ = task.SetMaxVelocity(5000.0) },
+			func() float64 { _, _, _, v := mot.scales(); return v }, 700.0},
+	} {
+		c.set()
+		if got := c.pick(); got != c.want {
+			t.Errorf("%s: motion got %g, want %g", c.name, got, c.want)
+		}
+	}
+
+	// An unnamed ceiling must not clamp everything to zero: clampRange treats
+	// a non-positive hi as "unconfigured".
+	task.maxFeedOverride = 0
+	_ = task.SetFeedOverride(1.7)
+	if f, _, _, _ := mot.scales(); f != 1.7 {
+		t.Errorf("unconfigured ceiling: motion got %g, want 1.7 (unclamped)", f)
+	}
+}

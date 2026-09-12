@@ -562,6 +562,7 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 		hCtx.Delete()
 		C.stmak_env_destroy(env)
 		C.dlclose(handle)
+		l.drainLogRingNow()
 		return fmt.Errorf("load C plugin %q: factory returned error code %d"+moduleLogHint,
 			path, int(rc))
 	}
@@ -634,6 +635,7 @@ func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) e
 	// Init phase — look up other modules' APIs.
 	rc := C.cmod_call_init(cm.mod)
 	if rc != 0 {
+		l.drainLogRingNow()
 		return fmt.Errorf("init of C module %q returned error code %d"+moduleLogHint,
 			name, int(rc))
 	}
@@ -641,6 +643,7 @@ func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) e
 	// Start phase — begin operation.
 	rc = C.cmod_call_start(cm.mod)
 	if rc != 0 {
+		l.drainLogRingNow()
 		return fmt.Errorf("start of C module %q returned error code %d"+moduleLogHint,
 			name, int(rc))
 	}
@@ -658,6 +661,7 @@ func (l *Launcher) initCModules() error {
 	for _, cm := range l.cModules {
 		rc := C.cmod_call_init(cm.mod)
 		if rc != 0 {
+			l.drainLogRingNow()
 			return fmt.Errorf("init of C module %q returned error code %d"+moduleLogHint,
 				cm.name, int(rc))
 		}
@@ -674,6 +678,7 @@ func (l *Launcher) startCModules() error {
 		}
 		rc := C.cmod_call_start(cm.mod)
 		if rc != 0 {
+			l.drainLogRingNow()
 			return fmt.Errorf("start of C module %q returned error code %d"+moduleLogHint,
 				cm.name, int(rc))
 		}

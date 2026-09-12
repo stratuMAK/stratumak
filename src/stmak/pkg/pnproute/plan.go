@@ -274,6 +274,23 @@ func (p *Planner) Clearance() float64 { return p.clearance }
 // position must lie in to be reachable.
 func (p *Planner) Boundary() Polygon { return p.boundary.Clone() }
 
+// Zones returns the dead zones AS DRAWN, in scene order — the geometry a
+// position is physically inside or outside of.
+//
+// Distinct from OffsetZones, and the distinction matters to anything asking
+// "is the machine in there?": the offset zones carry the planning margin, and
+// the route runs tangent to them (their vertices ARE the graph's nodes), so a
+// path that legitimately hugs a zone sits exactly on that boundary and the
+// answer dithers with the position noise. The drawn ring is a full clearance
+// away from any route the planner produces.
+func (p *Planner) Zones() []Polygon {
+	out := make([]Polygon, len(p.scene.Deadzones))
+	for i, dz := range p.scene.Deadzones {
+		out[i] = dz.Poly.Clone()
+	}
+	return out
+}
+
 // OffsetZones returns the dead zones grown by the clearance, in scene order.
 func (p *Planner) OffsetZones() []Polygon {
 	out := make([]Polygon, len(p.obstacles))

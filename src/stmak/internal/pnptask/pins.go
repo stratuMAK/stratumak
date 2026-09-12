@@ -179,11 +179,18 @@ type trayPins struct {
 type procPins struct {
 	id uint32
 
-	zOffset     *hal.Pin[float64] // in:  added to Z_PICK
-	busy        *hal.Pin[bool]    // in:  gates the approach (D15)
-	hasMaterial *hal.Pin[bool]    // out: owned by pnptask, restored from persistence
-	release     *hal.Pin[bool]    // out: request fixture release
-	released    *hal.Pin[bool]    // in:  fixture released feedback
+	zOffset *hal.Pin[float64] // in:  added to Z_PICK
+	busy    *hal.Pin[bool]    // in:  gates the approach (D15)
+
+	// releaseSettle is RELEASE_SETTLE: the dwell between this fixture
+	// confirming it released and the lift out of it. A param and not a pin
+	// because it is tuning, like the other times, and per station because it
+	// describes the fixture -- see ProcStation.ReleaseSettle.
+	releaseSettle *hal.Param[float64]
+
+	hasMaterial *hal.Pin[bool] // out: owned by pnptask, restored from persistence
+	release     *hal.Pin[bool] // out: request fixture release
+	released    *hal.Pin[bool] // in:  fixture released feedback
 
 	// setHasMaterial/setEmpty are the operator resync the tray resets have
 	// always had (§6.4). "Model occupied, fixture empty" self-corrects — a pick
@@ -281,6 +288,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 		p.procs = append(p.procs, procPins{
 			id:             s.ID,
 			zOffset:        mkPin[float64](b, pre+"z-offset", hal.In),
+			releaseSettle:  mkParam[float64](b, pre+"release-settle", hal.RW),
 			busy:           mkPin[bool](b, pre+"busy", hal.In),
 			hasMaterial:    mkPin[bool](b, pre+"has-material", hal.Out),
 			release:        mkPin[bool](b, pre+"release", hal.Out),
@@ -307,6 +315,9 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.posSettleTime.Set(cfg.PosSettleTime)
 	p.pickSettleTime.Set(cfg.PickSettleTime)
 	p.releaseTime.Set(cfg.ReleaseTime)
+	for i, s := range cfg.Procs {
+		p.procs[i].releaseSettle.Set(s.ReleaseSettle)
+	}
 
 	// DEFAULT_TRAYDEF and DEFAULT_STEP seed their pins, exactly as a halcmd
 	// setp would. This runs before the instance's net lines, so it only ever

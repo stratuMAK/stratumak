@@ -336,6 +336,11 @@ ID = 20
 X = 300.0
 Y = 200.0
 Z_PICK = 5.0
+RELEASE_SETTLE = 0.1          # dwell between this fixture confirming it
+                              #   released and the lift out of it; its jaws
+                              #   keep moving after the contact makes.  Per
+                              #   station because it describes the fixture,
+                              #   not the portal.  0 (default) = no dwell
 WAIT_X = 250.0                # optional wait position (D15); omit to wait in
 WAIT_Y = 150.0                #   place while the station is busy
                               # or, instead of the taught pair (D29):
@@ -865,8 +870,10 @@ Z up.
 retract; route XY to station; Z down; pos-settle; `close` := 1; pick-settle;
 `opened` high → error `PICKER_CLOSE_FAILED`; `closed` high → material
 vanished, error `PROC_NO_MATERIAL`; `release` := 1, wait `released` high
-(RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`); `has-material` := 0; Z up;
-`release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+(RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`); `has-material` := 0;
+**RELEASE_SETTLE** (the fixture's jaws are still moving — lifting on the
+contact alone drags the part through a chuck that has not finished opening);
+Z up; `release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
 
 **place to tray** — validate free slot; retract; route XY to free slot;
 Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error

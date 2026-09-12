@@ -1,0 +1,27 @@
+A burst that overflows the C log ring is counted, and is over: what comes
+after it still reaches the operator, and chatter nobody prints costs nothing.
+
+stmak_log.h's ring is a bounded multi-producer queue: a producer takes a slot
+only once it has seen the slot free, so a full ring drops the message it had
+no room for and nothing else -- no position is left half-claimed for the
+consumer to wait on or guess about.  Messages below the level any sink would
+print are not enqueued at all, and messages below WARN stop taking slots at
+three quarters full, so a burst of chatter leaves room for the line that
+explains it.
+
+The coating machine made the burst at every thread start: 23 EtherCAT slaves
+going OP, HAL, motmod, DEBUG lines nobody prints -- more rtapi_print_msg
+calls at RT priority than the ring held before the drain goroutine's next
+poll.  With the earlier ring one such burst left a claimed-but-empty
+position that the consumer waited on forever, and from then on faults
+switched the machine off without a word.  ferror-message covers the delivery
+chain and passes, because the sim never bursts.
+
+logburst.comp makes the burst on demand: count messages at a chosen severity
+in one servo cycle when its fire pin rises.  The test fires an INFO burst
+larger than the ring, requires the drain to report the overflow with only
+INFO dropped ("log ring full ... info=N ... error=0" in server.log -- proof
+that the test overflowed, and that the headroom held), then opens a following
+error the way ferror-message does and requires it on the operator channel
+and in the log after the overflow report.  Then a DEBUG burst of the same
+size, which the ring's floor must keep out entirely: no second report.

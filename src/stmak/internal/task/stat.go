@@ -65,6 +65,8 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			Command:           t.taskCommand,
 			CallLevel:         callLevel,
 			InputTimeout:      t.inputTimeout,
+			AutoInhibit:       t.autoInhibited(),
+			MdiInhibit:        t.mdiInhibited(),
 		},
 		Flood:          t.floodOn,
 		Mist:           t.mistOn,

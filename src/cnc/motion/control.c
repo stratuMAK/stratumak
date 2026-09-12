@@ -136,7 +136,6 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
     int i, seen;
     int sequence_is_set = 0;
     /* all-homed state as of the previous cycle, before we re-aggregate below */
-    int beginning_allhomed = inst->all_homed;
 
     /* Always tick all joints' state machines and aggregate status */
     {
@@ -295,9 +294,35 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
                 }
             }
         } else if (!any_running && !any_paused) {
-            /* all joints at this step have finished, move on to next step */
-            inst->current_sequence++;
-            inst->sequence_state = HOME_SEQUENCE_START_JOINTS;
+            /* All joints at this step have finished.  Decide here whether a
+               next step exists, rather than letting START_JOINTS find out a
+               tick later: the last joint of the last step reports homed in
+               this same tick, and all_homed is already true in the status a
+               client reads.  A client that reacts to it by switching motion
+               out of FREE mode before the next tick -- pnptask does, the
+               moment its status poll shows every joint homed -- would freeze
+               this state machine in START_JOINTS with homing_active still
+               set from the aggregation above, and every later jog refused
+               with "Can't jog any joints while homing".  Finishing in the
+               same tick closes that window: the completion report below,
+               and the homing_active clear with it, never trail the status.
+               The test mirrors what START_JOINTS would decide: a step exists
+               iff some participating joint carries the next number. */
+            int next_step = 0;
+            for (i = 0; i < ALL_JOINTS; i++) {
+                if (inst->joint_in_sequence[i] &&
+                    abs(inst->joints[i].home_sequence) == inst->current_sequence + 1) {
+                    next_step = 1;
+                    break;
+                }
+            }
+            if (next_step) {
+                inst->current_sequence++;
+                inst->sequence_state = HOME_SEQUENCE_START_JOINTS;
+            } else {
+                inst->sequence_state = HOME_SEQUENCE_IDLE;
+                inst->homing_active = 0;
+            }
         }
         break;
     }
@@ -308,20 +333,38 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
         break;
     }
 
-    /* Return 1 only on the servo cycle where the machine transitions to
-       fully homed (rising edge of all-homed), matching the original
-       homing.c base_do_homing() contract ("return 1 if homing completed
-       this period"). The caller uses this to switch identity kinematics
-       into teleop mode exactly once. A level-triggered return here would
-       re-request switch_to_teleop_mode() on every cycle while homed,
-       instantly overriding an operator EMCMOT_FREE (teleop_enable(0)) and
-       trapping a homed machine in teleop so joint jogging is impossible.
-       Force homing_active clear on the completion edge (as the original did):
-       a joint can report homed and still-active on the same cycle, and once
-       the caller switches to teleop this function is no longer invoked
-       (short-circuited by motion_state==FREE), so a stale homing_active would
-       freeze and keep axis_handle_jogwheels() inhibited. */
-    if (!beginning_allhomed && inst->all_homed) {
+    /* Report completion once per "the machine became fully homed", which the
+       caller turns into a single switch into teleop.  It must not be reported
+       while a sequence is still running, and it cannot be a rising edge of
+       all-homed.
+
+       A Home All on an already-homed machine re-homes one sequence at a time
+       while the joints in the later sequences still carry their old homed
+       flags, so all_homed reads true again the moment the FIRST sequence
+       finishes.  Reporting there switched the machine into teleop, and the
+       FREE-mode gate on this function (see the call site) then stopped
+       ticking this state machine altogether: the remaining sequences never
+       ran, and the FSM sat frozen mid-sequence until something unhomed a
+       joint -- at which point motion returned to FREE, the frozen FSM
+       resumed, and it homed the rest unprompted.  On a machine homing Z, A,
+       C, then X+Y that made Home All on a homed machine re-home Z alone.
+
+       Level-triggered with an explicit reported-latch rather than an
+       all-homed edge: the edge can fall inside the sequence, and suppressing
+       it there would lose it for good -- all_homed never goes false again, so
+       the machine would stay in free mode after homing.  The latch clears
+       whenever the machine is not fully homed, so machine-off/on while homed
+       still reports nothing, as the edge did.
+
+       Force homing_active clear when reporting (as the original did): a joint
+       can report homed and still-active on the same cycle, and once the caller
+       switches to teleop this function is no longer invoked, so a stale
+       homing_active would freeze and keep axis_handle_jogwheels() inhibited. */
+    if (!inst->all_homed) {
+        inst->allhomed_reported = 0;
+    } else if (!inst->allhomed_reported &&
+               inst->sequence_state == HOME_SEQUENCE_IDLE) {
+        inst->allhomed_reported = 1;
         inst->homing_active = 0;
         return 1;
     }
@@ -610,12 +653,41 @@ static void process_inputs(motmod_inst_t *inst)
 	    scale = 0;
 	}
     }
-    /*non maskable (except during spinndle synch move) feed hold inhibit pin */
-	if ( enables & *inst->hal_data->feed_inhibit ) {
+    /* Non-maskable (except during spindle synch move) feed inhibit pin.
+       Not gated on any enables bit: this was "enables & *feed_inhibit", and
+       since the pin is 0 or 1 that ANDed against 0x01 == SS_ENABLED -- the
+       feed inhibit silently stopped working whenever spindle-scale override
+       was switched off.  An inhibit that a UI action can disable is not an
+       inhibit. */
+	if ( *inst->hal_data->feed_inhibit ) {
 	    scale = 0;
 	}
     /* save the resulting combined scale factor */
     inst->status->net_feed_scale = scale;
+
+    /* Hold the spindle stopped for as long as start-inhibit is asserted.
+       Enforced here, at level, rather than only refusing the SPINDLE_ON
+       command: the pin has to stop a spindle that is already turning when the
+       interlock opens, and it must not be possible for the spindle to resume
+       when the pin drops.  spindle_force_off clears the run state, so this
+       reports once per stop rather than every servo cycle -- anything that
+       turns the spindle back on under an asserted inhibit is a real event and
+       is meant to be reported again.
+
+       An orient counts as turning.  SPINDLE_ORIENT deliberately leaves
+       .state at 0 -- it is not an M3 -- but it opens the brake and hands the
+       spindle to the external orient loop, which turns it.  Testing .state
+       alone would let M19 through an interlock that says the spindle may not
+       run, so the orient pin is tested too; spindle_force_off clears both. */
+    for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
+	if (*inst->hal_data->spindle[spindle_num].spindle_start_inhibit
+	    && (inst->status->spindle_status[spindle_num].state != 0
+		|| *inst->hal_data->spindle[spindle_num].spindle_orient)) {
+	    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+		_("Spindle %d stopped: start-inhibit is active"), spindle_num);
+	    spindle_force_off(inst, spindle_num, "start-inhibit");
+	}
+    }
 
     /* now do spindle scaling */
     for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
@@ -623,8 +695,10 @@ static void process_inputs(motmod_inst_t *inst)
 		if ( enables & SS_ENABLED ) {
 			scale *= inst->status->spindle_status[spindle_num].scale;
 		}
-		/*non maskable (except during spindle synch move) spindle inhibit pin */
-		if ( enables & *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
+		/* Non-maskable (except during spindle synch move) spindle inhibit
+		   pin.  Was "enables & *spindle_inhibit", i.e. gated on SS_ENABLED --
+		   see the feed inhibit above. */
+		if ( *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
 			scale = 0;
 		}
 		/* save the resulting combined scale factor */
@@ -1005,6 +1079,7 @@ static void check_for_faults(motmod_inst_t *inst)
 	joint = &inst->joints[joint_num];
 	/* only check active, enabled axes */
 	if ( GET_JOINT_ACTIVE_FLAG(joint) && GET_JOINT_ENABLE_FLAG(joint) ) {
+	    int joint_faulted = 0;
 	    /* are any limits for this joint overridden? */
 	    neg_limit_override = inst->status->overrideLimitMask & ( 1 << (joint_num*2));
 	    pos_limit_override = inst->status->overrideLimitMask & ( 2 << (joint_num*2));
@@ -1016,11 +1091,13 @@ static void check_for_faults(motmod_inst_t *inst)
 		    /* no, ignore limits */
 		} else {
 		    /* trip on limits */
-		    if (!GET_JOINT_ERROR_FLAG(joint)) {
-			/* report the error just this once */
+		    if (!joint->fault_reported) {
+			/* name the primary cause; knock-on faults stay quiet */
 			stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d on limit switch error"),
 			    joint_num);
+			joint->fault_reported = 1;
 		    }
+		    joint_faulted = 1;
 		    SET_JOINT_ERROR_FLAG(joint, 1);
 		    SET_MOTION_ERROR_FLAG(1);
 		    inst->internal->enabling = 0;
@@ -1029,23 +1106,31 @@ static void check_for_faults(motmod_inst_t *inst)
 	    /* check for amp fault */
 	    if (GET_JOINT_FAULT_FLAG(joint)) {
 		/* joint is faulted, trip */
-		if (!GET_JOINT_ERROR_FLAG(joint)) {
-		    /* report the error just this once */
+		if (!joint->fault_reported) {
+		    /* name the primary cause; knock-on faults stay quiet */
 		    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d amplifier fault"), joint_num);
+		    joint->fault_reported = 1;
 		}
+		joint_faulted = 1;
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
 		inst->internal->enabling = 0;
 	    }
 	    /* check for excessive following error */
 	    if (GET_JOINT_FERROR_FLAG(joint)) {
-		if (!GET_JOINT_ERROR_FLAG(joint)) {
-		    /* report the error just this once */
+		if (!joint->fault_reported) {
+		    /* name the primary cause; knock-on faults stay quiet */
 		    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d following error"), joint_num);
+		    joint->fault_reported = 1;
 		}
+		joint_faulted = 1;
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
 		inst->internal->enabling = 0;
+	    }
+	    if (!joint_faulted) {
+		/* joint is clean again: re-arm reporting for the next episode */
+		joint->fault_reported = 0;
 	    }
 	/* end of if JOINT_ACTIVE_FLAG(joint) */
 	}
@@ -1116,7 +1201,23 @@ static void set_operating_mode(motmod_inst_t *inst)
 	    /* clear any outstanding joint errors when going into enabled
 	       state */
 	    SET_JOINT_ERROR_FLAG(joint, 0);
+	    /* A new enable is a new fault episode: re-arm the report gate here
+	       as well, not only when the joint is next seen clean.  A fault that
+	       holds across the off/on -- an amp fault the drive has not reset, a
+	       joint parked on a limit switch -- never reads clean while the
+	       joint is enabled, so without this it would be named on the first
+	       machine-on and refused silently on every one after. */
+	    joint->fault_reported = 0;
 	}
+	/* The joints' homing was cancelled just above, so a home sequence that
+	   was in progress when the machine went off is over: reset the sequence
+	   state machine with it, as the ABORT command does.  Left alone it would
+	   sit frozen (do_homing_sequence is not ticked while disabled), see the
+	   cancelled joints as idle on the first FREE tick after this enable, and
+	   start the next step -- the machine homing by itself, unprompted, right
+	   after a machine-on. */
+	inst->sequence_state = HOME_SEQUENCE_IDLE;
+	inst->homing_active = 0;
 	/* The DISABLED state tracked pos_cmd = pos_fb without running the
 	   jerk filter; its history still holds pre-disable positions and
 	   must be re-anchored with the rest of the command chain. */

@@ -1,0 +1,26 @@
+spindle.N.start-inhibit is an ignition; spindle.N.inhibit is only a clutch.
+
+spindle.N.inhibit was the pin a configuration reached for when it needed to
+forbid the spindle, and it does not do that.  It zeroes the speed *scale*: an
+M3 issued while it is held still succeeds, the spindle state stays on, the
+status buffer keeps reporting the commanded speed -- and dropping the pin
+spins the spindle straight back up with no operator action.  An interlock
+whose release restarts the machine is the opposite of an interlock.
+
+start-inhibit refuses the start outright, with a message naming the reason,
+stops a spindle that is already turning, and leaves it stopped: releasing the
+pin requires a new start command.  The test pins down all three, and in
+particular that the release does not restart the spindle, which is the
+property that separates the two pins.
+
+An orient counts as a start.  M19 deliberately leaves the spindle state at 0
+-- it is not an M3 -- but it opens the brake and hands the spindle to the
+external orient loop, which turns it.  Checking only the run state would let
+M19 through an interlock that says the spindle may not run, so the test issues
+one under the pin and asserts the brake stays engaged.
+
+The test also covers the enables bug both inhibits shared.  The guards read
+"enables & *inhibit_pin", and since a bit pin is 0 or 1 that ANDed against
+0x01 == SS_ENABLED: both inhibits silently stopped working whenever spindle
+override was switched off from the UI.  Nothing in the suite would have
+noticed, because the pin still reads TRUE while doing nothing.

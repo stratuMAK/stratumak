@@ -928,6 +928,36 @@ func (c *Canon) SetSpindleSpeed(spindle int32, rpm float64) {
 	c.enqueue(c.spindleCommand(spindle, s.spindleDir[spindle], s.spindleWait[spindle]))
 }
 
+// clearSpindleRunState forgets how the spindles were running without
+// forgetting how fast they were told to run. Called wherever the task
+// broadcasts SpindleOff(-1) to stop every spindle.
+//
+// spindleDir is what SetSpindleSpeed consults to decide whether a bare S word
+// is a retune of a turning spindle or only a stored setting, so a direction
+// that outlives the spindle it described turns the next S into an M3 nobody
+// typed: "S1000 M3", machine off, machine on, "S1000" -- and the spindle
+// starts. The machine-off already stopped the spindle and reset the
+// interpreter; the canon has to forget it too, or it is the one component
+// still claiming the spindle is turning.
+//
+// The commanded speed is deliberately kept. S is a modal setting an operator
+// expects to survive the switch, and Interp::synch reads it back through
+// GetExternalSpeed; only the running/stopped state belongs to the machine that
+// was just switched off. spindleCssMax goes with the direction because synch
+// forces the interpreter's spindle_mode back to CONSTANT_RPM (G97): leaving
+// the canon in CSS would have the two disagree, and the next M3 would run on a
+// surface-speed factor the interpreter no longer believes in.
+//
+// The caller must own the canon: be the interpreter goroutine, or hold cmdMu
+// with the producer joined.
+func (c *Canon) clearSpindleRunState() {
+	for i := range c.state.spindleDir {
+		c.state.spindleDir[i] = 0
+		c.state.spindleWait[i] = 0
+		c.state.spindleCssMax[i] = 0
+	}
+}
+
 func (c *Canon) StopSpindleTurning(spindle int32) {
 	c.flushSegments()
 	c.state.spindleDir[spindle] = 0

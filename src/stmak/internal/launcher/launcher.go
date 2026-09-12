@@ -113,6 +113,19 @@ func (l *Launcher) ensureLogRing() {
 	l.logRing.startDrain(l.logger)
 }
 
+// drainLogRingNow synchronously flushes any log messages a cmod has already
+// queued. The drain goroutine started by ensureLogRing only polls the ring
+// every 1ms, so without this call a module's own explanation for a New/Init/
+// Start failure can print well after — or long after, buried in shutdown
+// noise — the moduleLogHint-suffixed error the caller is about to construct
+// from just the returned error code. Call it right before building that
+// error so the reason lands ahead of (or right next to) it in the log.
+func (l *Launcher) drainLogRingNow() {
+	if l.logRing != nil {
+		l.logRing.drainAll(l.logger)
+	}
+}
+
 // Run executes the full LinuxCNC startup sequence.
 //
 // Implemented milestones M1–M7:
@@ -263,7 +276,9 @@ func (l *Launcher) Run() (runErr error) {
 	// memory and routes RTAPI messages through the stmak_log ring.
 	// Must be called before hal.NewComponent() / hal_init().
 	l.ensureLogRing()
-	halcmd.SetLogRing(unsafe.Pointer(l.logRing.ring))
+	if err := halcmd.SetLogRing(unsafe.Pointer(l.logRing.ring), l.logRing.size()); err != nil {
+		return err
+	}
 	l.logger.Info("initializing RTAPI app (in-process)")
 	if err := halcmd.RtapiAppInit(); err != nil {
 		return fmt.Errorf("rtapi app init: %w", err)

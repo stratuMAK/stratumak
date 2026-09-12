@@ -1,0 +1,22 @@
+Homing behaviour for joints configured with an absolute encoder.
+
+Covers two defects, both of which silently corrupt the joint coordinate
+system rather than reporting an error:
+
+ 1. HOME_ABSOLUTE_ENCODER=1 and =2 select different behaviour -- =2 means
+    "take the position from the encoder and do not move at all" -- but every
+    non-zero value was folded into the HOME_ABSOLUTE_ENCODER flag alone.
+    HOME_NO_REHOME and HOME_NO_FINAL_MOVE were never set, so =2 performed the
+    final move as well and the joint traversed from HOME_OFFSET to HOME.
+
+ 2. The offset applied in HOME_SET_SWITCH_POSITION is a blind accumulation for
+    absolute encoders (offset = home_offset, rather than the self-correcting
+    home_offset - pos_fb used otherwise), so homing the same joint twice
+    shifts the coordinate system by HOME_OFFSET each time.  HOME_NO_REHOME
+    hides this while the joint stays homed, but unhome clears `homed` and lets
+    a second run straight through.
+
+The machine is a closed loop in HAL (motor-pos-cmd -> motor-pos-fb), so
+"did the joint move" is decided by watching joint.N.motor-pos-cmd: homing an
+absolute joint shifts motor_offset and the reported position together, and
+must leave the motor command where it was.

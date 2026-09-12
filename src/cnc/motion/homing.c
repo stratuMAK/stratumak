@@ -430,7 +430,16 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
 
         case HOME_SET_SWITCH_POSITION:
             if (inst->H.home_flags & HOME_ABSOLUTE_ENCODER) {
-                offset = inst->H.home_offset;
+                /* motor_offset is a constant of the machine for an absolute
+                 * encoder, so derive the delta that lands it on -home_offset
+                 * rather than accumulating home_offset on every run.  The
+                 * non-absolute branch below is already self-correcting; a
+                 * blind `offset = home_offset` shifts the coordinate system by
+                 * another home_offset each time the joint is homed, which
+                 * HOME_NO_REHOME only hides for as long as `homed` stays set
+                 * -- an explicit unhome lets a second run through. */
+                offset = inst->mot->joint_get_motor_offset(inst->mot->ctx, jno)
+                         + inst->H.home_offset;
             } else {
                 offset = inst->H.home_offset - inst->mot->joint_get_pos_fb(inst->mot->ctx, jno);
             }

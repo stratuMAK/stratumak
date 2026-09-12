@@ -1,0 +1,21 @@
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+load scale <lag>
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+addf lag servo-thread
+
+# Joint 0 tracks its command but covers only `gain` of the commanded distance,
+# so the following error grows with distance travelled -- a scale error, not a
+# step. gain is set by the test.
+setp lag.gain 1.0
+setp lag.offset 0.0
+net j0cmd joint.0.motor-pos-cmd => lag.in
+net j0fb  lag.out => joint.0.motor-pos-fb
+
+net j1pos joint.1.motor-pos-cmd => joint.1.motor-pos-fb
+net j2pos joint.2.motor-pos-cmd => joint.2.motor-pos-fb
+
+net estop-out <= iocontrol.user-enable-out
+net estop-out => iocontrol.emc-enable-in

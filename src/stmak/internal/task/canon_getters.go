@@ -66,7 +66,7 @@ func (c *Canon) GetExternalMist() (int32, error) {
 
 // Position getters — return current position in program units.
 // Like the C canon (GET_EXTERNAL_POSITION), these read from endPoint
-// (absolute machine coordinates, synced from CartePosFb before each synch)
+// (absolute machine coordinates, synced from CartePosCmd before each synch)
 // and return the position with offsets removed, in program units.
 // This matches the C canon's unoffset_and_unrotate_pos + to_prog.
 
@@ -82,7 +82,23 @@ func (c *Canon) syncEndPointFromMachine() {
 	if err != nil {
 		return
 	}
-	p := ms.CartePosFb
+	// CartePosCmd, not CartePosFb: endPoint is the origin of the next
+	// commanded move, so it has to be where the planner will start from, not
+	// where the machine happens to be standing.  2.9 reads the commanded traj
+	// position here (GET_EXTERNAL_POSITION); only the probe getters read
+	// feedback.
+	//
+	// Sourcing it from feedback made every re-synced segment carry the
+	// standing following error of every axis as a spurious displacement.  On a
+	// pure rotary move that is fatal: pmLine9Target takes the first non-zero
+	// component as the segment length, pmCartLineInit calls a delta non-zero
+	// above CART_FUZZ (1e-8), and a few microns of XYZ error therefore became
+	// the length of a 30 degree A move.  The planner finished those microns in
+	// two servo cycles and emitted the endpoint, so the joint chased a
+	// full-travel step: measured on the bridge saw as 29.1 degrees of A in
+	// 16ms against a 4um Y mismatch, and it cost a C drive, whose following
+	// error window is tighter than A's.
+	p := ms.CartePosCmd
 	c.state.endPoint = Pose{
 		X: p.X, Y: p.Y, Z: p.Z,
 		A: p.A, B: p.B, C: p.C,
@@ -195,11 +211,20 @@ func (c *Canon) GetExternalSpeed(spindle int32) (float64, error) {
 
 func (c *Canon) GetExternalSpindle(spindle int32) (int32, error) {
 	// CANON_STOPPED=1, CANON_CLOCKWISE=2, CANON_COUNTERCLOCKWISE=3
-	if int(spindle) < len(c.state.spindleSpeed) {
-		speed := c.state.spindleSpeed[spindle]
-		if speed > 0 {
+	//
+	// Answered from spindleDir, not from the sign of spindleSpeed. Speed is
+	// stored as a magnitude (SetSpindleSpeed takes math.Abs), so the sign test
+	// this used to do could never report counterclockwise, and reported
+	// CLOCKWISE for any spindle that had ever been given an S word -- stopped
+	// or not. Interp::synch reads this into _setup.spindle_turning on every
+	// reset, so a machine-off that stops the spindle and resets the
+	// interpreter handed it straight back the belief that the spindle is
+	// turning, which is the state M3/M4 are supposed to establish.
+	if spindle >= 0 && int(spindle) < len(c.state.spindleDir) {
+		switch {
+		case c.state.spindleDir[spindle] > 0:
 			return 2, nil // CANON_CLOCKWISE
-		} else if speed < 0 {
+		case c.state.spindleDir[spindle] < 0:
 			return 3, nil // CANON_COUNTERCLOCKWISE
 		}
 	}

@@ -22,6 +22,18 @@ type mockMotion struct {
 	mu       sync.Mutex
 	lastCall string
 	calls    []string
+	// Scale values as motion received them, so a test can assert on what was
+	// actually sent and not merely that a call happened.
+	feedScale    float64
+	rapidScale   float64
+	spindleScale float64
+	velLimit     float64
+}
+
+func (m *mockMotion) scales() (feed, rapid, spindle, vel float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.feedScale, m.rapidScale, m.spindleScale, m.velLimit
 }
 
 func (m *mockMotion) setCall(s string) {
@@ -106,22 +118,43 @@ func (m *mockMotion) SpindleIncrease(int32) error               { m.setCall("Spi
 func (m *mockMotion) SpindleDecrease(int32) error               { m.setCall("SpindleDecrease"); return nil }
 func (m *mockMotion) SpindleBrakeEngage(int32) error            { m.setCall("SpindleBrakeEngage"); return nil }
 func (m *mockMotion) SpindleBrakeRelease(int32) error           { m.setCall("SpindleBrakeRelease"); return nil }
-func (m *mockMotion) SetSpindleScale(int32, float64) error {
+func (m *mockMotion) SetSpindleScale(_ int32, scale float64) error {
 	m.setCall("SetSpindleScale")
+	m.mu.Lock()
+	m.spindleScale = scale
+	m.mu.Unlock()
 	return nil
 }
-func (m *mockMotion) SetFeedScale(float64) error                   { m.setCall("SetFeedScale"); return nil }
-func (m *mockMotion) SetRapidScale(float64) error                  { m.setCall("SetRapidScale"); return nil }
-func (m *mockMotion) SetMaxFeedOverride(float64) error             { return nil }
-func (m *mockMotion) FeedScaleEnable(int32) error                  { return nil }
-func (m *mockMotion) SpindleScaleEnable(int32, int32) error        { return nil }
-func (m *mockMotion) AdaptiveFeedEnable(int32) error               { return nil }
-func (m *mockMotion) FeedHoldEnable(int32) error                   { return nil }
-func (m *mockMotion) OverrideLimits(int32) error                   { m.setCall("OverrideLimits"); return nil }
-func (m *mockMotion) JointHome(int32) error                        { m.setCall("JointHome"); return nil }
-func (m *mockMotion) JointUnhome(int32) error                      { m.setCall("JointUnhome"); return nil }
-func (m *mockMotion) SetVel(float64) error                         { return nil }
-func (m *mockMotion) SetVelLimit(float64) error                    { m.setCall("SetVelLimit"); return nil }
+func (m *mockMotion) SetFeedScale(scale float64) error {
+	m.setCall("SetFeedScale")
+	m.mu.Lock()
+	m.feedScale = scale
+	m.mu.Unlock()
+	return nil
+}
+func (m *mockMotion) SetRapidScale(scale float64) error {
+	m.setCall("SetRapidScale")
+	m.mu.Lock()
+	m.rapidScale = scale
+	m.mu.Unlock()
+	return nil
+}
+func (m *mockMotion) SetMaxFeedOverride(float64) error      { return nil }
+func (m *mockMotion) FeedScaleEnable(int32) error           { return nil }
+func (m *mockMotion) SpindleScaleEnable(int32, int32) error { return nil }
+func (m *mockMotion) AdaptiveFeedEnable(int32) error        { return nil }
+func (m *mockMotion) FeedHoldEnable(int32) error            { return nil }
+func (m *mockMotion) OverrideLimits(int32) error            { m.setCall("OverrideLimits"); return nil }
+func (m *mockMotion) JointHome(int32) error                 { m.setCall("JointHome"); return nil }
+func (m *mockMotion) JointUnhome(int32) error               { m.setCall("JointUnhome"); return nil }
+func (m *mockMotion) SetVel(float64) error                  { return nil }
+func (m *mockMotion) SetVelLimit(v float64) error {
+	m.setCall("SetVelLimit")
+	m.mu.Lock()
+	m.velLimit = v
+	m.mu.Unlock()
+	return nil
+}
 func (m *mockMotion) SetAcc(float64) error                         { return nil }
 func (m *mockMotion) SetTermCond(int32, float64) error             { return nil }
 func (m *mockMotion) SetOffset(Pose) error                         { return nil }

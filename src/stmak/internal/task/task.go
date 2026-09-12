@@ -311,13 +311,19 @@ type Task struct {
 	angularUnits    float64
 	maxVelocity     float64
 	maxAcceleration float64
-	jointMaxVel     [16]float64           // per-joint max velocity for jog clamping
-	jointLinear     [16]bool              // per-joint linearity ([JOINT_n]TYPE); LINEAR joints scale machine->mm, ANGULAR don't
-	jointHoming     [16]jointHomingParams // INI-fixed homing params, cached so a HAL home/offset/seq change re-pushes them unchanged
-	axisMaxVel      [9]float64            // per-axis max velocity for jog clamping + canon blend
-	axisMaxAcc      [9]float64            // per-axis max acceleration for canon vel/acc blend
-	startupCode     string
-	debug           int32 // EMC_SET_DEBUG level, echoed to stat.debug
+	// Override ceilings from [DISPLAY] (see motsetup.Result). The setters
+	// clamp to these so every client is bound by them, not only the UI that
+	// happens to size its sliders from the same keys.
+	maxFeedOverride    float64
+	minSpindleOverride float64
+	maxSpindleOverride float64
+	jointMaxVel        [16]float64           // per-joint max velocity for jog clamping
+	jointLinear        [16]bool              // per-joint linearity ([JOINT_n]TYPE); LINEAR joints scale machine->mm, ANGULAR don't
+	jointHoming        [16]jointHomingParams // INI-fixed homing params, cached so a HAL home/offset/seq change re-pushes them unchanged
+	axisMaxVel         [9]float64            // per-axis max velocity for jog clamping + canon blend
+	axisMaxAcc         [9]float64            // per-axis max acceleration for canon vel/acc blend
+	startupCode        string
+	debug              int32 // EMC_SET_DEBUG level, echoed to stat.debug
 	// [EMCIO]RANDOM_TOOLCHANGER: flips the pocket semantics of the tool
 	// canon getters (spindle tool lives at pocket 0 vs the non-random
 	// "empty spindle = idx -1" convention).
@@ -452,6 +458,14 @@ type Task struct {
 	// guarded) — the writers maintain no cross-field invariant with it, so it
 	// need not add two contended t.mu round-trips per dequeued command.
 	seqInflight atomic.Bool
+
+	// autoInhibit mirrors the halui auto-inhibit pin, sampled once per monitor
+	// tick. Read by the AUTO guards, which run on command goroutines, so it is
+	// atomic rather than under t.mu: a stale-by-one-tick value is fine (the
+	// interlock it reflects is a physical condition, not a command race) and
+	// taking t.mu here would invert the lock order the guards already hold.
+	autoInhibit atomic.Bool
+	mdiInhibit  atomic.Bool
 
 	// motionDispatched is true once a motion segment has been sent since the
 	// last completed drain. waitMotionDone applies its servo-settle skip only
@@ -724,3 +738,32 @@ func (t *Task) updateActiveCodes(interp Interpreter) (gc, mc []int32, st []float
 	t.mu.Unlock()
 	return gc, mc, st
 }
+
+// setAutoInhibit records the halui auto-inhibit pin state.
+func (t *Task) setAutoInhibit(v bool) { t.autoInhibit.Store(v) }
+
+// autoInhibited reports whether AUTO is currently forbidden by the interlock.
+func (t *Task) autoInhibited() bool { return t.autoInhibit.Load() }
+
+// programRunning reports whether an AUTO program is mid-run, paused included:
+// a paused program resumes into the same cut, so an interlock has to stop it
+// too. The mode is tested as well as the interpreter state, because an MDI
+// command in flight also reads as InterpReading -- and auto-inhibit is
+// documented to leave MDI alone, so a rising edge must not abort a touch-off
+// move the operator is in the middle of. Takes t.mu and releases it before the
+// caller acts, so the caller can go on to take cmdMu without inverting the
+// lock order.
+func (t *Task) programRunning() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.mode == ModeAuto &&
+		(t.interpState == InterpReading ||
+			t.interpState == InterpWaiting ||
+			t.interpState == InterpPaused)
+}
+
+// setMDIInhibit records the halui mdi-inhibit pin state.
+func (t *Task) setMDIInhibit(v bool) { t.mdiInhibit.Store(v) }
+
+// mdiInhibited reports whether MDI is currently forbidden by the interlock.
+func (t *Task) mdiInhibited() bool { return t.mdiInhibit.Load() }

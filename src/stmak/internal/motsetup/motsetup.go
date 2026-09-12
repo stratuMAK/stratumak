@@ -110,6 +110,15 @@ type Result struct {
 	MaxVelocity     float64
 	MaxAcceleration float64
 
+	// Override ceilings from [DISPLAY], for the caller to clamp its own
+	// override commands to. 2.9 clamped these in halui, which was a separate
+	// process; here the single point of entry is the task setter, so the task
+	// needs the numbers. Defaults follow AXIS (axis.py), which is the in-tree
+	// behaviour operators already see on the sliders.
+	MaxFeedOverride    float64
+	MinSpindleOverride float64
+	MaxSpindleOverride float64
+
 	JointLinear [MaxJoints]bool         // per-joint linearity ([JOINT_n]TYPE)
 	JointMaxVel [MaxJoints]float64      // per-joint max velocity, for jog clamping
 	JointHoming [MaxJoints]HomingParams // INI-fixed homing params, for re-push
@@ -216,11 +225,19 @@ func pushTraj(ini *inifile.IniFile, opts Options, u units, mc MotionConfig, res 
 		return err
 	}
 
-	// Max feed override.
+	// Max feed override, and the spindle override window beside it. Only the
+	// feed ceiling goes to motion (it has a field for it); all three are
+	// returned so the task can clamp what it sends.
 	maxFeedScale := getFloatOr(ini, "DISPLAY", "MAX_FEED_OVERRIDE", 1.0)
 	if err := mc.SetMaxFeedOverride(maxFeedScale); err != nil {
 		return err
 	}
+	res.MaxFeedOverride = maxFeedScale
+	// AXIS's defaults: max spindle falls back to the feed ceiling, min to 0.
+	// Defaulting min to 1.0 would pin the override at 1.0 on every config that
+	// does not name it.
+	res.MaxSpindleOverride = getFloatOr(ini, "DISPLAY", "MAX_SPINDLE_OVERRIDE", maxFeedScale)
+	res.MinSpindleOverride = getFloatOr(ini, "DISPLAY", "MIN_SPINDLE_OVERRIDE", 0.0)
 
 	// Probe error inhibit.
 	jogInhibit := int32(getIntOr(ini, "TRAJ", "NO_PROBE_JOG_ERROR", 0))
@@ -325,8 +342,23 @@ func pushJoint(ini *inifile.IniFile, joint int32, u units, mc MotionConfig, res 
 	if lockingIndexer != 0 {
 		flags |= 8 // HOME_UNLOCK_FIRST
 	}
-	if absoluteEncoder != 0 {
+	// HOME_ABSOLUTE_ENCODER selects between two distinct behaviours; folding
+	// them into one flag makes 2 behave like 1 and moves the joint. Mapping
+	// follows the reference implementation (emc/task/taskintf.cc).
+	switch absoluteEncoder {
+	case 0:
+	case 1:
+		// Position is taken from HOME_OFFSET, then a final move to HOME runs.
 		flags |= 16 // HOME_ABSOLUTE_ENCODER
+		flags |= 32 // HOME_NO_REHOME
+	case 2:
+		// As above, but the joint must not move at all.
+		flags |= 16 // HOME_ABSOLUTE_ENCODER
+		flags |= 32 // HOME_NO_REHOME
+		flags |= 64 // HOME_NO_FINAL_MOVE
+	default:
+		return linear, fmt.Errorf("joint %d: unknown HOME_ABSOLUTE_ENCODER value %d (expected 0, 1 or 2)",
+			joint, absoluteEncoder)
 	}
 	if noEncoderReset != 0 {
 		flags |= 128 // HOME_INDEX_NO_ENCODER_RESET
