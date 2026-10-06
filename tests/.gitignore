@@ -9,3 +9,6 @@ out.txt
 *.db-wal
 # servo-thread capture written by tests/soft-limits/soft-limits.hal
 trace.txt
+# servo-thread velocity captures written by tests/pnptask-blend and
+# tests/trajectory-planner/decel-rate
+vel.txt
