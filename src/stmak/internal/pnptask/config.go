@@ -197,6 +197,22 @@ type ProcStation struct {
 	Pos     pnproute.Point
 	ZPick   float64
 
+	// ReleaseSettle is how long to wait, after the fixture has confirmed it
+	// released, before lifting the part out of it. A chuck's jaws keep moving
+	// after its opened contact makes, and the lift starts into a fixture that
+	// is open on the wire and not yet clear of the part.
+	//
+	// Per station because it describes the fixture and not the portal: two
+	// chucks on one machine need not clear at the same rate, and a single
+	// figure would have to be the slowest of them on every exchange.
+	//
+	// Deliberately NOT [PNPTASK]RELEASE_TIME, which is the picker's: that one
+	// waits for the gripper to let go of a part being placed, this one for the
+	// fixture to let go of a part being taken. Same word, different jaws.
+	//
+	// 0 (the default) is the behaviour before it existed.
+	ReleaseSettle float64
+
 	// Wait is where a job waits out a busy station (D15). Without one the job
 	// waits where it stands, at movement height.
 	Wait    pnproute.Point
@@ -657,6 +673,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.Pos.X = r.lengthReq(sec, "X")
 		s.Pos.Y = r.lengthReq(sec, "Y")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
+		s.ReleaseSettle = r.duration(sec, "RELEASE_SETTLE", 0)
 		hasWaitX, hasWaitY := r.has(sec, "WAIT_X"), r.has(sec, "WAIT_Y")
 		if hasWaitX != hasWaitY {
 			return fmt.Errorf("[%s]: WAIT_X and WAIT_Y must be given together", sec)

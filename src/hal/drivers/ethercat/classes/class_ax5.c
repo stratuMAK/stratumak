@@ -216,6 +216,7 @@ int lcec_class_ax5_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry
 
   // init pins
   *(chan->drive_on) = 1;
+  chan->shutdown = 0;
 
   // init parameters
   chan->scale = 1.0;
@@ -360,6 +361,14 @@ void lcec_class_ax5_read(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) 
  * @param slave  EtherCAT slave descriptor (provides the process-data pointer).
  * @param chan   Per-channel data structure for this axis.
  */
+void lcec_class_ax5_shutdown_req(lcec_class_ax5_chan_t *chan) {
+  chan->shutdown = 1;
+}
+
+int lcec_class_ax5_shutdown_done(lcec_class_ax5_chan_t *chan) {
+  return !*(chan->enabled);
+}
+
 void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) {
   lcec_master_t *master = slave->master;
   uint8_t *pd = master->process_data;
@@ -374,7 +383,12 @@ void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan)
 
   if (*(chan->drive_on)) {
     ctrl |= (1 << 14); // enable
-    if (*(chan->enable)) {
+    // chan->shutdown masks the enable pin on the way down: motion is stopped
+    // by then and nothing is going to clear the pin, but the drive still has
+    // to leave "operation enabled" before its safety card removes STO, or it
+    // faults on the way out (AX5000 FDD3, "safety switch off while the axis
+    // was enabled").  See lcec_rt_drives_down().
+    if (*(chan->enable) && !chan->shutdown) {
       if (!(*(chan->halt))) {
         ctrl |= (1 << 13); // halt/restart
       }

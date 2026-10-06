@@ -1,0 +1,16 @@
+A following error must name itself on the operator message channel.
+
+motmod detects the fault and logs "joint N following error"; milltask's own
+"motion error detected -- aborting" names no cause.  That specific message is
+therefore the only thing that tells an operator what happened, and it reaches
+them over a long chain -- the C log ring, stmak.NotifyLogError, the task's log
+hook, the operator message list -- which nothing else in the suite asserts on.
+
+What makes the message load-bearing rather than merely nice is that the trip
+erases its own evidence.  Once the fault disables motion, EMCMOT_MOTION_DISABLED
+sets pos_cmd = pos_fb every cycle, so joint.N.f-error falls back to 0 and
+f-errored and error both go FALSE.  Inspecting the pins after the fact shows a
+perfectly healthy joint.
+
+joint 0's motor-pos-fb is left unlinked by the HAL file so the test can open a
+following error with halcmd setp, without commanding any motion.

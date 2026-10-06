@@ -1,0 +1,7 @@
+( A program long enough to still be running when the interlock opens. )
+G1 F60 X0
+O100 repeat [40]
+G1 F60 X5
+G1 F60 X0
+O100 endrepeat
+M2

@@ -511,6 +511,16 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	// step the model never tracked — unknown, and exempt from the skipPick
 	// step check.
 	c.m.world.setHeld(pk, s.cfg.ID, swap, j.step, !swap)
+	// The fixture said it released; its jaws have not finished moving. Lifting
+	// on the contact alone drags the part out of a chuck that is still closing
+	// on it -- the place paths have waited here since they were written
+	// (release-time, after the gripper opens), and the removal never did.
+	//
+	// After the records move, like placeToTray's: an abort landing in the dwell
+	// has to find a world that already says where the part is.
+	if err := c.dwell(s.pins.releaseSettle.Get()); err != nil {
+		return err
+	}
 	if err := c.zStroke(j.height); err != nil {
 		return err
 	}

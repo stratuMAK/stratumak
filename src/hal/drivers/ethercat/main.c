@@ -399,6 +399,101 @@ void lcec_rt_stop(lcec_rt_context_t *ctx)  {
 /** @brief Poll interval while waiting for slaves to leave OP. */
 #define LCEC_BUS_DOWN_POLL_US    10000
 
+/**
+ * @brief How long lcec_rt_drives_down() waits for devices to de-energise.
+ *
+ * Fixed, and generous against the milliseconds a servo drive needs to leave
+ * "operation enabled": the wait ends as soon as the last device reports
+ * itself down, so the bound only bites when one is genuinely stuck, and then
+ * going down anyway beats hanging the shutdown on it.  All devices are asked
+ * before any is waited on, so this is one settle for the whole bus and not
+ * one per drive.
+ */
+#define LCEC_DRIVES_DOWN_TIMEOUT_MS 500
+
+/**
+ * @brief De-energise every device that asks to be, before the bus leaves OP.
+ *
+ * Motion has already written its disable by the time this runs (the stop
+ * phases precede it), but writing a disable and having a drive act on it are
+ * not the same thing.  Taking the bus out of OP stops the safety logic with
+ * it, so the drives' safety cards remove STO within a cycle or two -- and a
+ * drive still in "operation enabled" at that moment faults instead of
+ * stopping cleanly (AX5000 FDD3, "safety switch off while the axis was
+ * enabled").  Shutting down with the machine already off never showed it:
+ * the drives had been disabled for seconds by then.
+ *
+ * Two passes on purpose.  The request pass masks the enable on every device
+ * first; only then does the query pass wait for them.  Asking and waiting
+ * device by device would serialise the settle times, so a five-axis machine
+ * would pay five of them.
+ *
+ * Devices declaring neither callback are ignored, so this changes nothing for
+ * a bus without drives that care.
+ */
+void lcec_rt_drives_down(lcec_rt_context_t *ctx) {
+  lcec_master_t *master;
+  lcec_slave_t *slave;
+  int asked = 0;
+  int waited_ms = 0;
+  int pending = 0;
+
+  // Request pass: ask everything, wait for nothing.
+  for (master = ctx->first_master; master != NULL; master = master->next) {
+    if (master->master == NULL || master->process_data == NULL) {
+      continue;
+    }
+    for (slave = master->first_slave; slave != NULL; slave = slave->next) {
+      if (slave->proc_shutdown_req != NULL) {
+        slave->proc_shutdown_req(slave);
+        asked = 1;
+      }
+    }
+  }
+  if (!asked) {
+    return;
+  }
+
+  // Query pass: the requests above are only values in the process image until
+  // the realtime thread has run the write functions that put them on the wire,
+  // and the drives then need cycles of their own to act.  Both are still
+  // running here -- this is a stop phase, ahead of the thread barrier.
+  for (waited_ms = 0; waited_ms < LCEC_DRIVES_DOWN_TIMEOUT_MS;) {
+    pending = 0;
+    for (master = ctx->first_master; master != NULL; master = master->next) {
+      if (master->master == NULL || master->process_data == NULL) {
+        continue;
+      }
+      for (slave = master->first_slave; slave != NULL; slave = slave->next) {
+        if (slave->proc_shutdown_done != NULL && !slave->proc_shutdown_done(slave)) {
+          pending++;
+        }
+      }
+    }
+    if (pending == 0) {
+      return;
+    }
+    usleep(LCEC_BUS_DOWN_POLL_US); // same cadence as the OP wait below
+    waited_ms += LCEC_BUS_DOWN_POLL_US / 1000;
+  }
+
+  LCEC_CTX_WARN(ctx, "%d device(s) still energised after %d ms; taking the bus "
+      "down anyway (they may fault on STO)", pending, LCEC_DRIVES_DOWN_TIMEOUT_MS);
+
+  for (master = ctx->first_master; master != NULL; master = master->next) {
+    if (master->master == NULL || master->process_data == NULL) {
+      continue;
+    }
+    for (slave = master->first_slave; slave != NULL; slave = slave->next) {
+      if (slave->proc_shutdown_done != NULL && !slave->proc_shutdown_done(slave)) {
+        LCEC_CTX_WARN(ctx, "  still energised: %s.%s (position %d)",
+            master->name, slave->name, slave->index);
+      }
+    }
+  }
+}
+
+
 void lcec_rt_bus_down(lcec_rt_context_t *ctx) {
   lcec_master_t *master;
   lcec_slave_t *slave;

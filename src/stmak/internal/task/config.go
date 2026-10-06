@@ -61,6 +61,9 @@ func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	}
 	t.maxVelocity = res.MaxVelocity
 	t.maxAcceleration = res.MaxAcceleration
+	t.maxFeedOverride = res.MaxFeedOverride
+	t.minSpindleOverride = res.MinSpindleOverride
+	t.maxSpindleOverride = res.MaxSpindleOverride
 	t.jointLinear = res.JointLinear
 	t.jointMaxVel = res.JointMaxVel
 	t.jointHoming = res.JointHoming

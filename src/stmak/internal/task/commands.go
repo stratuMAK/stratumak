@@ -105,6 +105,14 @@ func (t *Task) preflightSetState(target TaskState) error {
 
 // preflightSetMode mirrors SetMode's AUTO-running guard.
 func (t *Task) preflightSetMode(target TaskMode) error {
+	if target == ModeAuto && t.autoInhibited() {
+		t.operatorError("Cannot select AUTO while auto-inhibit is active")
+		return ErrBusy
+	}
+	if target == ModeMDI && t.mdiInhibited() {
+		t.operatorError("Cannot select MDI while mdi-inhibit is active")
+		return ErrBusy
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.canSwitchModeAutoLocked(target)
@@ -120,6 +128,10 @@ func (t *Task) preflightNotBusy(msg string) error {
 // lock-free early reject) and by autoCommand (the authoritative check). Must be
 // called with t.mu held; it does not release it.
 func (t *Task) autoRunGuardLocked() error {
+	if t.autoInhibited() {
+		t.operatorError("Cannot run a program while auto-inhibit is active")
+		return ErrBusy
+	}
 	if t.programBusy() {
 		t.operatorError("Can't run a program while one is running")
 		return ErrBusy
@@ -142,6 +154,14 @@ func (t *Task) autoRunGuardLocked() error {
 // loaded, and when starting fresh (interp idle) the machine must be homed and no
 // other run in progress. Shared by preflightAuto and autoCommand. Must hold t.mu.
 func (t *Task) autoStepGuardLocked() error {
+	// Same interlock as autoRunGuardLocked, and unconditional rather than
+	// folded into the idle branch below: a step is a way to start a program,
+	// and one that reached AUTO before the pin went active must not be able to
+	// inch forward either.
+	if t.autoInhibited() {
+		t.operatorError("Cannot step a program while auto-inhibit is active")
+		return ErrBusy
+	}
 	if err := t.requireProgram(); err != nil {
 		return err
 	}
@@ -194,6 +214,14 @@ func (t *Task) requireHomedForMDILocked() error {
 // preflightMDI mirrors MDI's guard chain (mode check via canSwitchMode; the body
 // switches via ensureMode).
 func (t *Task) preflightMDI() error {
+	// Checked before the mode/homing guards so an inhibited MDI is refused for
+	// the reason that actually applies. Covers [HALUI]MDI_COMMAND too: those
+	// reach the machine through this same path, and an inhibit some MDI
+	// sources bypass would be worse than none.
+	if t.mdiInhibited() {
+		t.operatorError("Cannot issue an MDI command while mdi-inhibit is active")
+		return ErrBusy
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if err := t.requireOn(); err != nil {
@@ -393,6 +421,10 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 	// Wait for the producer to stop before resetting the interpreter (motion/IO
 	// already stopped by stopSignals).
 	t.waitRunProgramDone()
+	// stopSignals broadcast SpindleOff(-1); the canon has to forget the
+	// direction with it, before the Synch below reads it back into the
+	// interpreter's spindle_turning.
+	t.canon.clearSpindleRunState()
 	if t.interp != nil {
 		t.abortInterp(o.abortReason, o.reason)
 		_ = t.interp.Close()
@@ -582,6 +614,7 @@ func (t *Task) setState(state int32) error {
 			// No producer can be alive in estop (every estop entry joined or
 			// precluded it), and setState holds cmdMu — the interp is ours.
 			t.waitRunProgramDone()
+			t.canon.clearSpindleRunState() // the broadcast above stopped them
 			t.abortInterp(emcAbortTaskStateEstopReset, "estop reset")
 			t.canon.syncEndPointFromMachine()
 			_ = t.interp.Synch()
@@ -1774,6 +1807,9 @@ func (t *Task) faultMDI(msg string) {
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.flushMDIQueue()
 	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
+	// Runs on the interpreter-owning goroutine (see faultProgram), so the canon
+	// is ours to update: the broadcast just stopped the spindles it describes.
+	t.canon.clearSpindleRunState()
 	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
 }
 
@@ -2302,8 +2338,15 @@ func (t *Task) TeleopEnable(enable bool) error {
 // Override setters are accepted in ANY state (including ESTOP/OFF), matching
 // C++ — the scale is stored in the motion controller and takes effect when the
 // machine runs, so a UI can set the sliders before enabling. No requireOn.
+// Clamped silently, like 2.9's halui. Motion clamps only the lower bound at 0,
+// and the [DISPLAY] ceilings were enforced nowhere but in the UIs that size
+// their sliders from the same keys -- so an incremental input (an encoder on
+// halui.feed-override.counts, say) walked straight past the configured limit.
+// Clamping here rather than in halui puts one bound in front of every client:
+// halui pins, REST, and any UI that does not clamp itself. 2.9 had to do it in
+// halui because halui was a separate process; here it is the task.
 func (t *Task) SetFeedOverride(rate float64) error {
-	return t.motion.SetFeedScale(rate)
+	return t.motion.SetFeedScale(clampRange(rate, 0, t.maxFeedOverride))
 }
 
 // SetSpindleOverride sets spindle speed override. spindleNum -1 broadcasts to
@@ -2313,12 +2356,15 @@ func (t *Task) SetSpindleOverride(rate float64, spindleNum int32) error {
 		t.operatorError(err.Error())
 		return err
 	}
-	return t.motion.SetSpindleScale(spindleNum, rate)
+	return t.motion.SetSpindleScale(spindleNum,
+		clampRange(rate, t.minSpindleOverride, t.maxSpindleOverride))
 }
 
-// SetRapidOverride sets the rapid override percentage.
+// SetRapidOverride sets the rapid override percentage. Ceiling 1.0, as in 2.9:
+// a rapid override scales the programmed rapid down, and there is no INI key to
+// raise it above the axis limits the rapid already runs at.
 func (t *Task) SetRapidOverride(rate float64) error {
-	return t.motion.SetRapidScale(rate)
+	return t.motion.SetRapidScale(clampRange(rate, 0, 1.0))
 }
 
 func boolToInt32(b bool) int32 {
@@ -2342,9 +2388,24 @@ func (t *Task) SetSpindleOverrideEnable(enable bool, spindleNum int32) error {
 	return t.motion.SpindleScaleEnable(spindleNum, boolToInt32(enable))
 }
 
-// SetMaxVelocity sets the maximum trajectory velocity.
+// SetMaxVelocity sets the maximum trajectory velocity, clamped to the
+// trajectory maximum the config declares ([TRAJ]MAX_LINEAR_VELOCITY, or the
+// slowest axis when unset -- see motsetup).
 func (t *Task) SetMaxVelocity(velocity float64) error {
-	return t.motion.SetVelLimit(velocity)
+	return t.motion.SetVelLimit(clampRange(velocity, 0, t.maxVelocity))
+}
+
+// clampRange bounds v to [lo, hi]. A hi of zero means "unconfigured": an INI
+// that names no ceiling must not have every override forced to zero, which is
+// what a naive clamp would do.
+func clampRange(v, lo, hi float64) float64 {
+	if hi > 0 && v > hi {
+		v = hi
+	}
+	if v < lo {
+		v = lo
+	}
+	return v
 }
 
 // Flood turns flood coolant on or off.
@@ -2577,6 +2638,13 @@ func (t *Task) abortMachineLocked(full bool) {
 	// the non-thread-safe interpreter). Only the interpreter reset waits — the
 	// machine has already been stopped above.
 	t.waitRunProgramDone()
+
+	if full {
+		// The SpindleOff(-1) broadcast above stopped every spindle; the canon
+		// must not keep reporting one as turning, or the next bare S word
+		// restarts it.
+		t.canon.clearSpindleRunState()
+	}
 
 	if interp != nil {
 		if full {

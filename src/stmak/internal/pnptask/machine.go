@@ -488,7 +488,6 @@ func (c *control) sample() {
 	c.in.processStep = p.processStep.Get()
 	c.in.originID = p.originID.Get()
 	c.in.destID = p.destID.Get()
-	c.in.deadzoneSelect = p.deadzoneSelect.Get()
 	for i := range p.pickers {
 		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
 		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
@@ -507,6 +506,14 @@ func (c *control) sample() {
 		c.in.procSetHasMaterial[i] = p.procs[i].setHasMaterial.Get()
 		c.in.procSetEmpty[i] = p.procs[i].setEmpty.Get()
 	}
+	// deadzone-select is read last for the same reason start-job is read
+	// first: it gates two triggers, and it has to be sampled after both. A
+	// WAIT_DEADZONE station is released by the PLC selecting the clear drawing
+	// and *then* dropping busy, so a sample that read the selector before the
+	// station pins could pair the old drawing with the new busy and refuse a
+	// correctly sequenced release as WAIT_SCENE_MISMATCH (checkClearScene).
+	// Reading it here keeps it after start-job as well.
+	c.in.deadzoneSelect = p.deadzoneSelect.Get()
 	for i := range p.jog {
 		c.in.jogPos[i] = p.jog[i].pos.Get()
 		c.in.jogNeg[i] = p.jog[i].neg.Get()

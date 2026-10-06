@@ -480,6 +480,14 @@ Suggestion: Split this in to an Error and a Status flag register..
 	int on_pos_limit;	/* non-zero if on limit */
 	int on_neg_limit;	/* non-zero if on limit */
 
+	/* Non-zero once this joint's current fault episode has been reported.
+	   Gates the messages in check_for_faults so the primary cause is named
+	   and its knock-on effects stay quiet -- an amp fault stops the drive
+	   following, so a following error arrives right behind it and is not
+	   the interesting one.  Cleared when the joint is fault-free again, so
+	   the next episode is reported afresh. */
+	int fault_reported;
+
 	double motor_offset;	/* diff between internal and motor pos, used
 				   to set position to zero during homing */
 	int old_jjog_counts;	/* prior value, used for deltas */

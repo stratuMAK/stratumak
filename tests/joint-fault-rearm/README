@@ -1,0 +1,20 @@
+A second fault episode must be reported like the first.
+
+check_for_faults reports once per fault episode rather than once per
+JOINT_ERROR_FLAG, so the primary cause is named and its knock-on effects stay
+quiet -- an amp fault stops the drive following, and the following error that
+arrives right behind it is not the interesting message.
+
+The half of that arrangement no test covered is the re-arm.  The gate is a
+per-joint flag cleared when the joint is next seen active, enabled and clean;
+if that clearing were ever lost or narrowed, the first fault would explain
+itself and every one after it would be silent -- the machine stopping for no
+stated reason, which is the failure tests/ferror-message exists to prevent,
+arriving one machine-on later instead of at the first trip.
+
+Two rounds of the same following error, with a machine-off between them,
+because that is what the clearing has to survive.  tests/ferror-message
+asserts the message exists and travels its chain; this asserts it comes back.
+
+joint 0's motor-pos-fb is left unlinked by the HAL file so the test can open a
+following error with halcmd setp, without commanding any motion.

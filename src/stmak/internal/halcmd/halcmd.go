@@ -216,8 +216,21 @@ func RtapiInitializeApp() {
 
 // SetLogRing sets the stmak_log ring for the RTAPI message handler.
 // Must be called before RtapiAppInit().
-func SetLogRing(ring unsafe.Pointer) {
+//
+// ringSize is sizeof(stmak_log_ring_t) as the caller's compilation of
+// stmak_log.h has it.  This package compiles its own copy, and the two can
+// disagree: Go's build cache does not see a header edited outside the
+// package directory, so an incremental build can leave the RTAPI message
+// handler here speaking an older ring protocol to the ring the launcher
+// allocates.  That is not a crash but a mute -- the old producer's drop
+// counter lands on the new ring's level floor, and every C-module message
+// is filtered from then on.  Refused up front instead.
+func SetLogRing(ring unsafe.Pointer, ringSize uintptr) error {
+	if got := halLogRingSize(); got != 0 && got != ringSize {
+		return fmt.Errorf("stmak_log.h mismatch: halcmd was compiled with a %d-byte log ring, the launcher with %d bytes (stale build cache -- run 'go clean -cache' and rebuild)", got, ringSize)
+	}
 	halSetLogRing(ring)
+	return nil
 }
 
 // ClearMsgHandler disconnects the RTAPI message handler so that

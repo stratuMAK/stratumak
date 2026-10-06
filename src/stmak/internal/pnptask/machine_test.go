@@ -1310,6 +1310,24 @@ func TestDeadzoneFreePins(t *testing.T) {
 			f.bit("deadzone.0.free"), f.bit("deadzone.1.free"))
 	}
 
+	// The clearance band reads CLEAR. zones_blocked draws its zone at x=280..320
+	// and CLEARANCE is 10, so x=275 is outside the drawing and inside the offset
+	// ring — and the offset ring is what the route runs tangent to, its vertices
+	// being the graph's nodes. Testing against it would put the reported
+	// boundary on top of the commanded path, so a leg that hugs a zone chatters
+	// "inside/outside" at the servo rate and every consumer sees the head leave
+	// and re-enter several times a pass. This pin answers the physical question,
+	// and the drawn outline is where the machine physically is or is not (D28).
+	//
+	// The wait-point machinery still uses the offset zone, deliberately (D29):
+	// that one is about where a route may cross, not about where the head is.
+	mot.Set(275, 200, true)
+	cycle()
+	if !f.bit("deadzone.0.free") {
+		t.Error("at (275,200), in the clearance band: deadzone.0.free = false; " +
+			"the pin must answer the drawn zone, not the planner's margin")
+	}
+
 	// carte_pos_fb_ok is the interlock's fail-safe: an invalid feedback (joints
 	// not all homed) means the position is meaningless, and a meaningless
 	// position must read as "the head might be in there" — not as the last

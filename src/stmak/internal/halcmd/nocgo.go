@@ -82,6 +82,7 @@ func halShowThreads(_ string) ([]ThreadInfo, error) { return nil, ErrNoCGO }
 func halStatus() (*StatusInfo, error)       { return nil, ErrNoCGO }
 func halSave(_ string) ([]string, error)    { return nil, ErrNoCGO }
 func halSetLogRing(_ unsafe.Pointer)        {}
+func halLogRingSize() uintptr               { return 0 }
 func halClearMsgHandler()                   {}
 func halDelFunctsByComp(_ int) (int, error) { return 0, ErrNoCGO }
 func halWaitCycleAdvance() error            { return ErrNoCGO }

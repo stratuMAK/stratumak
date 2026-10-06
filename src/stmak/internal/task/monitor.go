@@ -393,7 +393,7 @@ func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error) {
 		if motionError && ms.OnSoftLimit == 0 {
 			m.task.logger.Error("motion error detected — aborting")
 			// The specific error message (e.g. "joint N following error") is
-			// reported by the motion module via stmak_log_errorf and forwarded
+			// reported by the motion module with STMAK_LOG_OPER and forwarded
 			// to the operator message list through the log error hook.
 		}
 		if ioError {

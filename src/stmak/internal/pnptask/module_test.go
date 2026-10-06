@@ -130,7 +130,7 @@ func TestFactoryExportsPins(t *testing.T) {
 		"tray.10.tray-id", "tray.10.set-full", "tray.10.set-empty",
 		"tray.10.z-offset", "tray.10.empty", "tray.10.full",
 		"proc.20.z-offset", "proc.20.busy", "proc.20.has-material",
-		"proc.20.release", "proc.20.released",
+		"proc.20.release", "proc.20.released", "proc.20.release-settle",
 	}
 	for _, p := range want {
 		if full := name + "." + p; !hasPin(full) {
@@ -157,6 +157,9 @@ func TestFactoryExportsPins(t *testing.T) {
 		{"pos-settle-time", 0.1},
 		{"pick-settle-time", 0.2},
 		{"release-time", 0.3},
+		// Per station, from its own [PNPTASK_PROC_x] section: the dwell
+		// describes the fixture, not the portal.
+		{"proc.20.release-settle", 0.4},
 		// The picker offsets have no INI keys by design (D3) — picker 0
 		// defaults to 0/0 and is taught with halcmd setp.
 		{"picker.0.x-offset", 0},

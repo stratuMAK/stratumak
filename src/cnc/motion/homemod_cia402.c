@@ -8,7 +8,7 @@
 *   1. Switch drive to Homing Mode (opMode=6)
 *   2. Assert Home command (control word bit 4)
 *   3. Wait for HomingAttained from drive status word
-*   4. Sync LinuxCNC position to drive's actual position
+*   4. Adopt the drive's homed frame: its origin becomes HOME_OFFSET
 *   5. Switch back to CSP mode (opMode=8)
 *   6. Optional final move to HOME position
 *
@@ -118,10 +118,12 @@ typedef struct {
 /* A CiA402 drive is expected to be standing still when it asserts
  * HomingAttained.  Some drives assert it while the homing move is still
  * running, and nothing in the statusword tells them apart (bit 10 "target
- * reached" can assert on the same cycle), so the damage is silent: the
- * reference gets captured on the fly, turning one cycle of PDO latency into
- * |vel| * servo_period of home-position scatter.  The cure belongs in the
- * drive's homing parameters, so report it rather than compensate here.
+ * reached" can assert on the same cycle).  The reference is safe -- it is the
+ * drive's own origin, not a sample of where the slider happens to be (see
+ * DRV_HOME_WAIT_ATTAINED) -- but the handover to CSP then happens on a moving
+ * axis, and the drive's remaining travel to its origin shows up as following
+ * error and as an acceleration step in the command stream.  The cure belongs
+ * in the drive's homing parameters, so report it rather than compensate here.
  *
  * Uses LAST cycle's motion, not this one: the drive redefines its position
  * origin on the very cycle it asserts HomingAttained, so this cycle's delta
@@ -141,10 +143,9 @@ static void warn_if_still_moving(linmot_inst_t *inst)
         return;
 
     stmak_log_warnf(inst->log, inst->name,
-        "j%d: HomingAttained asserted while still moving at %.2f u/s; reference "
-        "captured on the fly (~%.4f u scatter per servo cycle) -- check the "
-        "drive's homing deceleration",
-        inst->jno, vel, fabs(vel) * inst->servo_period);
+        "j%d: HomingAttained asserted while still moving at %.2f u/s; the drive "
+        "is handed back to CSP mid-move -- check the drive's homing deceleration",
+        inst->jno, vel);
 }
 
 /* Track drive position during drive-internal homing.
@@ -211,15 +212,31 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         if (*(p->homing_attained)) {
             *(p->home_cmd) = 0;
             warn_if_still_moving(inst);
-            /* Sync position while still in homing mode */
+            /* Adopt the drive's homed frame while still in homing mode.
+             *
+             * The drive has just redefined its own origin, and that origin
+             * is the reference: motor_offset = -home_offset puts drive
+             * position 0 at joint position HOME_OFFSET, whatever the slider
+             * is doing right now.  Sampling motor_pos_fb on this cycle and
+             * declaring THAT to be HOME_OFFSET only agrees when the drive
+             * stands exactly on its origin as it raises the flag -- the
+             * LinMot raises it mid-retract, and the joint frame ended up a
+             * different few tenths of a mm off the drive's zero on every
+             * homing run (coat pnp Y: 0.39 mm, 2026-09-12).
+             *
+             * The joint position is therefore the drive's current position
+             * in the new frame, not home_offset: the slider may still be on
+             * its way to the origin, and track_drive_position() keeps
+             * following it until the mode switch completes. */
             double motor_fb = inst->mot->joint_get_motor_pos_fb(inst->mot->ctx, jno);
             double backlash = inst->mot->joint_get_backlash_filt(inst->mot->ctx, jno);
-            double new_motor_offset = motor_fb - backlash - inst->home_offset;
+            double new_motor_offset = -inst->home_offset;
+            double pos = motor_fb - backlash - new_motor_offset;
 
             inst->mot->joint_set_motor_offset(inst->mot->ctx, jno, new_motor_offset);
-            inst->mot->joint_set_pos_fb(inst->mot->ctx, jno, inst->home_offset);
-            inst->mot->joint_set_pos_cmd(inst->mot->ctx, jno, inst->home_offset);
-            inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, inst->home_offset);
+            inst->mot->joint_set_pos_fb(inst->mot->ctx, jno, pos);
+            inst->mot->joint_set_pos_cmd(inst->mot->ctx, jno, pos);
+            inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, pos);
 
             /* Switch to CSP */
             *(p->opmode_cmd) = CIA402_OP_CSP;
@@ -244,8 +261,13 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         return 1;
 
     case DRV_HOME_FINAL_MOVE:
+        /* Nothing to do when the joint already stands at HOME.  Judged by
+         * where the joint is, not by HOME == HOME_OFFSET: a drive that
+         * raised HomingAttained before reaching its origin left the joint
+         * short of HOME_OFFSET, and the final move is what closes the gap. */
         if ((inst->home_flags & HOME_NO_FINAL_MOVE) ||
-            fabs(inst->home - inst->home_offset) < 1e-9) {
+            fabs(inst->home -
+                 inst->mot->joint_get_free_tp_curr_pos(inst->mot->ctx, jno)) < 1e-9) {
             inst->drv_state = DRV_HOME_DONE;
             return 1;
         }
@@ -281,11 +303,17 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         inst->homing = 0;
         inst->homed = 1;
         inst->drv_state = DRV_HOME_IDLE;
-        /* If no final move was performed (HOME_NO_FINAL_MOVE or near-zero
-         * offset delta), set position to home_offset (where the drive
-         * actually is). Otherwise set to home (where the final move ended). */
+        /* Without a final move the joint stays wherever the drive's own
+         * homing left it -- on its origin if it had finished moving when it
+         * raised the flag, short of it otherwise -- so take the position
+         * from the drive rather than assuming home_offset.  After a final
+         * move it is at home. */
         if (inst->home_flags & HOME_NO_FINAL_MOVE) {
-            inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, inst->home_offset);
+            double motor_fb = inst->mot->joint_get_motor_pos_fb(inst->mot->ctx, jno);
+            double backlash = inst->mot->joint_get_backlash_filt(inst->mot->ctx, jno);
+            double offset   = inst->mot->joint_get_motor_offset(inst->mot->ctx, jno);
+            inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno,
+                                                  motor_fb - backlash - offset);
         } else {
             inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, inst->home);
         }

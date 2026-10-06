@@ -1637,6 +1637,53 @@ func TestPickFromProcReleaseFailureKeepsWorldTruthful(t *testing.T) {
 	}
 }
 
+// TestRemoveFromProcSettlesBeforeLift: a fixture's jaws keep moving after its
+// released contact makes, so the lift out of it waits RELEASE_SETTLE first.
+// Without the dwell the retract starts into a chuck that is open on the wire
+// and not yet clear of the part, and drags the part up through it.
+//
+// The place paths have waited here since they were written (release-time, after
+// the gripper opens); the removal never did.
+func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.world.procs[0].setHasMaterial(true)
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	// A wide dwell, so the lift cannot slip through it unnoticed.
+	f.proc().releaseSettle.Set(100 * pollInterval.Seconds())
+
+	// Started by hand rather than with runJob, which waits the job out: what
+	// is being watched here happens in the middle of it.
+	f.m.pins.startJob.Set(false)
+	time.Sleep(levelHold)
+	f.m.pins.originID.Set(20) // the proc station
+	f.m.pins.destID.Set(10)   // the tray
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+
+	// has-material drops the moment the fixture confirms it released, which is
+	// where the dwell begins.
+	f.eventually("the fixture confirmed it released", func() bool {
+		return !f.bit("proc.20.has-material")
+	})
+	moves := len(f.mot.moveList())
+	f.consistently("no lift while the fixture is still letting go", func() bool {
+		return len(f.mot.moveList()) == moves
+	})
+
+	// And it is a dwell, not a deadlock: the lift out of the station follows,
+	// and the job runs on to the tray.
+	f.eventually("the lift follows the dwell", func() bool {
+		return len(f.mot.moveList()) > moves
+	})
+	f.eventually("the job finishes", func() bool { return !f.bit("busy") })
+	f.requireOK("a removal that waited for the fixture")
+}
+
 // TestEstopDuringPlaceDwellKeepsRecords: the records commit the moment "opened"
 // confirms — the part physically left the picker — so an estop during the
 // release-time dwell must not lose it from the model (a lost record is a second

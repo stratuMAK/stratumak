@@ -174,6 +174,39 @@ void refresh_jog_limits(motmod_inst_t *inst, emcmot_joint_t *joint, int joint_nu
     }
 }
 
+/* Stop spindle n dead.  Factored out of the SPINDLE_OFF handler so the
+   start-inhibit interlock leaves byte-identical state behind -- an interlock
+   that stops a spindle differently from M5 is a second code path to get wrong.
+   `why` only labels the debug lines. */
+void spindle_force_off(motmod_inst_t *inst, int n, const char *why)
+{
+    inst->status->spindle_status[n].state = 0;
+    inst->status->spindle_status[n].speed = 0;
+    inst->status->spindle_status[n].direction = 0;
+    inst->status->spindle_status[n].brake = 1; // engage brake
+    if (*(inst->hal_data->spindle[n].spindle_orient))
+        stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by %s", why);
+    if (*(inst->hal_data->spindle[n].spindle_locked)){
+        stmak_log_debugf(inst->log, inst->name, "spindle-locked cleared by %s", why);
+        *(inst->hal_data->spindle[n].spindle_locked) = 0;
+    }
+    *(inst->hal_data->spindle[n].spindle_orient) = 0;
+    inst->status->spindle_status[n].orient_state = EMCMOT_ORIENT_NONE;
+}
+
+/* Flag the joint a refused jog named -- if it named one.  A teleop jog
+   arrives with joint == -1 (it names an axis, not a joint), so `joint` is
+   NULL there, and the enable and homing refusals that sit above the teleop
+   split in the JOG handlers must not write through it.  They did: an axis
+   jog that raced the machine-on segfaulted the servo thread on
+   SET_JOINT_ERROR_FLAG(NULL). */
+static void jog_refused_joint_error(emcmot_joint_t *joint)
+{
+    if (joint) {
+        SET_JOINT_ERROR_FLAG(joint, 1);
+    }
+}
+
 void apply_spindle_limits(spindle_status_t *s){
     if (s->speed > 0) {
         if (s->speed > s->max_pos_speed) s->speed = s->max_pos_speed;
@@ -861,7 +894,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (!GET_MOTION_ENABLE_FLAG()) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog joint when not enabled."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
@@ -871,7 +904,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             }
 	    if ( inst->homing_active ) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog any joints while homing."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             if (!GET_MOTION_TELEOP_FLAG()) {
@@ -950,7 +983,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (!GET_MOTION_ENABLE_FLAG()) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog joint when not enabled."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
@@ -960,7 +993,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             }
 	    if ( inst->homing_active ) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog any joint while homing."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             if (!GET_MOTION_TELEOP_FLAG()) {
@@ -1036,7 +1069,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    }
 	    if (!GET_MOTION_ENABLE_FLAG()) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog joint when not enabled."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
@@ -1046,7 +1079,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             }
 	    if ( inst->homing_active ) {
 		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Can't jog any joints while homing."));
-		SET_JOINT_ERROR_FLAG(joint, 1);
+		jog_refused_joint_error(joint);
 		break;
 	    }
             if (!GET_MOTION_TELEOP_FLAG()) {
@@ -1818,6 +1851,21 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
         }
         for (n = s0; n<=s1; n++){
 
+	        /* Refuse the start outright rather than letting it "succeed" and
+	           be muted downstream.  spindle.N.inhibit only zeroes the speed
+	           scale: the spindle state stays on, status keeps reporting the
+	           commanded speed, and dropping the pin spins the spindle up again
+	           with no operator action.  start-inhibit is the ignition, not the
+	           clutch -- nothing starts, and control.c keeps it stopped for as
+	           long as the pin is held. */
+	        if (*(inst->hal_data->spindle[n].spindle_start_inhibit) && inst->command->state) {
+	            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+	                _("Spindle %d start refused: start-inhibit is active"), n);
+	            inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
+	            spindle_force_off(inst, n, "start-inhibit");
+	            continue;
+	        }
+
 	        if (*(inst->hal_data->spindle[n].spindle_orient))
 	    	stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_ON");
 	        if (*(inst->hal_data->spindle[n].spindle_locked))
@@ -1870,19 +1918,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             s1 = inst->num_spindles - 1;
         }
         for (n = s0; n<=s1; n++){
-
-	        inst->status->spindle_status[n].state = 0;
-	        inst->status->spindle_status[n].speed = 0;
-	        inst->status->spindle_status[n].direction = 0;
-	        inst->status->spindle_status[n].brake = 1; // engage brake
-	        if (*(inst->hal_data->spindle[n].spindle_orient))
-		    stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_OFF");
-	        if (*(inst->hal_data->spindle[n].spindle_locked)){
-		    stmak_log_debugf(inst->log, inst->name, "spindle-locked cleared by SPINDLE_OFF");
-	            *(inst->hal_data->spindle[n].spindle_locked) = 0;
-            }
-	        *(inst->hal_data->spindle[n].spindle_orient) = 0;
-	        inst->status->spindle_status[n].orient_state = EMCMOT_ORIENT_NONE;
+	        spindle_force_off(inst, n, "SPINDLE_OFF");
         }
 	    break;
 
@@ -1901,6 +1937,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             s1 = inst->num_spindles - 1;
         }
         for (n = s0; n<=s1; n++){
+
+	        /* An orient is a start request too, even though it leaves .state
+	           at 0: it opens the brake and hands the spindle to the external
+	           orient loop, which turns it.  Refused here for the same reason
+	           SPINDLE_ON is -- start-inhibit says the spindle may not run, and
+	           a request that is accepted and then undone at level would leave
+	           the brake open for a servo cycle. */
+	        if (*(inst->hal_data->spindle[n].spindle_start_inhibit)) {
+	            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+	                _("Spindle %d orient refused: start-inhibit is active"), n);
+	            inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
+	            spindle_force_off(inst, n, "start-inhibit");
+	            continue;
+	        }
 
 	        if (*(inst->hal_data->spindle[n].spindle_orient)) {
 		    stmak_log_debugf(inst->log, inst->name, "orient already in progress");

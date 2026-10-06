@@ -248,8 +248,12 @@ class IniFile:
       - find(section, key) -> str | None
       - findall(section, key) -> list[str]
 
-    When STMAK_TASK_INSTANCE is set (multi-instance), namespace-prefixed sections
-    (e.g. [mill2:KINS]) are resolved automatically via the server.
+    Lookups are namespaced to this UI's task instance (instance()): the server
+    resolves [<instance>:SECTION] first and falls back to [SECTION], which is
+    exactly the view milltask itself reads its INI through.  That holds for the
+    default "milltask" name too -- a config that keeps its machine in
+    [milltask:KINS] and leaves [KINS] to another instance must not have the UI
+    read the global section while its task reads the namespaced one.
     """
 
     def __init__(self):
@@ -257,9 +261,7 @@ class IniFile:
         self._client = IniClient(rest_url())
         self._cache = {}  # (section, key) -> str or None (find)
         self._cache_all = {}  # (section, key) -> list[str] (findall)
-        # Use namespace only when STMAK_TASK_INSTANCE is explicitly set.
-        ns = os.environ.get(_INSTANCE_ENV_VAR)
-        self._namespace = ns if ns else None
+        self._namespace = instance()
 
     def find(self, section, key, num=None):
         """Return the first value for section/key, or None if not found.
@@ -300,6 +302,5 @@ class IniFile:
 def fetch_parameter_file():
     """Fetch the RS274NGC parameter file content from the REST service."""
     from gmi.ini_client import IniClient
-    ns = os.environ.get(_INSTANCE_ENV_VAR)
     client = IniClient(rest_url())
-    return client.get_parameter_file(namespace=ns if ns else None)
+    return client.get_parameter_file(namespace=instance())

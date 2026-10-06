@@ -52,6 +52,7 @@ typedef struct {
     hal_float_t *spindle_speed_in;  /* spindle speed measured */
     hal_bit_t *spindle_index_enable; /* spindle inde I/O pin */
     hal_bit_t *spindle_inhibit;
+    hal_bit_t *spindle_start_inhibit; /* in: refuse to start, and stop if running */
     hal_float_t *spindle_revs;
     hal_bit_t *spindle_is_atspeed;
     hal_bit_t *spindle_amp_fault;

@@ -133,6 +133,12 @@ static void hal_shim_set_log_ring(stmak_log_ring_t *ring) {
     rt_log.ring = ring;
 }
 
+// hal_shim_log_ring_size is sizeof(stmak_log_ring_t) as THIS translation
+// unit sees it, for the launcher to compare against its own.
+static size_t hal_shim_log_ring_size(void) {
+    return sizeof(stmak_log_ring_t);
+}
+
 // hal_shim_rtapi_app_init performs the in-process equivalent of rtapi_app's
 // master() startup: sets up the message handler and calls halpr_rtapi_app_main().
 static int hal_shim_rtapi_app_init(void) {
@@ -1882,6 +1888,11 @@ func halRtapiAppInit() error {
 // Must be called before halRtapiAppInit().
 func halSetLogRing(ring unsafe.Pointer) {
 	C.hal_shim_set_log_ring((*C.stmak_log_ring_t)(ring))
+}
+
+// halLogRingSize is sizeof(stmak_log_ring_t) as this package compiled it.
+func halLogRingSize() uintptr {
+	return uintptr(C.hal_shim_log_ring_size())
 }
 
 // halClearMsgHandler sets the RTAPI message handler to NULL so that

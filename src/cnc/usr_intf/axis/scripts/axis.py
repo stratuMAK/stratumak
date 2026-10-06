@@ -1112,6 +1112,11 @@ class LivePlotter:
                 widgets.jogminus.configure(state="normal")
                 widgets.jogplus.configure(state="normal")
         vupdate(vars.task_mode, self.stat.task_mode)
+        # Interlocks refusing AUTO / MDI. Published so update_state can grey
+        # the controls out rather than leave a button whose command the
+        # controller will refuse.
+        vupdate(vars.auto_inhibit, self.stat.auto_inhibit)
+        vupdate(vars.mdi_inhibit, self.stat.mdi_inhibit)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
         # The title names what the operator opened; for a filtered program
@@ -3591,6 +3596,8 @@ vars = nf.Variables(root_window,
     ("task_paused", IntVar),
     ("interp_state", IntVar),
     ("task_mode", IntVar),
+    ("auto_inhibit", IntVar),
+    ("mdi_inhibit", IntVar),
     ("has_editor", IntVar),
     ("has_ladder", IntVar),
     ("ja_rbutton", StringVar),
@@ -4813,6 +4820,8 @@ for win in root_window, widgets.about_window, widgets.help_window:
     root_window.tk.call("wm", "iconphoto", win, *icons)
 
 vars.kinematics_type.set(s.kinematics_type)
+vars.auto_inhibit.set(0)
+vars.mdi_inhibit.set(0)
 vars.max_queued_mdi_commands.set(int(inifile.find("TASK", "MDI_QUEUED_COMMANDS") or  10))
 
 def balance_ja():

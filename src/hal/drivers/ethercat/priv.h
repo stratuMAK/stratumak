@@ -224,6 +224,7 @@ void lcec_rt_stop(lcec_rt_context_t *ctx);
  *
  * @param ctx  Per-instance context.
  */
+void lcec_rt_drives_down(lcec_rt_context_t *ctx);
 void lcec_rt_bus_down(lcec_rt_context_t *ctx);
 
 #endif

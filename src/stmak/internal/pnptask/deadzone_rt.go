@@ -55,12 +55,20 @@ func newDeadzoneRT(planners *plannerSet, pins []*hal.Pin[bool]) (*deadzoneRT, er
 			len(planners.planners), len(pins))
 	}
 
-	// One pass to size the block, one to fill it. Reading OffsetZones twice
-	// would clone every polygon twice, so hold the zones across both.
+	// The zones AS DRAWN, not the offset ones. The question here is physical --
+	// is the machine inside the volume -- and the drawn outline already embodies
+	// the head's extent (D28). The offset ring is the planner's margin, and the
+	// route runs tangent to it, so testing against it makes the reported
+	// boundary and the commanded path the same line: a leg that hugs a zone
+	// then chatters "inside/outside" at the servo rate, and everything reading
+	// the pin sees the head leave and re-enter several times a pass.
+	//
+	// One pass to size the block, one to fill it. Reading the zones twice
+	// would clone every polygon twice, so hold them across both.
 	zones := make([][]pnproute.Polygon, len(planners.planners))
 	npolys, npoints := 0, 0
 	for i, pl := range planners.planners {
-		zones[i] = pl.OffsetZones()
+		zones[i] = pl.Zones()
 		npolys += len(zones[i])
 		for _, poly := range zones[i] {
 			npoints += len(poly)
