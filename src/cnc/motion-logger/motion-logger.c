@@ -420,6 +420,10 @@ int main(int argc, char* argv[]) {
                 log_print("AF_ENABLE\n");
                 break;
 
+            case EMCMOT_TAP_ENABLE:
+                log_print("TAP_ENABLE\n");
+                break;
+
             case EMCMOT_OVERRIDE_LIMITS:
                 log_print("OVERRIDE_LIMITS\n");
                 break;

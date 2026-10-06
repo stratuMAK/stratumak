@@ -477,6 +477,7 @@ static void motcmd_trace(const emcmot_command_t *cmd)
     case EMCMOT_FS_ENABLE:      fprintf(lf, "FS_ENABLE mode=%d\n", (int)cmd->mode); break;
     case EMCMOT_FH_ENABLE:      fprintf(lf, "FH_ENABLE mode=%d\n", (int)cmd->mode); break;
     case EMCMOT_AF_ENABLE:      fprintf(lf, "AF_ENABLE mode=%d\n", (int)cmd->mode); break;
+    case EMCMOT_TAP_ENABLE:     fprintf(lf, "TAP_ENABLE mode=%d\n", (int)cmd->mode); break;
     case EMCMOT_PAUSE:          fprintf(lf, "PAUSE\n"); break;
     case EMCMOT_RESUME:         fprintf(lf, "RESUME\n"); break;
     case EMCMOT_ABORT:          fprintf(lf, "ABORT\n"); break;
@@ -636,6 +637,12 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 		inst->homing_active = 0;
 	    }
             SET_MOTION_ERROR_FLAG(0);
+	    /* An aborted tap cycle never reaches the TAP_ENABLE that would end
+	       it -- the task drops the rest of the queue -- so end it here, or
+	       the overrides and inhibits stay suspended for whatever runs next.
+	       The segment still decelerating keeps its own copy until the queue
+	       drains. */
+	    inst->status->enables_new &= ~TAP_ACTIVE;
 	    /* clear joint errors (regardless of mode) */
 	    for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {
 		/* point to joint struct */
@@ -1467,6 +1474,19 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	    }
 	    break;
 
+	case EMCMOT_TAP_ENABLE:
+	    /* enter/leave a floating-tap cycle -- see TAP_ACTIVE */
+	    /* queued in program order, so it lands between segments: the
+	       segments queued after it carry the bit */
+	    if ( inst->command->mode != 0 ) {
+		stmak_log_debugf(inst->log, inst->name, "TAP CYCLE: ON");
+		inst->status->enables_new |= TAP_ACTIVE;
+            } else {
+		stmak_log_debugf(inst->log, inst->name, "TAP CYCLE: OFF");
+		inst->status->enables_new &= ~TAP_ACTIVE;
+	    }
+	    break;
+
 	case EMCMOT_DISABLE:
 	    /* go into disable */
 	    /* can happen at any time */
@@ -1474,6 +1494,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	       controller cycle (it *will* be honored) */
 	    stmak_log_debugf(inst->log, inst->name, "DISABLE");
 	    inst->internal->enabling = 0;
+	    /* a machine-off ends a tap cycle the same as an abort does */
+	    inst->status->enables_new &= ~TAP_ACTIVE;
 	    if (inst->config->kinType == KINEMATICS_INVERSE_ONLY) {
 		inst->internal->teleoperating = 0;
 		inst->internal->coordinating = 0;

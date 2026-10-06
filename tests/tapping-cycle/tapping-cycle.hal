@@ -1,0 +1,50 @@
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+
+# The trigger runs ahead of motion in the servo thread, so the inhibit lands
+# one cycle after Z passes the mark -- a fixed place in the tap, not wherever a
+# script polling over REST happens to notice.
+load comp <deep>
+load flipflop <latch>
+load and2 <feedgate>
+load and2 <spingate>
+addf deep servo-thread
+addf latch servo-thread
+addf feedgate servo-thread
+addf spingate servo-thread
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+
+net j0pos joint.0.motor-pos-cmd => joint.0.motor-pos-fb
+net j1pos joint.1.motor-pos-cmd => joint.1.motor-pos-fb
+net zpos  joint.2.motor-pos-cmd => joint.2.motor-pos-fb
+
+net estop-out <= iocontrol.user-enable-out
+net estop-out => iocontrol.emc-enable-in
+
+# deep.out is true while Z is below the mark (in1 > in0); the latch keeps the
+# inhibit asserted once Z has been there.  The script arms one of the two
+# gates per phase and resets the latch between phases.
+net zpos => deep.in0
+setp deep.in1 -2.0
+net deep  deep.out  => latch.set
+net latch-reset   => latch.reset
+net latched latch.out => feedgate.in1 spingate.in1
+net arm-feed    => feedgate.in0
+net arm-spindle => spingate.in0
+net feed-inh feedgate.out => motion.feed-inhibit
+net spin-inh spingate.out => spindle.0.inhibit
+sets latch-reset 0
+sets arm-feed 0
+sets arm-spindle 0
+
+# Every servo cycle: phase mark, Z, spindle speed, both inhibits.
+load filestream sample_cfg=sffbb outfile=trace.txt depth=32768 samples=0
+net phase                               => filestream.sample.0
+net zpos                                => filestream.sample.1
+net speed-out <= spindle.0.speed-out    => filestream.sample.2
+net feed-inh                            => filestream.sample.3
+net spin-inh                            => filestream.sample.4
+addf filestream.read servo-thread
+sets phase 0

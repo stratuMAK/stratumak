@@ -151,6 +151,13 @@ pin goes TRUE, the spindle synchronized motion will finish, and any
 following moves will be inhibited (this is to prevent damage to the
 machine, the tool, or the work piece).
 
+The same holds for a floating\-tap cycle (G84, G74): it runs to the end of
+its retract, and the moves after it are inhibited.  Z is fed there at a rate
+matched to the spindle speed, not locked to it, so stopping Z under a tap
+that keeps turning would pull the holder out to its stop and strip or break
+the tap.  The exemption belongs to the cycle itself and is not affected by
+M48\-M53.
+
 If the machine is in the middle of a (non-spindle synchronized) move
 when this pin goes TRUE, the machine will decelerate to a stop at the
 maximum allowed acceleration rate.
@@ -614,6 +621,9 @@ and the status buffer are concerned, an M3 issued while it is asserted still
 succeeds, and releasing the pin returns the spindle to the commanded speed
 with no further operator action.
 Use \fBspindle.M.start\-inhibit\fR for an interlock.
+Inside a floating\-tap cycle (G84, G74) the mask is deferred until the cycle's
+retract is done, for the same reason as \fBmotion.feed\-inhibit\fR: stopping
+the spindle while Z keeps feeding drives the tap into the holder's stop.
 
 .TP
 \fBspindle.M.start\-inhibit\fR IN BIT

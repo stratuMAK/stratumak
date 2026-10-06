@@ -71,6 +71,14 @@ stratumak (0.1.3) UNRELEASED; urgency=medium
     $STMAK_CWARNFLAGS is the opt-out. The tree's own build takes the policy
     from --enable-werror, which CI passes and debian/rules does not, so a
     distro rebuild on a newer compiler cannot be broken by a new diagnostic.
+  * BEHAVIOR CHANGE: M51 (spindle speed override enable) reaches motion. The
+    task tracked it but never sent it, so M51 P0 left the override live --
+    and a floating tap (G84/G74), which switches both overrides off, ran its
+    spindle under the override while its feed ran at F. A G84 now runs at
+    its programmed feed and speed whatever the overrides say, and
+    motion.feed-inhibit and spindle.N.inhibit are deferred until its
+    retract is done: stopping either side alone under a floating tap strips
+    or breaks it. The moves after the cycle are inhibited as usual.
 
  -- Sascha Ittner <sascha.ittner@modusoft.de>  Tue, 11 Aug 2026 17:18:22 +0200
 

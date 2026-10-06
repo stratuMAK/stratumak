@@ -305,6 +305,7 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
    switch (plane) {
 
     case CANON_PLANE_XY:
+       _setup.canon.start_tapping_cycle();
        _setup.canon.disable_feed_override();
        _setup.canon.disable_speed_override(spindle);
        cycle_feed(block, plane, x, y, bottom_z);
@@ -324,6 +325,7 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
        break;
 
     case CANON_PLANE_YZ:
+       _setup.canon.start_tapping_cycle();
        _setup.canon.disable_feed_override();
        _setup.canon.disable_speed_override(spindle);
        cycle_feed(block, plane, bottom_z, x, y);
@@ -342,6 +344,7 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
        break;
 
     case CANON_PLANE_XZ:
+       _setup.canon.start_tapping_cycle();
        _setup.canon.disable_feed_override();
        _setup.canon.disable_speed_override(spindle);
        cycle_feed(block, plane, y, bottom_z, x);
@@ -367,6 +370,11 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
     _setup.canon.enable_feed_override();
    if(save_spindle_override_enable)
     _setup.canon.enable_speed_override(spindle);
+   // After the restore, so the canon sees the cycle's own override calls as
+   // part of it.  The cycle spans the whole tap -- in, spindle reversal,
+   // dwell, out: an inhibit has to wait for all of it, because the tap is in
+   // the hole until the retract ends.
+   _setup.canon.stop_tapping_cycle();
 
    return INTERP_OK;
 

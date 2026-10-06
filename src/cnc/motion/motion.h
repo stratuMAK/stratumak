@@ -180,6 +180,8 @@ extern "C" {
 
         EMCMOT_SET_SPINDLE_PARAMS, /* One command to set all spindle params */
 
+	EMCMOT_TAP_ENABLE,	/* enter/leave a floating-tap cycle (G84/G74) */
+
     } cmd_code_t;
 
 /* this enum lists the possible results of a command */
@@ -424,6 +426,15 @@ Suggestion: Split this in to an Error and a Status flag register..
 #define FS_ENABLED 0x02
 #define AF_ENABLED 0x04
 #define FH_ENABLED 0x08
+/* A floating-tap cycle (G84/G74) is running.  Unlike the four above, this is
+   not an enable: it suspends the feed and spindle overrides and defers
+   motion.feed-inhibit and spindle.N.inhibit until the segment that carries it
+   is done.  In a floating tap Z is fed at a rate matched to the spindle speed,
+   not locked to it, so changing or stopping either side alone overloads the
+   holder and strips or breaks the tap.  The interpreter sets it around the
+   cycle and nothing else does -- M48-M51 cannot touch it -- and an abort
+   clears it. */
+#define TAP_ACTIVE 0x10
 
 /* This structure contains all of the data associated with
    a single joint.  Note that this structure does not need

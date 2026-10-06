@@ -80,6 +80,8 @@ public:
     void disable_feed_hold() { cb->disable_feed_hold(cb->ctx); }
     void enable_adaptive_feed() { cb->enable_adaptive_feed(cb->ctx); }
     void disable_adaptive_feed() { cb->disable_adaptive_feed(cb->ctx); }
+    void start_tapping_cycle() { cb->start_tapping_cycle(cb->ctx); }
+    void stop_tapping_cycle() { cb->stop_tapping_cycle(cb->ctx); }
     void set_motion_output_bit(int32_t index) { cb->set_motion_output_bit(cb->ctx, index); }
     void clear_motion_output_bit(int32_t index) { cb->clear_motion_output_bit(cb->ctx, index); }
     void set_aux_output_bit(int32_t index) { cb->set_aux_output_bit(cb->ctx, index); }

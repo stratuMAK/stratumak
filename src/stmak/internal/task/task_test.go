@@ -144,6 +144,7 @@ func (m *mockMotion) FeedScaleEnable(int32) error           { return nil }
 func (m *mockMotion) SpindleScaleEnable(int32, int32) error { return nil }
 func (m *mockMotion) AdaptiveFeedEnable(int32) error        { return nil }
 func (m *mockMotion) FeedHoldEnable(int32) error            { return nil }
+func (m *mockMotion) TapCycleEnable(int32) error            { return nil }
 func (m *mockMotion) OverrideLimits(int32) error            { m.setCall("OverrideLimits"); return nil }
 func (m *mockMotion) JointHome(int32) error                 { m.setCall("JointHome"); return nil }
 func (m *mockMotion) JointUnhome(int32) error               { m.setCall("JointUnhome"); return nil }

@@ -53,10 +53,14 @@ type recordingMotion struct {
 	mockMotion
 	moves       []recMove
 	spindleCmds []spindleRec
+	// events is the order lines and the override/tap enables reached motion
+	// in (tapping_test.go).
+	events []string
 }
 
 func (m *recordingMotion) SetLine(pos Pose, vel, iniMaxvel, acc float64, mt int32, id int32, feedUpm float64, ij int32) error {
 	m.moves = append(m.moves, recMove{kind: "line", pos: pos, vel: vel, iniMaxvel: iniMaxvel, acc: acc, motionType: mt, feed: feedUpm})
+	m.events = append(m.events, "line")
 	return nil
 }
 

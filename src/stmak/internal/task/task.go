@@ -155,6 +155,7 @@ type MotionController interface {
 	SpindleScaleEnable(spindle int32, enable int32) error
 	AdaptiveFeedEnable(enable int32) error
 	FeedHoldEnable(enable int32) error
+	TapCycleEnable(enable int32) error
 
 	// Limits and homing
 	OverrideLimits(joint int32) error
