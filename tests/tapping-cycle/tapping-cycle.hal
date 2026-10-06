@@ -8,10 +8,12 @@ load comp <deep>
 load flipflop <latch>
 load and2 <feedgate>
 load and2 <spingate>
+load and2 <holdgate>
 addf deep servo-thread
 addf latch servo-thread
 addf feedgate servo-thread
 addf spingate servo-thread
+addf holdgate servo-thread
 
 addf motion-command-handler servo-thread
 addf motion-controller servo-thread
@@ -24,27 +26,32 @@ net estop-out <= iocontrol.user-enable-out
 net estop-out => iocontrol.emc-enable-in
 
 # deep.out is true while Z is below the mark (in1 > in0); the latch keeps the
-# inhibit asserted once Z has been there.  The script arms one of the two
-# gates per phase and resets the latch between phases.
+# inhibit asserted once Z has been there.  The script arms one of the three
+# gates per phase and resets the latch between phases.  feed-hold acts only
+# under M53 P1, which machine-on sets.
 net zpos => deep.in0
 setp deep.in1 -2.0
 net deep  deep.out  => latch.set
 net latch-reset   => latch.reset
-net latched latch.out => feedgate.in1 spingate.in1
+net latched latch.out => feedgate.in1 spingate.in1 holdgate.in1
 net arm-feed    => feedgate.in0
 net arm-spindle => spingate.in0
-net feed-inh feedgate.out => motion.feed-inhibit
-net spin-inh spingate.out => spindle.0.inhibit
+net arm-hold    => holdgate.in0
+net feed-inh  feedgate.out => motion.feed-inhibit
+net spin-inh  spingate.out => spindle.0.inhibit
+net feed-hold holdgate.out => motion.feed-hold
 sets latch-reset 0
 sets arm-feed 0
 sets arm-spindle 0
+sets arm-hold 0
 
-# Every servo cycle: phase mark, Z, spindle speed, both inhibits.
-load filestream sample_cfg=sffbb outfile=trace.txt depth=32768 samples=0
+# Every servo cycle: phase mark, Z, spindle speed, both inhibits, feed hold.
+load filestream sample_cfg=sffbbb outfile=trace.txt depth=32768 samples=0
 net phase                               => filestream.sample.0
 net zpos                                => filestream.sample.1
 net speed-out <= spindle.0.speed-out    => filestream.sample.2
 net feed-inh                            => filestream.sample.3
 net spin-inh                            => filestream.sample.4
+net feed-hold                           => filestream.sample.5
 addf filestream.read servo-thread
 sets phase 0

@@ -6,20 +6,21 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func (m *recordingMotion) FeedScaleEnable(e int32) error {
-	m.events = append(m.events, fmt.Sprintf("fs=%d", e))
+	m.event(fmt.Sprintf("fs=%d", e))
 	return nil
 }
 
 func (m *recordingMotion) SpindleScaleEnable(s, e int32) error {
-	m.events = append(m.events, fmt.Sprintf("ss%d=%d", s, e))
+	m.event(fmt.Sprintf("ss%d=%d", s, e))
 	return nil
 }
 
 func (m *recordingMotion) TapCycleEnable(e int32) error {
-	m.events = append(m.events, fmt.Sprintf("tap=%d", e))
+	m.event(fmt.Sprintf("tap=%d", e))
 	return nil
 }
 
@@ -42,7 +43,7 @@ G1 X20 F100
 M51 P1
 M2
 `)
-	ev := strings.Join(mot.events, " ")
+	ev := mot.eventLog()
 
 	start := strings.Index(ev, "tap=1")
 	end := strings.Index(ev, "tap=0")
@@ -97,7 +98,92 @@ func TestTapping_ResetInsideCycleRestoresOverrides(t *testing.T) {
 	if s.speedOverrideEnabled[1] {
 		t.Error("after reset: speed1 enabled, want it left disabled as the program had it")
 	}
-	if got := strings.Join(mot.events, " "); got != "ss1=0 tap=1" {
+	if got := mot.eventLog(); got != "ss1=0 tap=1" {
 		t.Errorf("motion saw %q, want %q (nothing of the cycle's overrides)", got, "ss1=0 tap=1")
+	}
+}
+
+// gateCmd holds the sequencer at a known command until the test lets it go,
+// so a pause can be placed inside a tap cycle deterministically.
+type gateCmd struct{ entered, release chan struct{} }
+
+func (c *gateCmd) Execute(*Task) error { close(c.entered); <-c.release; return nil }
+func (c *gateCmd) Wait() WaitType      { return WaitNone }
+func (c *gateCmd) String() string      { return "Gate" }
+
+// markCmd records that the sequencer executed it.
+type markCmd struct {
+	name string
+	mot  *recordingMotion
+}
+
+func (c *markCmd) Execute(*Task) error { c.mot.event(c.name); return nil }
+func (c *markCmd) Wait() WaitType      { return WaitNone }
+func (c *markCmd) String() string      { return "Mark(" + c.name + ")" }
+
+// TestTapping_SequencerDefersPauseAndStep: inside a tap cycle the sequencer
+// must not stop between commands. Motion runs the cycle's feed to the end
+// under a pause; a sequencer that paused meanwhile would hold the spindle stop
+// or reversal that follows it, and the spindle would keep turning with Z
+// standing at the bottom of the hole. Single-step did exactly that on every
+// G84: it paused after the feed in. The pause or step stays latched and takes
+// effect after the command that ends the cycle.
+func TestTapping_SequencerDefersPauseAndStep(t *testing.T) {
+	for _, mode := range []string{"pause", "step"} {
+		t.Run(mode, func(t *testing.T) {
+			task, mot := newBlendCanonTask(t)
+			defer task.StopSequencer()
+			mark := func(n string) QueuedCmd { return &markCmd{n, mot} }
+			events := mot.eventLog
+			gate := &gateCmd{make(chan struct{}), make(chan struct{})}
+
+			for _, c := range []QueuedCmd{
+				&TapCycleCmd{Active: true},
+				gate,
+				&LinearMoveCmd{Pos: Pose{Z: -5}, Vel: 5, IniMaxVel: 10, Acc: 100, MotionType: 2, ID: 1},
+				mark("reversal"),
+				&TapCycleCmd{Active: false},
+				mark("after"),
+			} {
+				if err := task.EnqueueCmd(c); err != nil {
+					t.Fatal(err)
+				}
+			}
+			<-gate.entered
+			task.mu.Lock()
+			task.interpState = InterpReading
+			if mode == "pause" {
+				_ = task.doPauseLocked()
+			} else {
+				task.stepping = true
+				task.mu.Unlock()
+			}
+			close(gate.release)
+
+			waitUntil(t, "the cycle to finish under the "+mode, func() bool {
+				return strings.Contains(events(), "tap=0")
+			})
+			time.Sleep(100 * time.Millisecond) // "after" must not come
+			if got := events(); !strings.Contains(got, "line reversal tap=0") || strings.Contains(got, "after") {
+				t.Fatalf("events %q: want the whole cycle and nothing after it", got)
+			}
+
+			task.mu.Lock()
+			_ = task.doResumeLocked()
+			waitUntil(t, "the sequencer to go on after resume", func() bool {
+				return strings.Contains(events(), "after")
+			})
+		})
+	}
+}
+
+func waitUntil(t *testing.T, what string, pred func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !pred() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

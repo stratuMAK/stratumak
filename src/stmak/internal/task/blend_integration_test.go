@@ -23,6 +23,8 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
@@ -54,13 +56,27 @@ type recordingMotion struct {
 	moves       []recMove
 	spindleCmds []spindleRec
 	// events is the order lines and the override/tap enables reached motion
-	// in (tapping_test.go).
-	events []string
+	// in (tapping_test.go). Appended by the sequencer goroutine, so under
+	// eventsMu for a test that reads it while the sequencer runs.
+	eventsMu sync.Mutex
+	events   []string
+}
+
+func (m *recordingMotion) event(e string) {
+	m.eventsMu.Lock()
+	m.events = append(m.events, e)
+	m.eventsMu.Unlock()
+}
+
+func (m *recordingMotion) eventLog() string {
+	m.eventsMu.Lock()
+	defer m.eventsMu.Unlock()
+	return strings.Join(m.events, " ")
 }
 
 func (m *recordingMotion) SetLine(pos Pose, vel, iniMaxvel, acc float64, mt int32, id int32, feedUpm float64, ij int32) error {
 	m.moves = append(m.moves, recMove{kind: "line", pos: pos, vel: vel, iniMaxvel: iniMaxvel, acc: acc, motionType: mt, feed: feedUpm})
-	m.events = append(m.events, "line")
+	m.event("line")
 	return nil
 }
 

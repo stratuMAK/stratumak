@@ -7,11 +7,15 @@ stops one side alone runs the holder into a stop and strips or breaks the tap:
 
   - motion.feed-inhibit stopping Z while the spindle keeps turning,
   - spindle.0.inhibit stopping the spindle while Z keeps feeding,
-  - a feed or spindle override other than 100%.
+  - a feed or spindle override other than 100%,
+  - motion.feed-hold and a program pause, which stop Z and leave the spindle
+    turning.
 
-So for the length of the cycle motion suspends both overrides and defers both
-inhibits (TAP_ACTIVE), and the inhibit takes hold after the retract.  The
-inhibit is fired from the servo thread when Z passes -2 on the way in (see
+So for the length of the cycle motion suspends both overrides and defers the
+inhibits, the feed hold and the pause (TAP_ACTIVE); they take hold after the
+retract.  The task's sequencer holds a pause until then too: a sequencer
+stopped mid-cycle would hold the spindle reversal at the bottom.  The pins
+are driven from the servo thread when Z passes -2 on the way in (see
 tapping-cycle.hal) and everything is judged from the servo-thread trace.
 
 The overrides are the other half of the same bug: the canon never forwarded
@@ -47,17 +51,18 @@ def sets(signal, value):
     subprocess.run(["halcmd", "sets", signal, str(value)], check=True)
 
 
-def rearm(feed, spindle, phase):
-    """Clear the latch, pick the inhibit the trigger drives, mark the trace."""
+def rearm(phase, feed=False, spindle=False, hold=False):
+    """Clear the latch, pick the input the trigger drives, mark the trace."""
     sets("latch-reset", 1)
     sets("latch-reset", 0)
     sets("arm-feed", 1 if feed else 0)
     sets("arm-spindle", 1 if spindle else 0)
+    sets("arm-hold", 1 if hold else 0)
     sets("phase", phase)
 
 
 def trace(phase):
-    """Rows (z, speed, feed_inh, spin_inh) sampled while phase was `phase`.
+    """Rows (z, speed, feed_inh, spin_inh, hold) sampled while phase was `phase`.
 
     filestream keeps appending every servo cycle, so the file is never
     "stable"; a caller that needs the trace up to some event waits for that
@@ -66,8 +71,9 @@ def trace(phase):
     rows = []
     for line in open(TRACE):
         p = line.split()
-        if len(p) >= 5 and int(p[0]) == phase:
-            rows.append((float(p[1]), float(p[2]), int(p[3]), int(p[4])))
+        if len(p) >= 6 and int(p[0]) == phase:
+            rows.append((float(p[1]), float(p[2]), int(p[3]), int(p[4]),
+                         int(p[5])))
     return rows
 
 
@@ -76,12 +82,26 @@ def caught_up(phase):
     stmak_test.wait_until(
         lambda: any(r[0] < -4.9 for r in trace(phase))
         and trace(phase)[-1][0] >= 2.0 - 1e-6,
-        "the trace to reach the end of the retract (phase %d)" % phase)
+        "the trace to reach the end of the retract (phase %d)" % phase,
+        detail=lambda: "Z %.4f, min %.4f" % (trace(phase)[-1][0],
+                                             min(r[0] for r in trace(phase))))
     return trace(phase)
 
 
 def in_tap(rows):
     return [r for r in rows if IN_TAP[0] < r[0] < IN_TAP[1]]
+
+
+def held(phase, column, what):
+    """Half a second of the held move: Z must stand at R while it lasts."""
+    def rows():
+        return [r for r in trace(phase) if column is None or r[column]]
+    stmak_test.wait_until(lambda: len(rows()) >= 500,
+                          "half a second of the held move in the trace")
+    got = rows()
+    check(all(abs(r[0] - 2.0) < 1e-6 for r in got),
+          "the move after the cycle is held by %s" % what,
+          "Z range %.4f..%.4f" % (min(r[0] for r in got), max(r[0] for r in got)))
 
 
 def tap(timeout=30):
@@ -117,7 +137,7 @@ c.mdi("G0 X0 Y0 Z5")
 c.wait_complete()
 
 # --- feed-inhibit mid-tap: the tap finishes, what follows is held -----------
-rearm(feed=True, spindle=False, phase=1)
+rearm(1, feed=True)
 tap()
 rows = caught_up(1)
 check(any(r[2] and r[0] < -2.0 for r in rows),
@@ -131,19 +151,14 @@ check(abs(rows[-1][0] - 2.0) < 1e-6,
 # exempt.  A window is the point here: "does not move", over half a second.
 sets("phase", 2)
 c.mdi("G0 Z5")
-stmak_test.wait_until(lambda: len([r for r in trace(2) if r[2]]) >= 500,
-                      "half a second of the held move in the trace")
-held = [r for r in trace(2) if r[2]]
-check(all(abs(r[0] - 2.0) < 1e-6 for r in held),
-      "the move after the cycle is held by feed-inhibit",
-      "Z range %.4f..%.4f" % (min(r[0] for r in held), max(r[0] for r in held)))
+held(2, 2, "feed-inhibit")
 sets("arm-feed", 0)
 c.wait_complete()
 s.poll()
 check(abs(s.joint[2]["output"] - 5.0) < 1e-6, "released, the held move completes")
 
 # --- spindle inhibit mid-tap: the spindle keeps the tap turning -------------
-rearm(feed=False, spindle=True, phase=3)
+rearm(3, spindle=True)
 tap()
 rows = caught_up(3)
 inside = [r for r in in_tap(rows) if r[3]]
@@ -162,7 +177,7 @@ c.mdi("G0 Z5")
 c.wait_complete()
 
 # --- overrides: the tap runs at its programmed feed and speed ----------------
-rearm(feed=False, spindle=False, phase=5)
+rearm(5)
 c.feedrate(0.5)
 c.spindleoverride(0.5)
 # Positive control: the overrides really are live outside the cycle.
@@ -183,7 +198,47 @@ stmak_test.wait_pin("speed-out", S * 0.5)
 print("PASS the spindle override applies again after the cycle")
 c.feedrate(1.0)
 c.spindleoverride(1.0)
-
-c.mdi("M5")
+c.mdi("G0 Z5")
 c.wait_complete()
+
+# --- feed-hold mid-tap: like feed-inhibit ------------------------------------
+rearm(6, hold=True)
+tap()
+rows = caught_up(6)
+check(any(r[4] and r[0] < -2.0 for r in rows), "feed-hold asserted inside the tap")
+check(min(r[0] for r in rows) <= -4.999, "Z still reached the bottom of the tap",
+      "min Z %.4f" % min(r[0] for r in rows))
+sets("phase", 7)
+c.mdi("G0 Z5")
+held(7, 4, "feed-hold")
+sets("arm-hold", 0)
+c.wait_complete()
+
+# --- a program pause mid-tap -------------------------------------------------
+# Pause is a task command, so it is sent from here when Z passes the mark; the
+# check below refuses a run in which it missed the tap.  Both halves are under
+# test: motion must not stop the feed, and the task's sequencer must not hold
+# the spindle reversal at the bottom -- it is waiting on that reversal when
+# the pause arrives.
+rearm(8)
+c.mode(MODE_AUTO)
+c.wait_complete()
+c.program_open("tap.ngc")
+c.auto(AUTO_RUN, 0)
+stmak_test.wait_stat(s, lambda st: st.joint[2]["output"] < -2.0,
+                     "Z to pass the mark", interval=0.002)
+c.auto(AUTO_PAUSE)
+s.poll()
+z_paused = s.joint[2]["output"]
+check(-5.0 < z_paused < -2.0, "the pause landed inside the tap", "Z %.4f" % z_paused)
+rows = caught_up(8)
+check(min(r[0] for r in rows) <= -4.999, "Z still reached the bottom under the pause",
+      "min Z %.4f" % min(r[0] for r in rows))
+check(any(r[1] < 0 for r in rows), "the spindle reversed at the bottom under the pause")
+sets("phase", 9)
+held(9, None, "the pause")
+c.auto(AUTO_RESUME)
+stmak_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE, "the program to end")
+s.poll()
+check(abs(s.joint[2]["output"] - 5.0) < 1e-6, "resumed, the program completes")
 print("PASS")

@@ -1734,6 +1734,7 @@ func (c *SpeedOverrideEnableCmd) String() string { return "SpeedOverrideEnable" 
 type TapCycleCmd struct{ Active bool }
 
 func (c *TapCycleCmd) Execute(t *Task) error {
+	t.seqTapping.Store(c.Active)
 	return t.motion.TapCycleEnable(boolToInt32(c.Active))
 }
 func (c *TapCycleCmd) Wait() WaitType { return WaitNone }

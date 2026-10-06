@@ -140,6 +140,9 @@ a soft limit constraint ([AXIS_L]MIN_LIMIT,MAX_LIMIT).
 \fBmotion.feed\-hold\fR IN BIT
 When Feed Stop Control is enabled with M53 P1, and this bit is TRUE, the feed rate is set to 0.
 
+Inside a floating\-tap cycle (G84, G74) it takes effect after the cycle's
+retract, like \fBmotion.feed\-inhibit\fR and a program pause.
+
 Note: feed-hold applies to G-code commands -- not jogs.
 
 .TP
@@ -152,10 +155,11 @@ following moves will be inhibited (this is to prevent damage to the
 machine, the tool, or the work piece).
 
 The same holds for a floating\-tap cycle (G84, G74): it runs to the end of
-its retract, and the moves after it are inhibited.  Z is fed there at a rate
-matched to the spindle speed, not locked to it, so stopping Z under a tap
-that keeps turning would pull the holder out to its stop and strip or break
-the tap.  The exemption belongs to the cycle itself and is not affected by
+its retract, and the moves after it are inhibited; \fBmotion.feed\-hold\fR, a
+program pause and single\-step wait for the retract the same way.  Z is fed
+there at a rate matched to the spindle speed, not locked to it, so stopping Z
+under a tap that keeps turning would pull the holder out to its stop and strip
+or break the tap.  The exemption belongs to the cycle itself and is not affected by
 M48\-M53.
 
 If the machine is in the middle of a (non-spindle synchronized) move

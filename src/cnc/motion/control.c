@@ -650,8 +650,9 @@ static void process_inputs(motmod_inst_t *inst)
         scale *= adaptive_feed_out;
     }
     if ( enables & FH_ENABLED ) {
-	/* read feed hold HAL pin */
-	if ( *inst->hal_data->feed_hold ) {
+	/* read feed hold HAL pin -- deferred over a floating-tap cycle like
+	   the feed inhibit below */
+	if ( *inst->hal_data->feed_hold && !(enables & TAP_ACTIVE) ) {
 	    scale = 0;
 	}
     }
