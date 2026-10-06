@@ -159,6 +159,7 @@ static int32_t w_set_rapid_scale(void *ctx, double s) { ml_log(ML, "RAPID_SCALE\
 static int32_t w_feed_scale_enable(void *ctx, int32_t e) { ml_log(ML, "FS_ENABLE\n"); return RC->feed_scale_enable(RC->ctx, e); }
 static int32_t w_feed_hold_enable(void *ctx, int32_t e) { ml_log(ML, "FH_ENABLE\n"); return RC->feed_hold_enable(RC->ctx, e); }
 static int32_t w_adaptive_feed_enable(void *ctx, int32_t e) { ml_log(ML, "AF_ENABLE\n"); return RC->adaptive_feed_enable(RC->ctx, e); }
+static int32_t w_tap_cycle_enable(void *ctx, int32_t e) { ml_log(ML, "TAP_ENABLE\n"); return RC->tap_cycle_enable(RC->ctx, e); }
 static int32_t w_set_max_feed_override(void *ctx, double m) { ml_log(ML, "SET_MAX_FEED_OVERRIDE %.6g\n", m); return RC->set_max_feed_override(RC->ctx, m); }
 static int32_t w_enable(void *ctx)  { ml_log(ML, "ENABLE\n");  return RC->enable(RC->ctx); }
 static int32_t w_disable(void *ctx) { ml_log(ML, "DISABLE\n"); return RC->disable(RC->ctx); }
@@ -317,7 +318,8 @@ int New(const cmod_env_t *env, const char *name,
         .set_aout = w_set_aout, .set_aout_synched = w_set_aout_synched,
         .set_feed_scale = w_set_feed_scale, .set_rapid_scale = w_set_rapid_scale,
         .feed_scale_enable = w_feed_scale_enable, .feed_hold_enable = w_feed_hold_enable,
-        .adaptive_feed_enable = w_adaptive_feed_enable, .set_max_feed_override = w_set_max_feed_override,
+        .adaptive_feed_enable = w_adaptive_feed_enable, .tap_cycle_enable = w_tap_cycle_enable,
+        .set_max_feed_override = w_set_max_feed_override,
         .enable = w_enable, .disable = w_disable, .joint_activate = w_joint_activate,
         .set_joint_position_limits = w_set_joint_position_limits, .set_joint_backlash = w_set_joint_backlash,
         .set_joint_max_ferror = w_set_joint_max_ferror, .set_joint_min_ferror = w_set_joint_min_ferror,

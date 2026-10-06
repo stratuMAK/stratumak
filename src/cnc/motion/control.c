@@ -608,10 +608,12 @@ static void process_inputs(motmod_inst_t *inst)
 	/* use the enables that are in effect right now */
 	enables = inst->status->enables_new;
     }
-    /* feed scaling first:  feed_scale, adaptive_feed, and feed_hold */
+    /* feed scaling first:  feed_scale, adaptive_feed, and feed_hold.  The
+       feed override is suspended over a floating-tap cycle (TAP_ACTIVE), like
+       the spindle override below: Z has to keep pace with the spindle. */
     scale = 1.0;
     if (   (inst->status->motion_state != EMCMOT_MOTION_FREE)
-        && (enables & FS_ENABLED) ) {
+        && (enables & FS_ENABLED) && !(enables & TAP_ACTIVE) ) {
         if (inst->status->motionType == EMC_MOTION_TYPE_TRAVERSE) {
             scale *= inst->status->rapid_scale;
         } else {
@@ -648,18 +650,25 @@ static void process_inputs(motmod_inst_t *inst)
         scale *= adaptive_feed_out;
     }
     if ( enables & FH_ENABLED ) {
-	/* read feed hold HAL pin */
-	if ( *inst->hal_data->feed_hold ) {
+	/* read feed hold HAL pin -- deferred over a floating-tap cycle like
+	   the feed inhibit below */
+	if ( *inst->hal_data->feed_hold && !(enables & TAP_ACTIVE) ) {
 	    scale = 0;
 	}
     }
-    /* Non-maskable (except during spindle synch move) feed inhibit pin.
-       Not gated on any enables bit: this was "enables & *feed_inhibit", and
-       since the pin is 0 or 1 that ANDed against 0x01 == SS_ENABLED -- the
-       feed inhibit silently stopped working whenever spindle-scale override
-       was switched off.  An inhibit that a UI action can disable is not an
-       inhibit. */
-	if ( *inst->hal_data->feed_inhibit ) {
+    /* Feed inhibit pin.  Not gated on any override enable: this was
+       "enables & *feed_inhibit", and since the pin is 0 or 1 that ANDed
+       against 0x01 == SS_ENABLED -- the feed inhibit silently stopped working
+       whenever spindle-scale override was switched off.  An inhibit that a UI
+       action or an M51 can disable is not an inhibit.
+
+       Two exceptions, both about a tool that is screwed into the work:
+       a position-synchronized move (G33, G33.1, G76) finishes because the TP
+       ignores net_feed_scale for it (tpGetFeedScale), and a floating-tap
+       cycle (G84/G74) finishes because of TAP_ACTIVE here.  Stopping Z under
+       a tap that keeps turning pulls the holder out to its stop and strips or
+       breaks the tap; the moves after the cycle are inhibited as usual. */
+	if ( *inst->hal_data->feed_inhibit && !(enables & TAP_ACTIVE) ) {
 	    scale = 0;
 	}
     /* save the resulting combined scale factor */
@@ -692,13 +701,16 @@ static void process_inputs(motmod_inst_t *inst)
     /* now do spindle scaling */
     for (spindle_num=0; spindle_num < inst->config->numSpindles; spindle_num++){
 		scale = 1.0;
-		if ( enables & SS_ENABLED ) {
+		if ( (enables & SS_ENABLED) && !(enables & TAP_ACTIVE) ) {
 			scale *= inst->status->spindle_status[spindle_num].scale;
 		}
-		/* Non-maskable (except during spindle synch move) spindle inhibit
-		   pin.  Was "enables & *spindle_inhibit", i.e. gated on SS_ENABLED --
-		   see the feed inhibit above. */
-		if ( *inst->hal_data->spindle[spindle_num].spindle_inhibit ) {
+		/* Spindle inhibit pin.  Was "enables & *spindle_inhibit", i.e.
+		   gated on SS_ENABLED -- see the feed inhibit above.  Deferred over
+		   a floating-tap cycle for the same reason as the feed inhibit:
+		   stopping the spindle while Z keeps feeding drives the tap into the
+		   holder's compression stop. */
+		if ( *inst->hal_data->spindle[spindle_num].spindle_inhibit
+		     && !(enables & TAP_ACTIVE) ) {
 			scale = 0;
 		}
 		/* save the resulting combined scale factor */

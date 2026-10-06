@@ -106,6 +106,8 @@ func (t *Task) StartSequencer() {
 	// generation, so a pending recoverSeqFault has nothing left to clean up.
 	t.seqFaulted = false
 	t.mu.Unlock()
+	// An abort can land inside a tap cycle; motion ends its side of it.
+	t.seqTapping.Store(false)
 
 	go t.sequencerLoop()
 }
@@ -365,7 +367,8 @@ func (t *Task) sequencerLoop() {
 			}
 
 			// In step mode: after a motion-producing command, wait for
-			// motion to complete and then enter pause.
+			// motion to complete and then enter pause. Inside a tap cycle
+			// seqCheckPause does not block, so the step is the whole cycle.
 			if t.isSeqStepping() && isMotionCmd(cmd) {
 				if err := t.waitMotionDone(); err != nil {
 					if !errors.Is(err, context.Canceled) {
@@ -423,7 +426,13 @@ func (t *Task) seqEnterPause() {
 // seqCheckPause checks if the sequencer should pause. If seqPauseCh is
 // closed, blocks until seqResumeCh is closed (resume or step) or abort.
 // Returns true if aborted.
+//
+// Inside a floating-tap cycle it never blocks (see seqTapping): the pause
+// stays requested, and the first check after the cycle takes it.
 func (t *Task) seqCheckPause() bool {
+	if t.seqTapping.Load() {
+		return false
+	}
 	t.mu.Lock()
 	pauseCh := t.seqPauseCh
 	abort := t.seqAbort

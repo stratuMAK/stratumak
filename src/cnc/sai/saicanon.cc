@@ -1248,6 +1248,10 @@ static void sc_enable_feed_hold(void *ctx) { ENABLE_FEED_HOLD(); }
 static void sc_disable_feed_hold(void *ctx) { DISABLE_FEED_HOLD(); }
 static void sc_enable_adaptive_feed(void *ctx) { ENABLE_ADAPTIVE_FEED(); }
 static void sc_disable_adaptive_feed(void *ctx) { DISABLE_ADAPTIVE_FEED(); }
+// Not part of the 2.9 canon, so not printed: the G84/G74 canon output stays
+// comparable with the upstream golds.  The override calls around it still are.
+static void sc_start_tapping_cycle(void *ctx) { }
+static void sc_stop_tapping_cycle(void *ctx) { }
 static void sc_set_motion_output_bit(void *ctx, int32_t b) { SET_MOTION_OUTPUT_BIT(b); }
 static void sc_clear_motion_output_bit(void *ctx, int32_t b) { CLEAR_MOTION_OUTPUT_BIT(b); }
 static void sc_set_aux_output_bit(void *ctx, int32_t b) { SET_AUX_OUTPUT_BIT(b); }
@@ -1441,6 +1445,8 @@ static const canon_callbacks_t saicanon_table = {
     .disable_feed_hold = sc_disable_feed_hold,
     .enable_adaptive_feed = sc_enable_adaptive_feed,
     .disable_adaptive_feed = sc_disable_adaptive_feed,
+    .start_tapping_cycle = sc_start_tapping_cycle,
+    .stop_tapping_cycle = sc_stop_tapping_cycle,
     .set_motion_output_bit = sc_set_motion_output_bit,
     .clear_motion_output_bit = sc_clear_motion_output_bit,
     .set_aux_output_bit = sc_set_aux_output_bit,

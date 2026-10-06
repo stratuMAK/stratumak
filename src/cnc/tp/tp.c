@@ -211,7 +211,13 @@ STATIC double tpGetFeedScale(TP_STRUCT const * const tp,
         return 0.0;
     }
     //All reasons to disable feed override go here
-    bool pausing = tp->pausing && (tc->synchronized == TC_SYNC_NONE || tc->synchronized == TC_SYNC_VELOCITY);
+    /* A pause does not stop a floating-tap segment (TAP_ACTIVE, see motion.h):
+       Z stopped under a tap that keeps turning pulls the holder out to its
+       stop.  The cycle runs to the end of its retract and the pause takes the
+       next segment, as it already does for a position-synchronized move. */
+    bool pausing = tp->pausing
+        && (tc->synchronized == TC_SYNC_NONE || tc->synchronized == TC_SYNC_VELOCITY)
+        && !(tc->enables & TAP_ACTIVE);
     bool aborting = tp->aborting;
     if (pausing)  {
         tc_debug_print("pausing\n");

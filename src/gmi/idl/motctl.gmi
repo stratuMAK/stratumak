@@ -207,6 +207,9 @@ func feed_hold_enable(enable: i32) -> i32
 @doc "Enable/disable adaptive feed"
 func adaptive_feed_enable(enable: i32) -> i32
 
+@doc "Enter (1) / leave (0) a floating-tap cycle: suspends the feed and spindle overrides and defers feed-inhibit and spindle inhibit for the segments queued meanwhile. Cleared by abort and disable."
+func tap_cycle_enable(enable: i32) -> i32
+
 @doc "Set maximum feed override factor"
 func set_max_feed_override(max: f64) -> i32
 

@@ -155,6 +155,7 @@ type MotionController interface {
 	SpindleScaleEnable(spindle int32, enable int32) error
 	AdaptiveFeedEnable(enable int32) error
 	FeedHoldEnable(enable int32) error
+	TapCycleEnable(enable int32) error
 
 	// Limits and homing
 	OverrideLimits(joint int32) error
@@ -458,6 +459,16 @@ type Task struct {
 	// guarded) — the writers maintain no cross-field invariant with it, so it
 	// need not add two contended t.mu round-trips per dequeued command.
 	seqInflight atomic.Bool
+
+	// seqTapping is true from a TapCycleCmd(Active) to the TapCycleCmd that
+	// ends it: the sequencer is inside a floating-tap cycle and must not stop
+	// between its commands. Pausing there holds the spindle stop or reversal
+	// while motion finishes the feed (motion defers its own pause over the
+	// cycle), and the spindle keeps turning with Z standing in the hole. A
+	// pause or step requested meanwhile stays latched and takes effect after
+	// the cycle. Written and read only by the sequencer goroutine, and reset
+	// by StartSequencer; atomic for the tests that read it.
+	seqTapping atomic.Bool
 
 	// autoInhibit mirrors the halui auto-inhibit pin, sampled once per monitor
 	// tick. Read by the AUTO guards, which run on command goroutines, so it is

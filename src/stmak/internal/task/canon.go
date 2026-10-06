@@ -121,6 +121,16 @@ type CanonState struct {
 	floodOn              bool
 	mistOn               bool
 
+	// Floating-tap cycle (G84/G74), between START_ and STOP_TAPPING_CYCLE.
+	// Motion suspends the overrides itself for the cycle's segments, so the
+	// override calls the cycle makes inside it only update the flags above.
+	// tapSaved* are the flags as the cycle found them: if the interpreter is
+	// reset with the read-ahead inside a cycle, the cycle's closing calls
+	// never come, and OnReset puts the flags back from these.
+	tapping       bool
+	tapSavedFeed  bool
+	tapSavedSpeed [8]bool
+
 	// Rotary unlock: joint number to unlock for traverse (-1 = none)
 	rotaryUnlockForTraverse int32
 
@@ -1022,26 +1032,65 @@ func (c *Canon) FloodOff() { c.flushSegments(); c.state.floodOn = false; c.enque
 func (c *Canon) MistOn()   { c.flushSegments(); c.state.mistOn = true; c.enqueue(&MistOnCmd{}) }
 func (c *Canon) MistOff()  { c.flushSegments(); c.state.mistOn = false; c.enqueue(&MistOffCmd{}) }
 
+// The override enables are modal (M48-M51) and reach motion in program
+// order. Inside a tapping cycle they are tracked but not sent: motion
+// suspends both overrides for the cycle's segments anyway (TAP_ACTIVE), and a
+// pair that was never sent cannot be left half-applied by an abort that drops
+// the closing enable from the queue.
 func (c *Canon) EnableFeedOverride() {
 	c.flushSegments()
 	c.state.feedOverrideEnabled = true
-	c.enqueue(&FeedOverrideEnableCmd{Enable: true})
+	if !c.state.tapping {
+		c.enqueue(&FeedOverrideEnableCmd{Enable: true})
+	}
 }
 
 func (c *Canon) DisableFeedOverride() {
 	c.flushSegments()
 	c.state.feedOverrideEnabled = false
-	c.enqueue(&FeedOverrideEnableCmd{Enable: false})
+	if !c.state.tapping {
+		c.enqueue(&FeedOverrideEnableCmd{Enable: false})
+	}
 }
 
+// The speed-override calls used to stop at the flag, so M51 P0 never reached
+// motion and a G84 ran under a live spindle override.
+//
+// Motion has one spindle-scale enable for all spindles (SS_ENABLED, as in
+// 2.9), so disabling it for one spindle disables it for every spindle.
 func (c *Canon) EnableSpeedOverride(spindle int32) {
 	c.flushSegments()
 	c.state.speedOverrideEnabled[spindle] = true
+	if !c.state.tapping {
+		c.enqueue(&SpeedOverrideEnableCmd{Spindle: spindle, Enable: true})
+	}
 }
 
 func (c *Canon) DisableSpeedOverride(spindle int32) {
 	c.flushSegments()
 	c.state.speedOverrideEnabled[spindle] = false
+	if !c.state.tapping {
+		c.enqueue(&SpeedOverrideEnableCmd{Spindle: spindle, Enable: false})
+	}
+}
+
+// StartTappingCycle / StopTappingCycle bracket a floating-tap cycle. Motion
+// suspends the feed and spindle overrides and defers the feed and spindle
+// inhibits for the segments queued in between (TAP_ACTIVE): Z is fed at a
+// rate matched to the spindle, not locked to it, so changing or stopping
+// either side alone overloads the holder.
+func (c *Canon) StartTappingCycle() {
+	c.flushSegments()
+	c.state.tapping = true
+	c.state.tapSavedFeed = c.state.feedOverrideEnabled
+	c.state.tapSavedSpeed = c.state.speedOverrideEnabled
+	c.enqueue(&TapCycleCmd{Active: true})
+}
+
+func (c *Canon) StopTappingCycle() {
+	c.flushSegments()
+	c.state.tapping = false
+	c.enqueue(&TapCycleCmd{Active: false})
 }
 
 func (c *Canon) EnableFeedHold() {
@@ -1187,6 +1236,16 @@ func (c *Canon) OnReset() {
 	// to Manual) so that MDI state is preserved between commands.
 	// InitCanon() must only be called during true initialization.
 	c.dropSegments()
+	// A reset with the read-ahead inside a tapping cycle drops the cycle's
+	// closing calls, so its override flags would stay at "disabled" and be
+	// read back into the interpreter by the next synch. Motion was never
+	// told (see EnableFeedOverride), and the abort ended its side of the
+	// cycle, so only the flags need restoring.
+	if c.state.tapping {
+		c.state.feedOverrideEnabled = c.state.tapSavedFeed
+		c.state.speedOverrideEnabled = c.state.tapSavedSpeed
+		c.state.tapping = false
+	}
 }
 
 func (c *Canon) TurnProbeOn() {
@@ -1658,6 +1717,28 @@ func (c *FeedHoldEnableCmd) Execute(t *Task) error {
 }
 func (c *FeedHoldEnableCmd) Wait() WaitType { return WaitNone }
 func (c *FeedHoldEnableCmd) String() string { return "FeedHoldEnable" }
+
+// SpeedOverrideEnableCmd enables/disables the spindle speed override (M51).
+type SpeedOverrideEnableCmd struct {
+	Spindle int32
+	Enable  bool
+}
+
+func (c *SpeedOverrideEnableCmd) Execute(t *Task) error {
+	return t.motion.SpindleScaleEnable(c.Spindle, boolToInt32(c.Enable))
+}
+func (c *SpeedOverrideEnableCmd) Wait() WaitType { return WaitNone }
+func (c *SpeedOverrideEnableCmd) String() string { return "SpeedOverrideEnable" }
+
+// TapCycleCmd enters/leaves a floating-tap cycle in motion (TAP_ACTIVE).
+type TapCycleCmd struct{ Active bool }
+
+func (c *TapCycleCmd) Execute(t *Task) error {
+	t.seqTapping.Store(c.Active)
+	return t.motion.TapCycleEnable(boolToInt32(c.Active))
+}
+func (c *TapCycleCmd) Wait() WaitType { return WaitNone }
+func (c *TapCycleCmd) String() string { return "TapCycle" }
 
 // AdaptiveFeedEnableCmd enables/disables adaptive feed.
 type AdaptiveFeedEnableCmd struct{ Enable bool }

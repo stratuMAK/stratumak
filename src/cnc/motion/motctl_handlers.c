@@ -599,6 +599,14 @@ static int32_t h_adaptive_feed_enable(void *ctx, int32_t enable)
     return send_command(mc, &cmd);
 }
 
+static int32_t h_tap_cycle_enable(void *ctx, int32_t enable)
+{
+    CTX; emcmot_command_t cmd;
+    cmd_init(&cmd, EMCMOT_TAP_ENABLE);
+    cmd.mode = (unsigned char)enable;
+    return send_command(mc, &cmd);
+}
+
 static int32_t h_set_max_feed_override(void *ctx, double max)
 {
     CTX; emcmot_command_t cmd;
@@ -930,6 +938,7 @@ motctl_callbacks_t motctl_get_callbacks(motctl_ctx_t **ctx_out)
         .feed_scale_enable         = h_feed_scale_enable,
         .feed_hold_enable          = h_feed_hold_enable,
         .adaptive_feed_enable      = h_adaptive_feed_enable,
+        .tap_cycle_enable          = h_tap_cycle_enable,
         .set_max_feed_override     = h_set_max_feed_override,
         .enable                    = h_enable,
         .disable                   = h_disable,

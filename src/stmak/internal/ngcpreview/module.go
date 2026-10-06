@@ -791,6 +791,8 @@ static canon_callbacks_t make_preview_canon(preview_ctx_t *ctx) {
     cb.disable_feed_hold = pc_nop_v;
     cb.enable_adaptive_feed = pc_nop_v;
     cb.disable_adaptive_feed = pc_nop_v;
+    cb.start_tapping_cycle = pc_nop_v;
+    cb.stop_tapping_cycle = pc_nop_v;
 
     // IO — no-ops
     cb.set_motion_output_bit = (void (*)(void*, int32_t))pc_nop_vi;

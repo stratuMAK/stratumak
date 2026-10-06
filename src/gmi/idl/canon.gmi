@@ -215,6 +215,12 @@ func enable_adaptive_feed()
 @doc "Disable adaptive feed"
 func disable_adaptive_feed()
 
+@doc "Enter a floating-tap cycle (G84/G74). Until stop_tapping_cycle, the feed and spindle overrides are suspended and the feed and spindle inhibits deferred for the motion queued meanwhile. The override enable/disable calls the cycle makes inside it are tracked but not forwarded."
+func start_tapping_cycle()
+
+@doc "Leave a floating-tap cycle (see start_tapping_cycle)"
+func stop_tapping_cycle()
+
 # ─── I/O Digital / Analog ───
 
 @doc "Set motion-synchronized digital output bit"
