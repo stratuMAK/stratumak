@@ -103,11 +103,8 @@ func TestWatchSubscribeReceivesUpdates(t *testing.T) {
 // A client that never Reads stands in for the dead peer: coder/websocket only
 // answers pings inside Read, so the pong never arrives.
 func TestWatchKeepaliveClosesDeadPeer(t *testing.T) {
-	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
-	wsPingInterval, wsPingTimeout = 30*time.Millisecond, 50*time.Millisecond
-	defer func() { wsPingInterval, wsPingTimeout = oldInterval, oldTimeout }()
-
 	handler := NewWatchHandler(NewWatchRegistry())
+	handler.pingInterval, handler.pingTimeout = 30*time.Millisecond, 50*time.Millisecond
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
@@ -135,10 +132,6 @@ func TestWatchKeepaliveClosesDeadPeer(t *testing.T) {
 // TestWatchKeepaliveKeepsLivePeer: the inverse guard — a peer that reads (and
 // therefore pongs) must survive many ping intervals and still get service.
 func TestWatchKeepaliveKeepsLivePeer(t *testing.T) {
-	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
-	wsPingInterval, wsPingTimeout = 20*time.Millisecond, 50*time.Millisecond
-	defer func() { wsPingInterval, wsPingTimeout = oldInterval, oldTimeout }()
-
 	// The value must keep changing: pushes are change-driven, and this test
 	// needs a continuous stream to prove the connection survives the pinger.
 	var counter int32
@@ -156,6 +149,7 @@ func TestWatchKeepaliveKeepsLivePeer(t *testing.T) {
 		}},
 	})
 	handler := NewWatchHandler(reg)
+	handler.pingInterval, handler.pingTimeout = 20*time.Millisecond, 50*time.Millisecond
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
