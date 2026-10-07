@@ -1,10 +1,11 @@
 # stmakui — Generic WebKit container for LinuxCNC web UIs.
+# Links X11 directly for the embedded (--xid) mode.
 # Build only if webkit2gtk-4.1 was detected by configure.
 
 ifeq ($(BUILD_WEBKIT2GTK),yes)
 
-WEBKIT_CFLAGS := $(shell pkg-config --cflags webkit2gtk-4.1 2>/dev/null)
-WEBKIT_LIBS := $(shell pkg-config --libs webkit2gtk-4.1 2>/dev/null)
+WEBKIT_CFLAGS := $(shell pkg-config --cflags webkit2gtk-4.1 x11 2>/dev/null)
+WEBKIT_LIBS := $(shell pkg-config --libs webkit2gtk-4.1 x11 2>/dev/null)
 
 STMAKUI_SRCS := cnc/usr_intf/stmakui/stmakui.c
 USERSRCS += $(STMAKUI_SRCS)
