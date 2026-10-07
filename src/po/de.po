@@ -5314,6 +5314,13 @@ msgstr "Ab hier ausführen"
 msgid "toggle PYVCP panel visibility"
 msgstr "Wechsel PyVCP Panel Sichtbarkeit"
 
+#: src/cnc/usr_intf/axis/scripts/axis.py:4756
+#, python-format
+msgid ""
+"Cannot show %s: %s is not installed (stratuMAK was built without "
+"webkit2gtk)."
+msgstr "%s kann nicht angezeigt werden: %s ist nicht installiert (stratuMAK wurde ohne webkit2gtk gebaut)."
+
 #: src/cnc/usr_intf/axis/scripts/axis.py:4635 share/axis/tcl/axis.tcl:398
 msgid "Show PyVCP pan_el"
 msgstr "Zeige PyVCP pan_el"

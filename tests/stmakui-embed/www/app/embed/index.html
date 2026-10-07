@@ -1,0 +1,10 @@
+<!doctype html>
+<html><body style="margin:0;height:100vh">
+<input id="field" style="position:absolute;left:10px;top:10px;width:200px;height:24px">
+<script>
+// Report every key the page sees, and where, so the test can tell a key the
+// page used from one it passed on.
+document.addEventListener('keydown', e =>
+    fetch('/log?key=' + encodeURIComponent(e.key) + '&target=' + e.target.tagName));
+</script>
+</body></html>

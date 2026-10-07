@@ -7,6 +7,10 @@ stmakui \- WebKit container for the LinuxCNC web user interfaces
 .BI \-\-url " URL"
 [\fB\-\-title\fR \fITITLE\fR] [\fB\-\-width\fR \fIW\fR] [\fB\-\-height\fR \fIH\fR]
 .br
+.B stmakui
+.BI \-\-path " PATH"
+[\fB\-\-instance\fR \fINAME\fR] [\fB\-\-xid\fR \fIXID\fR] [\fB\-\-title\fR \fITITLE\fR] [\fB\-\-width\fR \fIW\fR] [\fB\-\-height\fR \fIH\fR]
+.br
 .I front-end-name
 (via symlink)
 
@@ -21,7 +25,9 @@ utilities.
 When invoked as
 .B stmakui
 directly, the page to load must be given with
-.BR \-\-url .
+.B \-\-url
+or
+.BR \-\-path .
 When invoked through a symlink, the basename of the link selects a
 built-in application profile that supplies the URL path, window title
 and window size.  The following profile names are built in:
@@ -67,6 +73,30 @@ Load
 .I URL
 instead of a built-in profile.
 .TP
+.BR \-p ", " \-\-path " \fIPATH\fR"
+Load the page
+.I PATH
+of the server, e.g.
+.BR app/halshow/ .
+The base URL and the
+.B ?instance=
+parameter are added as for a built-in profile.
+Cannot be combined with
+.BR \-\-url .
+.TP
+.BR \-i ", " \-\-instance " \fINAME\fR"
+Instance name for the
+.B ?instance=
+parameter; overrides
+.B STMAK_TASK_INSTANCE
+and the profile default.
+.TP
+.BR \-x ", " \-\-xid " \fIXID\fR"
+Embed the view into the X window
+.I XID
+(XEmbed) instead of opening a window of its own; see
+.BR "EMBEDDED MODE" .
+.TP
 .BR \-t ", " \-\-title " \fITITLE\fR"
 Window title.
 .TP
@@ -79,6 +109,34 @@ Window height in pixels.
 .BR \-h ", " \-\-help
 Show usage and the list of known application profiles.
 
+.SH "EMBEDDED MODE"
+With
+.BR \-\-xid ,
+.B stmakui
+runs inside another program's window.
+AXIS uses this for web application tabs
+.RB ( "EMBED_TAB_COMMAND = webapp" " \fIPATH\fR)"
+and for its web application side panel
+.RB ( WEBAPP_PANEL ),
+see
+.BR axis (1).
+Embedding needs an X11 display (XWayland included).
+.PP
+Tk, which AXIS is built on, does not hand the keyboard to an embedded
+window, so
+.B stmakui
+takes it itself when the page is clicked; the embedding program takes it
+back when one of its own widgets is clicked.
+Keys the page does not use itself are passed on to the window named by
+.BR AXIS_FORWARD_EVENTS_TO ,
+so AXIS shortcuts such as Escape keep working while the page has the
+keyboard. Every passed-on key press is followed by its release, also when
+the page loses the keyboard while the key is held.
+.PP
+If the server cannot be reached, the page shows a waiting note and is
+loaded again with a growing delay (1 to 10 seconds) until the server
+answers. A crashed web process is restarted the same way.
+
 .SH ENVIRONMENT
 .TP
 .B STMAK_REST_URL
@@ -90,9 +148,14 @@ Instance name appended as
 .B ?instance=
 to profile URLs; overrides the profile default (usually
 .BR milltask ).
+.TP
+.B AXIS_FORWARD_EVENTS_TO
+In embedded mode, the X window ID that keys not used by the page are
+sent to. AXIS sets it to its main window.
 
 .SH "SEE ALSO"
 .BR stmakd (1),
+.BR axis (1),
 .BR halscope (1),
 .BR halshow (1),
 .BR emccalib (1),

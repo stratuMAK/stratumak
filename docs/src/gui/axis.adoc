@@ -1010,6 +1010,57 @@ Additionally one or more panels may be displayed as embedded tabs.
 You can program buttons, indicators, data displays and more. For
 more information, see the <<cha:pyvcp,PyVCP>> and the <<cha:glade-vcp,GladeVCP>> chapters.
 
+[[axis:webapp-panels]]
+=== Web Application Panels
+
+(((AXIS GUI, Web Application Panels)))
+AXIS can embed pages of the stratuMAK web server, either as additional tabs
+next to Preview and DRO or as a side panel in place of (or beside) a PyVCP
+panel. Each page is shown by `stmakui`, the WebKit viewer that also runs
+halshow, halscope and the other web tools, embedded into the AXIS window.
+
+A page is named by its path below the web server root; the server address
+(`STMAK_REST_URL`, default `http://127.0.0.1:5080`) and the `?instance=`
+parameter are added by `stmakui`, the same way they are for the stand-alone
+tools. The installed web applications are served under `app/<name>/`.
+
+To add a tab, use the keyword `webapp` followed by the path as the tab command:
+
+[source,{ini}]
+----
+[DISPLAY]
+EMBED_TAB_NAME    = HAL Show
+EMBED_TAB_COMMAND = webapp app/halshow/
+----
+
+To add a side panel:
+
+[source,{ini}]
+----
+[DISPLAY]
+WEBAPP_PANEL          = app/mypanel/
+WEBAPP_PANEL_POSITION = RIGHT
+WEBAPP_PANEL_SIZE     = 300
+----
+
+`WEBAPP_PANEL_POSITION` is `RIGHT` (the default) or `BOTTOM`;
+`WEBAPP_PANEL_SIZE` is the width of a right panel or the height of a bottom
+panel, in pixels (default 300). The panel has its own place in the window, so
+it can be used together with a PyVCP panel. Ctrl-E and View > Show PyVCP panel
+show and hide both.
+
+The keyboard follows the mouse click: after a click into a page, keys go to
+the page; after a click anywhere else in AXIS, they go to AXIS again. Keys the
+page does not use itself are passed on to AXIS, so Escape still aborts while a
+page has the keyboard. Keys a page does use, such as text typed into a field
+or the arrow keys (which scroll the page), stay in the page: click into the
+preview before jogging with the keyboard.
+
+If the web server is not reachable yet, the page shows a waiting message and
+is loaded as soon as the server answers. Embedding needs an X11 display
+(XWayland included) and a build with webkit2gtk; without `stmakui`, the tab or
+panel shows a note instead.
+
 [[axis:preview-control]]
 === Preview Control
 
