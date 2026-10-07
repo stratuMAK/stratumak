@@ -1107,6 +1107,8 @@ class LivePlotter:
         # controller will refuse.
         vupdate(vars.auto_inhibit, self.stat.auto_inhibit)
         vupdate(vars.mdi_inhibit, self.stat.mdi_inhibit)
+        # Program flow withheld from the UI (milltask ui-auto-disable pin).
+        vupdate(vars.ui_auto_disabled, self.stat.ui_auto_disabled)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
         # The title names what the operator opened; for a filtered program
@@ -1211,6 +1213,20 @@ This means this function returns True when the mdi tab is visible."""
     if do_poll: s.poll()
     if s.task_state != STATE_ON: return False
     return s.interp_state == INTERP_IDLE or (s.task_mode == MODE_MDI and s.queued_mdi_commands < vars.max_queued_mdi_commands.get())
+
+def program_flow_locked():
+    """True while the task's ui-auto-disable pin withholds program flow.
+
+update_state greys the toolbar buttons and menu entries out, but key bindings
+fire regardless, so every program-flow handler asks too. The controller
+refuses such a command anyway; asking here keeps a keypress from turning into
+an error message the operator can do nothing about."""
+    return bool(vars.ui_auto_disabled.get())
+
+def program_running():
+    """True while an AUTO program is running or paused (not MDI, not idle)."""
+    return (s.task_mode == MODE_AUTO and s.interp_state in
+            (INTERP_READING, INTERP_WAITING, INTERP_PAUSED))
 
 class DummyProgress:
     def update(self, count): pass
@@ -2620,10 +2636,16 @@ class TclCommands(nf.TclCommands):
         ap.putpref("tto_g11", vars.tto_g11.get())
 
     def toggle_optional_stop(event=None):
+        if program_flow_locked():
+            vars.optional_stop.set(s.optional_stop)
+            return
         c.set_optional_stop(vars.optional_stop.get())
         ap.putpref("optional_stop", vars.optional_stop.get())
 
     def toggle_block_delete(event=None):
+        if program_flow_locked():
+            vars.block_delete.set(s.block_delete)
+            return
         c.set_block_delete(vars.block_delete.get())
         ap.putpref("block_delete", vars.block_delete.get())
         c.wait_complete()
@@ -2945,6 +2967,7 @@ class TclCommands(nf.TclCommands):
             gmi.has_api("classicladder", "classicladder", refresh=True))
 
     def task_run(*event):
+        if program_flow_locked(): return
         res = 1
         while res == 1:
             res = run_warn()
@@ -2960,17 +2983,20 @@ class TclCommands(nf.TclCommands):
         o.set_highlight_line(None)
 
     def task_step(*event):
+        if program_flow_locked(): return
         if s.task_mode != MODE_AUTO or s.interp_state != INTERP_IDLE:
             o.set_highlight_line(None)
             if run_warn(): return
         c.auto(AUTO_STEP)
 
     def task_pause(*event):
+        if program_flow_locked(): return
         if s.task_mode != MODE_AUTO or s.interp_state not in (INTERP_READING, INTERP_WAITING):
             return
         c.auto(AUTO_PAUSE)
 
     def task_reverse(*event):
+        if program_flow_locked(): return
         s.poll()
         if s.task_mode != MODE_AUTO:
             return
@@ -2978,6 +3004,7 @@ class TclCommands(nf.TclCommands):
         c.auto(AUTO_REVERSE)
 
     def task_forward(*event):
+        if program_flow_locked(): return
         s.poll()
         if s.task_mode != MODE_AUTO:
             return
@@ -2985,6 +3012,7 @@ class TclCommands(nf.TclCommands):
         c.auto(AUTO_FORWARD)
 
     def task_resume(*event):
+        if program_flow_locked(): return
         s.poll()
         if not s.paused:
             return
@@ -2993,6 +3021,7 @@ class TclCommands(nf.TclCommands):
         c.auto(AUTO_RESUME)
 
     def task_pauseresume(*event):
+        if program_flow_locked(): return
         if s.task_mode not in (MODE_AUTO, MODE_MDI):
             return
         s.poll()
@@ -3002,6 +3031,8 @@ class TclCommands(nf.TclCommands):
             c.auto(AUTO_PAUSE)
 
     def task_stop(*event):
+        # Stopping MDI, a jog or homing is not program flow and stays here.
+        if program_flow_locked() and program_running(): return
         if s.task_mode == MODE_AUTO and vars.running_line.get() != 0:
             o.set_highlight_line(vars.running_line.get())
         c.abort()
@@ -3588,6 +3619,7 @@ vars = nf.Variables(root_window,
     ("task_mode", IntVar),
     ("auto_inhibit", IntVar),
     ("mdi_inhibit", IntVar),
+    ("ui_auto_disabled", IntVar),
     ("has_editor", IntVar),
     ("has_ladder", IntVar),
     ("ja_rbutton", StringVar),
@@ -4516,8 +4548,12 @@ try:
 except Exception:
     pass
 
-c.set_block_delete(vars.block_delete.get())
-c.set_optional_stop(vars.optional_stop.get())
+# Under ui-auto-disable the controller's settings stand; the stat update
+# copies them into the toolbar instead.
+s.poll()
+if not s.ui_auto_disabled:
+    c.set_block_delete(vars.block_delete.get())
+    c.set_optional_stop(vars.optional_stop.get())
 
 o = MyOpengl(widgets.preview_frame, width=400, height=300, double=1, depth=1)
 o.last_line = 1
@@ -4889,6 +4925,7 @@ for win in root_window, widgets.about_window, widgets.help_window:
 vars.kinematics_type.set(s.kinematics_type)
 vars.auto_inhibit.set(0)
 vars.mdi_inhibit.set(0)
+vars.ui_auto_disabled.set(0)
 vars.max_queued_mdi_commands.set(int(inifile.find("TASK", "MDI_QUEUED_COMMANDS") or  10))
 
 def balance_ja():
