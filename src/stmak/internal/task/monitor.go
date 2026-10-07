@@ -54,6 +54,7 @@ type monitor struct {
 	mc     MotionConfig
 	inihal *iniHal
 	halui  *halUI         // nil if halui not configured
+	pins   *taskPins      // the instance's own pins; nil in unit tests
 	ioStat IOStatusReader // nil if IO doesn't support status read
 	stopCh chan struct{}
 	doneCh chan struct{}
@@ -130,6 +131,9 @@ func (m *monitor) loop() {
 				m.checkMotionErrors(ms, err)
 			}
 			m.checkJogWatchdog()
+			if m.pins != nil {
+				m.pins.check(m.task)
+			}
 			if m.inihal != nil {
 				if err := m.inihal.check(m.mc); err != nil {
 					m.task.logger.Warn("inihal parameter push failed", "err", err)

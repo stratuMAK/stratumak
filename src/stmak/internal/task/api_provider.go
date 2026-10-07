@@ -50,11 +50,34 @@ func (m *milltaskModule) SetMode(mode int32) (int32, error) {
 	return rcFor(m.task.SetMode(mode))
 }
 
-func (m *milltaskModule) AutoCmd(cmd emccmd.AutoCmd, line int32) (int32, error) {
+func (m *milltaskModule) AutoCmd(cmd emccmd.AutoCmd, line int32, force bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
+	if err := m.uiGate(force); err != nil {
+		return rcsError, err
+	}
 	return rcFor(m.task.AutoCommand(int32(cmd), line))
+}
+
+// errUIAutoDisabled refuses a program-flow command that came without force
+// while <instance>.ui-auto-disable is high.
+var errUIAutoDisabled = errors.New("program control is disabled for UIs (ui-auto-disable)")
+
+// uiGate turns away a program-flow command while the ui-auto-disable pin is
+// high, unless the caller passed force. The gate lives here, at the emccmd
+// boundary, and not in the Task: halui reaches the Task directly and must keep
+// program flow, and so must the task's own aborts (auto-inhibit, estop).
+//
+// The pin is sampled once per monitor tick, so a command racing a rising edge
+// can still get through; the pin hands program flow to someone else, it is not
+// a safety interlock (that is halui.auto-inhibit).
+func (m *milltaskModule) uiGate(force bool) error {
+	if force || !m.task.uiAutoDisabledNow() {
+		return nil
+	}
+	m.task.operatorError("Program control from the user interface is disabled")
+	return apiserver.NewFault(apiserver.FaultState, errUIAutoDisabled)
 }
 
 // rcFor maps a task result onto the (rc, error) pair the emccmd contract wants.
@@ -216,9 +239,16 @@ func (m *milltaskModule) Lube(on bool) (int32, error) {
 	return rcFor(m.task.Lube(on))
 }
 
-func (m *milltaskModule) Abort() (int32, error) {
+func (m *milltaskModule) Abort(force bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
+	}
+	// Only a running or paused program is program flow. An abort that stops
+	// an MDI command, a jog or homing stays available to every UI.
+	if m.task.programRunning() {
+		if err := m.uiGate(force); err != nil {
+			return rcsError, err
+		}
 	}
 	return rcFor(m.task.Abort())
 }
@@ -230,15 +260,21 @@ func (m *milltaskModule) TaskPlanSynch() (int32, error) {
 	return rcFor(m.task.TaskPlanSynch())
 }
 
-func (m *milltaskModule) SetOptionalStop(on bool) (int32, error) {
+func (m *milltaskModule) SetOptionalStop(on bool, force bool) (int32, error) {
 	if err := m.ready(); err != nil {
+		return rcsError, err
+	}
+	if err := m.uiGate(force); err != nil {
 		return rcsError, err
 	}
 	return rcFor(m.task.SetOptionalStop(on))
 }
 
-func (m *milltaskModule) SetBlockDelete(on bool) (int32, error) {
+func (m *milltaskModule) SetBlockDelete(on bool, force bool) (int32, error) {
 	if err := m.ready(); err != nil {
+		return rcsError, err
+	}
+	if err := m.uiGate(force); err != nil {
 		return rcsError, err
 	}
 	return rcFor(m.task.SetBlockDelete(on))

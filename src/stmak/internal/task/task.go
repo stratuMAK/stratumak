@@ -478,6 +478,13 @@ type Task struct {
 	autoInhibit atomic.Bool
 	mdiInhibit  atomic.Bool
 
+	// uiAutoDisabled mirrors the <instance>.ui-auto-disable pin, sampled once
+	// per monitor tick. Unlike autoInhibit it refuses nothing inside the task:
+	// the emccmd provider consults it to turn away program-flow commands that
+	// do not carry force, so UIs lose program flow while halui and forced
+	// callers keep it.
+	uiAutoDisabled atomic.Bool
+
 	// motionDispatched is true once a motion segment has been sent since the
 	// last completed drain. waitMotionDone applies its servo-settle skip only
 	// when this is set — an empty barrier (back-to-back S/M-code drains with no
@@ -778,3 +785,9 @@ func (t *Task) setMDIInhibit(v bool) { t.mdiInhibit.Store(v) }
 
 // mdiInhibited reports whether MDI is currently forbidden by the interlock.
 func (t *Task) mdiInhibited() bool { return t.mdiInhibit.Load() }
+
+// setUIAutoDisabled records the ui-auto-disable pin state.
+func (t *Task) setUIAutoDisabled(v bool) { t.uiAutoDisabled.Store(v) }
+
+// uiAutoDisabledNow reports whether program flow is withheld from UIs.
+func (t *Task) uiAutoDisabledNow() bool { return t.uiAutoDisabled.Load() }

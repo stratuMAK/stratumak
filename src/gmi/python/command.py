@@ -77,9 +77,14 @@ class Command:
         """Set task mode (MODE_MANUAL, MODE_MDI, MODE_AUTO)."""
         return self._post("/mode", {"mode": mode})
 
-    def auto(self, cmd: int, line: int = 0):
-        """Auto program control (AUTO_RUN, AUTO_STEP, AUTO_PAUSE, etc.)."""
-        return self._post("/auto", {"cmd": cmd, "line": line})
+    def auto(self, cmd: int, line: int = 0, force: bool = False):
+        """Auto program control (AUTO_RUN, AUTO_STEP, AUTO_PAUSE, etc.).
+
+        Refused while the task's ui-auto-disable pin is set unless force is
+        true. A UI never passes force; a caller that owns program flow does.
+        """
+        return self._post("/auto",
+                          {"cmd": cmd, "line": line, "force": bool(force)})
 
     def mdi(self, command: str):
         """Execute MDI command string."""
@@ -185,21 +190,28 @@ class Command:
         """Spindle brake engage/release."""
         return self._post("/brake", {"on": bool(on), "spindle_num": spindle})
 
-    def abort(self):
-        """Abort current operation."""
-        return self._post("/abort")
+    def abort(self, force: bool = False):
+        """Abort current operation.
+
+        Aborting a running or paused AUTO program is refused while the task's
+        ui-auto-disable pin is set unless force is true; any other abort
+        (MDI, jog, homing) always goes through.
+        """
+        return self._post("/abort", {"force": bool(force)})
 
     def task_plan_synch(self):
         """Synchronize task planner."""
         return self._post("/task-plan-synch")
 
-    def set_optional_stop(self, on: bool):
-        """Set optional stop."""
-        return self._post("/optional-stop", {"on": bool(on)})
+    def set_optional_stop(self, on: bool, force: bool = False):
+        """Set optional stop (refused under ui-auto-disable unless force)."""
+        return self._post("/optional-stop",
+                          {"on": bool(on), "force": bool(force)})
 
-    def set_block_delete(self, on: bool):
-        """Set block delete."""
-        return self._post("/block-delete", {"on": bool(on)})
+    def set_block_delete(self, on: bool, force: bool = False):
+        """Set block delete (refused under ui-auto-disable unless force)."""
+        return self._post("/block-delete",
+                          {"on": bool(on), "force": bool(force)})
 
     def load_tool_table(self, file: str = ""):
         """Reload tool table from file (empty string = default table)."""

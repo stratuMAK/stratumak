@@ -163,6 +163,15 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		logger.Info("halui pins exported", "prefix", m.haluiPrefix)
 	}
 
+	pins, err := newTaskPins(name)
+	if err != nil {
+		if m.halui != nil {
+			m.halui.exit()
+		}
+		return nil, fmt.Errorf("milltask: %w", err)
+	}
+	m.pins = pins
+
 	// Register WebSocket watches and commands (direct Go path, no C thunk).
 	m.registerWatches(name)
 
@@ -185,6 +194,7 @@ type milltaskModule struct {
 	stopped           atomic.Bool                // read by ready() from arbitrary goroutines
 	haluiPrefix       string                     // if set, export halui pins with this component name
 	halui             *halUI                     // halui HAL component (created in factory)
+	pins              *taskPins                  // <name>.* HAL component (created in factory)
 	motInstance       string                     // motion module instance name (default "motmod")
 	ioInstance        string                     // io controller instance name (default "iocontrol")
 	errorFilter       *regexp.Regexp             // if set, only C-module errors whose component matches are forwarded to operator messages
@@ -438,6 +448,7 @@ func (m *milltaskModule) Start() error {
 	// blocking halui command can never stall the safety checks.
 	m.mon = newMonitor(t, mc, ih, io)
 	m.mon.halui = m.halui
+	m.mon.pins = m.pins
 	m.mon.start()
 
 	// Register tools API (needs INI for tool table path).
@@ -526,6 +537,9 @@ func (m *milltaskModule) Destroy() {
 	}
 	if m.mon != nil && m.mon.halui != nil {
 		m.mon.halui.exit()
+	}
+	if m.pins != nil {
+		m.pins.exit()
 	}
 	if m.apiCleanup != nil {
 		m.apiCleanup()

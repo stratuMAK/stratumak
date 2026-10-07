@@ -179,6 +179,12 @@ type StatTaskInfo {
     # AXIS decides what to grey out from this buffer and reads no HAL pins.
     auto_inhibit: bool
     mdi_inhibit: bool
+    # Mirrors the milltask pin <instance>.ui-auto-disable: program flow is not
+    # the operator's screen's to control. A UI disables run, step,
+    # pause/resume, stop of a running program, optional stop and block
+    # delete, and keeps showing their state. Unlike auto_inhibit nothing is
+    # refused outright: emccmd callers that pass force still get through.
+    ui_auto_disabled: bool
 }
 
 type StatMotionInfo {
