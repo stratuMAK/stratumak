@@ -45,6 +45,7 @@ Build-Depends:
     @LIBREADLINE_DEV@,
     libtirpc-dev,
     libusb-1.0-0-dev,
+    libx11-dev,
     libxmu-dev,
     netcat-traditional | netcat-openbsd | netcat,
     netpbm,
