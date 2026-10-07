@@ -1,0 +1,400 @@
+# Modcompile FSM Design
+
+This document describes declarative finite state machines in `.comp` files: an
+`fsm` block in the component header that replaces the usual hand-written
+`switch (state)` with its `#define`s, timer bookkeeping and output
+assignments.
+
+## Status (October 2026)
+
+| Slice | Scope | Status |
+|-------|-------|--------|
+| 1 | Scanner + parser for `fsm` blocks, AST description | ⬜ Open |
+| 2 | Semantic checks (names, directions, graph, sensitivity) | ⬜ Open |
+| 3 | C lowering + generic cgen hook | ⬜ Open |
+| 4 | docgen state table | ⬜ Open |
+| 5 | Runtests, `comp.adoc` user documentation | ⬜ Open |
+
+Design agreed, nothing implemented yet.
+
+## Motivation
+
+State machines are common in `.comp` files (`carousel`, `moveoff`,
+`multiclick`, `plasmac`, ...), and they are always written the same way: a
+`#define` or `enum` per state, a `switch`, a hand-rolled timer, and output
+assignments scattered over the cases. That costs a lot of repeated code and
+invites a familiar set of bugs:
+
+- an output set in one state and never cleared on some other path;
+- a transition to a misspelled or forgotten state;
+- a timer that is not reset on entry, or reset twice;
+- a transition condition that reads a signal nobody thought about.
+
+The `fsm` block declares states, transitions, timeouts and outputs once. The
+frontend generates the C and checks the graph.
+
+## Scope
+
+- `.comp` frontend only. The feature is not IEC 61131-3 conformant, so it does
+  not go into the `.st` frontend.
+- Flat state machines. Several FSMs per component are allowed; hierarchical
+  FSMs (one FSM run from another's `during`) work technically but are not
+  supported.
+- Pin arrays and array variables cannot be `outputs` or `latched` in v1.
+
+## Syntax
+
+An `fsm` block is a header declaration (before `;;`) like `pin` or `variable`
+and is terminated by `;`.
+
+```
+fsm test_fsm {
+    inputs:    in1, in2;
+    outputs:   out1, out2, out3 = 1, special_timeout;
+    latched:   latched1, latched2 = 3;
+    reset:     (reset_fsm);
+    enable:    (enable_fsm);
+    state_var: fsm_state;
+    timer_var: fsm_timer;
+    initial:   IDLE;
+
+    any {
+        on (estop) -> FAULT;
+        timeout -> TIMEOUT;
+    }
+
+    state IDLE {
+        on_enter { out1 = 1; }
+        on_exit  { out2 = 1; latched1 = 1; }
+        on (in1 || in2 == 1) -> WAIT_RELEASE;
+        timeout (60s) -> TIMEOUT { special_timeout = 1; }
+    }
+
+    state WAIT_RELEASE {
+        during { out3 = 0; }
+        on (!in1) -> IDLE;
+        timeout (wait_s);           /* handled by any { timeout -> ... } */
+    }
+
+    state TIMEOUT {
+        on (ack) -> IDLE;
+    }
+
+    state FAULT {
+        on (!estop && ack) -> IDLE;
+    }
+};
+```
+
+### Grammar
+
+```
+fsm_decl    := 'fsm' NAME '{' fsm_item* '}' ';'
+
+fsm_item    := 'inputs'    ':' name_list ';'
+             | 'outputs'   ':' def_list ';'
+             | 'latched'   ':' def_list ';'
+             | 'reset'     ':' '(' cexpr ')' ';'
+             | 'enable'    ':' '(' cexpr ')' ';'
+             | 'state_var' ':' NAME ';'
+             | 'timer_var' ':' NAME ';'
+             | 'initial'   ':' STATE ';'
+             | 'any' '{' any_item* '}'
+             | 'state' STATE '{' state_item* '}'
+
+name_list   := NAME (',' NAME)*
+def_list    := def (',' def)*
+def         := NAME ('=' cexpr)?
+
+any_item    := 'on' '(' cexpr ')' '->' STATE action
+             | 'timeout' '->' STATE action
+
+state_item  := 'on_enter' block
+             | 'on_exit'  block
+             | 'during'   block
+             | 'on' '(' cexpr ')' '->' STATE action
+             | 'timeout' '(' texpr ')' ('->' STATE action | ';')
+
+action      := ';' | block
+block       := '{' C statements '}'
+```
+
+- `cexpr` and `block` are C, captured verbatim. The scanner balances `()`,
+  `[]` and `{}` and skips string/char literals and comments. A `def` default
+  ends at the first top-level `,` or `;`, so `x = fmin(a, b)` works.
+- Names in the lists are the C names used in code (`in-1` is written `in_1`).
+- `on_enter`, `on_exit` and `during` appear at most once per state; their
+  order in the source does not matter. `on` and `timeout` items keep their
+  source order (it is their priority, see below).
+- A state has at most one `timeout`. `timeout (...)` without a target takes
+  no action block; it is handled by `any { timeout -> ...; }`.
+
+### Items
+
+| Item | Required | Meaning |
+|------|----------|---------|
+| `inputs` | no | Sensitivity list for checks only; generates no code |
+| `outputs` | no | Written to their default every cycle before the FSM runs (default `0`) |
+| `latched` | no | Written to their default on init and reset only (default `0`) |
+| `reset` | no | Level-triggered reset; omitted = never reset |
+| `enable` | no | omitted = always enabled |
+| `state_var` | no | Pin or variable holding the state number; omitted = hidden variable |
+| `timer_var` | no | Pin or variable receiving the time in the current state, in seconds |
+| `initial` | no | Initial state; omitted = the first `state` listed |
+
+What a name may refer to:
+
+| List | Allowed |
+|------|---------|
+| `inputs` | `in`/`io` pins (also arrays), variables |
+| `outputs`, `latched` | `out`/`io` pins, scalar variables |
+| `state_var` | `out`/`io` `s32` or `u32` pin, integer variable |
+| `timer_var` | `out`/`io` `float` pin, `double`/`float` variable |
+
+Default values are C expressions and are evaluated every time they are
+applied, so `out3 = some_param` follows the param.
+
+### Timeouts
+
+The `timeout` expression is in seconds (double). Numeric literals may carry a
+unit suffix that the frontend rewrites to a scale factor:
+
+| Suffix | Rewritten to |
+|--------|--------------|
+| `s` | `(N)` |
+| `ms` | `(N * 1e-3)` |
+| `us` | `(N * 1e-6)` |
+| `ns` | `(N * 1e-9)` |
+
+So `timeout (60)`, `timeout (60s)`, `timeout (wait_s)` and
+`timeout (wait_ms * 1ms)` all mean what they say. The expression is evaluated
+every cycle, so a param change takes effect at once. A value `<= 0` means "no
+timeout". The timer itself counts integer nanoseconds from `period`, so it
+does not drift.
+
+> Note: the discussion first proposed integer-nanosecond timeout expressions
+> (`1s` = `1000000000LL`). That makes `timeout (wait_s)` silently mean
+> nanoseconds, so the expression is in seconds instead.
+
+## Execution model
+
+The FSM is run by calling `test_fsm();` from a `FUNCTION`. It must be called
+exactly once per cycle; every call advances the timer by `period`.
+
+One run:
+
+1. **Outputs.** Every `outputs` entry is written to its default. This happens
+   in every run, including while reset or disabled.
+2. **Reset / init.** On the first run, and in every run in which `reset` is
+   true: state = initial, timer = 0, every `latched` entry written to its
+   default, `on_enter` marked pending. If `reset` is true the run ends here.
+   No `on_exit` runs; a reset is an abort, not a transition. Reset works
+   while disabled.
+3. **Enable.** If `enable` is false the run ends here. State, timer and a
+   pending `on_enter` are frozen.
+4. **Pending entry.** If `on_enter` is pending (first run, or first enabled
+   run after reset): run `on_enter` and `during` of the current state, then
+   end the run. Transitions are evaluated from the next run on.
+5. **Timer.** timer += `period`.
+6. **Transitions.** The first match, in this order, fires:
+   1. `any` `on` items in source order, skipping those whose target is the
+      current state;
+   2. the state's `on` items in source order;
+   3. the state's `timeout`, if it has a target;
+   4. the `any` `timeout`, if the state's `timeout` has no target.
+
+   A firing transition runs: `on_exit` (old), transition action, state = new,
+   timer = 0, `on_enter` (new). At most one transition per run. A
+   self-transition (`A -> A` inside `state A`) runs exit and enter and resets
+   the timer.
+7. **During.** Run `during` of the current state, which is the new state if a
+   transition fired.
+8. **Timer var.** If `timer_var` is set: timer_var = timer × 1e-9.
+
+Consequences worth stating in the user documentation:
+
+- An output written in `on_enter`, `on_exit` or a transition action is a
+  **one-cycle pulse**. An output that should hold while in a state is written
+  in `during`.
+- `on_enter` always runs on entering a state, including after init and reset.
+- While reset is held, all outputs and latched values sit at their defaults
+  and no user code runs.
+
+## Checks
+
+### Errors
+
+- Unknown target state; duplicate state; `initial` naming an unknown state.
+- A name in a list that is not a declared pin or variable, or has the wrong
+  direction/type for its list (see the table above).
+- A name in more than one of `outputs` / `latched` / `state_var` /
+  `timer_var`, or an output listed in two FSMs.
+- An `on` condition that reads an FSM output. Outputs always hold their
+  default at that point, so this is a bug.
+- A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
+- Duplicate `on_enter` / `on_exit` / `during` / `timeout` in a state.
+
+### Warnings
+
+- **Sensitivity:** an `on` condition reads a pin or variable that is not in
+  `inputs` or `latched` and is not this FSM's `state_var` / `timer_var`.
+  Params are exempt (configuration, like VHDL generics). Identifiers that are
+  not declared pins/params/variables (C functions, macros, enum constants,
+  locals) are ignored, which keeps the check free of false positives.
+  Skipped when the FSM has no `inputs` list.
+- **Unread input:** an `inputs` entry that does not appear in any condition,
+  action, `during` block or output default.
+- **Write outside the FSM:** the verbatim C after `;;` assigns an FSM output
+  (`=`, compound assignment, `++`, `--`). The value is overwritten on the next
+  run. Heuristic: writes through pointers or macros are not found.
+- Unreachable state (no incoming transition, not initial).
+- State without a way out (no own `on`/`timeout` and no `any` transition
+  leading elsewhere).
+- `test_fsm()` never called in the verbatim C.
+
+The `timeout`, `reset` and `enable` expressions are not part of the
+sensitivity check.
+
+All identifier scans share one C tokenizer: strings, char literals and
+comments are skipped, and names after `.` or `->` (member access) are not
+identifiers of the component.
+
+## Generated code
+
+For the example above, roughly:
+
+```c
+/* prologue, before the user code */
+enum test_fsm_state {
+    test_fsm_IDLE = 0,
+    test_fsm_WAIT_RELEASE = 1,
+    test_fsm_TIMEOUT = 2,
+    test_fsm_FAULT = 3,
+};
+static void test_fsm_run(inst_t *__comp_inst, long period);
+#define test_fsm() test_fsm_run(__comp_inst, period)
+#define test_fsm_in(s_) (fsm_state == test_fsm_ ## s_)
+static const char *test_fsm_state_name(int s);
+
+/* after the user code, so actions can use the user's helpers */
+static void test_fsm_run(inst_t *__comp_inst, long period) {
+    int __rst = (reset_fsm);
+
+    out1 = 0; out2 = 0; out3 = 1; special_timeout = 0;
+
+    if (!__fsm_test_fsm_init || __rst) {
+        __fsm_test_fsm_init = 1;
+        fsm_state = test_fsm_IDLE;
+        __fsm_test_fsm_timer = 0;
+        latched1 = 0; latched2 = 3;
+        __fsm_test_fsm_enter = 1;
+        if (__rst) goto out;
+    }
+    if (!(enable_fsm)) goto out;
+
+    if (__fsm_test_fsm_enter) {
+        __fsm_test_fsm_enter = 0;
+        switch (fsm_state) { /* on_enter blocks */ }
+        goto during;
+    }
+
+    __fsm_test_fsm_timer += period;
+
+    switch (fsm_state) {
+    case test_fsm_IDLE:
+        if ((estop)) { /* exit IDLE */ fsm_state = test_fsm_FAULT; /* enter FAULT */ break; }
+        if ((in1 || in2 == 1)) { ... break; }
+        { double __to = (60); if (__to > 0 && __fsm_test_fsm_timer >= __to * 1e9) { ... } }
+        break;
+    ...
+    }
+
+during:
+    switch (fsm_state) { /* during blocks */ }
+out:
+    fsm_timer = __fsm_test_fsm_timer * 1e-9;
+}
+```
+
+- State numbers follow source order, starting at 0. `initial` does not
+  renumber.
+- Hidden per-instance variables (`__fsm_<name>_init`, `_enter`, `_timer`, and
+  `_state` when `state_var` is omitted) are added as ordinary
+  `ast.Variable`s, so every instance has its own FSM.
+- User code fragments are emitted with `#line` directives pointing into the
+  `.comp`, so compiler errors land on the right source line.
+- `test_fsm_state_name()` returns the state name as a string, for messages.
+- There is deliberately no `goto` from outside the FSM; the declared graph is
+  the only source of transitions.
+
+## Implementation
+
+### 1. Scanner + parser (`comp/`)
+
+- New declaration keyword `fsm` in `parseDeclaration`.
+- Scanner support for `{`, `}`, `->` and a raw mode that captures a balanced
+  C fragment with its `Pos`.
+- Parse into a frontend-local FSM structure.
+
+### 2. Checks (`comp/`)
+
+Run after the whole header is parsed, since lists refer to pins and variables
+declared anywhere in the header, and the write check needs the verbatim C.
+
+### 3. Lowering + cgen hook
+
+The frontend lowers each FSM to:
+
+- hidden `ast.Variable`s;
+- C text for a prologue (enum, forward declaration, macros) and an epilogue
+  (function definitions), each fragment with its source `Pos`.
+
+cgen gets one generic, FSM-agnostic hook in `ast.Component` (e.g.
+`GenPrologue` / `GenEpilogue` as positioned fragments), emitted directly
+before and after `emitUserCodeBody()`, while the convenience macros are still
+defined. cgen learns nothing about FSMs.
+
+### 4. docgen
+
+`ast.Component` gets a descriptive `FSMs` field (name, states with numbers,
+transitions with conditions as text, timeouts, outputs, latched values). It
+is used only by docgen, which adds a state table per FSM to the man page.
+
+### 5. Tests and documentation
+
+- Parser and check unit tests, a cgen golden test, a corpus entry.
+- A runtest that drives a test component through the execution model in the
+  servo thread: init, reset held/released, disable freezing state and timer,
+  `any` priority and self-target skipping, timeout last, pulse outputs.
+- The byte-identical `.comp` gate: no existing `.comp` may change one byte of
+  generated output.
+- User documentation in `docs/src/hal/comp.adoc`.
+
+## Design decisions
+
+- **Braces and explicit targets.** Indentation blocks don't fit a header made
+  of `;`-terminated declarations, and `:` is ambiguous with C's `?:`. A target
+  in the transition header keeps the graph static: checkable, documentable,
+  and at most one transition per cycle.
+- **Outputs reset every cycle.** Outputs depend on the state only; no output
+  can stick because a path forgot to clear it.
+- **No types in the FSM block.** `x = 0` is valid C for every scalar HAL type,
+  and the declarations already carry types for the direction checks.
+- **Enable freezes, reset dominates.** Disabling pauses the machine, timer
+  included; reset works in any situation.
+- **Timeouts last.** A real event that arrives in the same cycle as the
+  timeout wins.
+- **`any` replaces a global `on_timeout`.** One mechanism for every
+  state-independent transition; skipping self-targets keeps
+  `any { on (estop) -> FAULT; }` from re-entering FAULT every cycle.
+- **`.comp` only.** Not part of IEC 61131-3, so it stays out of `.st`; cgen
+  only gets a generic hook.
+
+## Open items
+
+1. Optional `function` binding (`fsm test_fsm function _;`) that exports the
+   FSM as its own HAL function instead of calling `test_fsm()`.
+2. Graphviz state diagram from docgen in addition to the state table.
+3. Pin arrays and array variables as `outputs` / `latched`.
+4. Opting individual states out of `any` transitions, should the self-target
+   rule turn out to be insufficient.
