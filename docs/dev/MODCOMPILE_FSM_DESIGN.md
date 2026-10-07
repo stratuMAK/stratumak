@@ -40,7 +40,8 @@ frontend generates the C and checks the graph.
 - Flat state machines. Several FSMs per component are allowed; hierarchical
   FSMs (one FSM run from another's `during`) work technically but are not
   supported.
-- Pin arrays and array variables cannot be `outputs` or `latched` in v1.
+- Whole arrays are not allowed in any list; single elements with a constant
+  index are (see [Array elements](#array-elements)).
 
 ## Syntax
 
@@ -102,9 +103,12 @@ fsm_item    := 'inputs'    ':' name_list ';'
              | 'any' '{' any_item* '}'
              | 'state' STATE '{' state_item* '}'
 
-name_list   := NAME (',' NAME)*
+name_list   := ref (',' ref)*
 def_list    := def (',' def)*
-def         := NAME ('=' cexpr)?
+def         := ref ('=' cexpr)?
+ref         := NAME
+             | NAME '(' INT ')'     /* pin or param array element */
+             | NAME '[' INT ']'     /* array variable element */
 
 any_item    := 'on' '(' cexpr ')' '->' STATE action
              | 'timeout' '->' STATE action
@@ -146,10 +150,31 @@ What a name may refer to:
 
 | List | Allowed |
 |------|---------|
-| `inputs` | `in`/`io` pins (also arrays), variables |
-| `outputs`, `latched` | `out`/`io` pins, scalar variables |
+| `inputs` | `in`/`io` pins, variables, elements of either |
+| `outputs`, `latched` | `out`/`io` pins, variables, elements of either |
 | `state_var` | `out`/`io` `s32` or `u32` pin, integer variable |
 | `timer_var` | `out`/`io` `float` pin, `double`/`float` variable |
+
+Pins that may not exist are not allowed in the written lists (`outputs`,
+`latched`, `state_var`, `timer_var`): a pin with an `if <personality>`
+condition, or an element of a personality-sized array. Such a pin has no
+storage when it is not created, and the FSM writes its list entries every
+cycle. In `inputs` they are allowed, since that list generates no code.
+
+### Array elements
+
+Whole arrays are never allowed in a list. A single element is, written the
+way it is accessed in code:
+
+- pin and param arrays use the function-like accessor: `in_arr(1)`;
+- array variables use C indexing: `buf[1]`.
+
+The index must be an integer literal and is checked against the declared size.
+For the checks, a condition reading an element with a literal index must find
+that element in `inputs` / `latched`; an element read with a computed index
+(`in_arr(i)`) cannot be matched and gives a warning. Likewise, a write outside
+the FSM to an output array with a computed index gives a "may overwrite"
+warning.
 
 Default values are C expressions and are evaluated every time they are
 applied, so `out3 = some_param` follows the param.
@@ -387,14 +412,14 @@ is used only by docgen, which adds a state table per FSM to the man page.
 - **`any` replaces a global `on_timeout`.** One mechanism for every
   state-independent transition; skipping self-targets keeps
   `any { on (estop) -> FAULT; }` from re-entering FAULT every cycle.
+- **No opt-out from `any`.** `any` is already a convenience; a state that
+  must not take an `any` transition writes its transitions per state instead.
+- **No HAL function binding.** FSMs mostly run alongside other logic in the
+  same component, so the user calls `test_fsm()` from their own `FUNCTION`
+  where it fits; exporting the FSM as a separate HAL function is not planned.
 - **`.comp` only.** Not part of IEC 61131-3, so it stays out of `.st`; cgen
   only gets a generic hook.
 
 ## Open items
 
-1. Optional `function` binding (`fsm test_fsm function _;`) that exports the
-   FSM as its own HAL function instead of calling `test_fsm()`.
-2. Graphviz state diagram from docgen in addition to the state table.
-3. Pin arrays and array variables as `outputs` / `latched`.
-4. Opting individual states out of `any` transitions, should the self-target
-   rule turn out to be insufficient.
+1. Graphviz state diagram from docgen in addition to the state table.
