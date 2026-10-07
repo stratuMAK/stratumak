@@ -69,14 +69,6 @@ import gmi
 from gmi.constants import *
 from glnav import *
 
-if "AXIS_NO_SERVER" in os.environ:
-    server_present = 0;
-else:
-    server_present = 1;
-
-if server_present == 1:
-    import gmi
-
 import configparser
 
 cp = configparser.ConfigParser
@@ -119,7 +111,7 @@ inifile = gmi.IniFile()
 # which is far harder to diagnose than refusing to start. A stack trace here
 # means the server is older than this AXIS, STMAK_TASK_INSTANCE names a task that does
 # not exist, or the task never started.
-_machine_info = gmi.info() if server_present == 1 else None
+_machine_info = gmi.info()
 
 ap = AxisPreferences()
 
@@ -856,20 +848,19 @@ class LivePlotter:
         # exists. Rescheduling continues either way: the poll loop is what
         # notices the server coming back.
         global _server_boot_id, _server_online
-        if server_present == 1:
-            if not self.stat.connected:
-                if _server_online:
-                    _server_online = False
-                    clear_program_display()
-                    notifications.add("error", _("Server connection lost"))
-                self.after = self.win.after(update_ms, self.update)
-                return
-            boot_id = getattr(self.stat, 'boot_id', None)
-            if not _server_online or boot_id != _server_boot_id:
-                _server_boot_id = boot_id
-                _server_online = True
-                adopt_server_program()
-                o.last_preview_seq = getattr(self.stat, 'preview_seq', 0)
+        if not self.stat.connected:
+            if _server_online:
+                _server_online = False
+                clear_program_display()
+                notifications.add("error", _("Server connection lost"))
+            self.after = self.win.after(update_ms, self.update)
+            return
+        boot_id = getattr(self.stat, 'boot_id', None)
+        if not _server_online or boot_id != _server_boot_id:
+            _server_boot_id = boot_id
+            _server_online = True
+            adopt_server_program()
+            o.last_preview_seq = getattr(self.stat, 'preview_seq', 0)
 
         global continuous_jog_in_progress,cjogindices
         global jog_speed_blackout, ajog_speed_blackout
@@ -1103,14 +1094,13 @@ class LivePlotter:
         vupdate(vars.exec_state, self.stat.exec_state)
         vupdate(vars.interp_state, self.stat.interp_state)
         vupdate(vars.queued_mdi_commands, self.stat.queued_mdi_commands)
-        if server_present == 1:
-            if (self.stat.task_state != STATE_ON or
-                    self.stat.interp_state != INTERP_IDLE):
-                widgets.jogminus.configure(state="disabled")
-                widgets.jogplus.configure(state="disabled")
-            else:
-                widgets.jogminus.configure(state="normal")
-                widgets.jogplus.configure(state="normal")
+        if (self.stat.task_state != STATE_ON or
+                self.stat.interp_state != INTERP_IDLE):
+            widgets.jogminus.configure(state="disabled")
+            widgets.jogplus.configure(state="disabled")
+        else:
+            widgets.jogminus.configure(state="normal")
+            widgets.jogplus.configure(state="normal")
         vupdate(vars.task_mode, self.stat.task_mode)
         # Interlocks refusing AUTO / MDI. Published so update_state can grey
         # the controls out rather than leave a button whose command the
@@ -1991,7 +1981,6 @@ def parse_increment(jogincr):
 
 def set_hal_jogincrement():
     global jog_incr_blackout
-    if not server_present: return
     if 'c' not in globals(): return
     jog_incr_blackout = time.time() + 1
     jogincr = widgets.jogincr.get()
@@ -2953,8 +2942,7 @@ class TclCommands(nf.TclCommands):
         # the startup answer. refresh=True bypasses the registry cache; an
         # unreachable server answers "no" rather than raising (gmi.registry).
         vars.has_ladder.set(
-            server_present == 1
-            and gmi.has_api("classicladder", "classicladder", refresh=True))
+            gmi.has_api("classicladder", "classicladder", refresh=True))
 
     def task_run(*event):
         res = 1
@@ -3527,8 +3515,6 @@ class TclCommands(nf.TclCommands):
 
     def axis_activated(*args):
         global jog_axis_blackout
-        # this only makes sense if HAL is present on this machine
-        if not server_present: return
         jog_axis_blackout = time.time() + 1
         axis = vars.ja_rbutton.get()
         idx = "xyzabcuvw".find(axis)
@@ -4135,7 +4121,7 @@ vars.has_editor.set(editor is not None)
 # value: the File menu's postcommand re-probes (refresh_has_ladder) so a module
 # loaded at runtime enables the entry.
 vars.has_ladder.set(
-    server_present == 1 and gmi.has_api("classicladder", "classicladder"))
+    gmi.has_api("classicladder", "classicladder"))
 
 tooltable  = inifile.find("EMCIO", "TOOL_TABLE")
 db_program = inifile.find("EMCIO", "DB_PROGRAM")
@@ -4377,7 +4363,7 @@ root_window.call(widgets.jogincr._w, "select", 0)
 # longer gates anything — gating on it would request a panel HAL never loaded
 # and 404, the exact failure /info exists to remove. A config that wants a panel
 # names it with pyvcp_instance= on the milltask load line. Empty = no panel.
-vcp = gmi.pyvcp_instance() if server_present == 1 else ""
+vcp = gmi.pyvcp_instance()
 
 arcdivision = int(inifile.find("DISPLAY", "ARCDIVISION") or 64)
 
@@ -4631,17 +4617,16 @@ t.configure(state="disabled")
 # View > Show PyVCP panel show and hide them together.
 side_panels = []
 
-if server_present == 1 :
-    if vcp:
-        import vcpparse
-        f = Tkinter.Frame(root_window)
-        if inifile.find("DISPLAY", "PYVCP_POSITION") == "BOTTOM":
-            f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
-        else:
-            f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        # vcp is the resolved instance name from /info (gate above).
-        vcpparse.create_vcp_rest(f, compname=vcp)
-        side_panels.append(f)
+if vcp:
+    import vcpparse
+    f = Tkinter.Frame(root_window)
+    if inifile.find("DISPLAY", "PYVCP_POSITION") == "BOTTOM":
+        f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
+    else:
+        f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
+    # vcp is the resolved instance name from /info (gate above).
+    vcpparse.create_vcp_rest(f, compname=vcp)
+    side_panels.append(f)
 
 _dynamic_childs = {}
 
@@ -4692,7 +4677,7 @@ if args:
     initialfile = args[0]
 elif "AXIS_OPEN_FILE" in os.environ:
     initialfile = os.environ["AXIS_OPEN_FILE"]
-elif server_present == 1:
+else:
     # The controller already has a program open (its [DISPLAY]OPEN_FILE, or
     # another client's): adopt it, exactly as on a reconnect. No program_open —
     # it is already open, and this path also has to work while the machine is
@@ -4706,17 +4691,16 @@ if initialfile and os.path.exists(initialfile):
 # Remember which task this startup state came from, so the first update() cycle
 # does not mistake it for a reconnect and re-adopt what we have just set up.
 # From here on the update loop owns these.
-if server_present == 1:
-    s.poll()
-    _server_online = s.connected
-    _server_boot_id = getattr(s, 'boot_id', None)
-    if _server_program is None and not _awaiting_program:
-        # Set already if we opened a file ourselves above; this covers the
-        # branches that only adopted what the task had. Not while a filter is
-        # still converting the program we asked for: claiming it here without
-        # its text on screen makes the resync see no change, and the program
-        # never appears.
-        _server_program = s.file or None
+s.poll()
+_server_online = s.connected
+_server_boot_id = getattr(s, 'boot_id', None)
+if _server_program is None and not _awaiting_program:
+    # Set already if we opened a file ourselves above; this covers the
+    # branches that only adopted what the task had. Not while a filter is
+    # still converting the program we asked for: claiming it here without
+    # its text on screen makes the resync see no change, and the program
+    # never appears.
+    _server_program = s.file or None
 
 if lathe:
     if lathe_backtool:
@@ -4957,10 +4941,7 @@ commands.set_spindlerate(100)
 # matched nothing on every multi-instance config and silently hid the spindle,
 # coolant and limit-override controls (~26 REST round-trips to reach the wrong
 # answer, at that).
-# With no server there is no HAL to ask, and nothing is wired as far as this UI
-# can tell — same as the old probe loop, which hid every one of these widgets
-# because gmi was not even imported.
-caps = _machine_info.caps if server_present == 1 else None
+caps = _machine_info.caps
 
 def forget(widget, wired):
     if "AXIS_NO_AUTOCONFIGURE" in os.environ: return
@@ -5015,8 +4996,7 @@ if os.path.exists(rcfile):
 
 # call an empty function that can be overridden
 # by an .axisrc user_hal_pins() function
-if server_present == 1 :
-    user_hal_pins()
+user_hal_pins()
 
 # Set our root window ID in environment so embedded child processes
 # (GladeVcp, stmakui) may forward keyboard events to it
@@ -5030,11 +5010,7 @@ if side_panels:
     help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
 else:
     widgets.menu_view.delete(_("Show PyVCP pan_el").replace("_", ""))
-if server_present == 1:
-    check_dynamic_tabs()
-else:
-    root_window.deiconify()
-    destroy_splash()
+check_dynamic_tabs()
 
 set_motion_teleop(0) # start in joint mode
 
