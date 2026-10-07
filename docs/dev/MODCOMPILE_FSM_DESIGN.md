@@ -214,13 +214,13 @@ One run:
    true: state = initial, timer = 0, every `latched` entry written to its
    default, `on_enter` marked pending. If `reset` is true the run ends here.
    No `on_exit` runs; a reset is an abort, not a transition. Reset works
-   while disabled.
+   while disabled. `timer_var` is set to 0.
 3. **Enable.** If `enable` is false the run ends here. State, timer and a
    pending `on_enter` are frozen.
 4. **Pending entry.** If `on_enter` is pending (first run, or first enabled
    run after reset): run `on_enter` and `during` of the current state, then
    end the run. Transitions are evaluated from the next run on.
-5. **Timer.** timer += `period`.
+5. **Timer.** timer += `period`; `timer_var` = timer × 1e-9.
 6. **Transitions.** The first match, in this order, fires:
    1. `any` `on` items in source order, skipping those whose target is the
       current state;
@@ -229,12 +229,23 @@ One run:
    4. the `any` `timeout`, if the state's `timeout` has no target.
 
    A firing transition runs: `on_exit` (old), transition action, state = new,
-   timer = 0, `on_enter` (new). At most one transition per run. A
+   timer = 0 and `timer_var` = 0, `on_enter` (new). At most one transition per run. A
    self-transition (`A -> A` inside `state A`) runs exit and enter and resets
    the timer.
 7. **During.** Run `during` of the current state, which is the new state if a
    transition fired.
-8. **Timer var.** If `timer_var` is set: timer_var = timer × 1e-9.
+
+`timer_var` is therefore always current: `on` conditions see the same time the
+`timeout` check uses, and `during` sees the time of the state it runs in. A
+timeout with several targets is written as `on` items on `timer_var` in front
+of the `timeout`:
+
+```
+on (fsm_timer >= delay && pj_needed) -> PUDDLE_JUMP;
+timeout (delay) -> CUT_HEIGHT;
+```
+
+A plain `variable double` is enough as `timer_var` when no pin is wanted.
 
 Consequences worth stating in the user documentation:
 
@@ -311,6 +322,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
         __fsm_test_fsm_init = 1;
         fsm_state = test_fsm_IDLE;
         __fsm_test_fsm_timer = 0;
+        fsm_timer = 0;
         latched1 = 0; latched2 = 3;
         __fsm_test_fsm_enter = 1;
         if (__rst) goto out;
@@ -324,10 +336,11 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
     }
 
     __fsm_test_fsm_timer += period;
+    fsm_timer = __fsm_test_fsm_timer * 1e-9;
 
     switch (fsm_state) {
     case test_fsm_IDLE:
-        if ((estop)) { /* exit IDLE */ fsm_state = test_fsm_FAULT; /* enter FAULT */ break; }
+        if ((estop)) { /* exit IDLE */ fsm_state = test_fsm_FAULT; /* timer = 0, fsm_timer = 0, enter FAULT */ break; }
         if ((in1 || in2 == 1)) { ... break; }
         { double __to = (60); if (__to > 0 && __fsm_test_fsm_timer >= __to * 1e9) { ... } }
         break;
@@ -337,7 +350,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
 during:
     switch (fsm_state) { /* during blocks */ }
 out:
-    fsm_timer = __fsm_test_fsm_timer * 1e-9;
+    ;
 }
 ```
 
@@ -351,6 +364,97 @@ out:
 - `test_fsm_state_name()` returns the state name as a string, for messages.
 - There is deliberately no `goto` from outside the FSM; the declared graph is
   the only source of transitions.
+
+## Patterns
+
+The `fsm` block is deliberately strict. Code that does not fit is restructured
+rather than supported with more syntax; the idioms below cover what an
+analysis of existing components (see [Fit with existing code](#fit-with-existing-code))
+turned up.
+
+### Resume from a model
+
+A component that must continue from a model (pins, a tray model) after
+init, reset or setup mode starts in a dispatch state, listed first:
+
+```
+reset: (!enable);
+
+state RESUME {
+    on (target_load) -> FEED_OUT;
+    on (load)        -> FEED_IN;
+    on (tray_id)     -> SETTLE_IN;
+    on (1)           -> EMPTY;
+}
+```
+
+Costs one extra cycle after init or reset (entry run, then the dispatch).
+
+### Manual / setup mode
+
+Setup mode is an ordinary state, not a feature of the block. Manual buttons
+latch into user variables; the state's `during` drives the outputs from them:
+
+```
+any { on (switch_setup) -> MANUAL; }
+
+state MANUAL {
+    during { stop_release = manu_release; }
+    on (!switch_setup) -> RESUME;
+}
+```
+
+The state pin shows MANUAL while in setup.
+
+### Faults
+
+A fault condition that must block a state's transitions becomes a state of its
+own instead of a guard repeated in every `on`. The message goes in `on_enter`,
+so it is logged once per occurrence without edge detection (`err_last`):
+
+```
+state FULL {
+    during { full = 1; }
+    on (!tray_present) -> FAULT_NO_TRAY;
+    on (target_empty)  -> FEED_OUT { target_load = 1; }
+}
+state FAULT_NO_TRAY {
+    on_enter { STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "..."); }
+    during   { err = 1; }
+    on (tray_present) -> FULL;
+}
+```
+
+### Decisions computed in the state
+
+Code that computes the next step (a helper returning a status, a planning
+loop) runs in `during`; an `on` item reacts to its result in the next cycle.
+There is no block that runs before the transitions; one cycle of latency is
+irrelevant for sequencing.
+
+### Requests from outside, child FSMs
+
+There is no goto from outside. A request is a flag that an `any` transition
+(or a state's `on`) consumes; the action clears it. A child FSM is started
+and observed through a go/done handshake in variables, the same way two
+components hand over through io pins.
+
+### Other timers
+
+The FSM timer measures time in the current state only. Watchdogs, timers that
+span several states, timers armed elsewhere or paused under a condition stay
+ordinary C timers in user code.
+
+### State in `option data`
+
+Lists accept pins and variables only. State, flags and timers kept in an
+`option data` struct move to `variable`s.
+
+### One signal from several FSMs
+
+An output belongs to one FSM. When two FSMs contribute to one signal (an
+error pin), each gets its own output and user code combines them:
+`err = flow_err || coil_err;`.
 
 ## Implementation
 
@@ -395,6 +499,22 @@ is used only by docgen, which adds a state table per FSM to the man page.
   generated output.
 - User documentation in `docs/src/hal/comp.adoc`.
 
+## Fit with existing code
+
+An estimate (October 2026) of what converting existing components would
+save, counted on FSM-related lines and sketched `fsm` blocks:
+
+| Code base | FSM lines | As `fsm` | Saved |
+|-----------|-----------|----------|-------|
+| stratuMAK tree (multiclick, eoffset_per_angle, carousel, moveoff, plasmac, ...) | ~2450 | ~2060 | ~340 |
+| CoatV2conf components (transp_*, coating_cam, coating_pnp, ...) | ~1640 | ~870 | ~770 |
+
+Most stratuMAK state machines are arithmetic behind a `switch`; outputs hold
+across states and the C stays. Only `multiclick` is a clean fit, and
+`plasmac`, `carousel` and `moveoff` should stay as they are. The CoatV2conf
+components are classic sequencers (wait for a signal, act, time out, hand
+over) and fit well once restructured along the [Patterns](#patterns).
+
 ## Design decisions
 
 - **Braces and explicit targets.** Indentation blocks don't fit a header made
@@ -417,6 +537,15 @@ is used only by docgen, which adds a state table per FSM to the man page.
 - **No HAL function binding.** FSMs mostly run alongside other logic in the
   same component, so the user calls `test_fsm()` from their own `FUNCTION`
   where it fits; exporting the FSM as a separate HAL function is not planned.
+- **Strict over convenient.** The goal is clean state machines, not covering
+  every existing one. Things the analysis of existing code asked for and that
+  have a clean idiom are not added as syntax: no block before the
+  transitions, no `on_init`/resume block (a dispatch state), no manual mode
+  (an ordinary state), no transition guard (a fault state), no external goto
+  (request flags), no timer hold or multi-state timers (user C timers).
+- **`timer_var` is always current.** It is written when the timer advances
+  and when a transition resets it, so conditions and `during` see the live
+  value; no separate elapsed-time accessor is needed.
 - **`.comp` only.** Not part of IEC 61131-3, so it stays out of `.st`; cgen
   only gets a generic hook.
 
