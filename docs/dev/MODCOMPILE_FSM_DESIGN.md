@@ -450,6 +450,28 @@ ordinary C timers in user code.
 Lists accept pins and variables only. State, flags and timers kept in an
 `option data` struct move to `variable`s.
 
+### Operating mode
+
+An operating mode spread over boolean flags (homing, running, error, re-init)
+is a state machine without a declared graph, and nothing prevents inconsistent
+flag combinations. It becomes an FSM of its own, and its `<fsm>_in()` macro
+enables the sequence FSMs:
+
+```
+fsm mode {
+    any { on (is_error) -> ERROR; }
+    state READY  { on (to_base) -> HOMING; on (go) -> RUNNING; }
+    state ERROR  { on (go) -> REINIT { init_all(); } }
+    state REINIT { on (init_done) -> READY; }
+    ...
+};
+
+fsm seq {
+    enable: (mode_in(RUNNING));
+    ...
+};
+```
+
 ### One signal from several FSMs
 
 An output belongs to one FSM. When two FSMs contribute to one signal (an
@@ -515,6 +537,14 @@ across states and the C stays. Only `multiclick` is a clean fit, and
 components are classic sequencers (wait for a signal, act, time out, hand
 over) and fit well once restructured along the [Patterns](#patterns).
 
+A PLC project in Structured Text (paint line portal, 173 POUs) was checked
+for comparison. Its sequences are numbered step chains in `IF/ELSIF`
+(`ELSIF step = 40 AND cond THEN actions; step := 50;`), which map one to one
+onto `on (cond) -> S50 { actions }`. The `AND Automatik` repeated in 60 step
+conditions is `enable`, the shared timer handshake used by about 15 steps is
+`timeout`, and the operating mode lives in boolean flags (see
+[Operating mode](#operating-mode)). Nothing new was needed.
+
 ## Design decisions
 
 - **Braces and explicit targets.** Indentation blocks don't fit a header made
@@ -543,6 +573,11 @@ over) and fit well once restructured along the [Patterns](#patterns).
   transitions, no `on_init`/resume block (a dispatch state), no manual mode
   (an ordinary state), no transition guard (a fault state), no external goto
   (request flags), no timer hold or multi-state timers (user C timers).
+- **No explicit state numbers.** States are numbered in source order. Code
+  that must show its own step numbers (e.g. 10, 20, 30 with gaps) assigns
+  them to a `u32` output in `during`.
+- **No single-step support.** Single-step mode is an edge detect on the step
+  button added to the `enable` expression: `enable: (go || step_edge);`.
 - **`timer_var` is always current.** It is written when the timer advances
   and when a transition resets it, so conditions and `during` see the live
   value; no separate elapsed-time accessor is needed.
