@@ -389,6 +389,11 @@ else:
     print("No tool loaded.")
 ----
 
+*ui_auto_disabled*:: '(returns boolean)' -
+  the task's `ui-auto-disable` pin is set: a UI should disable its program
+  flow controls (run, step, pause/resume, stopping a running program, optional
+  stop, block delete) while still showing their state.
+
 *velocity*:: '(returns float)' -
   This property is defined, but it does not have a useful interpretation.
 
@@ -626,11 +631,13 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
 
 === `linuxcnc.command` methods:
 
-`abort()`::
-  send EMC_TASK_ABORT message.
+`abort([force=False])`::
+  send EMC_TASK_ABORT message. Aborting a running or paused program is refused
+  while the task's `ui-auto-disable` pin is set, unless `force` is true.
 
-`auto(int[, int])`::
-  run, step, pause or resume a program.
+`auto(int[, int][, force=False])`::
+  run, step, pause or resume a program. Refused while the task's
+  `ui-auto-disable` pin is set, unless `force` is true.
 
 `brake(int)`::
   engage or release spindle brake.
@@ -719,8 +726,9 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
 `set_analog_output(int, float)`::
   set analog output pin to value
 
-`set_block_delete(int)`::
-  set block delete flag
+`set_block_delete(int[, force=False])`::
+  set block delete flag. Refused while the task's `ui-auto-disable` pin is
+  set, unless `force` is true.
 
 `set_digital_output(int, int)`::
   set digital output pin to value
@@ -737,8 +745,9 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
 `set_min_limit()`::
   set min position limit for a given axis
 
-`set_optional_stop(int)`::
-  set optional stop on/off
+`set_optional_stop(int[, force=False])`::
+  set optional stop on/off. Refused while the task's `ui-auto-disable` pin is
+  set, unless `force` is true.
 
 `set_spindle_override(int [, int])`::
   set spindle override enabled. Defaults to spindle 0.
