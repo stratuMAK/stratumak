@@ -299,6 +299,9 @@ see the <<gladevcp:embedding-tab,embedding a tab>> section of the GladeVCP Chapt
 * `EMBED_TAB_NAME = GladeVCP demo`
 * `EMBED_TAB_COMMAND = halcmd loadusr -Wn gladevcp gladevcp -c gladevcp -x \{XID\} -u ./gladevcp/hitcounter.py ./gladevcp/manual-example.ui`
 +
+In AXIS, `EMBED_TAB_COMMAND = webapp app/halshow/` embeds a page of the
+stratuMAK web server instead, see <<axis:webapp-panels,Web Application Panels>>.
++
 [NOTE]
 ====
 Different user interface programs use different options, and not every option is supported by every user interface.
@@ -340,6 +343,13 @@ See <<cha:gmoccapy,GMOCCAPY>> document for GMOCCAPY details.
 * `PYVCP_POSITION = BOTTOM` - The placement of the PyVCP panel in the AXIS user interface.
   If this variable is omitted the panel will default to the right side.
   The only valid alternative is `BOTTOM`. See the <<cha:pyvcp,PyVCP Chapter>> for more information.
+* `WEBAPP_PANEL = app/mypanel/` - A page of the stratuMAK web server shown as a side panel in AXIS,
+  named by its path below the server root.
+  See <<axis:webapp-panels,Web Application Panels>> for more information.
+* `WEBAPP_PANEL_POSITION = BOTTOM` - The placement of the web application panel in AXIS:
+  `RIGHT` (the default) or `BOTTOM`.
+* `WEBAPP_PANEL_SIZE = 300` - The width of a right, or the height of a bottom, web application panel in pixels.
+  The default is 300.
 * `LATHE = 1` - Any non-empty value (including "0") causes axis to use "lathe mode" with a top view and with Radius and Diameter on the DRO.
 * `BACK_TOOL_LATHE = 1` - Any non-empty value (including "0") causes axis to use "back tool lathe mode" with inverted X axis.
 * `FOAM = 1` - Any non-empty value (including "0") causes axis to change the display for foam-cutter mode.

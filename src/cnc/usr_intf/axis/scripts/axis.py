@@ -3273,10 +3273,14 @@ class TclCommands(nf.TclCommands):
         if len(event) > 0:
             vars.show_pyvcppanel.set(not vars.show_pyvcppanel.get())
 
-        if vars.show_pyvcppanel.get():
-            vcp_frame.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        else:
-            vcp_frame.grid_remove()
+        # Every side panel (pyvcp, webapp) toggles together. grid() with no
+        # options restores the placement grid_remove() remembered, so a
+        # BOTTOM panel comes back at the bottom.
+        for panel in side_panels:
+            if vars.show_pyvcppanel.get():
+                panel.grid()
+            else:
+                panel.grid_remove()
         o.tkRedraw()
 
     # The next three don't have 'manual_ok' because that's done in jog_on /
@@ -4623,6 +4627,10 @@ t.bind("<Button-4>", scroll_up)
 t.bind("<Button-5>", scroll_down)
 t.configure(state="disabled")
 
+# The pyvcp panel and the webapp panel ([DISPLAY]WEBAPP_PANEL); Ctrl-E and
+# View > Show PyVCP panel show and hide them together.
+side_panels = []
+
 if server_present == 1 :
     if vcp:
         import vcpparse
@@ -4633,11 +4641,7 @@ if server_present == 1 :
             f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
         # vcp is the resolved instance name from /info (gate above).
         vcpparse.create_vcp_rest(f, compname=vcp)
-        vcp_frame = f
-        root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
-        help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
-    else:
-        widgets.menu_view.delete(_("Show PyVCP pan_el").replace("_", ""))
+        side_panels.append(f)
 
 _dynamic_childs = {}
 
@@ -4733,6 +4737,82 @@ def destroy_splash():
     except Tkinter.TclError:
         pass
 
+# Webapp tabs and the webapp panel are stmakui (WebKit) processes embedded
+# into a Tk container frame. stmakui builds the URL from STMAK_REST_URL and the
+# configured path, so a page is named by its path below the server root
+# (app/halshow/), never by a full URL.
+WEBAPP_VIEWER = "stmakui"
+_webapp_embedded = False
+
+def _webapp_embed(parent, path, key):
+    """Embed the server page PATH into the Tk frame PARENT (filled entirely)."""
+    global _webapp_embedded
+    from subprocess import Popen
+    import shutil
+    if not shutil.which(WEBAPP_VIEWER):
+        # A build without webkit2gtk has no stmakui. Say so in place of the
+        # page rather than failing the whole GUI over one tab.
+        Tkinter.Label(parent, justify="left", wraplength=300,
+            text=_("Cannot show %s: %s is not installed "
+                   "(stratuMAK was built without webkit2gtk).")
+                 % (path, WEBAPP_VIEWER)).pack(padx=8, pady=8, anchor="nw")
+        return
+    f = Tkinter.Frame(parent, container=1, borderwidth=0, highlightthickness=0)
+    f.pack(fill="both", expand=1)
+    cmd = [WEBAPP_VIEWER, "--xid", str(f.winfo_id()), "--path", path]
+    _dynamic_childs[key] = (Popen(cmd), cmd, False)
+    _webapp_embedded = True
+
+def _webapp_panel(inifile):
+    """[DISPLAY]WEBAPP_PANEL: a server page as side panel, where pyvcp sits."""
+    path = inifile.find("DISPLAY", "WEBAPP_PANEL")
+    if not path:
+        return
+    position = (inifile.find("DISPLAY", "WEBAPP_PANEL_POSITION") or "RIGHT").upper()
+    try:
+        size = int(inifile.find("DISPLAY", "WEBAPP_PANEL_SIZE") or 300)
+    except ValueError:
+        print("Invalid [DISPLAY]WEBAPP_PANEL_SIZE, using 300")
+        size = 300
+    # The embedded view requests a size of its own, which a container frame
+    # would follow; the outer frame holds the configured size instead.
+    # Its own grid slot (column 5 / row 5) lets it sit beside a pyvcp panel.
+    if position == "BOTTOM":
+        outer = Tkinter.Frame(root_window, height=size)
+        outer.grid(row=5, column=0, columnspan=6, sticky="ew", padx=4, pady=4)
+    else:
+        if position != "RIGHT":
+            print("Invalid [DISPLAY]WEBAPP_PANEL_POSITION %r, using RIGHT" % position)
+        outer = Tkinter.Frame(root_window, width=size)
+        outer.grid(row=0, column=5, rowspan=6, sticky="ns", padx=4, pady=4)
+    outer.pack_propagate(False)
+    _webapp_embed(outer, path, "webapp_panel")
+    side_panels.append(outer)
+
+# Tk keeps the X input focus on its own focus window and never hands it to a
+# foreign embedded window, so stmakui takes the focus itself when its page is
+# clicked. This takes it back on a click into any Tk widget: a bind tag in
+# front of every widget's own tags, so no widget binding can "break" it off.
+# focus -force on the widget that already has the Tk focus re-asserts the X
+# focus without moving the Tk focus; the click's own bindings then move it as
+# usual.
+_WEBAPP_FOCUS_TCL = r"""
+proc webapp_reclaim_focus {w} {
+    set top [winfo toplevel $w]
+    set f [focus -lastfor $top]
+    if {$f eq ""} { set f $top }
+    focus -force $f
+}
+proc webapp_tag_focus {w} {
+    if {[lsearch -exact [bindtags $w] WebappFocus] < 0} {
+        bindtags $w [linsert [bindtags $w] 0 WebappFocus]
+    }
+    foreach c [winfo children $w] { webapp_tag_focus $c }
+}
+bind WebappFocus <ButtonPress> {webapp_reclaim_focus %W}
+webapp_tag_focus .
+"""
+
 def _dynamic_tab(name, text):
     tab = widgets.right.insert("end", name, text=text)
     tab.configure(borderwidth=1, highlightthickness=0)
@@ -4747,13 +4827,16 @@ def _dynamic_tabs(inifile):
         # Complain somehow
         return
 
-    # XXX: Set our root window ID in environment so child GladeVcp processes
-    # may forward keyboard events to it
-    rxid = root_window.winfo_id()
-    os.environ['AXIS_FORWARD_EVENTS_TO'] = str(rxid)
     for i,t,c in zip(list(range(len(tab_cmd))), tab_names, tab_cmd):
         w = _dynamic_tab("user_" + str(i), t)
-        if c.split()[0] == 'pyvcp': # this is a pycvp panel
+        if c.split()[0] == 'webapp': # a page of the stmakd web server
+            args = c.split()
+            if len(args) != 2:
+                print("Invalid webapp tab configuration: EMBED_TAB_COMMAND =", c)
+                print("Expected: webapp PATH")
+                continue
+            _webapp_embed(w, args[1], "user_" + str(i))
+        elif c.split()[0] == 'pyvcp': # this is a pycvp panel
             import vcpparse
             f = Tkinter.Frame(w, borderwidth=0, highlightthickness=0)
             pyvcp = c.split()
@@ -4935,7 +5018,18 @@ if os.path.exists(rcfile):
 if server_present == 1 :
     user_hal_pins()
 
+# Set our root window ID in environment so embedded child processes
+# (GladeVcp, stmakui) may forward keyboard events to it
+os.environ['AXIS_FORWARD_EVENTS_TO'] = str(root_window.winfo_id())
 _dynamic_tabs(inifile)
+_webapp_panel(inifile)
+if _webapp_embedded:
+    root_window.tk.eval(_WEBAPP_FOCUS_TCL)
+if side_panels:
+    root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
+    help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
+else:
+    widgets.menu_view.delete(_("Show PyVCP pan_el").replace("_", ""))
 if server_present == 1:
     check_dynamic_tabs()
 else:
