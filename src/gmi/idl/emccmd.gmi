@@ -48,6 +48,18 @@ enum SpindleCmd {
     SPINDLE_CONSTANT = 12
 }
 
+# ─── UI gate ───
+# The commands that steer a program's flow -- auto_cmd (run, step, pause,
+# resume, reverse, forward), abort while an AUTO program is running or paused,
+# set_optional_stop and set_block_delete -- take a `force` flag. While the
+# halui pin <prefix>.program.ui-disable is high they are refused unless
+# force is true: a machine integrator hands program flow to something other
+# than the operator's screen, and a UI that greys its buttons out is not
+# enough on its own (keyboard shortcuts, a second client, a stale view). UIs
+# never set force; a caller that owns program flow (a PLC bridge, a script,
+# a test) does. Omitting it in a REST body means false. halui pins are not
+# affected: they do not come through this API.
+
 # ─── Functions ───
 
 # Set task state (STATE_ESTOP, STATE_ON, etc.)
@@ -60,10 +72,11 @@ func set_state(state: i32) -> i32
 @path "/mode"
 func set_mode(mode: i32) -> i32
 
-# Auto program control (run, step, pause, resume, reverse, forward)
+# Auto program control (run, step, pause, resume, reverse, forward).
+# Gated by program.ui-disable unless force (see "UI gate" above).
 @method "POST"
 @path "/auto"
-func auto_cmd(cmd: AutoCmd, line: i32) -> i32
+func auto_cmd(cmd: AutoCmd, line: i32, force: bool) -> i32
 
 # Execute MDI command string
 @method "POST"
@@ -165,25 +178,27 @@ func brake(on: bool, spindle_num: i32 @min(0) @max(MAX_SPINDLE_INDEX)) -> i32
 @path "/lube"
 func lube(on: bool) -> i32
 
-# Abort current operation
+# Abort current operation. Gated by program.ui-disable unless force, but only
+# while an AUTO program is running or paused: stopping an MDI command, a jog
+# or homing is not program flow and stays available.
 @method "POST"
 @path "/abort"
-func abort() -> i32
+func abort(force: bool) -> i32
 
 # Synchronize task planner
 @method "POST"
 @path "/task-plan-synch"
 func task_plan_synch() -> i32
 
-# Set optional stop
+# Set optional stop. Gated by program.ui-disable unless force.
 @method "POST"
 @path "/optional-stop"
-func set_optional_stop(on: bool) -> i32
+func set_optional_stop(on: bool, force: bool) -> i32
 
-# Set block delete
+# Set block delete. Gated by program.ui-disable unless force.
 @method "POST"
 @path "/block-delete"
-func set_block_delete(on: bool) -> i32
+func set_block_delete(on: bool, force: bool) -> i32
 
 # Reload tool table from file (empty string = default table)
 @method "POST"

@@ -1,0 +1,17 @@
+halui.program.ui-disable takes program flow away from the UIs, and only from
+them.
+
+A machine that hands program flow to a PLC or a panel still runs AXIS for
+everything else, and a greyed-out button is not enough: keyboard shortcuts, a
+second client and a stale view all reach the same REST calls.  So emccmd
+refuses run, step, pause, resume, the abort of a running or paused program and
+the optional-stop and block-delete toggles while the pin is high, unless the
+caller passes force.
+
+What must keep working is checked as carefully as what is refused: halui's
+program pins, forced emccmd calls, the running program itself (the pin is not
+a feed hold), and an abort that stops an MDI move -- that is not program flow,
+and taking it away would leave the operator unable to stop a touch-off.
+
+The pin is linked from the config's own HAL file to prove it exists by the
+time that file runs.

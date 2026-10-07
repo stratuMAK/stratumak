@@ -105,12 +105,12 @@ func (t *Task) preflightSetState(target TaskState) error {
 
 // preflightSetMode mirrors SetMode's AUTO-running guard.
 func (t *Task) preflightSetMode(target TaskMode) error {
-	if target == ModeAuto && t.autoInhibited() {
-		t.operatorError("Cannot select AUTO while auto-inhibit is active")
+	if target == ModeAuto && t.programInhibited() {
+		t.operatorError("Cannot select AUTO while program.inhibit is active")
 		return ErrBusy
 	}
 	if target == ModeMDI && t.mdiInhibited() {
-		t.operatorError("Cannot select MDI while mdi-inhibit is active")
+		t.operatorError("Cannot select MDI while mdi.inhibit is active")
 		return ErrBusy
 	}
 	t.mu.Lock()
@@ -128,8 +128,8 @@ func (t *Task) preflightNotBusy(msg string) error {
 // lock-free early reject) and by autoCommand (the authoritative check). Must be
 // called with t.mu held; it does not release it.
 func (t *Task) autoRunGuardLocked() error {
-	if t.autoInhibited() {
-		t.operatorError("Cannot run a program while auto-inhibit is active")
+	if t.programInhibited() {
+		t.operatorError("Cannot run a program while program.inhibit is active")
 		return ErrBusy
 	}
 	if t.programBusy() {
@@ -158,8 +158,8 @@ func (t *Task) autoStepGuardLocked() error {
 	// folded into the idle branch below: a step is a way to start a program,
 	// and one that reached AUTO before the pin went active must not be able to
 	// inch forward either.
-	if t.autoInhibited() {
-		t.operatorError("Cannot step a program while auto-inhibit is active")
+	if t.programInhibited() {
+		t.operatorError("Cannot step a program while program.inhibit is active")
 		return ErrBusy
 	}
 	if err := t.requireProgram(); err != nil {
@@ -219,7 +219,7 @@ func (t *Task) preflightMDI() error {
 	// reach the machine through this same path, and an inhibit some MDI
 	// sources bypass would be worse than none.
 	if t.mdiInhibited() {
-		t.operatorError("Cannot issue an MDI command while mdi-inhibit is active")
+		t.operatorError("Cannot issue an MDI command while mdi.inhibit is active")
 		return ErrBusy
 	}
 	t.mu.Lock()

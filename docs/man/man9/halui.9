@@ -168,6 +168,16 @@ pin for requesting that block delete is off
 .B halui.program.block\-delete.on\fR bit in \fR
 pin for requesting that block delete is on
 .TP
+.B halui.program.inhibit\fR bit in \fR
+When TRUE, AUTO mode may not be selected and no program may be started --
+stepping one included, since a step starts a program too -- each refused with
+an operator error.
+Asserting it while a program is running (paused included) aborts that program.
+An MDI command in flight is left alone: the abort stops at AUTO.
+This refuses the run up front, instead of letting it start and then dropping
+the machine's enable -- which reaches the operator as an E\-stop they did not
+cause.
+.TP
 .B halui.program.is\-idle\fR bit out \fR
 status pin telling that no program is running
 .TP
@@ -201,25 +211,25 @@ pin for stepping in a program
 .B halui.program.stop\fR bit in \fR
 pin for stopping a program 
 (note: this pin does the same thing as halui.abort)
-
-.SS Inhibits
 .TP
-.B halui.auto\-inhibit\fR bit in \fR
-When TRUE, AUTO mode may not be selected and no program may be started --
-stepping one included, since a step starts a program too -- each refused with
-an operator error.
-Asserting it while a program is running (paused included) aborts that program.
-An MDI command in flight is left alone: the abort stops at AUTO.
-This refuses the run up front, instead of letting it start and then dropping
-the machine's enable -- which reaches the operator as an E\-stop they did not
-cause.
-.TP
-.B halui.mdi\-inhibit\fR bit in \fR
-When TRUE, MDI mode may not be selected and no MDI command may be issued,
-each refused with an operator error.
-Separate from halui.auto\-inhibit on purpose: an interlock that forbids running
-a program usually still has to allow the MDI routines an operator homes and
-touches off with.
+.B halui.program.ui\-disable\fR bit in \fR
+When TRUE, program flow is withheld from user interfaces. The \fBemccmd\fR
+commands that steer a program \(em \fBauto_cmd\fR (run, step, pause, resume,
+reverse, forward), \fBabort\fR while an AUTO program is running or paused,
+\fBset_optional_stop\fR and \fBset_block_delete\fR \(em are refused unless the
+caller passes \fBforce\fR=true. An abort that stops an MDI command, a jog or
+homing is not affected.
+Nothing is stopped or held: a running program carries on, and the
+halui.program.* pins keep working, as does any REST, WebSocket or in\-process
+\fBemccmd\fR caller that passes \fBforce\fR. Machine power and E\-stop are
+never affected.
+The state is published as \fBprogram_ui_disabled\fR in the \fBemcstat\fR
+buffer; AXIS greys out its run, step, pause/resume, stop, "Stop at M1" and
+"Skip lines with /" controls (toolbar, menu and keys) and keeps showing their
+state.
+This is not a safety interlock: the pin is sampled once per halui cycle, so a
+command racing its rising edge may still get through. To forbid AUTO outright,
+use halui.program.inhibit.
 
 .SS Mode
 .TP
@@ -253,9 +263,16 @@ pin for requesting MDI mode
 .B halui.mode.teleop\fR bit in \fR
 pin for requesting coordinated jog mode
 
-.SS MDI \fR(optional)
+.SS MDI
 .TP
-.B halui.mdi\-command\-XX\fR bit in
+.B halui.mdi.inhibit\fR bit in \fR
+When TRUE, MDI mode may not be selected and no MDI command may be issued,
+each refused with an operator error.
+Separate from halui.program.inhibit on purpose: an interlock that forbids
+running a program usually still has to allow the MDI routines an operator homes
+and touches off with.
+.TP
+.B halui.mdi\-command\-XX\fR bit in \fR(optional)
 \fBhalui\fR looks for INI variables named [HALUI]MDI_COMMAND, and
 exports a pin for each command it finds.  When the pin is driven TRUE,
 \fBhalui\fR runs the specified MDI command.  XX is a two digit number

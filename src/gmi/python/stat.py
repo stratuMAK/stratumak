@@ -250,7 +250,7 @@ class Stat:
         "command", "motion_line", "motion_file", "current_line",
         "read_line",
         "queued_mdi_commands", "optional_stop", "block_delete",
-        "auto_inhibit", "mdi_inhibit",
+        "program_inhibit", "mdi_inhibit", "program_ui_disabled",
         "task_paused", "g5x_index",
         # Motion
         "motion_mode", "enabled", "inpos", "paused", "feedrate",
@@ -348,8 +348,10 @@ class Stat:
             # Interlocks refusing AUTO / MDI before anything starts. Default
             # False so a UI written against these stays usable against a
             # controller that predates them.
-            "auto_inhibit": ("auto_inhibit", False),
+            "program_inhibit": ("program_inhibit", False),
             "mdi_inhibit": ("mdi_inhibit", False),
+            # Program flow withheld from UIs (halui program.ui-disable pin).
+            "program_ui_disabled": ("program_ui_disabled", False),
         }
         if name in _TASK_MAP:
             key, default = _TASK_MAP[name]

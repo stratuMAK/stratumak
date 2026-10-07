@@ -125,6 +125,10 @@ Toggle ESTOP.
 .TP
 \fBPower\fR
 Toggle machine power.
+.PP
+While the \fBhalui.program.ui\-disable\fR pin is high (see \fBhalui\fR(9)),
+\fBRun\fR, \fBPause\fR and \fBStep\fR are refused, and so is \fBStop\fR while
+a program is running or paused.
 
 .SH DISPLAY UNITS
 Positions are reported by the controller in millimetres regardless of
