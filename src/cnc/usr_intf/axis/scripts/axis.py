@@ -1105,10 +1105,10 @@ class LivePlotter:
         # Interlocks refusing AUTO / MDI. Published so update_state can grey
         # the controls out rather than leave a button whose command the
         # controller will refuse.
-        vupdate(vars.auto_inhibit, self.stat.auto_inhibit)
+        vupdate(vars.program_inhibit, self.stat.program_inhibit)
         vupdate(vars.mdi_inhibit, self.stat.mdi_inhibit)
-        # Program flow withheld from the UI (milltask ui-auto-disable pin).
-        vupdate(vars.ui_auto_disabled, self.stat.ui_auto_disabled)
+        # Program flow withheld from the UI (halui program.ui-disable pin).
+        vupdate(vars.program_ui_disabled, self.stat.program_ui_disabled)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
         # The title names what the operator opened; for a filtered program
@@ -1215,13 +1215,13 @@ This means this function returns True when the mdi tab is visible."""
     return s.interp_state == INTERP_IDLE or (s.task_mode == MODE_MDI and s.queued_mdi_commands < vars.max_queued_mdi_commands.get())
 
 def program_flow_locked():
-    """True while the task's ui-auto-disable pin withholds program flow.
+    """True while the halui program.ui-disable pin withholds program flow.
 
 update_state greys the toolbar buttons and menu entries out, but key bindings
 fire regardless, so every program-flow handler asks too. The controller
 refuses such a command anyway; asking here keeps a keypress from turning into
 an error message the operator can do nothing about."""
-    return bool(vars.ui_auto_disabled.get())
+    return bool(vars.program_ui_disabled.get())
 
 def program_running():
     """True while an AUTO program is running or paused (not MDI, not idle)."""
@@ -3617,9 +3617,9 @@ vars = nf.Variables(root_window,
     ("task_paused", IntVar),
     ("interp_state", IntVar),
     ("task_mode", IntVar),
-    ("auto_inhibit", IntVar),
+    ("program_inhibit", IntVar),
     ("mdi_inhibit", IntVar),
-    ("ui_auto_disabled", IntVar),
+    ("program_ui_disabled", IntVar),
     ("has_editor", IntVar),
     ("has_ladder", IntVar),
     ("ja_rbutton", StringVar),
@@ -4548,10 +4548,10 @@ try:
 except Exception:
     pass
 
-# Under ui-auto-disable the controller's settings stand; the stat update
+# Under program.ui-disable the controller's settings stand; the stat update
 # copies them into the toolbar instead.
 s.poll()
-if not s.ui_auto_disabled:
+if not s.program_ui_disabled:
     c.set_block_delete(vars.block_delete.get())
     c.set_optional_stop(vars.optional_stop.get())
 
@@ -4923,9 +4923,9 @@ for win in root_window, widgets.about_window, widgets.help_window:
     root_window.tk.call("wm", "iconphoto", win, *icons)
 
 vars.kinematics_type.set(s.kinematics_type)
-vars.auto_inhibit.set(0)
+vars.program_inhibit.set(0)
 vars.mdi_inhibit.set(0)
-vars.ui_auto_disabled.set(0)
+vars.program_ui_disabled.set(0)
 vars.max_queued_mdi_commands.set(int(inifile.find("TASK", "MDI_QUEUED_COMMANDS") or  10))
 
 def balance_ja():

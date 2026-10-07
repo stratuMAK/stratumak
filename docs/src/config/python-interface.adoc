@@ -314,6 +314,11 @@ machine angular units per deg, reflects [TRAJ]ANGULAR_UNITS INI value.
 *probing*:: '(returns boolean)' -
   flag, True if a probe operation is in progress.
 
+*program_ui_disabled*:: '(returns boolean)' -
+  the `halui.program.ui-disable` pin is set: a UI should disable its program
+  flow controls (run, step, pause/resume, stopping a running program, optional
+  stop, block delete) while still showing their state.
+
 *program_units*:: '(returns integer)' -
   one of CANON_UNITS_INCHES=1, CANON_UNITS_MM=2, CANON_UNITS_CM=3
 
@@ -388,11 +393,6 @@ if s.tool_table[0].id != 0: # a tool is loaded
 else:
     print("No tool loaded.")
 ----
-
-*ui_auto_disabled*:: '(returns boolean)' -
-  the task's `ui-auto-disable` pin is set: a UI should disable its program
-  flow controls (run, step, pause/resume, stopping a running program, optional
-  stop, block delete) while still showing their state.
 
 *velocity*:: '(returns float)' -
   This property is defined, but it does not have a useful interpretation.
@@ -633,11 +633,11 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
 
 `abort([force=False])`::
   send EMC_TASK_ABORT message. Aborting a running or paused program is refused
-  while the task's `ui-auto-disable` pin is set, unless `force` is true.
+  while the `halui.program.ui-disable` pin is set, unless `force` is true.
 
 `auto(int[, int][, force=False])`::
-  run, step, pause or resume a program. Refused while the task's
-  `ui-auto-disable` pin is set, unless `force` is true.
+  run, step, pause or resume a program. Refused while the
+  `halui.program.ui-disable` pin is set, unless `force` is true.
 
 `brake(int)`::
   engage or release spindle brake.
@@ -727,7 +727,7 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
   set analog output pin to value
 
 `set_block_delete(int[, force=False])`::
-  set block delete flag. Refused while the task's `ui-auto-disable` pin is
+  set block delete flag. Refused while the `halui.program.ui-disable` pin is
   set, unless `force` is true.
 
 `set_digital_output(int, int)`::
@@ -746,7 +746,7 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
   set min position limit for a given axis
 
 `set_optional_stop(int[, force=False])`::
-  set optional stop on/off. Refused while the task's `ui-auto-disable` pin is
+  set optional stop on/off. Refused while the `halui.program.ui-disable` pin is
   set, unless `force` is true.
 
 `set_spindle_override(int [, int])`::

@@ -13,4 +13,4 @@ net estop-out => iocontrol.emc-enable-in
 
 # Linked from a HALFILE, the way a machine hands program flow to a PLC: the
 # pin has to exist by the time this file runs, right after milltask's load.
-net ui-lock => milltask.ui-auto-disable
+net ui-lock => halui.program.ui-disable

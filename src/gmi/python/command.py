@@ -80,7 +80,7 @@ class Command:
     def auto(self, cmd: int, line: int = 0, force: bool = False):
         """Auto program control (AUTO_RUN, AUTO_STEP, AUTO_PAUSE, etc.).
 
-        Refused while the task's ui-auto-disable pin is set unless force is
+        Refused while the halui program.ui-disable pin is set unless force is
         true. A UI never passes force; a caller that owns program flow does.
         """
         return self._post("/auto",
@@ -193,8 +193,8 @@ class Command:
     def abort(self, force: bool = False):
         """Abort current operation.
 
-        Aborting a running or paused AUTO program is refused while the task's
-        ui-auto-disable pin is set unless force is true; any other abort
+        Aborting a running or paused AUTO program is refused while the halui
+        program.ui-disable pin is set unless force is true; any other abort
         (MDI, jog, homing) always goes through.
         """
         return self._post("/abort", {"force": bool(force)})
@@ -204,12 +204,12 @@ class Command:
         return self._post("/task-plan-synch")
 
     def set_optional_stop(self, on: bool, force: bool = False):
-        """Set optional stop (refused under ui-auto-disable unless force)."""
+        """Set optional stop (refused under program.ui-disable unless force)."""
         return self._post("/optional-stop",
                           {"on": bool(on), "force": bool(force)})
 
     def set_block_delete(self, on: bool, force: bool = False):
-        """Set block delete (refused under ui-auto-disable unless force)."""
+        """Set block delete (refused under program.ui-disable unless force)."""
         return self._post("/block-delete",
                           {"on": bool(on), "force": bool(force)})
 

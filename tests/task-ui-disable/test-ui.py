@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""milltask.ui-auto-disable takes program flow away from the UIs only.
+"""halui.program.ui-disable takes program flow away from the UIs only.
 
 While the pin is high, emccmd refuses run/step/pause/resume, the abort of a
 running program and the optional-stop and block-delete toggles unless the
@@ -28,9 +28,9 @@ def lock(value):
     subprocess.run(["halcmd", "sets", "ui-lock", "1" if value else "0"],
                    check=True)
     stmak_test.wait_stat(
-        s, lambda st: st.ui_auto_disabled == value,
-        "ui_auto_disabled to reach %s" % value,
-        detail=lambda st: "ui_auto_disabled=%s" % st.ui_auto_disabled)
+        s, lambda st: st.program_ui_disabled == value,
+        "program_ui_disabled to reach %s" % value,
+        detail=lambda st: "program_ui_disabled=%s" % st.program_ui_disabled)
 
 
 def pulse(pin):
@@ -49,7 +49,7 @@ def refused(what, fn, *args, **kw):
             stmak_test.fail("%s: HTTP %d, want 409" % (what, e.code))
         print("ok: %s refused" % what)
         return
-    stmak_test.fail("%s went through while ui-auto-disable was set" % what)
+    stmak_test.fail("%s went through while program.ui-disable was set" % what)
 
 
 def interp_is(states, desc):
@@ -69,8 +69,8 @@ c.wait_complete()
 stmak_test.wait_stat(s, lambda st: all(st.homed[:3]), "all joints homed")
 
 s.poll()
-if s.ui_auto_disabled:
-    stmak_test.fail("ui_auto_disabled is set with the pin low")
+if s.program_ui_disabled:
+    stmak_test.fail("program_ui_disabled is set with the pin low")
 c.set_optional_stop(False)
 c.set_block_delete(False)
 print("ok: toggles accepted with the pin low")

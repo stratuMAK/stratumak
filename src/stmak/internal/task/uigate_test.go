@@ -10,12 +10,12 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 )
 
-// wantGated asserts a refusal by the ui-auto-disable gate: a state fault (409,
+// wantGated asserts a refusal by the program.ui-disable gate: a state fault (409,
 // not a controller malfunction) that names the gate.
 func wantGated(t *testing.T, what string, err error) {
 	t.Helper()
-	if !errors.Is(err, errUIAutoDisabled) {
-		t.Fatalf("%s: err = %v, want the ui-auto-disable refusal", what, err)
+	if !errors.Is(err, errProgramUIDisabled) {
+		t.Fatalf("%s: err = %v, want the program.ui-disable refusal", what, err)
 	}
 	var f *apiserver.Fault
 	if !errors.As(err, &f) || f.Kind != apiserver.FaultState {
@@ -36,7 +36,7 @@ func TestUIGateToggles(t *testing.T) {
 		t.Fatalf("SetBlockDelete with the pin low: %v", err)
 	}
 
-	tk.setUIAutoDisabled(true)
+	tk.setProgramUIDisabled(true)
 	_, err := m.SetOptionalStop(false, false)
 	wantGated(t, "SetOptionalStop", err)
 	_, err = m.SetBlockDelete(true, false)
@@ -67,7 +67,7 @@ func TestUIGateToggles(t *testing.T) {
 func TestUIGateAuto(t *testing.T) {
 	tk, _, _ := newTestTask()
 	m := &milltaskModule{task: tk}
-	tk.setUIAutoDisabled(true)
+	tk.setProgramUIDisabled(true)
 
 	for name, cmd := range map[string]emccmd.AutoCmd{
 		"run": emccmd.AutoCmd_AUTO_RUN, "step": emccmd.AutoCmd_AUTO_STEP,
@@ -79,7 +79,7 @@ func TestUIGateAuto(t *testing.T) {
 	}
 	// Forced, the command reaches the task, which refuses it for its own reason
 	// (the machine is off), not for the gate.
-	if _, err := m.AutoCmd(emccmd.AutoCmd_AUTO_RUN, 0, true); errors.Is(err, errUIAutoDisabled) {
+	if _, err := m.AutoCmd(emccmd.AutoCmd_AUTO_RUN, 0, true); errors.Is(err, errProgramUIDisabled) {
 		t.Errorf("forced AutoCmd was refused by the gate: %v", err)
 	}
 }
@@ -88,7 +88,7 @@ func TestUIGateAbort(t *testing.T) {
 	tk, _, _ := newTestTask()
 	m := &milltaskModule{task: tk}
 	bringUp(t, tk)
-	tk.setUIAutoDisabled(true)
+	tk.setProgramUIDisabled(true)
 
 	// Nothing running: aborting an MDI command, a jog or homing is not program
 	// flow and stays available.
@@ -116,8 +116,8 @@ func TestUIGateAbort(t *testing.T) {
 
 func TestUIGateStat(t *testing.T) {
 	tk, _, _ := newTestTask()
-	tk.setUIAutoDisabled(true)
-	if !tk.BuildStat().Task.UiAutoDisabled {
-		t.Error("stat does not publish ui_auto_disabled")
+	tk.setProgramUIDisabled(true)
+	if !tk.BuildStat().Task.ProgramUiDisabled {
+		t.Error("stat does not publish program_ui_disabled")
 	}
 }

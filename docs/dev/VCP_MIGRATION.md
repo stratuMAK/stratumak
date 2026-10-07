@@ -88,12 +88,12 @@ enablement layer is needed — milltask validates at execution time and
 the error stream delivers rejection messages.
 
 Program-flow controls (run, step, pause/resume, stop of a running program,
-optional stop, block delete) must also honour `ui_auto_disabled`, the
-milltask `<instance>.ui-auto-disable` pin: disable the controls, keyboard
+optional stop, block delete) must also honour `program_ui_disabled`, the
+halui `<prefix>.program.ui-disable` pin: disable the controls, keyboard
 shortcuts included, but keep showing their state. A UI never passes `force`
 on those emccmd calls; the server refuses them without it, so a port that
 forgets the stat field gets refusals instead of working buttons. AXIS
-(`program_flow_locked()` in axis.py, `ui_auto_disabled` in axis.tcl) is the
+(`program_flow_locked()` in axis.py, `program_ui_disabled` in axis.tcl) is the
 reference.
 
 ### Widget State Persistence

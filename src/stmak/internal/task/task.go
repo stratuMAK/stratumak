@@ -470,20 +470,20 @@ type Task struct {
 	// by StartSequencer; atomic for the tests that read it.
 	seqTapping atomic.Bool
 
-	// autoInhibit mirrors the halui auto-inhibit pin, sampled once per monitor
-	// tick. Read by the AUTO guards, which run on command goroutines, so it is
+	// programInhibit mirrors the halui program.inhibit pin, sampled once per
+	// halui tick. Read by the AUTO guards, which run on command goroutines, so it is
 	// atomic rather than under t.mu: a stale-by-one-tick value is fine (the
 	// interlock it reflects is a physical condition, not a command race) and
 	// taking t.mu here would invert the lock order the guards already hold.
-	autoInhibit atomic.Bool
-	mdiInhibit  atomic.Bool
+	programInhibit atomic.Bool
+	mdiInhibit     atomic.Bool
 
-	// uiAutoDisabled mirrors the <instance>.ui-auto-disable pin, sampled once
-	// per monitor tick. Unlike autoInhibit it refuses nothing inside the task:
+	// programUIDisable mirrors the halui program.ui-disable pin, sampled once
+	// per halui tick. Unlike programInhibit it refuses nothing inside the task:
 	// the emccmd provider consults it to turn away program-flow commands that
 	// do not carry force, so UIs lose program flow while halui and forced
 	// callers keep it.
-	uiAutoDisabled atomic.Bool
+	programUIDisable atomic.Bool
 
 	// motionDispatched is true once a motion segment has been sent since the
 	// last completed drain. waitMotionDone applies its servo-settle skip only
@@ -757,16 +757,16 @@ func (t *Task) updateActiveCodes(interp Interpreter) (gc, mc []int32, st []float
 	return gc, mc, st
 }
 
-// setAutoInhibit records the halui auto-inhibit pin state.
-func (t *Task) setAutoInhibit(v bool) { t.autoInhibit.Store(v) }
+// setProgramInhibit records the halui program.inhibit pin state.
+func (t *Task) setProgramInhibit(v bool) { t.programInhibit.Store(v) }
 
-// autoInhibited reports whether AUTO is currently forbidden by the interlock.
-func (t *Task) autoInhibited() bool { return t.autoInhibit.Load() }
+// programInhibited reports whether AUTO is currently forbidden by the interlock.
+func (t *Task) programInhibited() bool { return t.programInhibit.Load() }
 
 // programRunning reports whether an AUTO program is mid-run, paused included:
 // a paused program resumes into the same cut, so an interlock has to stop it
 // too. The mode is tested as well as the interpreter state, because an MDI
-// command in flight also reads as InterpReading -- and auto-inhibit is
+// command in flight also reads as InterpReading -- and program.inhibit is
 // documented to leave MDI alone, so a rising edge must not abort a touch-off
 // move the operator is in the middle of. Takes t.mu and releases it before the
 // caller acts, so the caller can go on to take cmdMu without inverting the
@@ -780,14 +780,14 @@ func (t *Task) programRunning() bool {
 			t.interpState == InterpPaused)
 }
 
-// setMDIInhibit records the halui mdi-inhibit pin state.
+// setMDIInhibit records the halui mdi.inhibit pin state.
 func (t *Task) setMDIInhibit(v bool) { t.mdiInhibit.Store(v) }
 
 // mdiInhibited reports whether MDI is currently forbidden by the interlock.
 func (t *Task) mdiInhibited() bool { return t.mdiInhibit.Load() }
 
-// setUIAutoDisabled records the ui-auto-disable pin state.
-func (t *Task) setUIAutoDisabled(v bool) { t.uiAutoDisabled.Store(v) }
+// setProgramUIDisabled records the halui program.ui-disable pin state.
+func (t *Task) setProgramUIDisabled(v bool) { t.programUIDisable.Store(v) }
 
-// uiAutoDisabledNow reports whether program flow is withheld from UIs.
-func (t *Task) uiAutoDisabledNow() bool { return t.uiAutoDisabled.Load() }
+// programUIDisabled reports whether program flow is withheld from UIs.
+func (t *Task) programUIDisabled() bool { return t.programUIDisable.Load() }

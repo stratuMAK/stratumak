@@ -56,32 +56,6 @@ reference (use \fB(?:a|b)\fR instead of \fB[ab]x\fR), and \fB$NAME\fR / \fB${NAM
 is parsed as an environment reference (a trailing \fB$\fR anchor is fine).
 Anchored-prefix filters such as \fB^pnp\\.\fR avoid all of these pitfalls.
 .SH PINS
-.SS Task pins (INSTANCE == the milltask instance name, \fBmilltask\fR by default)
-These belong to a component named after the instance, which exists whether or
-not \fBhalui=\fR is given. It is created at load time, so the pins can be
-linked in a \fB[HAL]HALFILE\fR.
-.TP
-\fIINSTANCE\fB.ui-auto-disable\fR (bit, in)
-Withholds program flow from user interfaces. While it is high, the \fBemccmd\fR
-commands that steer a program \(em \fBauto_cmd\fR (run, step, pause, resume,
-reverse, forward), \fBabort\fR while an AUTO program is running or paused,
-\fBset_optional_stop\fR and \fBset_block_delete\fR \(em are refused unless the
-caller passes \fBforce\fR=true. An abort that stops an MDI command, a jog or
-homing is not affected.
-.IP
-The pin does not stop anything and does not hold the program: a running program
-carries on, and the \fBhalui\fR program pins (\fBhalui.program.run\fR,
-\fB.pause\fR, \fB.stop\fR, \fB.optional-stop.on\fR, ...) keep working, as does
-any REST, WebSocket or in-process \fBemccmd\fR caller that passes \fBforce\fR.
-Machine power and E-stop are never affected.
-.IP
-The state is published as \fBui_auto_disabled\fR in the \fBemcstat\fR buffer.
-AXIS greys out its run, step, pause/resume, stop, "Stop at M1" and "Skip lines
-with /" controls (toolbar, menu and keys) and keeps showing their state.
-.IP
-This is not a safety interlock: the pin is sampled once per task cycle, so a
-command racing its rising edge may still get through. To forbid AUTO outright,
-use \fBhalui.auto-inhibit\fR.
 .SS Per-joint pins (N == joint number)
 .TP
 \fBini.\fIN\fB.backlash

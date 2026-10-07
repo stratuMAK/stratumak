@@ -1,4 +1,4 @@
-milltask.ui-auto-disable takes program flow away from the UIs, and only from
+halui.program.ui-disable takes program flow away from the UIs, and only from
 them.
 
 A machine that hands program flow to a PLC or a panel still runs AXIS for

@@ -60,24 +60,24 @@ func (m *milltaskModule) AutoCmd(cmd emccmd.AutoCmd, line int32, force bool) (in
 	return rcFor(m.task.AutoCommand(int32(cmd), line))
 }
 
-// errUIAutoDisabled refuses a program-flow command that came without force
-// while <instance>.ui-auto-disable is high.
-var errUIAutoDisabled = errors.New("program control is disabled for UIs (ui-auto-disable)")
+// errProgramUIDisabled refuses a program-flow command that came without force
+// while the halui program.ui-disable pin is high.
+var errProgramUIDisabled = errors.New("program control is disabled for UIs (program.ui-disable)")
 
-// uiGate turns away a program-flow command while the ui-auto-disable pin is
+// uiGate turns away a program-flow command while the program.ui-disable pin is
 // high, unless the caller passed force. The gate lives here, at the emccmd
 // boundary, and not in the Task: halui reaches the Task directly and must keep
-// program flow, and so must the task's own aborts (auto-inhibit, estop).
+// program flow, and so must the task's own aborts (program.inhibit, estop).
 //
-// The pin is sampled once per monitor tick, so a command racing a rising edge
+// The pin is sampled once per halui tick, so a command racing a rising edge
 // can still get through; the pin hands program flow to someone else, it is not
-// a safety interlock (that is halui.auto-inhibit).
+// a safety interlock (that is program.inhibit).
 func (m *milltaskModule) uiGate(force bool) error {
-	if force || !m.task.uiAutoDisabledNow() {
+	if force || !m.task.programUIDisabled() {
 		return nil
 	}
 	m.task.operatorError("Program control from the user interface is disabled")
-	return apiserver.NewFault(apiserver.FaultState, errUIAutoDisabled)
+	return apiserver.NewFault(apiserver.FaultState, errProgramUIDisabled)
 }
 
 // rcFor maps a task result onto the (rc, error) pair the emccmd contract wants.
