@@ -503,7 +503,7 @@ If the component has a single function, the code after `;;` can be just that cal
 * 'inputs' - the pins and variables the `on` conditions read. Used for checks only.
 * 'outputs' - `out`/`io` pins and variables written to their default (`0` unless `= EXPR` is given) at the start of every run.
 * 'latched' - like 'outputs', but written to their default only on init and reset.
-* 'state_var' - an `out`/`io` `s32` or `u32` pin, or an integer variable, holding the state number.
+* 'state_var' - an `out` `s32` or `u32` pin, or an integer variable, holding the state number.
   States are numbered in source order from 0.
 * 'timer_var' - an `out`/`io` `float` pin, or a `double`/`float` variable, holding the time in the current state in seconds.
 
@@ -516,7 +516,7 @@ Defaults are C expressions evaluated every time they are applied.
 
 One call of `NAME();`:
 
-. Every 'outputs' entry is set to its default, including while reset or disabled.
+. The 'reset' expression is read, then every 'outputs' entry is set to its default, including while reset or disabled.
 . On the first run, and in every run in which 'reset' is true: the state becomes the initial state,
   the timer and 'timer_var' become 0, 'latched' entries their defaults, and an entry is marked pending.
   While 'reset' is true, the run ends here. No `on_exit` runs: a reset is not a transition.
@@ -533,13 +533,16 @@ One call of `NAME();`:
 
 An output written in `on_enter`, `on_exit` or an action is therefore a one-cycle pulse.
 An output that holds while in a state is written in `during`.
+Each block runs as a function of its own: `return` ends the block, and a transition still completes.
 
 === Timeouts
 
 `timeout (EXPR)` is in seconds and evaluated every cycle, so `timeout (delay)` follows a parameter.
 A value of 0 or less means no timeout.
 Number literals may carry a unit: `60s`, `250ms`, `10us`, `500ns`, so `timeout (hold_ns * 1ns)` takes a parameter in nanoseconds.
-The timer counts integer nanoseconds and does not drift.
+Units work only inside `timeout (...)`; a unit literal must not start with `0` (C would read `010s` as octal).
+The timer counts integer nanoseconds and does not drift; the timeout is rounded to whole nanoseconds,
+so a timeout that is a multiple of the thread period fires exactly on that cycle.
 A transition on 'timer_var' gives a timeout with more than one target:
 
 ----
@@ -547,7 +550,7 @@ on (elapsed >= delay && retry) -> RETRY;
 timeout (delay) -> FAULT;
 ----
 
-Since the timer and the timeout are floating point, a function running an `fsm` must not be declared `nofp`.
+Since the timer and the timeout are floating point, a function running an `fsm` with a `timeout` or 'timer_var' must not be declared `nofp`.
 
 === Generated names
 
@@ -556,17 +559,24 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 * `NAME_STATE` - the number of each state, as an enum constant.
 * `NAME_state_name(n)` - the name of state number `n`, for messages.
 
+Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
+with each other, with a declared name, with a C keyword or with a name the generated file defines
+(a state named `run`, a machine `feed` next to a pin `feed_in`, a machine named `fabs`) is an error.
+
 There is no way to set the state from outside: a request is a flag that an `on` item reacts to and the action clears.
 
 === Checks
 
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
 an entry written by more than one list or machine, an `on` condition reading one of the machine's outputs
-(they always hold their default there), and a targetless `timeout` without `any { timeout -> ...; }`.
+(they always hold their default there), a targetless `timeout` without `any { timeout -> ...; }`,
+colliding generated names, and unbalanced brackets in the C fragments (the message names the bracket left open;
+brackets inside `#if 0` count too).
 
 Warnings: an `on` condition reading a pin or variable that is not in 'inputs' or 'latched' (when 'inputs' is given; params are exempt),
-an input nothing reads, user code after `;;` assigning an output, 'state_var' or 'timer_var' (the machine overwrites it),
-unreachable states, states without a way out, and a machine that is never called.
+an input nothing reads, user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
+(the machine overwrites it), a machine's own blocks assigning its 'state_var' or 'timer_var',
+states not reachable from the initial state, states without a way out, and a machine that is never called.
 
 C fragments are copied with `#line` directives, so compiler errors point at the `.comp` line.
 The man page gets a STATE MACHINES section with a table of each machine's states and transitions.

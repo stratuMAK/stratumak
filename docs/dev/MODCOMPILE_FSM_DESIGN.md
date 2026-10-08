@@ -25,7 +25,16 @@ model in the servo thread; the user documentation is the "State machines"
 section of `docs/src/hal/comp.adoc`. `tests/multiclick-fsm` validates the
 implementation on a real component: an fsm rewrite of `multiclick` (a test
 copy; the shipped `multiclick.comp` is unchanged) runs on the inputs and
-expected output of `tests/multiclick`.
+expected output of `tests/multiclick`. `tests/modcompile-fsm-multi` covers
+two fsms in one component and the parts of the model the first runtest does
+not reach.
+
+A review of the implementation (October 2026) led to these changes, all
+reflected below: timeouts compare in whole nanoseconds; transition actions
+are helper functions like `on_enter`/`on_exit`/`during`; every generated
+name is checked for collisions; writes inside fsm blocks are checked like
+writes in the verbatim C; `state_var` must be an `out` pin; reachability is
+transitive; bracket errors name the bracket left open.
 
 ## Motivation
 
@@ -162,7 +171,7 @@ What a name may refer to:
 |------|---------|
 | `inputs` | `in`/`io` pins, variables, elements of either |
 | `outputs`, `latched` | `out`/`io` pins, variables, elements of either |
-| `state_var` | `out`/`io` `s32` or `u32` pin, integer variable |
+| `state_var` | `out` `s32` or `u32` pin, integer variable |
 | `timer_var` | `out`/`io` `float` pin, `double`/`float` variable |
 
 Pins that may not exist are not allowed in the written lists (`outputs`,
@@ -170,6 +179,9 @@ Pins that may not exist are not allowed in the written lists (`outputs`,
 condition, or an element of a personality-sized array. Such a pin has no
 storage when it is not created, and the FSM writes its list entries every
 cycle. In `inputs` they are allowed, since that list generates no code.
+
+`state_var` may not be an `io` pin: one could be set from outside, which is
+a `goto` around the declared graph.
 
 ### Array elements
 
@@ -207,6 +219,16 @@ every cycle, so a param change takes effect at once. A value `<= 0` means "no
 timeout". The timer itself counts integer nanoseconds from `period`, so it
 does not drift.
 
+The timeout is rounded to whole nanoseconds before it is compared with the
+timer, so a timeout that is a multiple of the period fires exactly on that
+cycle. Compared as a double, `0.3 * 1e9` is slightly above `300000000`, and
+a 300 ms timeout fired at 301 ms on a 1 ms period. A timeout of 292 years or
+more (beyond `int64` nanoseconds) never fires.
+
+Unit suffixes are rewritten only inside `timeout (...)`; anywhere else
+(`on (fsm_timer >= 5ms)`) they are a C error. A unit literal with a leading
+`0` (`010s`) is an error, since C would read it as octal.
+
 > Note: the discussion first proposed integer-nanosecond timeout expressions
 > (`1s` = `1000000000LL`). That makes `timeout (wait_s)` silently mean
 > nanoseconds, so the expression is in seconds instead.
@@ -218,8 +240,10 @@ exactly once per cycle; every call advances the timer by `period`.
 
 One run:
 
-1. **Outputs.** Every `outputs` entry is written to its default. This happens
-   in every run, including while reset or disabled.
+1. **Outputs.** The `reset` expression is evaluated first, so it sees the
+   outputs as the previous run left them. Then every `outputs` entry is
+   written to its default. This happens in every run, including while reset
+   or disabled.
 2. **Reset / init.** On the first run, and in every run in which `reset` is
    true: state = initial, timer = 0, every `latched` entry written to its
    default, `on_enter` marked pending. If `reset` is true the run ends here.
@@ -279,6 +303,21 @@ Consequences worth stating in the user documentation:
   default at that point, so this is a bug.
 - A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
 - Duplicate `on_enter` / `on_exit` / `during` / `timeout` in a state.
+- An `on` condition that reads an output array through a computed index
+  when every element of the array is an output. When only some are, it is
+  a warning naming them.
+- A generated name (see "Generated code") that collides with another
+  generated name, with a pin, param, variable or modparam, with a C keyword,
+  or with a name the generated file defines (`period`, `fperiod`,
+  `personality`, the `math.h` functions, ...). Examples: a state named
+  `run` (`<fsm>_run`), an fsm `feed` next to a pin `feed_in`, an fsm named
+  `if` or `fabs`. fsm names starting with `__` are reserved.
+- `state_var` an `io` pin; a timeout unit literal with a leading `0`.
+- Unbalanced brackets in captured C. The message names where the bracket
+  left open was opened; a `;` inside a condition outside braces is reported
+  as a missing `)`. Brackets are counted in all captured text, so code inside
+  `#if 0` must still balance. A `//` comment ending in a backslash is an
+  error: C continues it onto the next line, and the capture would not.
 
 ### Warnings
 
@@ -288,15 +327,24 @@ Consequences worth stating in the user documentation:
   not declared pins/params/variables (C functions, macros, enum constants,
   locals) are ignored, which keeps the check free of false positives.
   Skipped when the FSM has no `inputs` list.
-- **Unread input:** an `inputs` entry that does not appear in any condition,
-  action, `during` block or output default.
-- **Write outside the FSM:** the verbatim C after `;;` assigns an FSM output
-  (`=`, compound assignment, `++`, `--`). The value is overwritten on the next
-  run. Heuristic: writes through pointers or macros are not found.
-- Unreachable state (no incoming transition, not initial).
+- **Unread input:** an `inputs` entry that does not appear in any piece of
+  the fsm's C: conditions, actions, `on_enter`/`on_exit`/`during`, defaults,
+  and the `reset`, `enable` and `timeout` expressions.
+- **Write outside the FSM:** the verbatim C after `;;` assigns an FSM output,
+  `state_var` or `timer_var` (`=`, compound assignment, `++`, `--`). An
+  output and `timer_var` are overwritten on the next run; the state changes
+  only through transitions. The blocks of one fsm are checked the same way
+  against every other fsm, and against their own fsm's `state_var` and
+  `timer_var` (an fsm's own outputs are its to write). Heuristic: writes
+  through pointers or macros are not found.
+- Unreachable state: not reached from the initial state along the
+  transitions. `any` `on` items lead out of every reachable state; the `any`
+  `timeout` only out of reachable states whose `timeout` has no target.
 - State without a way out (no own `on`/`timeout` and no `any` transition
   leading elsewhere).
 - `test_fsm()` never called in the verbatim C.
+- Every function is `nofp`, and an fsm with a `timeout` or `timer_var` (the
+  floating-point parts of the generated code) is run from one of them.
 
 The `timeout`, `reset` and `enable` expressions are not part of the
 sensitivity check.
@@ -365,11 +413,17 @@ out:
 ```
 
 The implementation differs from this sketch in form, not behaviour:
-`on_enter`, `on_exit` and `during` are per-state helper functions
-(`test_fsm_enter_IDLE()`, ...), so there are no `goto`s and a `return` in
-a block only ends that block; transition actions run inside
-`do { } while (0)` so a stray `break` cannot leave the generated `switch`.
+`on_enter`, `on_exit`, `during` and transition actions are helper functions
+(`__fsm_test_fsm_enter_IDLE()`, `__fsm_test_fsm_action_0()`, ...), so there
+are no `goto`s, a `return` in a block only ends that block (a transition
+still completes), and a stray `break` cannot leave the generated `switch`.
+The timeout comparison is
+`__to > 0 && __to < 9.2e9 && timer >= (int64_t)(__to * 1e9 + 0.5)`.
 `cgen/testdata/fsm.c` is the authoritative output.
+
+Names the user sees: the enum constants `<fsm>_<STATE>`, `<fsm>_run`,
+`<fsm>_state_name`, and the macros `<fsm>()` and `<fsm>_in()`. Everything
+else is prefixed `__fsm_<fsm>_`, which is reserved.
 
 - State numbers follow source order, starting at 0. `initial` does not
   renumber.
@@ -533,6 +587,11 @@ is used only by docgen, which adds a state table per FSM to the man page.
 - Parser and check unit tests, a cgen golden test, a corpus entry.
 - `tests/multiclick-fsm`: an fsm rewrite of `multiclick` as a test copy,
   checked against `tests/multiclick`'s expected output.
+- `tests/modcompile-fsm-multi`: two fsms in one component, `any` against a
+  state's own `on`, the `any` timeout, a timeout in ms re-read every cycle
+  (including `<= 0`, and one a double comparison fired late), expression
+  defaults, a hidden `state_var`, `initial` other than the first state, and
+  `_in()` / `_state_name()` across fsms.
 - A runtest that drives a test component through the execution model in the
   servo thread: init, reset held/released, disable freezing state and timer,
   `any` priority and self-target skipping, timeout last, pulse outputs.
@@ -609,7 +668,9 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
 2. Which function calls an fsm is not tracked, so the floating-point check
    only warns when every function is `nofp`.
 3. The fsm timeout fires at `timer >= timeout`; the hand-written
-   `multiclick` uses `timer > timeout`. With timeouts that are a multiple of
-   the period (its 250 ms defaults at 1 ms) the fsm rewrite fires one
-   period earlier. The runtest's timings are not multiples and match cycle
-   for cycle.
+   `multiclick` uses `timer > timeout`. Every timeout that is a multiple of
+   the period (its 250 ms defaults at 1 ms) fires one period earlier in the
+   fsm rewrite; others fire on the same cycle. The runtest's timings are not
+   multiples and match cycle for cycle. `multiclick_fsm.comp` lists this and
+   its other differences from the original.
+4. CI does not run the byte-identical `.comp` gate; it is run by hand.
