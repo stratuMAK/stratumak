@@ -15,6 +15,7 @@ pin out bit entered "on_enter pulse, any state";
 pin out bit exited "on_exit pulse of RUN";
 pin out bit acted "transition action pulse";
 pin out bit busy "held by RUN's during";
+pin out bit tail "set by RUN's during after its early return on ack";
 pin out s32 runs "latched: entries into RUN since reset";
 
 param rw float delay = 0.0035;
@@ -23,7 +24,7 @@ function _;
 
 fsm seq {
     inputs:    go, abort, ack;
-    outputs:   entered, exited, acted, busy;
+    outputs:   entered, exited, acted, busy, tail;
     latched:   runs;
     reset:     (rst);
     enable:    (en);
@@ -42,7 +43,7 @@ fsm seq {
     state RUN {
         on_enter { entered = 1; runs++; }
         on_exit  { exited = 1; }
-        during   { busy = 1; }
+        during   { busy = 1; if (ack) return; tail = 1; }
         on (!go) -> IDLE;
         timeout (delay) -> DONE;
     }

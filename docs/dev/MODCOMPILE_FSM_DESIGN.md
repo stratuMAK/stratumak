@@ -662,7 +662,9 @@ is used only by docgen, which adds a state table per FSM to the man page.
   `_in()` / `_state_name()` across fsms.
 - A runtest that drives a test component through the execution model in the
   servo thread: init, reset held/released, disable freezing state and timer,
-  `any` priority and self-target skipping, timeout last, pulse outputs.
+  `any` priority and self-target skipping, timeout last, pulse outputs, the
+  entry run not advancing the timer, and a `return` that leaves `during`
+  early.
 - The byte-identical `.comp` gate, run by hand against `main` while the
   branch was open: no existing `.comp` may change one byte of generated
   output.
@@ -743,5 +745,3 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
    fsm rewrite; others fire on the same cycle. The runtest's timings are not
    multiples and match cycle for cycle. `multiclick_fsm.comp` lists this and
    its other differences from the original.
-4. That the entry run does not advance the timer is not observable on a pin
-   and has no runtest. Neither has a `return` that leaves `during` early.

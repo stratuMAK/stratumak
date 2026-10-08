@@ -53,6 +53,18 @@
 0 0 0 0 1
 0 0 0 0 1
 0 0 0 0 1
-# padding past samples=36
+# reset with go low: the entry run does not advance the timer, IDLE counts from 0
+0 0 0 1 1
+0 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+# IDLE -> RUN; ack makes RUN's during return before it sets tail
+1 0 0 0 1
+1 0 1 0 1
+1 0 1 0 1
+1 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+# padding past samples=46
 0 0 0 0 1
 0 0 0 0 1
