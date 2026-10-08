@@ -12,14 +12,16 @@ assignments.
 | 1 | Scanner + parser for `fsm` blocks, AST description | ✅ Done |
 | 2 | Semantic checks (names, directions, graph, sensitivity) | ✅ Done |
 | 3 | C lowering + generic cgen hook | ✅ Done |
-| 4 | docgen state table | ⬜ Open |
+| 4 | docgen state table | ✅ Done |
 | 5 | Runtests, `comp.adoc` user documentation | ⬜ Open |
 
-Slices 1-3 landed: `fsm` blocks parse into `comp/fsm.go`'s structure, are
+Slices 1-4 landed: `fsm` blocks parse into `comp/fsm.go`'s structure, are
 checked in `comp/fsm_check.go` (identifier scans share `comp/ctok.go`),
 lowered in `comp/fsm_lower.go` to `ast.Component.GenPrologue`/`GenEpilogue`
-and described in `ast.Component.FSMs`. The golden output for the example
-below is `cgen/testdata/fsm.c`.
+and described in `ast.Component.FSMs`, which docgen renders as a STATE
+MACHINES section with one table per fsm. The golden output for the example
+below is `cgen/testdata/fsm.c`. `multiclick` is converted and passes its
+runtest against the unchanged expected output.
 
 ## Motivation
 
