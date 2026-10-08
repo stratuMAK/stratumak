@@ -1,0 +1,9 @@
+component array_names "Each array element gets its own HAL name";
+pin in bit in_##[3];
+pin out float x.#.y[2];
+pin out s32 out-#[4:personality];
+param rw s32 p_#[2];
+function _;
+license "GPL";
+;;
+FUNCTION(_) { }

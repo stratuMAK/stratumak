@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/comp"
 )
 
@@ -269,5 +270,39 @@ FUNCTION(_) { }
 	}
 	if !strings.Contains(out, `? 16 : 10`) {
 		t.Errorf("int modparam not parsed as hex-or-decimal; generated:\n%s", out)
+	}
+}
+
+// Each element of an array pin or param gets its own HAL name: the run of '#'
+// becomes the index, zero-padded to the run's length.  A name without a run
+// gave every element the same name, so the module failed at load time; the
+// backend refuses one even when the AST did not come from the .comp parser.
+func TestGenerate_ArrayElementNames(t *testing.T) {
+	out := gen(t, `component tc "t";
+pin in bit in_##[12];
+pin out float x.#.y[3:personality];
+param rw s32 p-#[2];
+pin in bit scalar_;
+function _;
+license "GPL";
+;;
+FUNCTION(_) { }
+`)
+	for _, want := range []string{
+		`"%s.in-%02d", name, j);`,
+		`"%s.x.%01d.y", name, j);`,
+		`"%s.p-%01d", name, j);`,
+		`"%s.scalar", name);`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated C lacks %q", want)
+		}
+	}
+
+	pkg := &ast.Package{Component: ast.Component{Name: "tc",
+		Pins: []ast.Pin{{Pos: ast.Pos{File: "tc.comp", Line: 2, Col: 12}, Name: "in", ArraySize: 4}}}}
+	err := Generate(&bytes.Buffer{}, pkg)
+	if want := `tc.comp:2:12: pin array name "in" has no '#'`; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Generate error = %v, want it to contain %q", err, want)
 	}
 }

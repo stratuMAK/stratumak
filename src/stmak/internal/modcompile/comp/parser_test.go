@@ -119,6 +119,34 @@ license "GPL";
 	}
 }
 
+// An array's name needs exactly one run of '#' for the element index, and a
+// scalar's none (halcompile's checkarray).  Without the run every element got
+// the same HAL name and the module failed to load; the error must name the
+// declaration's place in the .comp.
+func TestParseArrayNameHashes(t *testing.T) {
+	for _, tc := range []struct {
+		decl, want string
+	}{
+		{"pin in bit in[4];", `test.comp:2:12: pin array name "in" has no '#'`},
+		{"pin out float out_[2:personality];", `test.comp:2:15: pin array name "out_" has no '#'`},
+		{"param rw s32 gain[3] = 1;", `test.comp:2:14: param array name "gain" has no '#'`},
+		{"pin in bit in-#.#[4];", `test.comp:2:12: pin array name "in-#.#" has more than one block of '#'`},
+		{"param r float p##-##[2];", `test.comp:2:15: param array name "p##-##" has more than one block of '#'`},
+		{"pin in bit in-#;", `test.comp:2:12: pin name "in-#" has a '#' but is not an array`},
+		{"param rw bit p#;", `test.comp:2:14: param name "p#" has a '#' but is not an array`},
+	} {
+		src := "component test \"test\";\n" + tc.decl + "\nfunction _;\nlicense \"GPL\";\n;;\n"
+		_, err := Parse("test.comp", src)
+		if err == nil {
+			t.Errorf("%s: accepted", tc.decl)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error %q, want it to contain %q", tc.decl, err, tc.want)
+		}
+	}
+}
+
 func TestParseOptions(t *testing.T) {
 	src := `component test "test";
 pin out bit x;
