@@ -1,0 +1,68 @@
+// Second runtest component for fsm blocks: two fsms in one component, and
+// the parts of the execution model fsm_test.comp does not reach.  Every
+// behaviour shows up on a pin; input-signals says what each cycle checks.
+component fsm_multi "fsm block runtest, two fsms";
+
+pin in bit trig;
+pin in bit go;
+pin in bit sel "drives fsm b";
+pin in float to_ms "timeout of state W in ms, read every cycle";
+
+pin out s32 astate;
+pin out s32 code "output with an expression default; 1 in W";
+pin out s32 via "action pulse: 1 = any on, 2 = S's own on";
+pin out s32 cnt "latched, default 10: entries into Z";
+pin out s32 bstate "b's hidden state through b_in(): 1 = P, 2 = Q";
+pin out bit wname "a_state_name() of a's state starts with W";
+
+function _;
+
+fsm a {
+    inputs:    trig, go;
+    outputs:   code = 3 + 4, via;
+    latched:   cnt = 10;
+    state_var: astate;
+
+    any {
+        on (trig && go) -> X { via = 1; }
+        timeout -> Z;
+    }
+
+    state S {
+        on (trig) -> W { via = 2; return; }  /* ends only the action */
+        on (go) -> W;
+    }
+
+    state W {
+        during { code = 1; }
+        on (!go) -> S;
+        timeout (to_ms * 1ms);      /* <= 0: none; else any timeout */
+    }
+
+    state X {
+        on (!trig) -> S;
+    }
+
+    state Z {
+        on_enter { cnt++; }
+        on (!go) -> S;
+    }
+};
+
+// No state_var, initial not the first state, and enabled only while a is in
+// W: its state is frozen otherwise.
+fsm b {
+    inputs:  sel;
+    enable:  (a_in(W));
+    initial: Q;
+
+    state P { on (sel) -> Q; }
+    state Q { on (!sel) -> P; }
+};
+
+;;
+
+a();
+b();
+bstate = b_in(P) ? 1 : b_in(Q) ? 2 : 0;
+wname = a_state_name(astate)[0] == 'W';

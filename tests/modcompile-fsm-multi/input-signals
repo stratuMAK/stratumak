@@ -1,0 +1,36 @@
+# columns: trig go sel to_ms
+# a: S=0 W=1 X=2 Z=3; b: bstate 1 = P, 2 = Q
+# first run: a in S, b initialised to Q (initial: Q) though disabled
+0 0 1 0
+# any on and S's own on both true: the any item wins (via 1, X)
+1 1 1 0
+1 1 1 0
+# X -> S; sel 0 while b is disabled: b frozen in Q
+0 1 0 0
+# S -> W: b enabled, its pending entry runs, no transition yet
+0 1 1 0
+# timeouts <= 0 never fire; the timer keeps counting (1 ms, 2 ms)
+0 1 1 0
+0 1 1 -1
+# to_ms 9 from now on; b: Q -> P, P, P -> Q
+0 1 0 9
+0 1 0 9
+0 1 1 9
+0 1 1 9
+0 1 1 9
+0 1 1 9
+# 9 ms in W exactly: any timeout -> Z, on_enter cnt 10 -> 11 (latched)
+0 1 1 9
+# b disabled again: sel 0 does not move it
+0 1 0 9
+# Z -> S
+0 0 0 9
+# only S's own on is true: via 2, W, though its action returns early
+1 0 1 9
+# W -> S
+1 0 1 9
+0 0 1 0
+0 0 1 0
+# padding past samples=20
+0 0 1 0
+0 0 1 0

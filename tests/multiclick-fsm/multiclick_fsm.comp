@@ -4,10 +4,20 @@
 //   component for LinuxCNC.
 //
 //   Test copy of src/hal/components/multiclick.comp with the state machine
-//   rewritten as an fsm block.  It validates the fsm implementation and must
-//   behave exactly like the original: tests/multiclick-fsm runs it on the
-//   inputs and expected output of tests/multiclick.  The shipped component
-//   stays unchanged.
+//   rewritten as an fsm block.  It validates the fsm implementation:
+//   tests/multiclick-fsm runs it on the inputs and expected output of
+//   tests/multiclick, where it matches the original cycle for cycle.  The
+//   shipped component stays unchanged.
+//
+//   Outside those inputs it differs from the original in four ways:
+//   - a timeout that is an exact multiple of the period fires one period
+//     earlier: the fsm fires at timer >= timeout, the original at
+//     timer > timeout (the defaults, 250 ms at 1 ms, are such multiples);
+//   - the first run only enters IDLE, so a press already there in the
+//     first cycle is acted on one cycle later;
+//   - the function is not nofp, since timeouts are floating point;
+//   - the timeouts are read from the params every cycle; the original
+//     fixes them when it enters a state.
 //
 //   Copyright 2012 Sebastian Kuzminsky <seb@highlab.com>
 //
