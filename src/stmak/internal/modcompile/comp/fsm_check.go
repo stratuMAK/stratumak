@@ -79,6 +79,16 @@ var integerCTypes = map[string]bool{
 	"hal_s32_t": true, "hal_u32_t": true, "stmak_hal_s32_t": true, "stmak_hal_u32_t": true,
 }
 
+// smallIntMax is the largest state number the narrow integer types hold;
+// the wider ones hold any number of states.  char counts as signed, as it
+// is on x86.
+var smallIntMax = map[string]int{
+	"char": 127, "int8_t": 127, "rtapi_s8": 127,
+	"uint8_t": 255, "rtapi_u8": 255,
+	"short": 32767, "int16_t": 32767, "rtapi_s16": 32767,
+	"uint16_t": 65535, "rtapi_u16": 65535,
+}
+
 // ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------
@@ -156,6 +166,10 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 			s.Kind == symVar && integerCTypes[s.CType]
 		if !ok {
 			return errf("%s is %s; need an out s32/u32 pin or an integer variable", r.Name, withArticle(s.describe()))
+		}
+		if max, small := smallIntMax[s.CType]; small && s.Kind == symVar && len(f.States)-1 > max {
+			return errf("%s is %s, which holds state numbers up to %d; the fsm has %d states",
+				r.Name, s.CType, max, len(f.States))
 		}
 		if s.Kind == symPin && s.Dir != ast.PinOut {
 			// An io pin could be set from outside: a goto around the
@@ -664,9 +678,10 @@ func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, uses []cUse, src 
 }
 
 // checkUserCode scans the verbatim C after ';;' and the fsm blocks for
-// writes to what the fsms own, for fsms that are never run, and for fsms
-// with floating point run from a nofp function.
-func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
+// writes to what the fsms own, for fsms that run each other in a cycle, for
+// fsms that are never run, and for fsms with floating point run from a nofp
+// function.
+func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) error {
 	o := newOwnership(fsms)
 	byName := map[string]*fsmDecl{}
 	for _, f := range fsms {
@@ -698,11 +713,22 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 			uses := cUses(frag.Text)
 			c.checkWrites(o, f, uses, frag.Text, frag.Pos)
 			for _, u := range uses {
-				if g := isCall(u); g != nil && g != f {
+				if g := isCall(u); g != nil {
 					edges = append(edges, edge{f, g})
 				}
 			}
 		}
+	}
+	if err := callCycle(fsms, func(f *fsmDecl) []*fsmDecl {
+		var to []*fsmDecl
+		for _, e := range edges {
+			if e.from == f {
+				to = append(to, e.to)
+			}
+		}
+		return to
+	}); err != nil {
+		return err
 	}
 
 	src := c.comp.VerbatimC
@@ -743,7 +769,8 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 		called := callers[f] != nil
 		for _, e := range edges {
 			// Called by an fsm that is never called: that one is warned
-			// about.
+			// about.  There are no cycles (see callCycle), so following
+			// the calls back always ends at an fsm that is warned.
 			called = called || e.to == f
 		}
 		if !called {
@@ -752,19 +779,17 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 	}
 
 	// The timer and timeouts are floating point.
-	fns := map[string]*ast.Function{}
 	allNoFP := len(c.comp.Functions) > 0
-	for i := range c.comp.Functions {
-		fn := &c.comp.Functions[i]
-		fns[fn.Name] = fn
+	for _, fn := range c.comp.Functions {
 		allNoFP = allNoFP && !fn.FP
 	}
 	for _, f := range fsms {
 		if !f.usesFP() {
 			continue
 		}
-		for name := range callers[f] {
-			if fn := fns[name]; fn != nil && !fn.FP {
+		// In declaration order, so the output is the same on every run.
+		for i := range c.comp.Functions {
+			if fn := &c.comp.Functions[i]; callers[f][fn.Name] && !fn.FP {
 				c.warn(fn.Pos, "function %s is nofp, but runs fsm %s, which uses floating point "+
 					"(timeout, timer_var)", fn.Name, f.Name)
 			}
@@ -773,6 +798,57 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 			c.warn(f.Pos, "fsm %s uses floating point (timeout, timer_var), but every function is nofp", f.Name)
 		}
 	}
+	return nil
+}
+
+// callCycle returns an error naming the first cycle of fsms that run each
+// other, an fsm running itself included: the calls would recurse without
+// end in the realtime thread.
+func callCycle(fsms []*fsmDecl, runs func(*fsmDecl) []*fsmDecl) error {
+	const (
+		unseen = iota
+		onPath
+		done
+	)
+	mark := map[*fsmDecl]int{}
+	var path []*fsmDecl
+	var visit func(f *fsmDecl) error
+	visit = func(f *fsmDecl) error {
+		mark[f] = onPath
+		path = append(path, f)
+		for _, g := range runs(f) {
+			switch mark[g] {
+			case onPath:
+				var names []string
+				for i := len(path) - 1; i >= 0; i-- {
+					if path[i] == g {
+						for _, p := range path[i:] {
+							names = append(names, p.Name)
+						}
+						break
+					}
+				}
+				names = append(names, g.Name)
+				return fmt.Errorf("%s: fsm %s: fsms run each other (%s); the calls would recurse without end",
+					f.Pos, f.Name, strings.Join(names, " -> "))
+			case unseen:
+				if err := visit(g); err != nil {
+					return err
+				}
+			}
+		}
+		path = path[:len(path)-1]
+		mark[f] = done
+		return nil
+	}
+	for _, f := range fsms {
+		if mark[f] == unseen {
+			if err := visit(f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // functionBody is the range of the verbatim C a FUNCTION(name) { ... }
@@ -839,6 +915,5 @@ func (p *parser) checkFSMs() error {
 	if err := c.checkNames(p.fsms); err != nil {
 		return err
 	}
-	c.checkUserCode(p.fsms)
-	return nil
+	return c.checkUserCode(p.fsms)
 }

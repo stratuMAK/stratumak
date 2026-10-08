@@ -199,14 +199,20 @@ func matching(toks []ctok, i int) int {
 }
 
 // cUses lists every identifier use in src.  Names after '.' or '->' are
-// members, not identifiers of the component, and are left out.
+// members, not identifiers of the component, and are left out, and so is
+// the operand of sizeof, which is not evaluated.
 func cUses(src string) []cUse { return usesOf(cTokenize(src)) }
 
 // usesOf is cUses on tokenized text.
 func usesOf(toks []ctok) []cUse {
 	var uses []cUse
+	skip := -1 // last token of a sizeof operand
 	for i, t := range toks {
-		if t.Kind != ctIdent {
+		if i <= skip || t.Kind != ctIdent {
+			continue
+		}
+		if t.Text == "sizeof" {
+			skip = sizeofEnd(toks, i)
 			continue
 		}
 		if i > 0 && toks[i-1].Kind == ctPunct && (toks[i-1].Text == "." || toks[i-1].Text == "->") {
@@ -237,6 +243,24 @@ func usesOf(toks []ctok) []cUse {
 		uses = append(uses, u)
 	}
 	return uses
+}
+
+// sizeofEnd returns the index of the last token of the operand of the
+// sizeof at toks[i]: a parenthesized expression or type, or a name with its
+// subscripts and calls (sizeof buf[0]).
+func sizeofEnd(toks []ctok, i int) int {
+	j := i + 1
+	if j >= len(toks) {
+		return i
+	}
+	if toks[j].Kind == ctPunct && toks[j].Text == "(" {
+		return matching(toks, j)
+	}
+	end := j
+	for end+1 < len(toks) && toks[end+1].Kind == ctPunct && (toks[end+1].Text == "[" || toks[end+1].Text == "(") {
+		end = matching(toks, end+1)
+	}
+	return end
 }
 
 // offsetPos returns the source position of byte off in text, which starts

@@ -575,7 +575,8 @@ There is no way to set the state from outside: a request is a flag that an `on` 
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
 an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
 (they always hold their default there), an 'inputs' entry listed twice or also in 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
-colliding generated names, and unbalanced brackets in the C fragments (the message names the bracket left open;
+colliding generated names, machines that run each other (the calls would recurse),
+a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).
 
 Warnings: an `on` condition reading a pin or variable that is not in 'inputs' or 'latched' (when 'inputs' is given; params are exempt),
@@ -583,6 +584,8 @@ an input nothing reads, user code after `;;` or another machine's blocks assigni
 (the machine overwrites it), a machine's own blocks assigning its 'state_var' or 'timer_var',
 states not reachable from the initial state, states without a way out, an `any` item that can never fire
 (a `timeout` no state uses, an `on` whose target is the only reachable state), and a machine that is never called.
+
+The operand of `sizeof` is not a read.
 
 C fragments are copied with `#line` directives, so compiler errors point at the `.comp` line.
 The man page gets a STATE MACHINES section with a table of each machine's states and transitions.

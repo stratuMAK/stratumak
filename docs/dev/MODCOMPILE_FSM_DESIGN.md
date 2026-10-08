@@ -45,7 +45,10 @@ error, accepted every integer C type for `state_var`, kept gcc's columns
 right after a rewritten unit literal, treated an array read as a whole as a
 read of every element, named the element pin of an array `state_var` in the
 man page, and shared the comment and literal skipping between the tokenizer
-and the scanner.
+and the scanner. Its follow-up made fsms that run each other an error,
+checked narrow `state_var` types against the number of states, left the
+operand of `sizeof` out of the reads, and put the `nofp` warnings in
+declaration order.
 
 ## Motivation
 
@@ -345,6 +348,12 @@ Consequences worth stating in the user documentation:
 - `state_var` an `io` pin; a timeout integer literal with a leading `0`
   (`010s`, `010`), or a unit on a number that is not decimal (`0x10s`).
 - An expression or default that holds only comments (`on (/* x */)`).
+- fsms that run each other in a cycle, an fsm running itself included
+  (`m` calls `n()` in a block and `n` calls `m()`): the calls would recurse
+  without end in the realtime thread.
+- A `state_var` variable of a narrow type that cannot number every state
+  (`int8_t`/`char` up to 128 states, `uint8_t` 256, 16-bit types 32768 and
+  65536).
 - Unbalanced brackets in captured C. The message names where the bracket
   left open was opened; a `;` inside a condition outside braces is reported
   as a missing `)`. Brackets are counted in all captured text, so code inside
@@ -376,7 +385,8 @@ Consequences worth stating in the user documentation:
   leading elsewhere).
 - `test_fsm()` never called: neither in the verbatim C nor in another fsm's
   blocks (a child fsm run from its parent's `during`). A child whose parent
-  is never called is not reported again.
+  is never called is not reported again; since cycles are an error, every
+  such child has a parent that is reported.
 - An `any` `timeout` that no state uses (no `timeout` without a target), and
   an `any` `on` that cannot fire because its target is the only reachable
   state.
@@ -385,14 +395,16 @@ Consequences worth stating in the user documentation:
   `FUNCTION(name) { ... }` body holding it, through parent fsms, and to the
   one function when the verbatim C has no `FUNCTION` (cgen wraps it). A call
   from a helper of the user's cannot be attributed; it is reported, at the
-  fsm, when every function is `nofp`.
+  fsm, when every function is `nofp`. The warnings come in the order the
+  functions are declared.
 
 The `timeout`, `reset` and `enable` expressions are not part of the
 sensitivity check.
 
 All identifier scans share one C tokenizer: strings, char literals and
 comments are skipped, and names after `.` or `->` (member access) are not
-identifiers of the component. The tokenizer, `CaptureC` and the header
+identifiers of the component. The operand of `sizeof` is not evaluated and
+is not a read. The tokenizer, `CaptureC` and the header
 scanner step over comments and literals with the same helpers; only what
 they do at the end differs (`CaptureC` reports an unterminated literal or a
 `//` comment ending in a backslash, the header scanner does not splice).
