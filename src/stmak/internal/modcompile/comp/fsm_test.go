@@ -3,6 +3,7 @@
 package comp
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -326,6 +327,12 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"header prefix", `fsm hal { state A { } };`, "hal_in would be the state test macro of fsm hal, but names starting with hal_ are reserved"},
 		{"header macro prefix", `fsm CMOD { state ABI_VERSION { } };`,
 			"CMOD_in would be the state test macro of fsm CMOD, but names starting with CMOD_ are reserved"},
+		{"fsms run each other", `fsm m { state A { during { n(); } } }; fsm n { state X { during { m(); } } };`,
+			"fsm n: fsms run each other (m -> n -> m); the calls would recurse without end"},
+		{"fsm runs itself", `fsm m { state A { on_enter { m(); } } };`,
+			"fsm m: fsms run each other (m -> m)"},
+		{"state_var too narrow", "variable int8_t sv; fsm m { state_var: sv; " + manyStates(129) + " };",
+			"state_var: sv is int8_t, which holds state numbers up to 127; the fsm has 129 states"},
 		{"state named in", `fsm m { state in { } };`,
 			"m_in would be the constant of state in of fsm m, but it is already the state test macro of fsm m"},
 		{"enable reads output", `fsm m { outputs: out1; enable: (out1); state A { } };`, "enable reads output out1"},
@@ -525,6 +532,10 @@ fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> 
 			[]string{"t.comp:31:1: fsm par: par() is never called"}},
 		{"whole array read", `fsm m { inputs: in1, iarr[0], iarr[1]; state A { on (in1) -> B { out1 = sum(iarr); } } state B { on (!in1) -> A; } };`,
 			"m();", nil},
+		// sizeof does not read: not an output read, not an unlisted input.
+		{"sizeof", `fsm m { inputs: in1; outputs: outs(0), outs(1), outs(2);
+state A { on (in1 && sizeof outs(0) > 0 && sizeof iarr > 0) -> B; } state B { on (!in1) -> A; } };`,
+			"m();", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pkg := parseFSMSrc(t, checkHeader+tc.body+"\n;;\n"+tc.code+"\n")
@@ -532,6 +543,59 @@ fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> 
 				t.Errorf("warnings %q, want %q", pkg.Warnings, tc.want)
 			}
 		})
+	}
+}
+
+// manyStates returns n states in a chain, S0 -> S1 -> ... -> S0.
+func manyStates(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "state S%d { on (in1) -> S%d; } ", i, (i+1)%n)
+	}
+	return b.String()
+}
+
+// A narrow state_var type is accepted up to the states it can number.
+func TestFSMStateVarRange(t *testing.T) {
+	for _, tc := range []struct {
+		typ string
+		n   int
+		ok  bool
+	}{
+		{"uint8_t", 256, true}, {"uint8_t", 257, false},
+		{"char", 128, true}, {"char", 129, false},
+		{"int16_t", 300, true}, {"int", 300, true},
+	} {
+		src := checkHeader + "variable " + tc.typ + " sv; fsm m { state_var: sv; " + manyStates(tc.n) + "};\n;;\nm();\n"
+		_, err := Parse("t.comp", src)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s with %d states: err %v, want ok %v", tc.typ, tc.n, err, tc.ok)
+		}
+	}
+}
+
+// The nofp warnings come in the order the functions are declared, the same
+// on every run.
+func TestFSMNoFPWarningOrder(t *testing.T) {
+	src := fsmHeader + `function f2 nofp;
+function f1 nofp;
+fsm m { state A { timeout (1s) -> B; } state B { timeout (1s) -> A; } };
+;;
+FUNCTION(_) { }
+FUNCTION(f1) { m(); }
+FUNCTION(f2) { m(); }
+`
+	var first []string
+	for i := 0; i < 20; i++ {
+		pkg := parseFSMSrc(t, src)
+		if i == 0 {
+			first = pkg.Warnings
+			if len(first) != 2 || !strings.Contains(first[0], "function f2 is nofp") || !strings.Contains(first[1], "function f1 is nofp") {
+				t.Fatalf("warnings %q, want f2 then f1", first)
+			}
+		} else if !reflect.DeepEqual(pkg.Warnings, first) {
+			t.Fatalf("run %d: warnings %q, first run %q", i, pkg.Warnings, first)
+		}
 	}
 }
 

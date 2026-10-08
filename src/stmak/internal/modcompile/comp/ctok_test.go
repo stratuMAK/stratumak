@@ -2,7 +2,10 @@
 // License: GPL Version 2
 package comp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The skippers shared by the tokenizer, CaptureC and the header scanner.
 func TestSkipCommentsAndLiterals(t *testing.T) {
@@ -38,5 +41,16 @@ func TestScannerLineCommentNotSpliced(t *testing.T) {
 	sc := NewScanner("f", "// note \\\npin in bit x;")
 	if tok := sc.Next(); tok.Val != "pin" || tok.Pos.Line != 2 {
 		t.Errorf("got %s at %s", tok, tok.Pos)
+	}
+}
+
+// The operand of sizeof is not evaluated, so it is not a use.
+func TestCUsesSkipsSizeof(t *testing.T) {
+	var got []string
+	for _, u := range cUses("sizeof buf + sizeof(buf[0]) + sizeof b2[1][2] + sizeof (int) + y + f(sizeof c)") {
+		got = append(got, u.Name)
+	}
+	if want := "y f"; strings.Join(got, " ") != want {
+		t.Errorf("uses %q, want %q", got, want)
 	}
 }
