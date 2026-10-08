@@ -344,6 +344,17 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 	for _, d := range f.Outputs {
 		outputs.add(d.fsmRef)
 	}
+	seenInput := map[string]bool{}
+	for _, r := range f.Inputs {
+		if seenInput[r.String()] {
+			return fmt.Errorf("%s: fsm %s: inputs: %s is listed twice", r.Pos, f.Name, r)
+		}
+		seenInput[r.String()] = true
+		if hit, _ := outputs.match(cUse{Name: r.Name, Kind: r.Kind, Index: r.Index}); hit {
+			return fmt.Errorf("%s: fsm %s: inputs: %s is an output of this fsm, which conditions "+
+				"always read as its default", r.Pos, f.Name, r)
+		}
+	}
 	for _, r := range f.Inputs {
 		sensitive.add(r)
 	}
@@ -355,7 +366,27 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			sensitive.add(*r)
 		}
 	}
+	// The expressions evaluated after the outputs are written: conditions,
+	// enable and timeouts.  Only conditions take part in the sensitivity
+	// check.
+	type readExpr struct {
+		frag cfrag
+		what string
+	}
+	var exprs []readExpr
 	for _, cond := range f.conditions() {
+		exprs = append(exprs, readExpr{cond, "condition"})
+	}
+	if f.Enable != nil {
+		exprs = append(exprs, readExpr{*f.Enable, "enable"})
+	}
+	for _, s := range f.States {
+		if s.Timeout != nil {
+			exprs = append(exprs, readExpr{s.Timeout.Expr, "timeout"})
+		}
+	}
+	for _, e := range exprs {
+		cond, what := e.frag, e.what
 		for _, u := range cUses(cond.Text) {
 			s := c.syms[u.Name]
 			if s == nil || s.Kind == symParam {
@@ -364,8 +395,8 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			pos := offsetPos(cond.Pos, cond.Text, u.Off)
 			hit, computed := outputs.match(u)
 			if hit {
-				return fmt.Errorf("%s: fsm %s: condition reads output %s, which always holds its "+
-					"default here", pos, f.Name, useString(u))
+				return fmt.Errorf("%s: fsm %s: %s reads output %s, which always holds its "+
+					"default here", pos, f.Name, what, useString(u))
 			}
 			if computed {
 				// Every element an output: the read is one for certain.
@@ -374,14 +405,14 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 					elems = append(elems, r.String())
 				}
 				if len(elems) == s.Array {
-					return fmt.Errorf("%s: fsm %s: condition reads %s, and every element of %s is an "+
-						"output, which always holds its default here", pos, f.Name, useString(u), u.Name)
+					return fmt.Errorf("%s: fsm %s: %s reads %s, and every element of %s is an "+
+						"output, which always holds its default here", pos, f.Name, what, useString(u), u.Name)
 				}
-				c.warn(pos, "fsm %s: condition reads %s with a computed index; of its elements, "+
-					"the outputs %s always hold their default here", f.Name, useString(u), strings.Join(elems, ", "))
+				c.warn(pos, "fsm %s: %s reads %s with a computed index; of its elements, "+
+					"the outputs %s always hold their default here", f.Name, what, useString(u), strings.Join(elems, ", "))
 				continue
 			}
-			if f.Inputs == nil {
+			if f.Inputs == nil || what != "condition" {
 				continue
 			}
 			hit, computed = sensitive.match(u)
@@ -421,11 +452,24 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		}
 		e := s.Timeout.Expr
 		for _, t := range cTokenize(e.Text) {
+			if t.Kind != ctNumber {
+				continue
+			}
+			pos := offsetPos(e.Pos, e.Text, t.Off)
 			m := timeUnitRe.FindStringSubmatch(t.Text)
-			if t.Kind == ctNumber && m != nil && octalRe.MatchString(m[1]) {
+			if m == nil && strings.HasSuffix(t.Text, "s") {
+				// No C number ends in 's': a unit on a hex or suffixed
+				// number.
+				return fmt.Errorf("%s: fsm %s: timeout literal %s: a unit needs a decimal number",
+					pos, f.Name, t.Text)
+			}
+			if m != nil && octalRe.MatchString(m[1]) {
+				digits := strings.TrimLeft(m[1], "0")
+				if digits == "" {
+					digits = "0"
+				}
 				return fmt.Errorf("%s: fsm %s: timeout literal %s has a leading 0, which C reads as "+
-					"octal; write %s%s", offsetPos(e.Pos, e.Text, t.Off), f.Name, t.Text,
-					strings.TrimLeft(m[1], "0"), m[2])
+					"octal; write %s%s", pos, f.Name, t.Text, digits, m[2])
 			}
 		}
 	}
@@ -466,6 +510,22 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 			} else {
 				todo = append(todo, f.AnyTimeout.Target)
 			}
+		}
+	}
+	usedAnyTimeout := false
+	for _, s := range f.States {
+		usedAnyTimeout = usedAnyTimeout || s.Timeout != nil && s.Timeout.Trans == nil
+	}
+	if f.AnyTimeout != nil && !usedAnyTimeout {
+		c.warn(f.AnyTimeout.Pos, "fsm %s: any timeout is never used: no state has a timeout "+
+			"without a target", f.Name)
+	}
+	for _, t := range f.AnyOn {
+		// Skipped in its target state: it never fires when that is the
+		// only state the machine reaches.
+		if len(reached) == 1 && reached[t.Target] {
+			c.warn(t.Pos, "fsm %s: any on -> %s never fires: %s is the only reachable state",
+				f.Name, t.Target, t.Target)
 		}
 	}
 	for _, s := range f.States {
@@ -522,19 +582,24 @@ func newOwnership(fsms []*fsmDecl) ownership {
 	return o
 }
 
-// match returns the owned entry write u hits, and whether the hit is only
-// possible (a computed index).
-func (o ownership) match(u cUse) (*ownedRef, bool) {
+// match returns the owned entry write u by writer hits, and whether the hit
+// is only possible (a computed index).  writer's own outputs are its to
+// write and are passed over; an exact hit wins over a possible one.
+func (o ownership) match(u cUse, writer *fsmDecl) (*ownedRef, bool) {
+	var maybe *ownedRef
 	for i := range o[u.Name] {
 		r := &o[u.Name][i]
+		if r.f == writer && r.role == "output" {
+			continue
+		}
 		if r.Kind == refScalar || r.Kind == u.Kind && r.Index == u.Index {
 			return r, false
 		}
-		if r.Kind == u.Kind && u.Index < 0 {
-			return r, true
+		if r.Kind == u.Kind && u.Index < 0 && maybe == nil {
+			maybe = r
 		}
 	}
-	return nil, false
+	return maybe, maybe != nil
 }
 
 // consequence says what happens to a write to an owned entry.
@@ -557,8 +622,8 @@ func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, src string, base 
 		if !u.Write || c.syms[u.Name] == nil {
 			continue
 		}
-		r, maybe := o.match(u)
-		if r == nil || r.f == writer && r.role == "output" {
+		r, maybe := o.match(u, writer)
+		if r == nil {
 			continue
 		}
 		owner := "fsm " + r.f.Name

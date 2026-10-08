@@ -92,10 +92,12 @@ func (l *fsmLowering) expr(c cfrag) {
 
 // helperFn emits a helper function holding a user block.  As a function of
 // its own, a return in the block ends only the block, and a stray break or
-// continue cannot reach the generated switch.
+// continue cannot reach the generated switch.  It is marked unused: some
+// are never called (the on_exit of a state without a way out, the action of
+// an any item that never fires), which the checks warn about instead.
 func (l *fsmLowering) helperFn(name, comment string, blk *cfrag) {
 	l.epi.gen("/* %s */\n", comment)
-	l.epi.gen("static void %s(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;\n", name)
+	l.epi.gen("static void %s(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));\n", name)
 	l.epi.gen("static void %s(inst_t *__comp_inst, long period) {\n", name)
 	l.epi.gen("    (void)__comp_inst; (void)period;\n")
 	l.epi.user(*blk)
@@ -115,7 +117,7 @@ func (l *fsmLowering) transition(indent string, from *fsmState, t *fsmTrans) {
 	l.epi.gen("%s%s = %s;\n", indent, f.stateVarName(), f.enumName(t.Target))
 	l.epi.gen("%s%s_timer = 0;\n", indent, f.hidden())
 	if f.TimerVar != nil {
-		l.epi.gen("%s%s = 0;\n", indent, f.TimerVar.Name)
+		l.epi.gen("%s%s = 0;\n", indent, f.TimerVar.String())
 	}
 	if f.state(t.Target).Enter != nil {
 		l.epi.gen("%s%s(__comp_inst, period);\n", indent, f.helperName("enter", t.Target))
@@ -149,7 +151,8 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		pre.gen("    %s = %d,\n", f.enumName(s.Name), i)
 	}
 	pre.gen("};\n")
-	pre.gen("static void %s_run(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;\n", n)
+	// Unused when the fsm is never called; the check warns about that.
+	pre.gen("static void %s_run(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));\n", n)
 	pre.gen("static const char *%s_state_name(int s) STMAK_NONBLOCKING __attribute__((unused));\n", n)
 	pre.gen("#define %s() %s_run(__comp_inst, period)\n", n, n)
 	// The parameter has a reserved name: one spelled like the fsm name
@@ -250,7 +253,7 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	epi.gen("        %s = %s;\n", stateVar, f.enumName(f.initialState()))
 	epi.gen("        %s_timer = 0;\n", hid)
 	if f.TimerVar != nil {
-		epi.gen("        %s = 0;\n", f.TimerVar.Name)
+		epi.gen("        %s = 0;\n", f.TimerVar.String())
 	}
 	writeDefaults("        ", f.Latched)
 	epi.gen("        %s_enter = 1;\n", hid)
@@ -273,7 +276,7 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	// 5. Timer.
 	epi.gen("        %s_timer += period;\n", hid)
 	if f.TimerVar != nil {
-		epi.gen("        %s = %s_timer * 1e-9;\n", f.TimerVar.Name, hid)
+		epi.gen("        %s = %s_timer * 1e-9;\n", f.TimerVar.String(), hid)
 	}
 
 	// 6. Transitions, first match fires.

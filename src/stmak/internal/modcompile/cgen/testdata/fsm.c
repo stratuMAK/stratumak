@@ -102,7 +102,7 @@ enum test_fsm_state {
     test_fsm_TIMEOUT = 2,
     test_fsm_FAULT = 3,
 };
-static void test_fsm_run(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void test_fsm_run(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));
 static const char *test_fsm_state_name(int s) STMAK_NONBLOCKING __attribute__((unused));
 #define test_fsm() test_fsm_run(__comp_inst, period)
 #define test_fsm_in(__fsm_st) ((fsm_state) == test_fsm_ ## __fsm_st)
@@ -134,7 +134,7 @@ static const char *test_fsm_state_name(int s) {
 }
 
 /* IDLE: on_enter */
-static void __fsm_test_fsm_enter_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_enter_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));
 static void __fsm_test_fsm_enter_IDLE(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 34 "testdata/fsm.comp"
@@ -143,7 +143,7 @@ static void __fsm_test_fsm_enter_IDLE(inst_t *__comp_inst, long period) {
 }
 
 /* IDLE: on_exit */
-static void __fsm_test_fsm_exit_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_exit_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));
 static void __fsm_test_fsm_exit_IDLE(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 35 "testdata/fsm.comp"
@@ -152,7 +152,7 @@ static void __fsm_test_fsm_exit_IDLE(inst_t *__comp_inst, long period) {
 }
 
 /* WAIT_RELEASE: during */
-static void __fsm_test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));
 static void __fsm_test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 41 "testdata/fsm.comp"
@@ -161,7 +161,7 @@ static void __fsm_test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period)
 }
 
 /* IDLE: timeout -> TIMEOUT (testdata/fsm.comp:37:9) */
-static void __fsm_test_fsm_action_0(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_action_0(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));
 static void __fsm_test_fsm_action_0(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 37 "testdata/fsm.comp"

@@ -30,7 +30,7 @@ func (f *fsmDecl) helperName(kind, state string) string {
 // stateVarName returns the C expression holding the state.
 func (f *fsmDecl) stateVarName() string {
 	if f.StateVar != nil {
-		return f.StateVar.Name
+		return f.StateVar.String()
 	}
 	return f.hidden() + "_state"
 }
@@ -73,37 +73,41 @@ func (f *fsmDecl) actionName(k int) string { return fmt.Sprintf("%s_action_%d", 
 type genName struct {
 	Name, What string
 	Pos        ast.Pos
+	// Tag is set for the enum tag, which lives in C's tag namespace: it
+	// clashes with macros and declared names, not with the other names.
+	Tag bool
 }
 
 // generatedNames lists every identifier the lowering defines for f.
 func (f *fsmDecl) generatedNames() []genName {
 	n := f.Name
 	names := []genName{
-		{n, "the call macro of fsm " + n, f.Pos},
-		{n + "_in", "the state test macro of fsm " + n, f.Pos},
-		{n + "_run", "the run function of fsm " + n, f.Pos},
-		{n + "_state_name", "the state name function of fsm " + n, f.Pos},
-		{f.hidden() + "_init", "a hidden variable of fsm " + n, f.Pos},
-		{f.hidden() + "_enter", "a hidden variable of fsm " + n, f.Pos},
-		{f.hidden() + "_timer", "a hidden variable of fsm " + n, f.Pos},
+		{n, "the call macro of fsm " + n, f.Pos, false},
+		{n + "_in", "the state test macro of fsm " + n, f.Pos, false},
+		{n + "_run", "the run function of fsm " + n, f.Pos, false},
+		{n + "_state_name", "the state name function of fsm " + n, f.Pos, false},
+		{n + "_state", "the enum tag of fsm " + n, f.Pos, true},
+		{f.hidden() + "_init", "a hidden variable of fsm " + n, f.Pos, false},
+		{f.hidden() + "_enter", "a hidden variable of fsm " + n, f.Pos, false},
+		{f.hidden() + "_timer", "a hidden variable of fsm " + n, f.Pos, false},
 	}
 	if f.StateVar == nil {
-		names = append(names, genName{f.stateVarName(), "a hidden variable of fsm " + n, f.Pos})
+		names = append(names, genName{f.stateVarName(), "a hidden variable of fsm " + n, f.Pos, false})
 	}
 	for _, s := range f.States {
-		names = append(names, genName{f.enumName(s.Name), fmt.Sprintf("the constant of state %s of fsm %s", s.Name, n), s.Pos})
+		names = append(names, genName{f.enumName(s.Name), fmt.Sprintf("the constant of state %s of fsm %s", s.Name, n), s.Pos, false})
 		for _, h := range []struct {
 			kind string
 			blk  *cfrag
 		}{{"enter", s.Enter}, {"exit", s.Exit}, {"during", s.During}} {
 			if h.blk != nil {
 				names = append(names, genName{f.helperName(h.kind, s.Name),
-					fmt.Sprintf("the %s helper of state %s of fsm %s", h.kind, s.Name, n), s.Pos})
+					fmt.Sprintf("the %s helper of state %s of fsm %s", h.kind, s.Name, n), s.Pos, false})
 			}
 		}
 	}
 	for k, a := range f.actions() {
-		names = append(names, genName{f.actionName(k), "an action helper of fsm " + n, a.T.Pos})
+		names = append(names, genName{f.actionName(k), "an action helper of fsm " + n, a.T.Pos, false})
 	}
 	return names
 }
@@ -117,8 +121,10 @@ var cKeywords = strings.Fields(`auto break case char const continue default do d
 	static_assert thread_local true typeof typeof_unqual`)
 
 // cgenNames are defined by every generated component, or by the headers it
-// includes and user code commonly calls (math.h).
-var cgenNames = strings.Fields(`inst_t __comp_inst period fperiod personality data
+// includes and user code commonly calls (math.h).  The FUNCTION bodies are
+// added per component (funct_<name>, funct_<name>_body).
+var cgenNames = strings.Fields(`inst_t inst_hal_t __comp_inst period fperiod personality data
+	New cmod_t inst_init inst_start inst_stop inst_destroy userspace_thread
 	FUNCTION FOR_ALL_INSTS EXTRA_SETUP EXTRA_CLEANUP extra_setup extra_cleanup
 	MCODE MCODE_ABORTED MCODE_SLEEP user_mainloop TRUE FALSE rtapi_get_time
 	STMAK_LOG STMAK_LOG_ERR STMAK_LOG_WARN STMAK_LOG_INFO STMAK_LOG_DBG
@@ -128,8 +134,14 @@ var cgenNames = strings.Fields(`inst_t __comp_inst period fperiod personality da
 	lrint llrint copysign hypot cbrt exp2 log2 fma nan isnan isinf isfinite
 	signbit fpclassify abs labs llabs NULL`)
 
+// reservedPrefixes belong to the headers the generated file includes
+// (hal_init, rtapi_print, stmak_logf, cmod_t, ...) and to its M-code bodies.
+var reservedPrefixes = []string{"hal_", "rtapi_", "stmak_", "cmod_", "mcode_"}
+
 // checkNames rejects generated names that collide.
 func (c *fsmChecker) checkNames(fsms []*fsmDecl) error {
+	// taken: names nothing generated may use; gen, tags: names generated
+	// so far in the ordinary and the tag namespace.
 	taken := map[string]string{}
 	for _, k := range cKeywords {
 		taken[k] = "a C keyword"
@@ -137,22 +149,42 @@ func (c *fsmChecker) checkNames(fsms []*fsmDecl) error {
 	for _, k := range cgenNames {
 		taken[k] = "a name the generated code defines"
 	}
+	for _, fn := range c.comp.Functions {
+		fc := "funct_" + ast.CName(fn.Name)
+		taken[fc] = "the C function of function " + fn.Name
+		taken[fc+"_body"] = "the C function of function " + fn.Name
+	}
 	for name, s := range c.syms {
 		taken[name] = fmt.Sprintf("the C name of %s declared at %s", withArticle(s.describe()), s.Pos)
 	}
 	for _, mp := range c.comp.Modparams {
 		taken[mp.Name] = fmt.Sprintf("modparam %s declared at %s", mp.Name, mp.Pos)
 	}
+	gen, tags := map[string]string{}, map[string]string{}
 	for _, f := range fsms {
 		if strings.HasPrefix(f.Name, "__") {
 			return fmt.Errorf("%s: fsm %s: names starting with __ are reserved", f.Pos, f.Name)
 		}
 		for _, g := range f.generatedNames() {
-			if prev, ok := taken[g.Name]; ok {
+			for _, pfx := range reservedPrefixes {
+				if strings.HasPrefix(g.Name, pfx) {
+					return fmt.Errorf("%s: fsm %s: %s would be %s, but names starting with %s are reserved",
+						g.Pos, f.Name, g.Name, g.What, pfx)
+				}
+			}
+			own := gen
+			if g.Tag {
+				own = tags
+			}
+			prev, ok := taken[g.Name]
+			if !ok {
+				prev, ok = own[g.Name]
+			}
+			if ok {
 				return fmt.Errorf("%s: fsm %s: %s would be %s, but it is already %s",
 					g.Pos, f.Name, g.Name, g.What, prev)
 			}
-			taken[g.Name] = g.What
+			own[g.Name] = g.What
 		}
 	}
 	return nil

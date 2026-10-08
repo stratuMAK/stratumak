@@ -9,7 +9,6 @@ package comp
 // everywhere.
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
@@ -184,8 +183,8 @@ func cUses(src string) []cUse {
 			}
 			close := matching(toks, end)
 			if close == end+2 && toks[end+1].Kind == ctNumber {
-				if n, err := strconv.ParseInt(toks[end+1].Text, 0, 32); err == nil {
-					u.Index = int(n)
+				if n, ok := parseIndex(toks[end+1].Text); ok {
+					u.Index = n
 				}
 			}
 			end = close + 1

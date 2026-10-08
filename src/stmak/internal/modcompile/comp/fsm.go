@@ -221,8 +221,7 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 		f.Enable, err = p.parseParenC()
 	case "state_var", "timer_var":
 		var r fsmRef
-		r.Pos = p.cur.Pos
-		if r.Name, err = p.expectName(); err != nil {
+		if r, err = p.parseRef(); err != nil {
 			return err
 		}
 		if kw == "state_var" {
@@ -282,7 +281,7 @@ func (p *parser) parseDefList() ([]fsmDef, error) {
 			if err != nil {
 				return nil, err
 			}
-			if strings.TrimSpace(c.Text) == "" {
+			if isEmptyC(c.Text) {
 				return nil, p.errorAt(c.Pos, "empty default for %s", r)
 			}
 			d.Default = c
@@ -316,16 +315,26 @@ func (p *parser) parseRef() (fsmRef, error) {
 	if p.cur.Kind != TokNumber {
 		return r, p.errorf("%s: array index must be an integer literal, got %q", r.Name, p.cur.Val)
 	}
-	n, err := strconv.ParseInt(p.cur.Val, 0, 32)
-	if err != nil {
+	n, ok := parseIndex(p.cur.Val)
+	if !ok {
 		return r, p.errorf("%s: invalid index %q", r.Name, p.cur.Val)
 	}
-	r.Index = int(n)
+	r.Index = n
 	p.next()
 	if _, err := p.expect(closer); err != nil {
 		return r, err
 	}
 	return r, nil
+}
+
+// isEmptyC reports whether C text holds nothing but whitespace and comments.
+func isEmptyC(text string) bool { return len(cTokenize(text)) == 0 }
+
+// parseIndex parses an integer literal index; integer suffixes (1u, 2L)
+// are accepted, as C accepts them.
+func parseIndex(text string) (int, bool) {
+	n, err := strconv.ParseInt(strings.TrimRight(text, "uUlL"), 0, 32)
+	return int(n), err == nil && n >= 0
 }
 
 // parseParenC parses '(' cexpr ')' and returns the expression.
@@ -337,7 +346,7 @@ func (p *parser) parseParenC() (*cfrag, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(c.Text) == "" {
+	if isEmptyC(c.Text) {
 		return nil, p.errorAt(c.Pos, "empty expression")
 	}
 	p.next() // the ')'
@@ -547,10 +556,10 @@ func (f *fsmDecl) describe() ast.FSM {
 		d.Enable = oneLine(f.Enable.Text)
 	}
 	if f.StateVar != nil {
-		d.StateVar = f.StateVar.Name
+		d.StateVar = f.StateVar.String()
 	}
 	if f.TimerVar != nil {
-		d.TimerVar = f.TimerVar.Name
+		d.TimerVar = f.TimerVar.String()
 	}
 	for _, t := range f.AnyOn {
 		d.Any = append(d.Any, describeTrans(t, false))

@@ -567,6 +567,13 @@ func (s *Scanner) scanFSMToken(pos ast.Pos, c byte) (Token, bool) {
 			s.advance()
 		}
 		return Token{TokIdent, s.src[start:s.pos], pos}, true
+	case c >= '0' && c <= '9':
+		// A number with its suffix (1u, 0x1F), as C reads it.
+		start := s.pos
+		for s.pos < len(s.src) && isIdentChar(s.cur()) {
+			s.advance()
+		}
+		return Token{TokNumber, s.src[start:s.pos], pos}, true
 	case c == '-' && s.peek(1) == '>':
 		s.advance()
 		s.advance()
@@ -609,10 +616,14 @@ var openerOf = map[byte]byte{')': '(', ']': '[', '}': '{'}
 func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
 	start, pos := s.pos, s.here()
 	lineStart := strings.LastIndexByte(s.src[:start], '\n') + 1
-	indent := []byte(s.src[lineStart:start])
-	for i, c := range indent {
-		if c != '\t' {
-			indent[i] = ' '
+	// One blank per character, not per byte: gcc counts columns in
+	// characters, so an umlaut in front must not shift them.
+	var indent []byte
+	for _, c := range s.src[lineStart:start] {
+		if c == '\t' {
+			indent = append(indent, '\t')
+		} else {
+			indent = append(indent, ' ')
 		}
 	}
 	type open struct {

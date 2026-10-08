@@ -198,6 +198,8 @@ func TestParseFSMErrors(t *testing.T) {
 		{"unterminated", `fsm m { state A { on ("x) -> A; } };`, "unterminated string"},
 		{"any item", `fsm m { any { during { } } state A { } };`, "expected 'on' or 'timeout'"},
 		{"names the fsm", `fsm m { outputs: out1 = ; state A { } };`, "fsm m: empty default"},
+		{"comment-only cond", `fsm m { state A { on (/* x */) -> A; } };`, "empty expression"},
+		{"comment-only default", `fsm m { outputs: out1 = /* x */ ; state A { } };`, "empty default for out1"},
 		{"unclosed paren", `fsm m { state A { on (in1 && (in2) -> A; } };`,
 			`t.comp:18:40: fsm m: unexpected ';': "(" opened at t.comp:18:22 is not closed`},
 		{"unclosed in block", `fsm m { state A { on_enter { f(1; } } };`,
@@ -236,6 +238,13 @@ func TestCaptureCPosition(t *testing.T) {
 	sc.Next() // (
 	if c, _ = sc.CaptureC(")", ast.Pos{}); c.Indent != "\t   " {
 		t.Errorf("indent %q, want tab kept", c.Indent)
+	}
+	sc = NewScanner("f", "\"\u00e4\" x (y);")
+	sc.Next() // "ä"
+	sc.Next() // x
+	sc.Next() // (
+	if c, _ = sc.CaptureC(")", ast.Pos{}); c.Indent != "       " {
+		t.Errorf("indent %q, want one blank per character", c.Indent)
 	}
 }
 
@@ -308,6 +317,22 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"math function", `fsm fabs { state A { } };`, "fabs would be the call macro of fsm fabs, but it is already a name the generated code defines"},
 		{"fperiod", `fsm fperiod { state A { } };`, "already a name the generated code defines"},
 		{"reserved", `fsm __x { state A { } };`, "fsm __x: names starting with __ are reserved"},
+		{"enum tag", `pin in bit m_state; fsm m { state A { } };`,
+			"m_state would be the enum tag of fsm m, but it is already the C name of an in bit pin"},
+		{"framework name", `fsm inst { state start { } };`,
+			"inst_start would be the constant of state start of fsm inst, but it is already a name the generated code defines"},
+		{"funct name", `fsm funct { state _ { } };`,
+			"funct__ would be the constant of state _ of fsm funct, but it is already the C function of function _"},
+		{"header prefix", `fsm hal { state A { } };`, "hal_in would be the state test macro of fsm hal, but names starting with hal_ are reserved"},
+		{"state named in", `fsm m { state in { } };`,
+			"m_in would be the constant of state in of fsm m, but it is already the state test macro of fsm m"},
+		{"enable reads output", `fsm m { outputs: out1; enable: (out1); state A { } };`, "enable reads output out1"},
+		{"timeout reads output", `fsm m { outputs: out1; any { timeout -> A; } state A { timeout (out1); } };`,
+			"timeout reads output out1"},
+		{"input twice", `fsm m { inputs: in1, in1; state A { } };`, "inputs: in1 is listed twice"},
+		{"input is output", `fsm m { inputs: in1, dvar; outputs: dvar; state A { } };`, "inputs: dvar is an output of this fsm"},
+		{"octal zero", `fsm m { any { timeout -> A; } state A { timeout (00s); } };`, "write 0s"},
+		{"hex unit", `fsm m { any { timeout -> A; } state A { timeout (0x10s); } };`, "timeout literal 0x10s: a unit needs a decimal number"},
 		{"hidden", `variable int __fsm_m_timer; fsm m { state A { } };`, "__fsm_m_timer would be a hidden variable of fsm m"},
 		{"reads every output elem", `fsm m { outputs: outs(0), outs(1), outs(2); state A { on (outs(i)) -> A; } };`,
 			"condition reads outs(...), and every element of outs is an output"},
@@ -382,6 +407,13 @@ fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;
 			[]string{"state B has no way out"}},
 		{"unreachable cycle", `fsm m { state A { on (in1) -> A; } state B { on (in1) -> C; } state C { on (in1) -> B; } };`, "m();",
 			[]string{"state B is unreachable", "state C is unreachable"}},
+		{"any timeout never used", `fsm m { any { timeout -> A { out1 = 1; } } state A { on (in1) -> B; } state B { on (in1) -> A; } };`, "m();",
+			[]string{"any timeout is never used: no state has a timeout without a target"}},
+		{"any on never fires", `fsm m { any { on (in1) -> A { out1 = 1; } } state A { } };`, "m();",
+			[]string{"any on -> A never fires: A is the only reachable state"}},
+		{"computed write, other fsm first", `fsm n { outputs: outs(0); state X { during { outs(i) = 1; } on (in1) -> X; } };
+fsm m { outputs: outs(1); state A { on (in1) -> A; } };`, "m(); n();",
+			[]string{"fsm n: write to outs(...) may hit outs(1), the output of fsm m"}},
 		{"unused any timeout", `fsm m { any { timeout -> B; } state A { on (in1) -> A; } state B { on (in1) -> A; } };`, "m();",
 			[]string{"state B is unreachable"}},
 		{"any is a way out", `fsm m { any { on (in1) -> A; timeout -> A; } state A { on (in2) -> B; } state B { timeout (1); } };`, "m();", nil},
@@ -465,6 +497,39 @@ p(); p_q(); s();
 	pkg := parseFSMSrc(t, src)
 	if len(pkg.Warnings) != 0 {
 		t.Errorf("unexpected warnings:\n%s", strings.Join(pkg.Warnings, "\n"))
+	}
+}
+
+// state_var and timer_var may be array elements; indexes may carry integer
+// suffixes; a state may be named like the enum tag.
+func TestFSMElementVars(t *testing.T) {
+	src := `component t "x";
+pin in bit a;
+pin in bit ina#[2];
+pin out s32 sp#[2];
+variable double tarr[2];
+function _;
+fsm m { inputs: a, ina(1u); state_var: sp(1); timer_var: tarr[0];
+    state state { on (ina(1u) && tarr[0] > 1) -> X; } state X { on (!a) -> state; } };
+;;
+m();
+`
+	pkg := parseFSMSrc(t, src)
+	if len(pkg.Warnings) != 0 {
+		t.Errorf("unexpected warnings:\n%s", strings.Join(pkg.Warnings, "\n"))
+	}
+	f := pkg.Component.FSMs[0]
+	if f.StateVar != "sp(1)" || f.TimerVar != "tarr[0]" {
+		t.Errorf("state_var %q timer_var %q", f.StateVar, f.TimerVar)
+	}
+	var epi strings.Builder
+	for _, fr := range pkg.Component.GenEpilogue {
+		epi.WriteString(fr.Text)
+	}
+	for _, want := range []string{"sp(1) = m_state;", "tarr[0] = __fsm_m_timer * 1e-9;"} {
+		if !strings.Contains(epi.String(), want) {
+			t.Errorf("generated code lacks %q", want)
+		}
 	}
 }
 
