@@ -206,40 +206,36 @@ func (s *Scanner) advance() {
 	}
 }
 
+// advanceTo moves to byte offset end, counting lines and columns.
+func (s *Scanner) advanceTo(end int) {
+	for s.pos < end {
+		s.advance()
+	}
+}
+
 func (s *Scanner) here() ast.Pos {
 	return ast.Pos{File: s.file, Line: s.line, Col: s.col}
 }
 
+// skipWhitespaceAndComments steps over whitespace and C comments.  The
+// header is not compiled, so a '//' comment ends at its line's end even
+// after a backslash.  An unclosed block comment runs to the end of the
+// header.
 func (s *Scanner) skipWhitespaceAndComments() {
 	for s.pos < len(s.src) {
 		c := s.cur()
-		// Whitespace.
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
 			s.advance()
-			continue
+		case c == '/' && s.peek(1) == '/':
+			end, _ := skipLineComment(s.src, s.pos, false)
+			s.advanceTo(end)
+		case c == '/' && s.peek(1) == '*':
+			end, _ := skipBlockComment(s.src, s.pos)
+			s.advanceTo(end)
+		default:
+			return
 		}
-		// Line comment.
-		if c == '/' && s.peek(1) == '/' {
-			for s.pos < len(s.src) && s.cur() != '\n' {
-				s.advance()
-			}
-			continue
-		}
-		// Block comment.
-		if c == '/' && s.peek(1) == '*' {
-			s.advance() // skip /
-			s.advance() // skip *
-			for s.pos < len(s.src) {
-				if s.cur() == '*' && s.peek(1) == '/' {
-					s.advance() // skip *
-					s.advance() // skip /
-					break
-				}
-				s.advance()
-			}
-			continue
-		}
-		break
 	}
 }
 
@@ -616,15 +612,7 @@ var openerOf = map[byte]byte{')': '(', ']': '[', '}': '{'}
 func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
 	start, pos := s.pos, s.here()
 	lineStart := strings.LastIndexByte(s.src[:start], '\n') + 1
-	// One blank per byte, not per character: gcc takes the byte column
-	// and converts it to characters using the source line it reads from
-	// the file named in #line, so an umlaut in front is counted there.
-	indent := []byte(s.src[lineStart:start])
-	for i, c := range indent {
-		if c != '\t' {
-			indent[i] = ' '
-		}
-	}
+	indent := blankIndent(s.src[lineStart:start])
 	type open struct {
 		close byte
 		pos   ast.Pos
@@ -637,7 +625,7 @@ func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
 	}
 	base := len(stack) // 1 when the caller's bracket is on the stack
 	frag := func() *cfrag {
-		return &cfrag{Pos: pos, Text: s.src[start:s.pos], Indent: string(indent)}
+		return &cfrag{Pos: pos, Text: s.src[start:s.pos], Indent: indent}
 	}
 	errf := func(at ast.Pos, format string, args ...interface{}) error {
 		return &CaptureError{at, fmt.Sprintf(format, args...)}
@@ -654,43 +642,30 @@ func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
 		}
 		switch {
 		case c == '/' && s.peek(1) == '/':
-			at := s.here()
-			for s.pos < len(s.src) && s.cur() != '\n' {
-				if s.cur() == '\\' && (s.peek(1) == '\n' || s.peek(1) == '\r' && s.peek(2) == '\n') {
-					// C splices the next line into the comment; the
-					// capture would not, and the code would silently lose
-					// that line.
-					return nil, errf(at, "'//' comment ends in a backslash, which continues it onto the next line")
-				}
-				s.advance()
+			end, spliced := skipLineComment(s.src, s.pos, false)
+			if spliced {
+				// C splices the next line into the comment; the capture
+				// is emitted line by line and would not, so the code
+				// would silently lose that line.
+				return nil, errf(s.here(), "'//' comment ends in a backslash, which continues it onto the next line")
 			}
+			s.advanceTo(end)
 			continue
 		case c == '/' && s.peek(1) == '*':
-			at := s.here()
-			s.advance()
-			s.advance()
-			for s.pos < len(s.src) && !(s.cur() == '*' && s.peek(1) == '/') {
-				s.advance()
+			end, ok := skipBlockComment(s.src, s.pos)
+			if !ok {
+				return nil, errf(s.here(), "unterminated comment")
 			}
-			if s.pos >= len(s.src) {
-				return nil, errf(at, "unterminated comment")
-			}
-			s.advance()
-			s.advance()
+			s.advanceTo(end)
 			continue
 		case c == '"' || c == '\'':
-			at := s.here()
-			s.advance()
-			for s.pos < len(s.src) && s.cur() != c && s.cur() != '\n' {
-				if s.cur() == '\\' {
-					s.advance()
-				}
-				s.advance()
-			}
-			if s.pos >= len(s.src) || s.cur() != c {
-				return nil, errf(at, "unterminated %s literal",
+			end, ok := skipCLiteral(s.src, s.pos)
+			if !ok {
+				return nil, errf(s.here(), "unterminated %s literal",
 					map[byte]string{'"': "string", '\'': "character"}[c])
 			}
+			s.advanceTo(end)
+			continue
 		case c == ';' && stop == ")":
 			// An expression holds a ';' only inside a statement
 			// expression's braces; anywhere else a ')' is missing.

@@ -57,6 +57,20 @@ func compileFSMC(t *testing.T, name, src string) {
 // in characters even after an umlaut: the fragment is indented per byte, and
 // gcc converts the byte column using the .comp line it reads via #line.
 func TestFSMErrorColumnAfterUmlaut(t *testing.T) {
+	checkErrorColumn(t, `fsm m { /* ä ü */ state S { on_enter { o = zz_undeclared; } } };`)
+}
+
+// A unit literal is rewritten to text of another length; an error after it
+// on the same line is still reported at its column in the .comp.
+func TestFSMErrorColumnAfterUnitLiteral(t *testing.T) {
+	checkErrorColumn(t, `fsm m { state S { timeout (250ms + zz_undeclared) -> S; } };`)
+}
+
+// checkErrorColumn compiles a component whose fsm line holds the undeclared
+// identifier zz_undeclared and checks that gcc reports it at that line and
+// character column of the .comp.
+func checkErrorColumn(t *testing.T, line string) {
+	t.Helper()
 	gcc, err := exec.LookPath("gcc")
 	if err != nil {
 		t.Skip("no gcc")
@@ -68,7 +82,6 @@ func TestFSMErrorColumnAfterUmlaut(t *testing.T) {
 		}
 		args = append(args, "-I"+inc)
 	}
-	line := `fsm m { /* ä ü */ state S { on_enter { o = zz_undeclared; } } };`
 	src := "component col \"column test\";\npin out s32 o;\nfunction _;\n" + line + "\n;;\nm();\n"
 	dir := t.TempDir()
 	compFile := filepath.Join(dir, "col.comp")

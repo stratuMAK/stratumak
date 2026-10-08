@@ -57,6 +57,32 @@ seq();
 	}
 }
 
+// state_var and timer_var that are array elements name the element's pin.
+func TestFSMElementPins(t *testing.T) {
+	src := `component t "x";
+pin in bit go;
+pin out s32 st-##[4];
+pin out float tm_#[2];
+function _;
+fsm seq { state_var: st(3); timer_var: tm(0); state A { on (go) -> B; } state B { timeout (1) -> A; } };
+;;
+seq();
+`
+	pkg, err := comp.Parse("t.comp", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Generate(&buf, pkg); err != nil {
+		t.Fatal(err)
+	}
+	want := `Initial state: \fBA\fR. The state number is on \fBt.\fIN\fB.st-03\fR.` +
+		` The time in the current state, in seconds, is on \fBt.\fIN\fB.tm-0\fR.`
+	if out := buf.String(); !strings.Contains(out, want) {
+		t.Errorf("man page lacks %q\n--- output ---\n%s", want, out)
+	}
+}
+
 func TestTroffTextLeadingDot(t *testing.T) {
 	if got := troffText(".5 > x"); got != `\&.5 > x` {
 		t.Errorf("got %q", got)

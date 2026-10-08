@@ -236,11 +236,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
                 break;
             }
             {
-                double __to = (
-#line 37 "testdata/fsm.comp"
-                 (60)
-#line 243 "testdata/fsm.c"
-);
+                double __to = ((60));
                 if (__to > 0 && __to < 9.2e9 && __fsm_test_fsm_timer >= (int64_t)(__to * 1e9 + 0.5)) {
                     __fsm_test_fsm_exit_IDLE(__comp_inst, period);
                     __fsm_test_fsm_action_0(__comp_inst, period);
@@ -255,7 +251,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 29 "testdata/fsm.comp"
             estop
-#line 259 "testdata/fsm.c"
+#line 255 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_FAULT;
                 __fsm_test_fsm_timer = 0;
@@ -265,7 +261,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 42 "testdata/fsm.comp"
             !in1
-#line 269 "testdata/fsm.c"
+#line 265 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_IDLE;
                 __fsm_test_fsm_timer = 0;
@@ -277,7 +273,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
                 double __to = (
 #line 43 "testdata/fsm.comp"
                  wait_s
-#line 281 "testdata/fsm.c"
+#line 277 "testdata/fsm.c"
 );
                 if (__to > 0 && __to < 9.2e9 && __fsm_test_fsm_timer >= (int64_t)(__to * 1e9 + 0.5)) {
                     fsm_state = test_fsm_TIMEOUT;
@@ -291,7 +287,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 29 "testdata/fsm.comp"
             estop
-#line 295 "testdata/fsm.c"
+#line 291 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_FAULT;
                 __fsm_test_fsm_timer = 0;
@@ -301,7 +297,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 47 "testdata/fsm.comp"
             ack
-#line 305 "testdata/fsm.c"
+#line 301 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_IDLE;
                 __fsm_test_fsm_timer = 0;
@@ -314,7 +310,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 51 "testdata/fsm.comp"
             !estop && ack
-#line 318 "testdata/fsm.c"
+#line 314 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_IDLE;
                 __fsm_test_fsm_timer = 0;

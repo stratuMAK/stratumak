@@ -65,12 +65,17 @@ func buildSymbols(c *ast.Component) map[string]*sym {
 	return syms
 }
 
-// integerCTypes are the variable types accepted for state_var.  The type of
-// a variable is a single NAME, so this list is the whole question.
+// integerCTypes are the variable types accepted for state_var: the C
+// integer types of any width, the <stdint.h> names and the HAL/RTAPI
+// integer typedefs.  The type of a variable is a single NAME, so this list
+// is the whole question.  bool is left out: it holds two states at most.
 var integerCTypes = map[string]bool{
-	"int": true, "unsigned": true, "long": true, "short": true,
+	"char": true, "short": true, "int": true, "long": true, "signed": true, "unsigned": true,
+	"int8_t": true, "uint8_t": true, "int16_t": true, "uint16_t": true,
 	"int32_t": true, "uint32_t": true, "int64_t": true, "uint64_t": true,
-	"int16_t": true, "uint16_t": true, "rtapi_s32": true, "rtapi_u32": true,
+	"intptr_t": true, "uintptr_t": true, "size_t": true, "ssize_t": true, "ptrdiff_t": true,
+	"rtapi_s8": true, "rtapi_u8": true, "rtapi_s16": true, "rtapi_u16": true,
+	"rtapi_s32": true, "rtapi_u32": true, "rtapi_s64": true, "rtapi_u64": true,
 	"hal_s32_t": true, "hal_u32_t": true, "stmak_hal_s32_t": true, "stmak_hal_u32_t": true,
 }
 
@@ -99,70 +104,69 @@ const (
 
 // checkRef resolves a list entry and checks it against its role.
 func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) error {
+	// errf prefixes every message with the entry's position, fsm and list.
+	errf := func(format string, args ...interface{}) error {
+		return fmt.Errorf("%s: fsm %s: %s: %s", r.Pos, f.Name, list, fmt.Sprintf(format, args...))
+	}
 	s := c.syms[r.Name]
 	if s == nil {
-		return fmt.Errorf("%s: fsm %s: %s: %s is not a declared pin or variable", r.Pos, f.Name, list, r.Name)
+		return errf("%s is not a declared pin or variable", r.Name)
 	}
 	if s.Kind == symParam {
 		// Params are configuration: never written by the fsm, and exempt
 		// from the sensitivity check, so there is no list they belong in.
-		return fmt.Errorf("%s: fsm %s: %s: %s is a param; only pins and variables are listed",
-			r.Pos, f.Name, list, r.Name)
+		return errf("%s is a param; only pins and variables are listed", r.Name)
 	}
 
 	// Arrays: only single elements, accessed the way code accesses them.
 	switch {
 	case s.Array == 0 && r.Kind != refScalar:
-		return fmt.Errorf("%s: fsm %s: %s: %s is not an array", r.Pos, f.Name, list, r.Name)
+		return errf("%s is not an array", r.Name)
 	case s.Array > 0 && r.Kind == refScalar:
-		return fmt.Errorf("%s: fsm %s: %s: %s is an array; list single elements (%s)",
-			r.Pos, f.Name, list, r.Name, map[bool]string{true: r.Name + "(0)", false: r.Name + "[0]"}[s.Kind == symPin])
+		return errf("%s is an array; list single elements (%s)",
+			r.Name, map[bool]string{true: r.Name + "(0)", false: r.Name + "[0]"}[s.Kind == symPin])
 	case s.Array > 0 && s.Kind == symPin && r.Kind != refPinElem:
-		return fmt.Errorf("%s: fsm %s: %s: pin array elements are written %s(%d)", r.Pos, f.Name, list, r.Name, r.Index)
+		return errf("pin array elements are written %s(%d)", r.Name, r.Index)
 	case s.Array > 0 && s.Kind == symVar && r.Kind != refVarElem:
-		return fmt.Errorf("%s: fsm %s: %s: variable array elements are written %s[%d]", r.Pos, f.Name, list, r.Name, r.Index)
+		return errf("variable array elements are written %s[%d]", r.Name, r.Index)
 	case s.Array > 0 && (r.Index < 0 || r.Index >= s.Array):
-		return fmt.Errorf("%s: fsm %s: %s: index %d out of range for %s[%d]", r.Pos, f.Name, list, r.Index, r.Name, s.Array)
+		return errf("index %d out of range for %s[%d]", r.Index, r.Name, s.Array)
 	}
 
 	if role == roleInput {
 		if s.Kind == symPin && s.Dir == ast.PinOut {
-			return fmt.Errorf("%s: fsm %s: inputs: %s is an out pin", r.Pos, f.Name, r.Name)
+			return errf("%s is an out pin", r.Name)
 		}
 		return nil
 	}
 
 	// Written lists.
 	if s.Kind == symPin && s.Dir == ast.PinIn {
-		return fmt.Errorf("%s: fsm %s: %s: %s is an in pin", r.Pos, f.Name, list, r.Name)
+		return errf("%s is an in pin", r.Name)
 	}
 	if s.Cond {
-		return fmt.Errorf("%s: fsm %s: %s: pin %s may not exist (personality condition); "+
-			"the fsm writes it every cycle", r.Pos, f.Name, list, r.Name)
+		return errf("pin %s may not exist (personality condition); the fsm writes it every cycle", r.Name)
 	}
 	if s.Ptr {
-		return fmt.Errorf("%s: fsm %s: %s: %s is a pointer variable", r.Pos, f.Name, list, r.Name)
+		return errf("%s is a pointer variable", r.Name)
 	}
 	switch role {
 	case roleState:
 		ok := s.Kind == symPin && (s.Type == ast.HALS32 || s.Type == ast.HALU32) ||
 			s.Kind == symVar && integerCTypes[s.CType]
 		if !ok {
-			return fmt.Errorf("%s: fsm %s: state_var: %s is %s; need an out s32/u32 pin or an integer variable",
-				r.Pos, f.Name, r.Name, withArticle(s.describe()))
+			return errf("%s is %s; need an out s32/u32 pin or an integer variable", r.Name, withArticle(s.describe()))
 		}
 		if s.Kind == symPin && s.Dir != ast.PinOut {
 			// An io pin could be set from outside: a goto around the
 			// declared graph.
-			return fmt.Errorf("%s: fsm %s: state_var: %s is an io pin; the state changes only "+
-				"through transitions, so it must be an out pin", r.Pos, f.Name, r.Name)
+			return errf("%s is an io pin; the state changes only through transitions, so it must be an out pin", r.Name)
 		}
 	case roleTimer:
 		ok := s.Kind == symPin && s.Type == ast.HALFloat ||
 			s.Kind == symVar && (s.CType == "double" || s.CType == "float")
 		if !ok {
-			return fmt.Errorf("%s: fsm %s: timer_var: %s is %s; need a float pin or a double/float variable",
-				r.Pos, f.Name, r.Name, withArticle(s.describe()))
+			return errf("%s is %s; need a float pin or a double/float variable", r.Name, withArticle(s.describe()))
 		}
 	}
 
@@ -254,8 +258,9 @@ type refSet map[string][]fsmRef
 func (rs refSet) add(r fsmRef) { rs[r.Name] = append(rs[r.Name], r) }
 
 // match reports whether use u reads an entry of the set: exact for a
-// scalar or a literal index; for a computed index, computed is set
-// instead, since it cannot be matched.
+// scalar or a literal index.  For a computed index, or an array read as a
+// whole (passed to a function), computed is set instead, since the elements
+// read cannot be matched.
 func (rs refSet) match(u cUse) (hit, computed bool) {
 	refs, ok := rs[u.Name]
 	if !ok {
@@ -265,7 +270,7 @@ func (rs refSet) match(u cUse) (hit, computed bool) {
 		if r.Kind == refScalar {
 			return true, false
 		}
-		if r.Kind == u.Kind && u.Index < 0 {
+		if u.Kind == refScalar || r.Kind == u.Kind && u.Index < 0 {
 			return false, true
 		}
 		if r.Kind == u.Kind && r.Index == u.Index {
@@ -273,6 +278,14 @@ func (rs refSet) match(u cUse) (hit, computed bool) {
 		}
 	}
 	return false, false
+}
+
+// howRead says how a use that match reports as computed reads its array.
+func howRead(u cUse) string {
+	if u.Kind == refScalar {
+		return "as a whole"
+	}
+	return "with a computed index"
 }
 
 func (c *fsmChecker) check(f *fsmDecl) error {
@@ -408,8 +421,8 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 					return fmt.Errorf("%s: fsm %s: %s reads %s, and every element of %s is an "+
 						"output, which always holds its default here", pos, f.Name, what, useString(u), u.Name)
 				}
-				c.warn(pos, "fsm %s: %s reads %s with a computed index; of its elements, "+
-					"the outputs %s always hold their default here", f.Name, what, useString(u), strings.Join(elems, ", "))
+				c.warn(pos, "fsm %s: %s reads %s %s; of its elements, the outputs %s always "+
+					"hold their default here", f.Name, what, useString(u), howRead(u), strings.Join(elems, ", "))
 				continue
 			}
 			if f.Inputs == nil || what != "condition" {
@@ -419,8 +432,8 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			switch {
 			case hit:
 			case computed:
-				c.warn(pos, "fsm %s: condition reads %s with a computed index; it cannot be "+
-					"matched against inputs", f.Name, useString(u))
+				c.warn(pos, "fsm %s: condition reads %s %s; it cannot be matched against inputs",
+					f.Name, useString(u), howRead(u))
 			default:
 				c.warn(pos, "fsm %s: condition reads %s, which is not in inputs", f.Name, useString(u))
 			}
@@ -428,11 +441,13 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 	}
 
 	// Unread inputs.  An element counts as read when it is read with its
-	// literal index or when its array is read with a computed one.
+	// literal index, or when its array is read with a computed one or as a
+	// whole.
 	read, readComputed := map[string]bool{}, map[string]bool{}
 	for _, frag := range f.fragments() {
 		for _, u := range cUses(frag.Text) {
-			if u.Kind != refScalar && u.Index < 0 {
+			s := c.syms[u.Name]
+			if u.Kind != refScalar && u.Index < 0 || u.Kind == refScalar && s != nil && s.Array > 0 {
 				readComputed[u.Name] = true
 				continue
 			}
@@ -445,7 +460,8 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		}
 	}
 
-	// Timeout literals with a unit: a leading 0 would make them octal.
+	// Timeout literals: a leading 0 makes an integer octal, with or without
+	// a unit; the expression is in seconds, where nobody means that.
 	for _, s := range f.States {
 		if s.Timeout == nil {
 			continue
@@ -456,20 +472,26 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 				continue
 			}
 			pos := offsetPos(e.Pos, e.Text, t.Off)
-			m := timeUnitRe.FindStringSubmatch(t.Text)
-			if m == nil && strings.HasSuffix(t.Text, "s") {
+			number, suffix := t.Text, ""
+			if m := timeUnitRe.FindStringSubmatch(t.Text); m != nil {
+				number, suffix = m[1], m[2]
+			} else if strings.HasSuffix(t.Text, "s") {
 				// No C number ends in 's': a unit on a hex or suffixed
 				// number.
 				return fmt.Errorf("%s: fsm %s: timeout literal %s: a unit needs a decimal number",
 					pos, f.Name, t.Text)
+			} else {
+				// A plain integer may carry C's integer suffixes.
+				number = strings.TrimRight(number, "uUlL")
+				suffix = t.Text[len(number):]
 			}
-			if m != nil && octalRe.MatchString(m[1]) {
-				digits := strings.TrimLeft(m[1], "0")
+			if octalRe.MatchString(number) {
+				digits := strings.TrimLeft(number, "0")
 				if digits == "" {
 					digits = "0"
 				}
 				return fmt.Errorf("%s: fsm %s: timeout literal %s has a leading 0, which C reads as "+
-					"octal; write %s%s", pos, f.Name, t.Text, digits, m[2])
+					"octal; write %s%s", pos, f.Name, t.Text, digits, suffix)
 			}
 		}
 	}
@@ -610,15 +632,16 @@ func (r *ownedRef) consequence() string {
 	return "the fsm overwrites it on its next run"
 }
 
-// checkWrites warns about writes in src to entries owned by an fsm other
-// than writer (nil for the verbatim C), and to writer's own state_var and
-// timer_var.  writer's outputs are its own to write.
-func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, src string, base ast.Pos) {
+// checkWrites warns about writes among uses, the identifier uses of src, to
+// entries owned by an fsm other than writer (nil for the verbatim C), and
+// to writer's own state_var and timer_var.  writer's outputs are its own to
+// write.
+func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, uses []cUse, src string, base ast.Pos) {
 	prefix := ""
 	if writer != nil {
 		prefix = "fsm " + writer.Name + ": "
 	}
-	for _, u := range cUses(src) {
+	for _, u := range uses {
 		if !u.Write || c.syms[u.Name] == nil {
 			continue
 		}
@@ -641,45 +664,136 @@ func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, src string, base 
 }
 
 // checkUserCode scans the verbatim C after ';;' and the fsm blocks for
-// writes to what the fsms own, and the verbatim C for fsms that are never
-// run.
+// writes to what the fsms own, for fsms that are never run, and for fsms
+// with floating point run from a nofp function.
 func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 	o := newOwnership(fsms)
+	byName := map[string]*fsmDecl{}
+	for _, f := range fsms {
+		byName[f.Name] = f
+	}
+	// callers maps each fsm to the functions whose bodies run it, directly
+	// or through another fsm's blocks; "" stands for a caller that is not
+	// known: a call from a helper of the user's.
+	callers := map[*fsmDecl]map[string]bool{}
+	addCaller := func(f *fsmDecl, fn string) {
+		if callers[f] == nil {
+			callers[f] = map[string]bool{}
+		}
+		callers[f][fn] = true
+	}
+	isCall := func(u cUse) *fsmDecl {
+		if u.Call && u.Index < 0 {
+			return byName[u.Name]
+		}
+		return nil
+	}
+
+	// Calls between fsms: a child run from a parent's block runs where the
+	// parent runs.  They are resolved once the direct calls are known.
+	type edge struct{ from, to *fsmDecl }
+	var edges []edge
 	for _, f := range fsms {
 		for _, frag := range f.fragments() {
-			c.checkWrites(o, f, frag.Text, frag.Pos)
+			uses := cUses(frag.Text)
+			c.checkWrites(o, f, uses, frag.Text, frag.Pos)
+			for _, u := range uses {
+				if g := isCall(u); g != nil && g != f {
+					edges = append(edges, edge{f, g})
+				}
+			}
 		}
 	}
-	src := c.comp.VerbatimC
-	c.checkWrites(o, nil, src, c.comp.VerbatimCPos)
 
-	called := map[string]bool{}
-	for _, u := range cUses(src) {
-		if u.Call && u.Index < 0 {
-			called[u.Name] = true
+	src := c.comp.VerbatimC
+	toks := cTokenize(src)
+	uses := usesOf(toks)
+	c.checkWrites(o, nil, uses, src, c.comp.VerbatimCPos)
+	bodies := functionBodies(toks)
+	for _, u := range uses {
+		f := isCall(u)
+		if f == nil {
+			continue
+		}
+		fn := ""
+		for _, b := range bodies {
+			if b.start <= u.Off && u.Off < b.end {
+				fn = b.name
+			}
+		}
+		if len(bodies) == 0 && len(c.comp.Functions) == 1 {
+			// No FUNCTION(): cgen wraps the whole verbatim C in the one
+			// function.
+			fn = c.comp.Functions[0].Name
+		}
+		addCaller(f, fn)
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, e := range edges {
+			for fn := range callers[e.from] {
+				if !callers[e.to][fn] {
+					addCaller(e.to, fn)
+					changed = true
+				}
+			}
 		}
 	}
 	for _, f := range fsms {
-		if !called[f.Name] {
+		called := callers[f] != nil
+		for _, e := range edges {
+			// Called by an fsm that is never called: that one is warned
+			// about.
+			called = called || e.to == f
+		}
+		if !called {
 			c.warn(f.Pos, "fsm %s: %s() is never called", f.Name, f.Name)
 		}
 	}
 
-	// The timer and timeouts are floating point.  Which function calls an
-	// fsm is not known here, but when every one is nofp, that one is too.
+	// The timer and timeouts are floating point.
+	fns := map[string]*ast.Function{}
 	allNoFP := len(c.comp.Functions) > 0
-	for _, fn := range c.comp.Functions {
+	for i := range c.comp.Functions {
+		fn := &c.comp.Functions[i]
+		fns[fn.Name] = fn
 		allNoFP = allNoFP && !fn.FP
 	}
-	if !allNoFP {
-		return
-	}
 	for _, f := range fsms {
-		if f.usesFP() {
-			c.warn(c.comp.Functions[0].Pos, "function %s is nofp, but fsm %s uses floating point "+
-				"(timeout, timer_var)", c.comp.Functions[0].Name, f.Name)
+		if !f.usesFP() {
+			continue
+		}
+		for name := range callers[f] {
+			if fn := fns[name]; fn != nil && !fn.FP {
+				c.warn(fn.Pos, "function %s is nofp, but runs fsm %s, which uses floating point "+
+					"(timeout, timer_var)", fn.Name, f.Name)
+			}
+		}
+		if callers[f][""] && allNoFP {
+			c.warn(f.Pos, "fsm %s uses floating point (timeout, timer_var), but every function is nofp", f.Name)
 		}
 	}
+}
+
+// functionBody is the range of the verbatim C a FUNCTION(name) { ... }
+// body spans, as byte offsets.
+type functionBody struct {
+	name       string
+	start, end int
+}
+
+// functionBodies finds the FUNCTION(name) { ... } bodies in the verbatim C.
+func functionBodies(toks []ctok) []functionBody {
+	var out []functionBody
+	for i := 0; i+4 < len(toks); i++ {
+		if toks[i].Kind != ctIdent || toks[i].Text != "FUNCTION" ||
+			toks[i+1].Text != "(" || toks[i+2].Kind != ctIdent || toks[i+3].Text != ")" || toks[i+4].Text != "{" {
+			continue
+		}
+		close := matching(toks, i+4)
+		out = append(out, functionBody{toks[i+2].Text, toks[i+4].Off, toks[close].Off + 1})
+	}
+	return out
 }
 
 // usesFP reports whether f's generated code uses floating point: timeouts

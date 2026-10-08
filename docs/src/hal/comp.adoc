@@ -541,8 +541,8 @@ Each block runs as a function of its own: `return` ends the block, and a transit
 `timeout (EXPR)` is in seconds and evaluated every cycle, so `timeout (delay)` follows a parameter.
 A value of 0 or less means no timeout.
 Number literals may carry a unit: `60s`, `250ms`, `10us`, `500ns`, so `timeout (hold_ns * 1ns)` takes a parameter in nanoseconds.
-Units work only inside `timeout (...)`, and only on decimal numbers: a unit literal must not start with `0`
-(C would read `010s` as octal), and `0x10s` is an error.
+Units work only inside `timeout (...)`, and only on decimal numbers: an integer literal must not start with `0`
+(C would read `010s` and `010` as octal), and `0x10s` is an error.
 The timer counts integer nanoseconds and does not drift; the timeout is rounded to whole nanoseconds,
 so a timeout that is a multiple of the thread period fires exactly on that cycle.
 A transition on 'timer_var' gives a timeout with more than one target:
@@ -552,7 +552,8 @@ on (elapsed >= delay && retry) -> RETRY;
 timeout (delay) -> FAULT;
 ----
 
-Since the timer and the timeout are floating point, a function running an `fsm` with a `timeout` or 'timer_var' must not be declared `nofp`.
+Since the timer and the timeout are floating point, a function running an `fsm` with a `timeout` or 'timer_var' must not be declared `nofp`;
+'modcompile' warns when the `FUNCTION` body calling the machine (or a machine that runs it from one of its blocks) belongs to a `nofp` function.
 
 === Generated names
 

@@ -38,7 +38,14 @@ transitive; bracket errors name the bracket left open. A second review round
 marked the helpers unused (a helper that is never called broke `-Werror`
 builds), extended the collision check to the enum tag and the framework's
 names, and made `enable` and `timeout` expressions reading an output an
-error.
+error. A pre-merge review round attributed fsm calls to the `FUNCTION`
+bodies holding them (for the "never called" and `nofp` warnings, through
+parent fsms too), made every leading-zero integer literal in a timeout an
+error, accepted every integer C type for `state_var`, kept gcc's columns
+right after a rewritten unit literal, treated an array read as a whole as a
+read of every element, named the element pin of an array `state_var` in the
+man page, and shared the comment and literal skipping between the tokenizer
+and the scanner.
 
 ## Motivation
 
@@ -203,9 +210,10 @@ way it is accessed in code:
 The index must be an integer literal and is checked against the declared size.
 For the checks, a condition reading an element with a literal index must find
 that element in `inputs` / `latched`; an element read with a computed index
-(`in_arr(i)`) cannot be matched and gives a warning. Likewise, a write outside
-the FSM to an output array with a computed index gives a "may overwrite"
-warning.
+(`in_arr(i)`), or an array read as a whole (`sum(buf)`), cannot be matched
+and gives a warning. An array read as a whole counts as a read of every
+element for the unread-input check. Likewise, a write outside the FSM to an
+output array with a computed index gives a "may overwrite" warning.
 
 Default values are C expressions and are evaluated every time they are
 applied, so `out3 = some_param` follows the param.
@@ -235,8 +243,11 @@ a 300 ms timeout fired at 301 ms on a 1 ms period. A timeout of 292 years or
 more (beyond `int64` nanoseconds) never fires.
 
 Unit suffixes are rewritten only inside `timeout (...)`; anywhere else
-(`on (fsm_timer >= 5ms)`) they are a C error. A unit literal with a leading
-`0` (`010s`) is an error, since C would read it as octal.
+(`on (fsm_timer >= 5ms)`) they are a C error. An integer literal with a
+leading `0` (`010s`, `010`) is an error, since C would read it as octal and
+nobody means eight seconds. The rewritten literal is generated text; the
+user text around it keeps its `#line` mapping and column, so a C error after
+a unit literal is still reported where it is in the `.comp`.
 
 > Note: the discussion first proposed integer-nanosecond timeout expressions
 > (`1s` = `1000000000LL`). That makes `timeout (wait_s)` silently mean
@@ -331,8 +342,8 @@ Consequences worth stating in the user documentation:
   `feed` next to a pin `feed_in`, an fsm named `if` or `fabs`, a pin
   `<fsm>_state`, an fsm `inst` with a state `start`. fsm names starting with
   `__` are reserved.
-- `state_var` an `io` pin; a timeout unit literal with a leading `0`, or a
-  unit on a number that is not decimal (`0x10s`).
+- `state_var` an `io` pin; a timeout integer literal with a leading `0`
+  (`010s`, `010`), or a unit on a number that is not decimal (`0x10s`).
 - An expression or default that holds only comments (`on (/* x */)`).
 - Unbalanced brackets in captured C. The message names where the bracket
   left open was opened; a `;` inside a condition outside braces is reported
@@ -363,19 +374,28 @@ Consequences worth stating in the user documentation:
   `timeout` only out of reachable states whose `timeout` has no target.
 - State without a way out (no own `on`/`timeout` and no `any` transition
   leading elsewhere).
-- `test_fsm()` never called in the verbatim C.
+- `test_fsm()` never called: neither in the verbatim C nor in another fsm's
+  blocks (a child fsm run from its parent's `during`). A child whose parent
+  is never called is not reported again.
 - An `any` `timeout` that no state uses (no `timeout` without a target), and
   an `any` `on` that cannot fire because its target is the only reachable
   state.
-- Every function is `nofp`, and an fsm with a `timeout` or `timer_var` (the
-  floating-point parts of the generated code) is run from one of them.
+- An fsm with a `timeout` or `timer_var` (the floating-point parts of the
+  generated code) is run from a `nofp` function. A call is attributed to the
+  `FUNCTION(name) { ... }` body holding it, through parent fsms, and to the
+  one function when the verbatim C has no `FUNCTION` (cgen wraps it). A call
+  from a helper of the user's cannot be attributed; it is reported, at the
+  fsm, when every function is `nofp`.
 
 The `timeout`, `reset` and `enable` expressions are not part of the
 sensitivity check.
 
 All identifier scans share one C tokenizer: strings, char literals and
 comments are skipped, and names after `.` or `->` (member access) are not
-identifiers of the component.
+identifiers of the component. The tokenizer, `CaptureC` and the header
+scanner step over comments and literals with the same helpers; only what
+they do at the end differs (`CaptureC` reports an unterminated literal or a
+`//` comment ending in a backslash, the header scanner does not splice).
 
 ## Generated code
 
@@ -701,7 +721,8 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
 ## Open items
 
 1. Graphviz state diagram from docgen in addition to the state table.
-2. Which function calls an fsm is not tracked, so the floating-point check
+2. The floating-point check attributes calls to `FUNCTION` bodies; a call
+   from a helper function of the user's is attributed to no function and
    only warns when every function is `nofp`.
 3. The fsm timeout fires at `timer >= timeout`; the hand-written
    `multiclick` uses `timer > timeout`. Every timeout that is a multiple of

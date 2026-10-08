@@ -52,13 +52,28 @@ var timeUnitRe = regexp.MustCompile(`^((?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[
 
 var timeUnitScale = map[string]string{"s": "", "ms": " * 1e-3", "us": " * 1e-6", "ns": " * 1e-9"}
 
-// rewriteTimeUnits rewrites number literals with a unit suffix in a timeout
-// expression to seconds: 60s -> (60), 5ms -> (5 * 1e-3).  Lines and the
-// rest of the text are unchanged.
-func rewriteTimeUnits(text string) string {
-	var b strings.Builder
+// timeoutPiece is a part of a timeout expression: user text, or the
+// generated replacement of a unit literal.
+type timeoutPiece struct {
+	user *cfrag
+	gen  string
+}
+
+// timeoutPieces splits a timeout expression at its unit literals, which
+// become generated scale factors in seconds: 60s -> (60), 5ms ->
+// (5 * 1e-3).  The user text between them keeps its position and indent as
+// fragments of its own, so the rewrite, which changes the length of the
+// text, does not shift the columns gcc reports for what follows it.
+func timeoutPieces(c cfrag) []timeoutPiece {
+	var out []timeoutPiece
 	last := 0
-	for _, t := range cTokenize(text) {
+	user := func(start, end int) {
+		if start < end {
+			s := c.slice(start, end)
+			out = append(out, timeoutPiece{user: &s})
+		}
+	}
+	for _, t := range cTokenize(c.Text) {
 		if t.Kind != ctNumber {
 			continue
 		}
@@ -66,11 +81,25 @@ func rewriteTimeUnits(text string) string {
 		if m == nil {
 			continue
 		}
-		b.WriteString(text[last:t.Off])
-		fmt.Fprintf(&b, "(%s%s)", m[1], timeUnitScale[m[2]])
+		user(last, t.Off)
+		out = append(out, timeoutPiece{gen: fmt.Sprintf("(%s%s)", m[1], timeUnitScale[m[2]])})
 		last = t.Off + len(t.Text)
 	}
-	b.WriteString(text[last:])
+	user(last, len(c.Text))
+	return out
+}
+
+// rewriteTimeUnits returns a timeout expression with its unit literals
+// rewritten, as one string.
+func rewriteTimeUnits(text string) string {
+	var b strings.Builder
+	for _, p := range timeoutPieces(cfrag{Text: text}) {
+		if p.user != nil {
+			b.WriteString(p.user.Text)
+		} else {
+			b.WriteString(p.gen)
+		}
+	}
 	return b.String()
 }
 
@@ -303,15 +332,19 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 			if t == nil {
 				t = f.AnyTimeout
 			}
-			expr := to.Expr
-			expr.Text = rewriteTimeUnits(expr.Text)
 			// The timeout is rounded to whole nanoseconds, so one that is a
 			// multiple of the period fires exactly on it whatever the
 			// rounding of the double.  Beyond int64 nanoseconds (292
 			// years) it never fires.
-			epi.gen("            {\n                double __to = ")
-			l.expr(expr)
-			epi.gen(";\n")
+			epi.gen("            {\n                double __to = (")
+			for _, p := range timeoutPieces(to.Expr) {
+				if p.user != nil {
+					epi.user(*p.user)
+				} else {
+					epi.gen("%s", p.gen)
+				}
+			}
+			epi.gen(");\n")
 			epi.gen("                if (__to > 0 && __to < 9.2e9 && %s_timer >= (int64_t)(__to * 1e9 + 0.5)) {\n", hid)
 			l.transition("                    ", s, t)
 			epi.gen("                }\n            }\n")

@@ -28,6 +28,31 @@ type cfrag struct {
 	Indent string
 }
 
+// blankIndent blanks every byte but tabs of the source text in front of a
+// fragment.  One blank per byte, not per character: gcc takes the byte
+// column and converts it to characters using the source line it reads from
+// the file named in #line, so an umlaut in front is counted there.
+func blankIndent(lead string) string {
+	b := []byte(lead)
+	for i, c := range b {
+		if c != '\t' {
+			b[i] = ' '
+		}
+	}
+	return string(b)
+}
+
+// slice returns c's text from byte offset start to end as a fragment of its
+// own, positioned and indented like its first byte.
+func (c cfrag) slice(start, end int) cfrag {
+	lineStart := strings.LastIndexByte(c.Text[:start], '\n') + 1
+	indent := blankIndent(c.Text[lineStart:start])
+	if lineStart == 0 {
+		indent = c.Indent + indent
+	}
+	return cfrag{Pos: offsetPos(c.Pos, c.Text, start), Text: c.Text[start:end], Indent: indent}
+}
+
 // refKind says how a list entry addresses its target.
 type refKind int
 
@@ -594,6 +619,11 @@ func (f *fsmDecl) describe() ast.FSM {
 // finishFSMs runs once the whole file is parsed: it checks the fsm blocks,
 // lowers them to C and records each one's description in the AST.
 func (p *parser) finishFSMs() error {
+	if len(p.fsms) == 0 {
+		// Nothing to check: a component without fsm blocks does not pay
+		// for the symbol map and the scans of its C.
+		return nil
+	}
 	for _, f := range p.fsms {
 		if len(f.States) == 0 {
 			return fmt.Errorf("%s: fsm %s has no states", f.Pos, f.Name)

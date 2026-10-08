@@ -6,7 +6,9 @@ package comp
 // does not parse C; it finds identifiers and how they are used, which is all
 // the heuristics in fsm_check.go need.  Every identifier scan goes through
 // it, so strings, character literals and comments are skipped the same way
-// everywhere.
+// everywhere.  The skipping itself is shared with the header scanner
+// (skipLineComment, skipBlockComment, skipCLiteral), so the three places
+// that step over C comments and literals agree on where they end.
 
 import (
 	"strings"
@@ -36,6 +38,57 @@ var cPuncts = []string{
 	"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "##",
 }
 
+// skipLineComment returns the offset of the newline that ends the '//'
+// comment at i, or len(src).  With splice, a backslash in front of the
+// newline continues the comment onto the next line, as C does.  Without it,
+// the comment ends at that newline and spliced reports the backslash, for
+// a caller that cannot let C splice: captured text is emitted line by line.
+func skipLineComment(src string, i int, splice bool) (end int, spliced bool) {
+	for i < len(src) && src[i] != '\n' {
+		if src[i] == '\\' {
+			rest := src[i+1:]
+			if strings.HasPrefix(rest, "\n") || strings.HasPrefix(rest, "\r\n") {
+				nl := i + 1 + strings.IndexByte(rest, '\n')
+				if !splice {
+					return nl, true
+				}
+				i = nl // the i++ below steps onto the next line
+			}
+		}
+		i++
+	}
+	return i, false
+}
+
+// skipBlockComment returns the offset just past the '/* */' comment at i.
+// ok is false when the comment is not closed; end is then len(src).
+func skipBlockComment(src string, i int) (end int, ok bool) {
+	n := strings.Index(src[i+2:], "*/")
+	if n < 0 {
+		return len(src), false
+	}
+	return i + 2 + n + 2, true
+}
+
+// skipCLiteral returns the offset just past the string or character literal
+// at i, whose quote is src[i]; a backslash escapes the byte after it.  ok is
+// false when the line or the text ends before the closing quote; end is then
+// the offset of that newline, or len(src).
+func skipCLiteral(src string, i int) (end int, ok bool) {
+	q := src[i]
+	i++
+	for i < len(src) && src[i] != q && src[i] != '\n' {
+		if src[i] == '\\' {
+			i++
+		}
+		i++
+	}
+	if i < len(src) && src[i] == q {
+		return i + 1, true
+	}
+	return min(i, len(src)), false
+}
+
 // cTokenize splits C text into tokens, dropping whitespace and comments.
 func cTokenize(src string) []ctok {
 	var toks []ctok
@@ -46,35 +99,19 @@ func cTokenize(src string) []ctok {
 		case c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v' || c == '\\':
 			i++
 		case c == '/' && i+1 < len(src) && src[i+1] == '/':
-			// A backslash at the end of the line continues the comment,
-			// as in C.
-			for i < len(src) && src[i] != '\n' {
-				if src[i] == '\\' && strings.HasPrefix(src[i+1:], "\n") {
-					i++
-				} else if src[i] == '\\' && strings.HasPrefix(src[i+1:], "\r\n") {
-					i += 2
-				}
-				i++
-			}
+			// The text is compiled as it is, so a backslash at the end of
+			// the line continues the comment, as in C.
+			i, _ = skipLineComment(src, i, true)
 		case c == '/' && i+1 < len(src) && src[i+1] == '*':
-			end := strings.Index(src[i+2:], "*/")
-			if end < 0 {
+			end, ok := skipBlockComment(src, i)
+			if !ok {
 				return toks
 			}
-			i += 2 + end + 2
+			i = end
 		case c == '"' || c == '\'':
-			start := i
-			i++
-			for i < len(src) && src[i] != c && src[i] != '\n' {
-				if src[i] == '\\' {
-					i++
-				}
-				i++
-			}
-			if i < len(src) && src[i] == c {
-				i++
-			}
-			toks = append(toks, ctok{ctString, src[start:min(i, len(src))], start})
+			end, _ := skipCLiteral(src, i)
+			toks = append(toks, ctok{ctString, src[i:end], i})
+			i = end
 		case isIdentChar(c) && !isDigit(c):
 			start := i
 			for i < len(src) && isIdentChar(src[i]) {
@@ -163,8 +200,10 @@ func matching(toks []ctok, i int) int {
 
 // cUses lists every identifier use in src.  Names after '.' or '->' are
 // members, not identifiers of the component, and are left out.
-func cUses(src string) []cUse {
-	toks := cTokenize(src)
+func cUses(src string) []cUse { return usesOf(cTokenize(src)) }
+
+// usesOf is cUses on tokenized text.
+func usesOf(toks []ctok) []cUse {
 	var uses []cUse
 	for i, t := range toks {
 		if t.Kind != ctIdent {

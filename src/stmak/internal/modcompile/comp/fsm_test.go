@@ -340,6 +340,11 @@ func TestFSMCheckErrors(t *testing.T) {
 			"condition reads outs(...), and every element of outs is an output"},
 		{"octal timeout", `fsm m { any { timeout -> A; } state A { timeout (010s); } };`,
 			"timeout literal 010s has a leading 0, which C reads as octal; write 10s"},
+		{"octal without unit", `fsm m { any { timeout -> A; } state A { timeout (010); } };`,
+			"timeout literal 010 has a leading 0, which C reads as octal; write 10"},
+		{"octal with integer suffix", `fsm m { any { timeout -> A; } state A { timeout (prm * 010u); } };`,
+			"timeout literal 010u has a leading 0, which C reads as octal; write 10u"},
+		{"state_var bool", `variable bool bv; fsm m { state_var: bv; state A { } };`, "state_var: bv is a bool variable"},
 		{"fsm named like function", `fsm _ { state A { } };`, "has the name of a function"},
 	}
 	for _, tc := range cases {
@@ -387,6 +392,10 @@ func TestFSMCheckWarnings(t *testing.T) {
 			[]string{"reads ina(...) with a computed index; it cannot be matched"}},
 		{"computed output index", `fsm m { inputs: in1; outputs: outs(1); state A { on (outs(i) && in1) -> A; } };`, "m();",
 			[]string{"condition reads outs(...) with a computed index; of its elements, the outputs outs(1) always hold"}},
+		{"whole output array", `fsm m { inputs: in1; outputs: outs(1); state A { on (any_set(outs) && in1) -> A; } };`, "m();",
+			[]string{"condition reads outs as a whole; of its elements, the outputs outs(1) always hold"}},
+		{"whole input array", `fsm m { inputs: iarr[0]; state A { on (sum(iarr) > 0) -> A; } };`, "m();",
+			[]string{"condition reads iarr as a whole; it cannot be matched against inputs"}},
 		{"unread input", `fsm m { inputs: in1, in2, ina(2); state A { on (in1 && ina(1)) -> A; } };`, "m();",
 			[]string{"input in2 is never read", "input ina(2) is never read"}},
 		{"read in action", `fsm m { inputs: in1, in2; state A { on (in1) -> A { out1 = in2; } } };`, "m();", nil},
@@ -423,6 +432,15 @@ fsm m { outputs: outs(1); state A { on (in1) -> A; } };`, "m(); n();",
 			"FUNCTION(_) { m(); } FUNCTION(f) { }", nil},
 		{"never called", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> A; } };`, "mm(); /* m() */ \"m()\";",
 			[]string{"m() is never called"}},
+		{"called from a nofp function body",
+			`fsm m { state A { on (in1) -> B; } state B { timeout (1ms) -> A; } }; function f nofp;`,
+			"FUNCTION(_) { } FUNCTION(f) { m(); }",
+			[]string{"function f is nofp, but runs fsm m, which uses floating point (timeout, timer_var)"}},
+		{"nofp through a parent fsm",
+			`fsm child { state A { on (in1) -> B; } state B { timeout (1ms) -> A; } };
+fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> X; } }; function f nofp;`,
+			"FUNCTION(_) { } FUNCTION(f) { par(); }",
+			[]string{"function f is nofp, but runs fsm child, which uses floating point"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -468,20 +486,88 @@ func TestRewriteTimeUnits(t *testing.T) {
 	}
 }
 
-// Only an fsm with a timeout or timer_var uses floating point.
+// Only an fsm with a timeout or timer_var uses floating point.  Without
+// FUNCTION() the verbatim C is the body of the one function; a call from a
+// helper of the user's cannot be attributed, and is reported when every
+// function is nofp.
 func TestFSMCheckNoFP(t *testing.T) {
-	src := `component t "x";
+	header := `component t "x";
 pin in bit a;
 function _ nofp;
 fsm m { state A { on (a) -> B; } state B { on (!a) -> A; } };
 fsm n { state A { on (a) -> B; } state B { timeout (1ms) -> A; } };
 ;;
-m(); n();
 `
-	pkg := parseFSMSrc(t, src)
-	got := strings.Join(pkg.Warnings, "\n")
-	if !strings.Contains(got, "t.comp:3:1: function _ is nofp, but fsm n uses floating point") || strings.Contains(got, "fsm m uses") {
-		t.Errorf("warnings: %s", got)
+	for code, want := range map[string]string{
+		"m(); n();": "t.comp:3:1: function _ is nofp, but runs fsm n, which uses floating point (timeout, timer_var)",
+		"static void h(inst_t *__comp_inst, long period) { m(); n(); }\nFUNCTION(_) { h(__comp_inst, period); }": "t.comp:5:1: fsm n uses floating point (timeout, timer_var), but every function is nofp",
+	} {
+		pkg := parseFSMSrc(t, header+code+"\n")
+		got := strings.Join(pkg.Warnings, "\n")
+		if !strings.Contains(got, want) || strings.Contains(got, "fsm m,") || strings.Contains(got, "fsm m uses") {
+			t.Errorf("%s:\nwarnings: %s\nwant %s", code, got, want)
+		}
+	}
+}
+
+// An fsm run from another fsm's block is called; an fsm called only by an
+// fsm that is never called is not reported twice.  An input array read as
+// a whole (passed to a function) counts as reading every element.
+func TestFSMCheckChildAndWholeArray(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code string
+		want             []string // the complete list of warnings
+	}{
+		{"child", `fsm child { state A { on (in1) -> B; } state B { on (!in1) -> A; } };
+fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> X; } };`, "par();", nil},
+		{"uncalled parent", `fsm child { state A { on (in1) -> B; } state B { on (!in1) -> A; } };
+fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> X; } };`, "",
+			[]string{"t.comp:31:1: fsm par: par() is never called"}},
+		{"whole array read", `fsm m { inputs: in1, iarr[0], iarr[1]; state A { on (in1) -> B { out1 = sum(iarr); } } state B { on (!in1) -> A; } };`,
+			"m();", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pkg := parseFSMSrc(t, checkHeader+tc.body+"\n;;\n"+tc.code+"\n")
+			if !reflect.DeepEqual(pkg.Warnings, tc.want) {
+				t.Errorf("warnings %q, want %q", pkg.Warnings, tc.want)
+			}
+		})
+	}
+}
+
+// Every integer C type may hold the state number.
+func TestFSMStateVarIntegerTypes(t *testing.T) {
+	for _, typ := range []string{"uint8_t", "int8_t", "char", "unsigned", "rtapi_u8", "rtapi_s64", "size_t"} {
+		src := checkHeader + "variable " + typ + ` sv; fsm m { state_var: sv; state A { on (in1) -> B; } state B { on (!in1) -> A; } };` + "\n;;\nm();\n"
+		if _, err := Parse("t.comp", src); err != nil {
+			t.Errorf("%s: %v", typ, err)
+		}
+	}
+}
+
+// A unit literal is rewritten to generated text of another length; the user
+// text after it stays a fragment of its own, with its line and column.
+func TestTimeoutPiecesKeepColumns(t *testing.T) {
+	c := cfrag{Pos: ast.Pos{File: "f", Line: 7, Col: 12}, Indent: "  ", Text: "1s\n + 2ms + wait_s"}
+	var got []string
+	for _, p := range timeoutPieces(c) {
+		if p.user != nil {
+			got = append(got, "user "+p.user.Text+" @"+p.user.Pos.String()+" indent "+p.user.Indent)
+		} else {
+			got = append(got, "gen "+p.gen)
+		}
+	}
+	want := []string{
+		"gen (1)",
+		"user \n +  @f:7:14 indent     ",
+		"gen (2 * 1e-3)",
+		"user  + wait_s @f:8:7 indent       ",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pieces\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if got := rewriteTimeUnits(c.Text); got != "(1)\n + (2 * 1e-3) + wait_s" {
+		t.Errorf("rewriteTimeUnits = %q", got)
 	}
 }
 

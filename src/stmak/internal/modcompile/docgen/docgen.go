@@ -6,6 +6,7 @@ package docgen
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -280,15 +281,50 @@ func troffText(s string) string {
 	return s
 }
 
-// halNameOf returns the man-page name of the pin a C name refers to, or ""
-// when it names no pin.
-func halNameOf(c *ast.Component, cName string) string {
-	for _, p := range c.Pins {
-		if ast.CName(p.Name) == cName {
-			return toHALMan(c.Name, p.Name)
+// halNameOf returns the man-page name of the pin an fsm list entry refers
+// to, or "" when it names no pin.  The entry is written the way C accesses
+// it: a name, or an array element name(N).
+func halNameOf(c *ast.Component, entry string) string {
+	cName, index := entry, -1
+	if i := strings.IndexAny(entry, "(["); i >= 0 {
+		cName = entry[:i]
+		if n, err := strconv.Atoi(strings.TrimRight(entry[i+1:], ")]")); err == nil {
+			index = n
 		}
 	}
+	for _, p := range c.Pins {
+		if ast.CName(p.Name) != cName {
+			continue
+		}
+		if index < 0 {
+			return toHALMan(c.Name, p.Name)
+		}
+		return toHALMan(c.Name, elementName(p.Name, index))
+	}
 	return ""
+}
+
+// elementName fills the # markers of an array pin's name with an index the
+// way cgen does: a run of N markers becomes the index in N digits.
+func elementName(halName string, index int) string {
+	if !strings.Contains(halName, "#") {
+		return halName + strconv.Itoa(index)
+	}
+	var b strings.Builder
+	for i := 0; i < len(halName); {
+		if halName[i] != '#' {
+			b.WriteByte(halName[i])
+			i++
+			continue
+		}
+		n := 0
+		for i < len(halName) && halName[i] == '#' {
+			n++
+			i++
+		}
+		fmt.Fprintf(&b, "%0*d", n, index)
+	}
+	return b.String()
 }
 
 // writeFSM documents one fsm block: what drives it, then a table of its
