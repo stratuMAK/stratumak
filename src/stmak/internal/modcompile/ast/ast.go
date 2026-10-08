@@ -212,6 +212,69 @@ var ArchMacros = map[string]string{
 	"ppc64":   "(defined(__powerpc64__) || defined(__ppc64__))",
 }
 
+// CName converts a HAL-style name to the C identifier user code uses for it:
+// runs of # and their adjacent separators are stripped, - and . become _, and
+// runs of _ collapse to one.
+func CName(halName string) string {
+	// Strip runs of # and their adjacent separators.
+	s := stripHashMarkers(halName)
+	// Replace . and - with _.
+	var b strings.Builder
+	prevUnderscore := false
+	for _, c := range s {
+		switch c {
+		case '-', '.', '_':
+			if !prevUnderscore {
+				b.WriteByte('_')
+				prevUnderscore = true
+			}
+		default:
+			b.WriteRune(c)
+			prevUnderscore = false
+		}
+	}
+	return b.String()
+}
+
+// stripHashMarkers removes runs of # and their directly-adjacent separators.
+// For middle ##: "joint.##.offset" → "joint.offset" (keep one separator).
+// For trailing ##: "x-val-##" → "x-val".
+func stripHashMarkers(s string) string {
+	isSep := func(c byte) bool {
+		return c == '-' || c == '_' || c == '.'
+	}
+
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if isSep(s[i]) && i+1 < len(s) && s[i+1] == '#' {
+			// Separator before a hash run — consume sep + all hashes.
+			leadingSep := s[i]
+			i++ // skip separator
+			for i < len(s) && s[i] == '#' {
+				i++
+			}
+			// If there's a trailing separator AND more content after, keep one separator.
+			if i < len(s) && isSep(s[i]) && i+1 < len(s) {
+				b.WriteByte(leadingSep)
+				i++ // skip trailing separator
+			}
+		} else if s[i] == '#' {
+			// Hash at start of string (no leading sep).
+			for i < len(s) && s[i] == '#' {
+				i++
+			}
+			if i < len(s) && isSep(s[i]) {
+				i++
+			}
+		} else {
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
 // ---------------------------------------------------------------------------
 // HAL types and directions
 // ---------------------------------------------------------------------------

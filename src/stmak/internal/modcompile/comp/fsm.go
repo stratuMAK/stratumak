@@ -567,13 +567,18 @@ func (f *fsmDecl) describe() ast.FSM {
 	return d
 }
 
-// finishFSMs runs once the whole file is parsed: it records each fsm block's
-// description in the AST.
+// finishFSMs runs once the whole file is parsed: it checks the fsm blocks
+// and records each one's description in the AST.
 func (p *parser) finishFSMs() error {
 	for _, f := range p.fsms {
 		if len(f.States) == 0 {
 			return fmt.Errorf("%s: fsm %s has no states", f.Pos, f.Name)
 		}
+	}
+	if err := p.checkFSMs(); err != nil {
+		return err
+	}
+	for _, f := range p.fsms {
 		p.pkg.Component.FSMs = append(p.pkg.Component.FSMs, f.describe())
 	}
 	return nil

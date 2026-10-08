@@ -10,13 +10,14 @@ assignments.
 | Slice | Scope | Status |
 |-------|-------|--------|
 | 1 | Scanner + parser for `fsm` blocks, AST description | ✅ Done |
-| 2 | Semantic checks (names, directions, graph, sensitivity) | ⬜ Open |
+| 2 | Semantic checks (names, directions, graph, sensitivity) | ✅ Done |
 | 3 | C lowering + generic cgen hook | ⬜ Open |
 | 4 | docgen state table | ⬜ Open |
 | 5 | Runtests, `comp.adoc` user documentation | ⬜ Open |
 
-Slice 1 landed: `fsm` blocks parse into `comp/fsm.go`'s structure and are
-described in `ast.Component.FSMs`; no checks or code generation yet.
+Slices 1-2 landed: `fsm` blocks parse into `comp/fsm.go`'s structure, are
+checked in `comp/fsm_check.go` (identifier scans share `comp/ctok.go`) and
+described in `ast.Component.FSMs`; no code generation yet.
 
 ## Motivation
 
