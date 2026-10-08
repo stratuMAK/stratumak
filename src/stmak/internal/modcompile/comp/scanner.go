@@ -584,13 +584,29 @@ func (s *Scanner) scanFSMToken(pos ast.Pos, c byte) (Token, bool) {
 	return Token{}, false
 }
 
+// CaptureError is an error in captured C, at Pos.  The parser adds the fsm
+// it belongs to.
+type CaptureError struct {
+	Pos ast.Pos
+	Msg string
+}
+
+func (e *CaptureError) Error() string { return fmt.Sprintf("%s: %s", e.Pos, e.Msg) }
+
+// openerOf maps a closing bracket to its opening one.
+var openerOf = map[byte]byte{')': '(', ']': '[', '}': '{'}
+
 // CaptureC reads verbatim C from the current position up to, but not
 // including, the first byte of stop that appears outside any bracket pair.
 // (), [] and {} are balanced; string and character literals and comments are
 // skipped, so a bracket or stop byte inside them does not count.  It returns
 // the text with the position of its first byte.  A closing bracket that does
 // not match, or the end of the header, is an error.
-func (s *Scanner) CaptureC(stop string) (*cfrag, error) {
+//
+// opened is the position of the bracket the caller consumed in front of the
+// capture (the '(' of a condition, the '{' of a block); errors name it when
+// it is the one left open.  It is ignored for a stop without an opener.
+func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
 	start, pos := s.pos, s.here()
 	lineStart := strings.LastIndexByte(s.src[:start], '\n') + 1
 	indent := []byte(s.src[lineStart:start])
@@ -599,15 +615,43 @@ func (s *Scanner) CaptureC(stop string) (*cfrag, error) {
 			indent[i] = ' '
 		}
 	}
-	var stack []byte
+	type open struct {
+		close byte
+		pos   ast.Pos
+	}
+	var stack []open
+	if len(stop) == 1 && openerOf[stop[0]] != 0 {
+		// The caller's bracket sits under everything captured; closing it
+		// is the stop.
+		stack = append(stack, open{stop[0], opened})
+	}
+	base := len(stack) // 1 when the caller's bracket is on the stack
+	frag := func() *cfrag {
+		return &cfrag{Pos: pos, Text: s.src[start:s.pos], Indent: string(indent)}
+	}
+	errf := func(at ast.Pos, format string, args ...interface{}) error {
+		return &CaptureError{at, fmt.Sprintf(format, args...)}
+	}
+	// unclosed describes the innermost open bracket.
+	unclosed := func() string {
+		o := stack[len(stack)-1]
+		return fmt.Sprintf("%q opened at %s is not closed", string(openerOf[o.close]), o.pos)
+	}
 	for s.pos < len(s.src) {
 		c := s.cur()
-		if len(stack) == 0 && strings.IndexByte(stop, c) >= 0 {
-			return &cfrag{Pos: pos, Text: s.src[start:s.pos], Indent: string(indent)}, nil
+		if base == 0 && len(stack) == 0 && strings.IndexByte(stop, c) >= 0 {
+			return frag(), nil
 		}
 		switch {
 		case c == '/' && s.peek(1) == '/':
+			at := s.here()
 			for s.pos < len(s.src) && s.cur() != '\n' {
+				if s.cur() == '\\' && (s.peek(1) == '\n' || s.peek(1) == '\r' && s.peek(2) == '\n') {
+					// C splices the next line into the comment; the
+					// capture would not, and the code would silently lose
+					// that line.
+					return nil, errf(at, "'//' comment ends in a backslash, which continues it onto the next line")
+				}
 				s.advance()
 			}
 			continue
@@ -619,7 +663,7 @@ func (s *Scanner) CaptureC(stop string) (*cfrag, error) {
 				s.advance()
 			}
 			if s.pos >= len(s.src) {
-				return nil, fmt.Errorf("%s: unterminated comment", at)
+				return nil, errf(at, "unterminated comment")
 			}
 			s.advance()
 			s.advance()
@@ -634,25 +678,43 @@ func (s *Scanner) CaptureC(stop string) (*cfrag, error) {
 				s.advance()
 			}
 			if s.pos >= len(s.src) || s.cur() != c {
-				return nil, fmt.Errorf("%s: unterminated %s literal", at,
+				return nil, errf(at, "unterminated %s literal",
 					map[byte]string{'"': "string", '\'': "character"}[c])
 			}
+		case c == ';' && stop == ")":
+			// An expression holds a ';' only inside a statement
+			// expression's braces; anywhere else a ')' is missing.
+			inBraces := false
+			for _, o := range stack[base:] {
+				inBraces = inBraces || o.close == '}'
+			}
+			if !inBraces {
+				return nil, errf(s.here(), "unexpected ';': %s", unclosed())
+			}
 		case c == '(':
-			stack = append(stack, ')')
+			stack = append(stack, open{')', s.here()})
 		case c == '[':
-			stack = append(stack, ']')
+			stack = append(stack, open{']', s.here()})
 		case c == '{':
-			stack = append(stack, '}')
+			stack = append(stack, open{'}', s.here()})
 		case c == ')' || c == ']' || c == '}':
-			if len(stack) == 0 || stack[len(stack)-1] != c {
-				return nil, fmt.Errorf("%s: unbalanced %q", s.here(), string(c))
+			if len(stack) == 0 {
+				return nil, errf(s.here(), "unbalanced %q", string(c))
+			}
+			if stack[len(stack)-1].close != c {
+				return nil, errf(s.here(), "unbalanced %q: %s", string(c), unclosed())
+			}
+			if len(stack) == base && base > 0 {
+				// It closes the caller's bracket; the parser reads it as
+				// the next token.
+				return frag(), nil
 			}
 			stack = stack[:len(stack)-1]
 		}
 		s.advance()
 	}
 	if len(stack) > 0 {
-		return nil, fmt.Errorf("%s: missing %q before end of header", pos, string(stack[len(stack)-1]))
+		return nil, errf(pos, "end of header: %s", unclosed())
 	}
-	return nil, fmt.Errorf("%s: expected one of %q before end of header", pos, stop)
+	return nil, errf(pos, "expected one of %q before end of header", stop)
 }

@@ -197,6 +197,15 @@ func TestParseFSMErrors(t *testing.T) {
 		{"empty default", `fsm m { outputs: out1 = ; state A { } };`, "empty default"},
 		{"unterminated", `fsm m { state A { on ("x) -> A; } };`, "unterminated string"},
 		{"any item", `fsm m { any { during { } } state A { } };`, "expected 'on' or 'timeout'"},
+		{"names the fsm", `fsm m { outputs: out1 = ; state A { } };`, "fsm m: empty default"},
+		{"unclosed paren", `fsm m { state A { on (in1 && (in2) -> A; } };`,
+			`t.comp:18:40: fsm m: unexpected ';': "(" opened at t.comp:18:22 is not closed`},
+		{"unclosed in block", `fsm m { state A { on_enter { f(1; } } };`,
+			`t.comp:18:35: fsm m: unbalanced "}": "(" opened at t.comp:18:31 is not closed`},
+		{"block closes paren", `fsm m { state A { on (in1 } } };`,
+			`unbalanced "}": "(" opened at t.comp:18:22 is not closed`},
+		{"comment continues", "fsm m { state A { on (in1 // note \\\n && in2) -> A; } };",
+			"'//' comment ends in a backslash"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -215,7 +224,7 @@ func TestCaptureCPosition(t *testing.T) {
 	sc := NewScanner("f", "a = \n  f(1, 2) , y;")
 	sc.Next() // a
 	sc.Next() // =
-	c, err := sc.CaptureC(",;")
+	c, err := sc.CaptureC(",;", ast.Pos{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +234,7 @@ func TestCaptureCPosition(t *testing.T) {
 	sc = NewScanner("f", "\tx (y);")
 	sc.Next() // x
 	sc.Next() // (
-	if c, _ = sc.CaptureC(")"); c.Indent != "\t   " {
+	if c, _ = sc.CaptureC(")", ast.Pos{}); c.Indent != "\t   " {
 		t.Errorf("indent %q, want tab kept", c.Indent)
 	}
 }
@@ -271,8 +280,9 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"scalar indexed", `fsm m { outputs: out1(0); state A { } };`, "out1 is not an array"},
 		{"pointer", `fsm m { latched: dptr; state A { } };`, "pointer variable"},
 		{"state_var float", `fsm m { state_var: dvar; state A { } };`, "state_var: dvar is a double variable"},
-		{"state_var bit", `fsm m { state_var: out1; state A { } };`, "state_var: out1 is a out bit pin"},
-		{"timer_var int", `fsm m { timer_var: ivar; state A { } };`, "timer_var: ivar is a int variable"},
+		{"state_var bit", `fsm m { state_var: out1; state A { } };`, "state_var: out1 is an out bit pin"},
+		{"state_var io", `pin io s32 iost; fsm m { state_var: iost; state A { } };`, "state_var: iost is an io pin"},
+		{"timer_var int", `fsm m { timer_var: ivar; state A { } };`, "timer_var: ivar is an int variable"},
 		{"timer_var in", `fsm m { timer_var: in1; state A { } };`, "timer_var: in1 is an in pin"},
 		{"two lists", `fsm m { outputs: out1; latched: out1; state A { } };`, "more than one of outputs"},
 		{"same list twice", `fsm m { outputs: out1, out1; state A { } };`, "more than one of outputs"},
@@ -286,7 +296,23 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"reads output", `fsm m { outputs: out1; state A { on (out1) -> A; } };`, "condition reads output out1"},
 		{"reads output elem", `fsm m { outputs: outs(1); state A { on (outs(1) && in1) -> A; } };`, "condition reads output outs"},
 		{"dup fsm", `fsm m { state A { } }; fsm m { state A { } };`, "fsm m already declared"},
-		{"fsm named like pin", `fsm in1 { state A { } };`, "has the name of a in bit pin"},
+		{"fsm named like pin", `fsm in1 { state A { } };`,
+			"in1 would be the call macro of fsm in1, but it is already the C name of an in bit pin declared at t.comp:2:1"},
+		{"state named run", `fsm m { state A { } state run { } };`,
+			"m_run would be the constant of state run of fsm m, but it is already the run function of fsm m"},
+		{"in macro vs pin", `pin in bit m_in; fsm m { state A { } };`,
+			"m_in would be the state test macro of fsm m, but it is already the C name of an in bit pin"},
+		{"fsm vs other fsm state", `fsm m { state x_run { } }; fsm m_x { state A { } };`,
+			"m_x_run would be the run function of fsm m_x, but it is already the constant of state x_run of fsm m"},
+		{"keyword", `fsm if { state A { } };`, "if would be the call macro of fsm if, but it is already a C keyword"},
+		{"math function", `fsm fabs { state A { } };`, "fabs would be the call macro of fsm fabs, but it is already a name the generated code defines"},
+		{"fperiod", `fsm fperiod { state A { } };`, "already a name the generated code defines"},
+		{"reserved", `fsm __x { state A { } };`, "fsm __x: names starting with __ are reserved"},
+		{"hidden", `variable int __fsm_m_timer; fsm m { state A { } };`, "__fsm_m_timer would be a hidden variable of fsm m"},
+		{"reads every output elem", `fsm m { outputs: outs(0), outs(1), outs(2); state A { on (outs(i)) -> A; } };`,
+			"condition reads outs(...), and every element of outs is an output"},
+		{"octal timeout", `fsm m { any { timeout -> A; } state A { timeout (010s); } };`,
+			"timeout literal 010s has a leading 0, which C reads as octal; write 10s"},
 		{"fsm named like function", `fsm _ { state A { } };`, "has the name of a function"},
 	}
 	for _, tc := range cases {
@@ -329,20 +355,35 @@ func TestFSMCheckWarnings(t *testing.T) {
 			[]string{"t.comp:30:43: fsm m: condition reads in2, which is not in inputs"}},
 		{"no inputs list, no check", `fsm m { state A { on (in2) -> A; } };`, "m();", nil},
 		{"element sensitivity", `fsm m { inputs: ina(1); state A { on (ina(1) || ina(2)) -> A; } };`, "m();",
-			[]string{"condition reads ina, which is not in inputs"}},
+			[]string{"condition reads ina(2), which is not in inputs"}},
 		{"computed index", `fsm m { inputs: ina(1); state A { on (ina(i)) -> A; } };`, "m();",
-			[]string{"reads ina with a computed index"}},
+			[]string{"reads ina(...) with a computed index; it cannot be matched"}},
+		{"computed output index", `fsm m { inputs: in1; outputs: outs(1); state A { on (outs(i) && in1) -> A; } };`, "m();",
+			[]string{"condition reads outs(...) with a computed index; of its elements, the outputs outs(1) always hold"}},
 		{"unread input", `fsm m { inputs: in1, in2, ina(2); state A { on (in1 && ina(1)) -> A; } };`, "m();",
 			[]string{"input in2 is never read", "input ina(2) is never read"}},
 		{"read in action", `fsm m { inputs: in1, in2; state A { on (in1) -> A { out1 = in2; } } };`, "m();", nil},
 		{"write outside", `fsm m { outputs: out1, outs(1); state_var: fsm_state; state A { on (in1) -> A; } };`,
 			"m();\nout1 = 1; out2 = 1; outs(1) |= 1; outs(2) = 1; outs(i) = 0; fsm_state++; --fsm_state; x.out1 = 1;",
-			[]string{"t.comp:33:1: out1 is written by an fsm", "33:21: outs is written by an fsm", "33:48: outs may overwrite",
-				"33:61: fsm_state is written by an fsm", "33:76: fsm_state is written by an fsm"}},
+			[]string{"t.comp:33:1: out1 is the output of fsm m; the fsm overwrites it on its next run",
+				"33:21: outs(1) is the output of fsm m", "33:48: write to outs(...) may hit outs(1), the output of fsm m",
+				"33:61: fsm_state is the state_var of fsm m; the state changes only through transitions",
+				"33:76: fsm_state is the state_var of fsm m"}},
+		{"comment continuation", `fsm m { outputs: out1; state A { on (in1) -> A; } };`, "m(); // note \\\nout1 = 1;", nil},
+		{"write from another fsm", `fsm m { outputs: out1; state A { on (in1) -> A; } };
+fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;
+    state X { during { out1 = 1; out2 = 1; fsm_state = 0; } on (in2) -> X { fsm_timer = 0; } } };`, "m(); n();",
+			[]string{"t.comp:32:24: fsm n: out1 is the output of fsm m; the fsm overwrites it",
+				"32:44: fsm n: fsm_state is the state_var of this fsm; the state changes only through transitions",
+				"32:77: fsm n: fsm_timer is the timer_var of this fsm"}},
 		{"unreachable", `fsm m { state A { on (in1) -> A; } state B { on (in1) -> A; } };`, "m();",
 			[]string{"state B is unreachable", "state A has no way out"}},
 		{"self loop only", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> B; } };`, "m();",
 			[]string{"state B has no way out"}},
+		{"unreachable cycle", `fsm m { state A { on (in1) -> A; } state B { on (in1) -> C; } state C { on (in1) -> B; } };`, "m();",
+			[]string{"state B is unreachable", "state C is unreachable"}},
+		{"unused any timeout", `fsm m { any { timeout -> B; } state A { on (in1) -> A; } state B { on (in1) -> A; } };`, "m();",
+			[]string{"state B is unreachable"}},
 		{"any is a way out", `fsm m { any { on (in1) -> A; timeout -> A; } state A { on (in2) -> B; } state B { timeout (1); } };`, "m();", nil},
 		{"one fp function is enough", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> A; } }; function f nofp;`,
 			"FUNCTION(_) { m(); } FUNCTION(f) { }", nil},
@@ -393,16 +434,41 @@ func TestRewriteTimeUnits(t *testing.T) {
 	}
 }
 
+// Only an fsm with a timeout or timer_var uses floating point.
 func TestFSMCheckNoFP(t *testing.T) {
 	src := `component t "x";
 pin in bit a;
 function _ nofp;
 fsm m { state A { on (a) -> B; } state B { on (!a) -> A; } };
+fsm n { state A { on (a) -> B; } state B { timeout (1ms) -> A; } };
 ;;
-m();
+m(); n();
 `
 	pkg := parseFSMSrc(t, src)
-	if got := strings.Join(pkg.Warnings, "\n"); !strings.Contains(got, "t.comp:3:1: function _ is nofp, but fsm m uses floating point") {
+	got := strings.Join(pkg.Warnings, "\n")
+	if !strings.Contains(got, "t.comp:3:1: function _ is nofp, but fsm n uses floating point") || strings.Contains(got, "fsm m uses") {
 		t.Errorf("warnings: %s", got)
 	}
+}
+
+// Names that only look alike do not collide.
+func TestFSMNamesAccepted(t *testing.T) {
+	src := `component t "x";
+pin in bit a;
+function _;
+fsm p { state A { on (a) -> B; } state B { on (!a) -> A; } };
+fsm p_q { state A { on (a) -> B; } state B { on (!a) -> A; } };
+fsm s { state any { on (a) -> run_x; } state run_x { on (!a) -> any; } };
+;;
+p(); p_q(); s();
+`
+	pkg := parseFSMSrc(t, src)
+	if len(pkg.Warnings) != 0 {
+		t.Errorf("unexpected warnings:\n%s", strings.Join(pkg.Warnings, "\n"))
+	}
+}
+
+// A statement expression may hold ';' inside a condition.
+func TestParseFSMStatementExpression(t *testing.T) {
+	parseFSMSrc(t, fsmHeader+`fsm m { state A { on (({ int x = in1; x; })) -> A; } };`+fsmCall)
 }

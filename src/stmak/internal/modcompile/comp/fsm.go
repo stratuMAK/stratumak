@@ -150,13 +150,15 @@ func (p *parser) parseFSM() error {
 		return err
 	}
 	f := &fsmDecl{Pos: pos, Name: name, seen: map[string]ast.Pos{}}
+	p.fsmName = name
+	defer func() { p.fsmName = "" }()
 
 	if _, err := p.expect(TokLBrace); err != nil {
 		return err
 	}
 	for p.cur.Kind != TokRBrace {
 		if p.cur.Kind == TokEOF {
-			return p.errorf("fsm %s: missing '}'", name)
+			return p.errorf("missing '}'")
 		}
 		if err := p.parseFSMItem(f); err != nil {
 			return err
@@ -164,7 +166,7 @@ func (p *parser) parseFSM() error {
 	}
 	p.next() // skip }
 	if p.cur.Kind != TokSemi {
-		return p.errorf("fsm %s: expected ';' after '}', got %s (%q)", name, p.cur.Kind, p.cur.Val)
+		return p.errorf("expected ';' after '}', got %s (%q)", p.cur.Kind, p.cur.Val)
 	}
 	// Back to header tokens before the token after ';' is scanned.
 	p.sc.fsm = false
@@ -176,14 +178,14 @@ func (p *parser) parseFSM() error {
 
 func (p *parser) parseFSMItem(f *fsmDecl) error {
 	if p.cur.Kind != TokIdent {
-		return p.errorf("fsm %s: expected an item, got %s (%q)", f.Name, p.cur.Kind, p.cur.Val)
+		return p.errorf("expected an item, got %s (%q)", p.cur.Kind, p.cur.Val)
 	}
 	kw, pos := p.cur.Val, p.cur.Pos
 
 	switch kw {
 	case "any":
 		if f.HasAny {
-			return fmt.Errorf("%s: fsm %s: more than one any block", pos, f.Name)
+			return p.errorAt(pos, "more than one any block")
 		}
 		f.HasAny = true
 		p.next()
@@ -193,11 +195,11 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 		return p.parseState(f, pos)
 	case "inputs", "outputs", "latched", "reset", "enable", "state_var", "timer_var", "initial":
 	default:
-		return fmt.Errorf("%s: fsm %s: unknown item %q", pos, f.Name, kw)
+		return p.errorAt(pos, "unknown item %q", kw)
 	}
 
 	if prev, ok := f.seen[kw]; ok {
-		return fmt.Errorf("%s: fsm %s: duplicate %s (first at %s)", pos, f.Name, kw, prev)
+		return p.errorAt(pos, "duplicate %s (first at %s)", kw, prev)
 	}
 	f.seen[kw] = pos
 	p.next()
@@ -238,6 +240,16 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 	return p.expectSemi()
 }
 
+// capture reads verbatim C up to stop (see Scanner.CaptureC); opened is the
+// bracket in front of it.  Errors name the fsm.
+func (p *parser) capture(stop string, opened ast.Pos) (*cfrag, error) {
+	c, err := p.sc.CaptureC(stop, opened)
+	if ce, ok := err.(*CaptureError); ok {
+		return nil, p.errorAt(ce.Pos, "%s", ce.Msg)
+	}
+	return c, err
+}
+
 // parseRefList parses name_list := ref (',' ref)*
 func (p *parser) parseRefList() ([]fsmRef, error) {
 	var refs []fsmRef
@@ -266,12 +278,12 @@ func (p *parser) parseDefList() ([]fsmDef, error) {
 		d := fsmDef{fsmRef: r}
 		if p.cur.Kind == TokEq {
 			// The lookahead is '='; the scanner stands right after it.
-			c, err := p.sc.CaptureC(",;")
+			c, err := p.capture(",;", ast.Pos{})
 			if err != nil {
 				return nil, err
 			}
 			if strings.TrimSpace(c.Text) == "" {
-				return nil, fmt.Errorf("%s: empty default for %s", c.Pos, r)
+				return nil, p.errorAt(c.Pos, "empty default for %s", r)
 			}
 			d.Default = c
 			p.next()
@@ -321,12 +333,12 @@ func (p *parser) parseParenC() (*cfrag, error) {
 	if p.cur.Kind != TokLParen {
 		return nil, p.errorf("expected '(', got %s (%q)", p.cur.Kind, p.cur.Val)
 	}
-	c, err := p.sc.CaptureC(")")
+	c, err := p.capture(")", p.cur.Pos)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(c.Text) == "" {
-		return nil, fmt.Errorf("%s: empty expression", c.Pos)
+		return nil, p.errorAt(c.Pos, "empty expression")
 	}
 	p.next() // the ')'
 	if _, err := p.expect(TokRParen); err != nil {
@@ -340,7 +352,7 @@ func (p *parser) parseBlock() (*cfrag, error) {
 	if p.cur.Kind != TokLBrace {
 		return nil, p.errorf("expected '{', got %s (%q)", p.cur.Kind, p.cur.Val)
 	}
-	c, err := p.sc.CaptureC("}")
+	c, err := p.capture("}", p.cur.Pos)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +398,7 @@ func (p *parser) parseAny(f *fsmDecl) error {
 			f.AnyOn = append(f.AnyOn, t)
 		case p.cur.Kind == TokIdent && p.cur.Val == "timeout":
 			if f.AnyTimeout != nil {
-				return fmt.Errorf("%s: fsm %s: more than one timeout in any", pos, f.Name)
+				return p.errorAt(pos, "more than one timeout in any")
 			}
 			p.next()
 			t := &fsmTrans{Pos: pos}
@@ -395,7 +407,7 @@ func (p *parser) parseAny(f *fsmDecl) error {
 			}
 			f.AnyTimeout = t
 		default:
-			return p.errorf("fsm %s: expected 'on' or 'timeout' in any, got %q", f.Name, p.cur.Val)
+			return p.errorf("expected 'on' or 'timeout' in any, got %q", p.cur.Val)
 		}
 	}
 	p.next() // skip }
@@ -420,7 +432,7 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 		return err
 	}
 	if prev := f.state(name); prev != nil {
-		return fmt.Errorf("%s: fsm %s: duplicate state %s (first at %s)", pos, f.Name, name, prev.Pos)
+		return p.errorAt(pos, "duplicate state %s (first at %s)", name, prev.Pos)
 	}
 	st := &fsmState{Pos: pos, Name: name}
 	f.States = append(f.States, st)
@@ -451,7 +463,7 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 			continue
 		case "timeout":
 			if st.Timeout != nil {
-				return fmt.Errorf("%s: state %s: duplicate timeout (first at %s)", ipos, name, st.Timeout.Pos)
+				return p.errorAt(ipos, "state %s: duplicate timeout (first at %s)", name, st.Timeout.Pos)
 			}
 			p.next()
 			expr, err := p.parseParenC()
@@ -470,10 +482,10 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 			st.Timeout = to
 			continue
 		default:
-			return fmt.Errorf("%s: state %s: unknown item %q", ipos, name, kw)
+			return p.errorAt(ipos, "state %s: unknown item %q", name, kw)
 		}
 		if *slot != nil {
-			return fmt.Errorf("%s: state %s: duplicate %s (first at %s)", ipos, name, kw, (*slot).Pos)
+			return p.errorAt(ipos, "state %s: duplicate %s (first at %s)", name, kw, (*slot).Pos)
 		}
 		p.next()
 		b, err := p.parseBlock()

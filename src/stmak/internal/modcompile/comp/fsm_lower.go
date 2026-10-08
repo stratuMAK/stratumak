@@ -74,29 +74,13 @@ func rewriteTimeUnits(text string) string {
 	return b.String()
 }
 
-// fsmLowering holds the names generated for one fsm.
+// fsmLowering generates the code of one fsm.  The names come from
+// fsm_names.go, which the collision check uses too.
 type fsmLowering struct {
 	f        *fsmDecl
 	pre, epi *fragBuf
-	stateVar string // C expression holding the state
-	timerVar string // "" when there is none
-	hidden   string // prefix of the hidden variables
-}
-
-func (l *fsmLowering) enumName(state string) string { return l.f.Name + "_" + state }
-
-// helper returns the name of a per-state helper function (enter, exit,
-// during).
-func (l *fsmLowering) helper(kind, state string) string {
-	return fmt.Sprintf("%s_%s_%s", l.f.Name, kind, state)
-}
-
-// block emits a user block as a statement of its own.  do/while(0) keeps a
-// stray break or continue inside it from leaving the generated switch.
-func (l *fsmLowering) block(indent string, c *cfrag) {
-	l.epi.gen("%sdo {\n", indent)
-	l.epi.user(*c)
-	l.epi.gen("%s} while (0);\n", indent)
+	// action maps each transition with an action block to its helper.
+	action map[*fsmTrans]string
 }
 
 // expr emits '(' user expression ')'.
@@ -106,23 +90,35 @@ func (l *fsmLowering) expr(c cfrag) {
 	l.epi.gen(")")
 }
 
+// helperFn emits a helper function holding a user block.  As a function of
+// its own, a return in the block ends only the block, and a stray break or
+// continue cannot reach the generated switch.
+func (l *fsmLowering) helperFn(name, comment string, blk *cfrag) {
+	l.epi.gen("/* %s */\n", comment)
+	l.epi.gen("static void %s(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;\n", name)
+	l.epi.gen("static void %s(inst_t *__comp_inst, long period) {\n", name)
+	l.epi.gen("    (void)__comp_inst; (void)period;\n")
+	l.epi.user(*blk)
+	l.epi.gen("}\n\n")
+}
+
 // transition emits the body of a firing transition from state from: exit,
 // action, state change, timer reset, entry -- then leaves the switch.
 func (l *fsmLowering) transition(indent string, from *fsmState, t *fsmTrans) {
 	f := l.f
 	if from.Exit != nil {
-		l.epi.gen("%s%s(__comp_inst, period);\n", indent, l.helper("exit", from.Name))
+		l.epi.gen("%s%s(__comp_inst, period);\n", indent, f.helperName("exit", from.Name))
 	}
 	if t.Action != nil {
-		l.block(indent, t.Action)
+		l.epi.gen("%s%s(__comp_inst, period);\n", indent, l.action[t])
 	}
-	l.epi.gen("%s%s = %s;\n", indent, l.stateVar, l.enumName(t.Target))
-	l.epi.gen("%s%s_timer = 0;\n", indent, l.hidden)
-	if l.timerVar != "" {
-		l.epi.gen("%s%s = 0;\n", indent, l.timerVar)
+	l.epi.gen("%s%s = %s;\n", indent, f.stateVarName(), f.enumName(t.Target))
+	l.epi.gen("%s%s_timer = 0;\n", indent, f.hidden())
+	if f.TimerVar != nil {
+		l.epi.gen("%s%s = 0;\n", indent, f.TimerVar.Name)
 	}
 	if f.state(t.Target).Enter != nil {
-		l.epi.gen("%s%s(__comp_inst, period);\n", indent, l.helper("enter", t.Target))
+		l.epi.gen("%s%s(__comp_inst, period);\n", indent, f.helperName("enter", t.Target))
 	}
 	l.epi.gen("%sbreak;\n", indent)
 }
@@ -130,23 +126,18 @@ func (l *fsmLowering) transition(indent string, from *fsmState, t *fsmTrans) {
 func (l *fsmLowering) lower(comp *ast.Component) {
 	f := l.f
 	n := f.Name
+	hid := f.hidden()
+	stateVar := f.stateVarName()
 
 	// Hidden per-instance state, as ordinary variables so every instance
 	// has its own machine.
-	l.hidden = "__fsm_" + n
 	hidden := []ast.Variable{
-		{Pos: f.Pos, CType: "int", Name: l.hidden + "_init"},
-		{Pos: f.Pos, CType: "int", Name: l.hidden + "_enter"},
-		{Pos: f.Pos, CType: "int64_t", Name: l.hidden + "_timer"},
+		{Pos: f.Pos, CType: "int", Name: hid + "_init"},
+		{Pos: f.Pos, CType: "int", Name: hid + "_enter"},
+		{Pos: f.Pos, CType: "int64_t", Name: hid + "_timer"},
 	}
-	if f.StateVar != nil {
-		l.stateVar = f.StateVar.Name
-	} else {
-		l.stateVar = l.hidden + "_state"
-		hidden = append(hidden, ast.Variable{Pos: f.Pos, CType: "int", Name: l.stateVar})
-	}
-	if f.TimerVar != nil {
-		l.timerVar = f.TimerVar.Name
+	if f.StateVar == nil {
+		hidden = append(hidden, ast.Variable{Pos: f.Pos, CType: "int", Name: stateVar})
 	}
 	comp.Variables = append(comp.Variables, hidden...)
 
@@ -155,13 +146,15 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	pre.gen("/* fsm %s (%s) */\n", n, f.Pos)
 	pre.gen("enum %s_state {\n", n)
 	for i, s := range f.States {
-		pre.gen("    %s = %d,\n", l.enumName(s.Name), i)
+		pre.gen("    %s = %d,\n", f.enumName(s.Name), i)
 	}
 	pre.gen("};\n")
 	pre.gen("static void %s_run(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;\n", n)
 	pre.gen("static const char *%s_state_name(int s) STMAK_NONBLOCKING __attribute__((unused));\n", n)
 	pre.gen("#define %s() %s_run(__comp_inst, period)\n", n, n)
-	pre.gen("#define %s_in(s_) ((%s) == %s_ ## s_)\n\n", n, l.stateVar, n)
+	// The parameter has a reserved name: one spelled like the fsm name
+	// plus '_' would be pasted on both sides of the ##.
+	pre.gen("#define %s_in(__fsm_st) ((%s) == %s_ ## __fsm_st)\n\n", n, stateVar, n)
 
 	// Epilogue: definitions, after the user code so blocks can call the
 	// user's helpers.
@@ -170,32 +163,42 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	epi.gen("static const char *%s_state_name(int s) {\n", n)
 	epi.gen("    switch (s) {\n")
 	for _, s := range f.States {
-		epi.gen("    case %s: return \"%s\";\n", l.enumName(s.Name), s.Name)
+		epi.gen("    case %s: return \"%s\";\n", f.enumName(s.Name), s.Name)
 	}
 	epi.gen("    }\n    return \"?\";\n}\n\n")
 
 	// Per-state helpers.
 	type helperKind struct {
-		kind string
-		blk  func(*fsmState) *cfrag
+		kind, item string
+		blk        func(*fsmState) *cfrag
 	}
 	kinds := []helperKind{
-		{"enter", func(s *fsmState) *cfrag { return s.Enter }},
-		{"exit", func(s *fsmState) *cfrag { return s.Exit }},
-		{"during", func(s *fsmState) *cfrag { return s.During }},
+		{"enter", "on_enter", func(s *fsmState) *cfrag { return s.Enter }},
+		{"exit", "on_exit", func(s *fsmState) *cfrag { return s.Exit }},
+		{"during", "during", func(s *fsmState) *cfrag { return s.During }},
 	}
 	for _, k := range kinds {
 		for _, s := range f.States {
-			if k.blk(s) == nil {
-				continue
+			if k.blk(s) != nil {
+				l.helperFn(f.helperName(k.kind, s.Name), fmt.Sprintf("%s: %s", s.Name, k.item), k.blk(s))
 			}
-			name := l.helper(k.kind, s.Name)
-			epi.gen("static void %s(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;\n", name)
-			epi.gen("static void %s(inst_t *__comp_inst, long period) {\n", name)
-			epi.gen("    (void)__comp_inst; (void)period;\n")
-			epi.user(*k.blk(s))
-			epi.gen("}\n\n")
 		}
+	}
+
+	// Transition actions.
+	l.action = map[*fsmTrans]string{}
+	for k, a := range f.actions() {
+		from := "any"
+		if a.From != nil {
+			from = a.From.Name
+		}
+		what := "on"
+		if a.T.Cond.Text == "" {
+			what = "timeout"
+		}
+		name := f.actionName(k)
+		l.action[a.T] = name
+		l.helperFn(name, fmt.Sprintf("%s: %s -> %s (%s)", from, what, a.T.Target, a.T.Pos), a.T.Action)
 	}
 
 	// helperSwitch calls the kind's helper of the current state.
@@ -209,16 +212,17 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		if len(cases) == 0 {
 			return
 		}
-		epi.gen("%sswitch (%s) {\n", indent, l.stateVar)
+		epi.gen("%sswitch (%s) {\n", indent, stateVar)
 		for _, s := range cases {
-			epi.gen("%scase %s: %s(__comp_inst, period); break;\n", indent, l.enumName(s.Name), l.helper(kind, s.Name))
+			epi.gen("%scase %s: %s(__comp_inst, period); break;\n", indent, f.enumName(s.Name), f.helperName(kind, s.Name))
 		}
 		epi.gen("%sdefault: break;\n%s}\n", indent, indent)
 	}
 
 	epi.gen("static void %s_run(inst_t *__comp_inst, long period) {\n", n)
 
-	// 1. Outputs to their defaults, every run.
+	// The reset expression is read before the outputs are written, so it
+	// sees their values from the previous run.
 	writeDefaults := func(indent string, defs []fsmDef) {
 		for _, d := range defs {
 			if d.Default == nil {
@@ -237,18 +241,19 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	} else {
 		epi.gen("    const int __rst = 0;\n")
 	}
+	// 1. Outputs to their defaults, every run.
 	writeDefaults("    ", f.Outputs)
 
 	// 2. Reset / init.
-	epi.gen("    if (!%s_init || __rst) {\n", l.hidden)
-	epi.gen("        %s_init = 1;\n", l.hidden)
-	epi.gen("        %s = %s;\n", l.stateVar, l.enumName(f.initialState()))
-	epi.gen("        %s_timer = 0;\n", l.hidden)
-	if l.timerVar != "" {
-		epi.gen("        %s = 0;\n", l.timerVar)
+	epi.gen("    if (!%s_init || __rst) {\n", hid)
+	epi.gen("        %s_init = 1;\n", hid)
+	epi.gen("        %s = %s;\n", stateVar, f.enumName(f.initialState()))
+	epi.gen("        %s_timer = 0;\n", hid)
+	if f.TimerVar != nil {
+		epi.gen("        %s = 0;\n", f.TimerVar.Name)
 	}
 	writeDefaults("        ", f.Latched)
-	epi.gen("        %s_enter = 1;\n", l.hidden)
+	epi.gen("        %s_enter = 1;\n", hid)
 	epi.gen("        if (__rst) return;\n")
 	epi.gen("    }\n")
 
@@ -260,21 +265,21 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	}
 
 	// 4. Pending entry: on_enter, then during below; no transitions.
-	epi.gen("    if (%s_enter) {\n", l.hidden)
-	epi.gen("        %s_enter = 0;\n", l.hidden)
+	epi.gen("    if (%s_enter) {\n", hid)
+	epi.gen("        %s_enter = 0;\n", hid)
 	helperSwitch("        ", "enter", kinds[0].blk)
 	epi.gen("    } else {\n")
 
 	// 5. Timer.
-	epi.gen("        %s_timer += period;\n", l.hidden)
-	if l.timerVar != "" {
-		epi.gen("        %s = %s_timer * 1e-9;\n", l.timerVar, l.hidden)
+	epi.gen("        %s_timer += period;\n", hid)
+	if f.TimerVar != nil {
+		epi.gen("        %s = %s_timer * 1e-9;\n", f.TimerVar.Name, hid)
 	}
 
 	// 6. Transitions, first match fires.
-	epi.gen("        switch (%s) {\n", l.stateVar)
+	epi.gen("        switch (%s) {\n", stateVar)
 	for _, s := range f.States {
-		epi.gen("        case %s:\n", l.enumName(s.Name))
+		epi.gen("        case %s:\n", f.enumName(s.Name))
 		on := func(t *fsmTrans) {
 			epi.gen("            if ")
 			l.expr(t.Cond)
@@ -297,10 +302,14 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 			}
 			expr := to.Expr
 			expr.Text = rewriteTimeUnits(expr.Text)
+			// The timeout is rounded to whole nanoseconds, so one that is a
+			// multiple of the period fires exactly on it whatever the
+			// rounding of the double.  Beyond int64 nanoseconds (292
+			// years) it never fires.
 			epi.gen("            {\n                double __to = ")
 			l.expr(expr)
 			epi.gen(";\n")
-			epi.gen("                if (__to > 0 && %s_timer >= __to * 1e9) {\n", l.hidden)
+			epi.gen("                if (__to > 0 && __to < 9.2e9 && %s_timer >= (int64_t)(__to * 1e9 + 0.5)) {\n", hid)
 			l.transition("                    ", s, t)
 			epi.gen("                }\n            }\n")
 		}

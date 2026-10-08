@@ -105,7 +105,7 @@ enum test_fsm_state {
 static void test_fsm_run(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
 static const char *test_fsm_state_name(int s) STMAK_NONBLOCKING __attribute__((unused));
 #define test_fsm() test_fsm_run(__comp_inst, period)
-#define test_fsm_in(s_) ((fsm_state) == test_fsm_ ## s_)
+#define test_fsm_in(__fsm_st) ((fsm_state) == test_fsm_ ## __fsm_st)
 
 /* ---------------------------------------------------------------------------
  * User code
@@ -133,42 +133,54 @@ static const char *test_fsm_state_name(int s) {
     return "?";
 }
 
-static void test_fsm_enter_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
-static void test_fsm_enter_IDLE(inst_t *__comp_inst, long period) {
+/* IDLE: on_enter */
+static void __fsm_test_fsm_enter_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_enter_IDLE(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 34 "testdata/fsm.comp"
                    out1 = 1; 
-#line 142 "testdata/fsm.c"
+#line 143 "testdata/fsm.c"
 }
 
-static void test_fsm_exit_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
-static void test_fsm_exit_IDLE(inst_t *__comp_inst, long period) {
+/* IDLE: on_exit */
+static void __fsm_test_fsm_exit_IDLE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_exit_IDLE(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 35 "testdata/fsm.comp"
                    out2 = 1; latched1 = 1; 
-#line 150 "testdata/fsm.c"
+#line 152 "testdata/fsm.c"
 }
 
-static void test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
-static void test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) {
+/* WAIT_RELEASE: during */
+static void __fsm_test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_during_WAIT_RELEASE(inst_t *__comp_inst, long period) {
     (void)__comp_inst; (void)period;
 #line 41 "testdata/fsm.comp"
                  out3 = 0; 
-#line 158 "testdata/fsm.c"
+#line 161 "testdata/fsm.c"
+}
+
+/* IDLE: timeout -> TIMEOUT (testdata/fsm.comp:37:9) */
+static void __fsm_test_fsm_action_0(inst_t *__comp_inst, long period) STMAK_NONBLOCKING;
+static void __fsm_test_fsm_action_0(inst_t *__comp_inst, long period) {
+    (void)__comp_inst; (void)period;
+#line 37 "testdata/fsm.comp"
+                                   special_timeout = 1; 
+#line 170 "testdata/fsm.c"
 }
 
 static void test_fsm_run(inst_t *__comp_inst, long period) {
     int __rst = (
 #line 22 "testdata/fsm.comp"
                 reset_fsm
-#line 165 "testdata/fsm.c"
+#line 177 "testdata/fsm.c"
 );
     out1 = 0;
     out2 = 0;
     out3 = (
 #line 20 "testdata/fsm.comp"
                                   1
-#line 172 "testdata/fsm.c"
+#line 184 "testdata/fsm.c"
 );
     special_timeout = 0;
     if (!__fsm_test_fsm_init || __rst) {
@@ -180,7 +192,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
         latched2 = (
 #line 21 "testdata/fsm.comp"
                                     3
-#line 184 "testdata/fsm.c"
+#line 196 "testdata/fsm.c"
 );
         __fsm_test_fsm_enter = 1;
         if (__rst) return;
@@ -188,12 +200,12 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
     if (!(
 #line 23 "testdata/fsm.comp"
                 enable_fsm
-#line 192 "testdata/fsm.c"
+#line 204 "testdata/fsm.c"
 )) return;
     if (__fsm_test_fsm_enter) {
         __fsm_test_fsm_enter = 0;
         switch (fsm_state) {
-        case test_fsm_IDLE: test_fsm_enter_IDLE(__comp_inst, period); break;
+        case test_fsm_IDLE: __fsm_test_fsm_enter_IDLE(__comp_inst, period); break;
         default: break;
         }
     } else {
@@ -204,9 +216,9 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 29 "testdata/fsm.comp"
             estop
-#line 208 "testdata/fsm.c"
+#line 220 "testdata/fsm.c"
 ) {
-                test_fsm_exit_IDLE(__comp_inst, period);
+                __fsm_test_fsm_exit_IDLE(__comp_inst, period);
                 fsm_state = test_fsm_FAULT;
                 __fsm_test_fsm_timer = 0;
                 fsm_timer = 0;
@@ -215,9 +227,9 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 36 "testdata/fsm.comp"
             in1 || in2 == 1
-#line 219 "testdata/fsm.c"
+#line 231 "testdata/fsm.c"
 ) {
-                test_fsm_exit_IDLE(__comp_inst, period);
+                __fsm_test_fsm_exit_IDLE(__comp_inst, period);
                 fsm_state = test_fsm_WAIT_RELEASE;
                 __fsm_test_fsm_timer = 0;
                 fsm_timer = 0;
@@ -227,15 +239,11 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
                 double __to = (
 #line 37 "testdata/fsm.comp"
                  (60)
-#line 231 "testdata/fsm.c"
+#line 243 "testdata/fsm.c"
 );
-                if (__to > 0 && __fsm_test_fsm_timer >= __to * 1e9) {
-                    test_fsm_exit_IDLE(__comp_inst, period);
-                    do {
-#line 37 "testdata/fsm.comp"
-                                   special_timeout = 1; 
-#line 238 "testdata/fsm.c"
-                    } while (0);
+                if (__to > 0 && __to < 9.2e9 && __fsm_test_fsm_timer >= (int64_t)(__to * 1e9 + 0.5)) {
+                    __fsm_test_fsm_exit_IDLE(__comp_inst, period);
+                    __fsm_test_fsm_action_0(__comp_inst, period);
                     fsm_state = test_fsm_TIMEOUT;
                     __fsm_test_fsm_timer = 0;
                     fsm_timer = 0;
@@ -247,7 +255,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 29 "testdata/fsm.comp"
             estop
-#line 251 "testdata/fsm.c"
+#line 259 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_FAULT;
                 __fsm_test_fsm_timer = 0;
@@ -257,21 +265,21 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 42 "testdata/fsm.comp"
             !in1
-#line 261 "testdata/fsm.c"
+#line 269 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_IDLE;
                 __fsm_test_fsm_timer = 0;
                 fsm_timer = 0;
-                test_fsm_enter_IDLE(__comp_inst, period);
+                __fsm_test_fsm_enter_IDLE(__comp_inst, period);
                 break;
             }
             {
                 double __to = (
 #line 43 "testdata/fsm.comp"
                  wait_s
-#line 273 "testdata/fsm.c"
+#line 281 "testdata/fsm.c"
 );
-                if (__to > 0 && __fsm_test_fsm_timer >= __to * 1e9) {
+                if (__to > 0 && __to < 9.2e9 && __fsm_test_fsm_timer >= (int64_t)(__to * 1e9 + 0.5)) {
                     fsm_state = test_fsm_TIMEOUT;
                     __fsm_test_fsm_timer = 0;
                     fsm_timer = 0;
@@ -283,7 +291,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 29 "testdata/fsm.comp"
             estop
-#line 287 "testdata/fsm.c"
+#line 295 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_FAULT;
                 __fsm_test_fsm_timer = 0;
@@ -293,12 +301,12 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 47 "testdata/fsm.comp"
             ack
-#line 297 "testdata/fsm.c"
+#line 305 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_IDLE;
                 __fsm_test_fsm_timer = 0;
                 fsm_timer = 0;
-                test_fsm_enter_IDLE(__comp_inst, period);
+                __fsm_test_fsm_enter_IDLE(__comp_inst, period);
                 break;
             }
             break;
@@ -306,12 +314,12 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
             if (
 #line 51 "testdata/fsm.comp"
             !estop && ack
-#line 310 "testdata/fsm.c"
+#line 318 "testdata/fsm.c"
 ) {
                 fsm_state = test_fsm_IDLE;
                 __fsm_test_fsm_timer = 0;
                 fsm_timer = 0;
-                test_fsm_enter_IDLE(__comp_inst, period);
+                __fsm_test_fsm_enter_IDLE(__comp_inst, period);
                 break;
             }
             break;
@@ -320,7 +328,7 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
         }
     }
     switch (fsm_state) {
-    case test_fsm_WAIT_RELEASE: test_fsm_during_WAIT_RELEASE(__comp_inst, period); break;
+    case test_fsm_WAIT_RELEASE: __fsm_test_fsm_during_WAIT_RELEASE(__comp_inst, period); break;
     default: break;
     }
 }

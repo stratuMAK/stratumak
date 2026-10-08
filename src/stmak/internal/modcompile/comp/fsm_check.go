@@ -7,6 +7,7 @@ package comp
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
@@ -147,15 +148,21 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 		ok := s.Kind == symPin && (s.Type == ast.HALS32 || s.Type == ast.HALU32) ||
 			s.Kind == symVar && integerCTypes[s.CType]
 		if !ok {
-			return fmt.Errorf("%s: fsm %s: state_var: %s is a %s; need an s32/u32 pin or an integer variable",
-				r.Pos, f.Name, r.Name, s.describe())
+			return fmt.Errorf("%s: fsm %s: state_var: %s is %s; need an out s32/u32 pin or an integer variable",
+				r.Pos, f.Name, r.Name, withArticle(s.describe()))
+		}
+		if s.Kind == symPin && s.Dir != ast.PinOut {
+			// An io pin could be set from outside: a goto around the
+			// declared graph.
+			return fmt.Errorf("%s: fsm %s: state_var: %s is an io pin; the state changes only "+
+				"through transitions, so it must be an out pin", r.Pos, f.Name, r.Name)
 		}
 	case roleTimer:
 		ok := s.Kind == symPin && s.Type == ast.HALFloat ||
 			s.Kind == symVar && (s.CType == "double" || s.CType == "float")
 		if !ok {
-			return fmt.Errorf("%s: fsm %s: timer_var: %s is a %s; need a float pin or a double/float variable",
-				r.Pos, f.Name, r.Name, s.describe())
+			return fmt.Errorf("%s: fsm %s: timer_var: %s is %s; need a float pin or a double/float variable",
+				r.Pos, f.Name, r.Name, withArticle(s.describe()))
 		}
 	}
 
@@ -225,6 +232,20 @@ func (f *fsmDecl) conditions() []cfrag {
 		}
 	}
 	return out
+}
+
+// useString renders a use the way it is written, for messages: x, x(1),
+// x[1], or x(...) for a computed index.
+func useString(u cUse) string {
+	switch {
+	case u.Kind == refScalar:
+		return u.Name
+	case u.Index >= 0:
+		return fsmRef{Name: u.Name, Kind: u.Kind, Index: u.Index}.String()
+	case u.Kind == refPinElem:
+		return u.Name + "(...)"
+	}
+	return u.Name + "[...]"
 }
 
 // refSet holds list entries by name, for matching uses against them.
@@ -341,21 +362,36 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 				continue
 			}
 			pos := offsetPos(cond.Pos, cond.Text, u.Off)
-			if hit, _ := outputs.match(u); hit {
+			hit, computed := outputs.match(u)
+			if hit {
 				return fmt.Errorf("%s: fsm %s: condition reads output %s, which always holds its "+
-					"default here", pos, f.Name, u.Name)
+					"default here", pos, f.Name, useString(u))
+			}
+			if computed {
+				// Every element an output: the read is one for certain.
+				var elems []string
+				for _, r := range outputs[u.Name] {
+					elems = append(elems, r.String())
+				}
+				if len(elems) == s.Array {
+					return fmt.Errorf("%s: fsm %s: condition reads %s, and every element of %s is an "+
+						"output, which always holds its default here", pos, f.Name, useString(u), u.Name)
+				}
+				c.warn(pos, "fsm %s: condition reads %s with a computed index; of its elements, "+
+					"the outputs %s always hold their default here", f.Name, useString(u), strings.Join(elems, ", "))
+				continue
 			}
 			if f.Inputs == nil {
 				continue
 			}
-			hit, computed := sensitive.match(u)
+			hit, computed = sensitive.match(u)
 			switch {
 			case hit:
 			case computed:
 				c.warn(pos, "fsm %s: condition reads %s with a computed index; it cannot be "+
-					"matched against inputs", f.Name, u.Name)
+					"matched against inputs", f.Name, useString(u))
 			default:
-				c.warn(pos, "fsm %s: condition reads %s, which is not in inputs", f.Name, u.Name)
+				c.warn(pos, "fsm %s: condition reads %s, which is not in inputs", f.Name, useString(u))
 			}
 		}
 	}
@@ -378,33 +414,62 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		}
 	}
 
+	// Timeout literals with a unit: a leading 0 would make them octal.
+	for _, s := range f.States {
+		if s.Timeout == nil {
+			continue
+		}
+		e := s.Timeout.Expr
+		for _, t := range cTokenize(e.Text) {
+			m := timeUnitRe.FindStringSubmatch(t.Text)
+			if t.Kind == ctNumber && m != nil && octalRe.MatchString(m[1]) {
+				return fmt.Errorf("%s: fsm %s: timeout literal %s has a leading 0, which C reads as "+
+					"octal; write %s%s", offsetPos(e.Pos, e.Text, t.Off), f.Name, t.Text,
+					strings.TrimLeft(m[1], "0"), m[2])
+			}
+		}
+	}
+
 	c.checkGraph(f)
 	return nil
 }
 
+// octalRe matches an integer literal C reads as octal.
+var octalRe = regexp.MustCompile(`^0[0-9]+$`)
+
 // checkGraph warns about unreachable states and states without a way out.
 func (c *fsmChecker) checkGraph(f *fsmDecl) {
-	incoming := map[string]bool{f.initialState(): true}
 	var anyTargets []string
 	for _, t := range f.AnyOn {
-		incoming[t.Target] = true
 		anyTargets = append(anyTargets, t.Target)
 	}
-	if f.AnyTimeout != nil {
-		incoming[f.AnyTimeout.Target] = true
-	}
-	for _, s := range f.States {
+	// Reachable: from the initial state along the edges each state has.
+	// The any on items are edges of every state; the any timeout is one of
+	// the states whose timeout has no target.
+	reached := map[string]bool{}
+	todo := []string{f.initialState()}
+	for len(todo) > 0 {
+		name := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
+		if reached[name] {
+			continue
+		}
+		reached[name] = true
+		s := f.state(name)
+		todo = append(todo, anyTargets...)
 		for _, t := range s.On {
-			if t.Target != s.Name {
-				incoming[t.Target] = true
+			todo = append(todo, t.Target)
+		}
+		if to := s.Timeout; to != nil {
+			if to.Trans != nil {
+				todo = append(todo, to.Trans.Target)
+			} else {
+				todo = append(todo, f.AnyTimeout.Target)
 			}
 		}
-		if s.Timeout != nil && s.Timeout.Trans != nil && s.Timeout.Trans.Target != s.Name {
-			incoming[s.Timeout.Trans.Target] = true
-		}
 	}
 	for _, s := range f.States {
-		if !incoming[s.Name] {
+		if !reached[s.Name] {
 			c.warn(s.Pos, "fsm %s: state %s is unreachable", f.Name, s.Name)
 		}
 		exits := append([]string{}, anyTargets...)
@@ -428,36 +493,105 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 	}
 }
 
-// checkUserCode scans the verbatim C after ';;' for writes to what the fsms
-// own, and for fsms that are never run.
-func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
-	owned := refSet{}
+// ownedRef is a list entry an fsm owns: no one else writes it.
+type ownedRef struct {
+	fsmRef
+	f    *fsmDecl
+	role string // "output", "state_var", "timer_var"
+}
+
+// ownership maps what the fsms own by name: their outputs, state_var and
+// timer_var.  Latched entries are left out; code outside may acknowledge
+// them.
+type ownership map[string][]ownedRef
+
+func newOwnership(fsms []*fsmDecl) ownership {
+	o := ownership{}
+	add := func(f *fsmDecl, r fsmRef, role string) { o[r.Name] = append(o[r.Name], ownedRef{r, f, role}) }
 	for _, f := range fsms {
 		for _, d := range f.Outputs {
-			owned.add(d.fsmRef)
+			add(f, d.fsmRef, "output")
 		}
-		for _, r := range []*fsmRef{f.StateVar, f.TimerVar} {
-			if r != nil {
-				owned.add(*r)
-			}
+		if f.StateVar != nil {
+			add(f, *f.StateVar, "state_var")
+		}
+		if f.TimerVar != nil {
+			add(f, *f.TimerVar, "timer_var")
 		}
 	}
-	called := map[string]bool{}
-	src := c.comp.VerbatimC
-	for _, u := range cUses(src) {
-		if u.Call && u.Index < 0 {
-			called[u.Name] = true
+	return o
+}
+
+// match returns the owned entry write u hits, and whether the hit is only
+// possible (a computed index).
+func (o ownership) match(u cUse) (*ownedRef, bool) {
+	for i := range o[u.Name] {
+		r := &o[u.Name][i]
+		if r.Kind == refScalar || r.Kind == u.Kind && r.Index == u.Index {
+			return r, false
 		}
+		if r.Kind == u.Kind && u.Index < 0 {
+			return r, true
+		}
+	}
+	return nil, false
+}
+
+// consequence says what happens to a write to an owned entry.
+func (r *ownedRef) consequence() string {
+	if r.role == "state_var" {
+		return "the state changes only through transitions"
+	}
+	return "the fsm overwrites it on its next run"
+}
+
+// checkWrites warns about writes in src to entries owned by an fsm other
+// than writer (nil for the verbatim C), and to writer's own state_var and
+// timer_var.  writer's outputs are its own to write.
+func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, src string, base ast.Pos) {
+	prefix := ""
+	if writer != nil {
+		prefix = "fsm " + writer.Name + ": "
+	}
+	for _, u := range cUses(src) {
 		if !u.Write || c.syms[u.Name] == nil {
 			continue
 		}
-		pos := offsetPos(c.comp.VerbatimCPos, src, u.Off)
-		hit, computed := owned.match(u)
-		switch {
-		case hit:
-			c.warn(pos, "%s is written by an fsm and overwritten on its next run", u.Name)
-		case computed:
-			c.warn(pos, "%s may overwrite an element written by an fsm", u.Name)
+		r, maybe := o.match(u)
+		if r == nil || r.f == writer && r.role == "output" {
+			continue
+		}
+		owner := "fsm " + r.f.Name
+		if r.f == writer {
+			owner = "this fsm"
+		}
+		pos := offsetPos(base, src, u.Off)
+		if maybe {
+			c.warn(pos, "%swrite to %s may hit %s, the %s of %s; %s", prefix, useString(u), r.fsmRef,
+				r.role, owner, r.consequence())
+			continue
+		}
+		c.warn(pos, "%s%s is the %s of %s; %s", prefix, useString(u), r.role, owner, r.consequence())
+	}
+}
+
+// checkUserCode scans the verbatim C after ';;' and the fsm blocks for
+// writes to what the fsms own, and the verbatim C for fsms that are never
+// run.
+func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
+	o := newOwnership(fsms)
+	for _, f := range fsms {
+		for _, frag := range f.fragments() {
+			c.checkWrites(o, f, frag.Text, frag.Pos)
+		}
+	}
+	src := c.comp.VerbatimC
+	c.checkWrites(o, nil, src, c.comp.VerbatimCPos)
+
+	called := map[string]bool{}
+	for _, u := range cUses(src) {
+		if u.Call && u.Index < 0 {
+			called[u.Name] = true
 		}
 	}
 	for _, f := range fsms {
@@ -472,10 +606,29 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 	for _, fn := range c.comp.Functions {
 		allNoFP = allNoFP && !fn.FP
 	}
-	if allNoFP && len(fsms) > 0 {
-		c.warn(c.comp.Functions[0].Pos, "function %s is nofp, but fsm %s uses floating point",
-			c.comp.Functions[0].Name, fsms[0].Name)
+	if !allNoFP {
+		return
 	}
+	for _, f := range fsms {
+		if f.usesFP() {
+			c.warn(c.comp.Functions[0].Pos, "function %s is nofp, but fsm %s uses floating point "+
+				"(timeout, timer_var)", c.comp.Functions[0].Name, f.Name)
+		}
+	}
+}
+
+// usesFP reports whether f's generated code uses floating point: timeouts
+// and timer_var.  Everything else is integer code apart from the user's own.
+func (f *fsmDecl) usesFP() bool {
+	if f.TimerVar != nil {
+		return true
+	}
+	for _, s := range f.States {
+		if s.Timeout != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // checkFSMs runs every check on the parsed fsm blocks.
@@ -499,13 +652,13 @@ func (p *parser) checkFSMs() error {
 			}
 			return fmt.Errorf("%s: fsm %s has the name of a function", f.Pos, f.Name)
 		}
-		if s := c.syms[f.Name]; s != nil {
-			return fmt.Errorf("%s: fsm %s has the name of a %s declared at %s", f.Pos, f.Name, s.describe(), s.Pos)
-		}
 		names[f.Name] = f
 		if err := c.check(f); err != nil {
 			return err
 		}
+	}
+	if err := c.checkNames(p.fsms); err != nil {
+		return err
 	}
 	c.checkUserCode(p.fsms)
 	return nil

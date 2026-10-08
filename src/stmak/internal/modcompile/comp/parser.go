@@ -97,6 +97,8 @@ type parser struct {
 	// lowered once the whole file is known, since their lists refer to
 	// declarations anywhere in the header and to the verbatim C.
 	fsms []*fsmDecl
+	// fsmName is the fsm block being parsed, for error messages.
+	fsmName string
 }
 
 func (p *parser) next() Token {
@@ -106,8 +108,16 @@ func (p *parser) next() Token {
 }
 
 func (p *parser) errorf(format string, args ...interface{}) error {
+	return p.errorAt(p.cur.Pos, format, args...)
+}
+
+// errorAt reports an error at pos; inside an fsm block it names the block.
+func (p *parser) errorAt(pos ast.Pos, format string, args ...interface{}) error {
 	msg := fmt.Sprintf(format, args...)
-	return fmt.Errorf("%s: %s", p.cur.Pos, msg)
+	if p.fsmName != "" {
+		return fmt.Errorf("%s: fsm %s: %s", pos, p.fsmName, msg)
+	}
+	return fmt.Errorf("%s: %s", pos, msg)
 }
 
 // expect consumes the current token if it matches kind, otherwise returns error.

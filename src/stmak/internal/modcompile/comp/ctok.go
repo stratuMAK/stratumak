@@ -47,7 +47,14 @@ func cTokenize(src string) []ctok {
 		case c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v' || c == '\\':
 			i++
 		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+			// A backslash at the end of the line continues the comment,
+			// as in C.
 			for i < len(src) && src[i] != '\n' {
+				if src[i] == '\\' && strings.HasPrefix(src[i+1:], "\n") {
+					i++
+				} else if src[i] == '\\' && strings.HasPrefix(src[i+1:], "\r\n") {
+					i += 2
+				}
 				i++
 			}
 		case c == '/' && i+1 < len(src) && src[i+1] == '*':
