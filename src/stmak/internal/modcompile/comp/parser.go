@@ -236,12 +236,16 @@ func (p *parser) parsePin() error {
 	if err != nil {
 		return err
 	}
+	namePos := p.cur.Pos
 	name, err := p.expectHALName()
 	if err != nil {
 		return err
 	}
 
 	arrSize, arrPers := p.parseOptArray()
+	if err := ast.CheckArrayName(name, arrSize > 0); err != nil {
+		return fmt.Errorf("%s: pin %v", namePos, err)
+	}
 	def := p.parseOptSAssign()
 	pers := p.parseOptPersonality()
 	doc := p.parseOptString()
@@ -280,12 +284,16 @@ func (p *parser) parseParam() error {
 	if err != nil {
 		return err
 	}
+	namePos := p.cur.Pos
 	name, err := p.expectHALName()
 	if err != nil {
 		return err
 	}
 
 	arrSize, arrPers := p.parseOptArray()
+	if err := ast.CheckArrayName(name, arrSize > 0); err != nil {
+		return fmt.Errorf("%s: param %v", namePos, err)
+	}
 	def := p.parseOptSAssign()
 	pers := p.parseOptPersonality()
 	doc := p.parseOptString()

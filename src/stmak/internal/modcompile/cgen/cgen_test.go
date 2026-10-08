@@ -32,7 +32,7 @@ func gen(t *testing.T, src string) string {
 func TestGenerate_ArrayParamDefault(t *testing.T) {
 	src := `component tc "t";
 pin in bit ok;
-param rw float scale[4] = 2.5;
+param rw float scale-#[4] = 2.5;
 function _;
 license "GPL";
 ;;

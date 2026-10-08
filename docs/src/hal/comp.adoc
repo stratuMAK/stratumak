@@ -204,6 +204,8 @@ If present, the prefix 'hal_' is removed from the beginning of the component nam
 
 In the HAL identifier for a pin or parameter, # denotes an array item, and must be used in conjunction with a '[SIZE]' declaration.
 The hash marks are replaced with a 0-padded number with the same length as the number of # characters.
+The name of an array pin or parameter must contain exactly one run of # characters, and a name without '[SIZE]' must contain none;
+`pin in bit in[4];` is an error, since all four items would get the same HAL name. Write `pin in bit in-#[4];` instead.
 
 When used to create a C identifier, the following changes are applied to the HALNAME:
 
@@ -219,7 +221,7 @@ A trailing "_" is retained, so that HAL identifiers which would otherwise collid
 |x_y_z   | x_y_z        | x-y-z
 |x-y.z   | x_y_z        | x-y.z
 |x_y_z_  | x_y_z_       | x-y-z
-|x.##.y  | x_y(MM)      | x.MM.z
+|x.##.y  | x_y(MM)      | x.MM.y
 |x.##    | x(MM)        | x.MM
 |===
 
