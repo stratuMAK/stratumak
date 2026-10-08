@@ -570,7 +570,7 @@ unreachable states, states without a way out, and a machine that is never called
 
 C fragments are copied with `#line` directives, so compiler errors point at the `.comp` line.
 The man page gets a STATE MACHINES section with a table of each machine's states and transitions.
-See 'multiclick.comp' for a complete component.
+See 'tests/multiclick-fsm/multiclick_fsm.comp' in the source tree for a complete component.
 
 == Component Personality
 

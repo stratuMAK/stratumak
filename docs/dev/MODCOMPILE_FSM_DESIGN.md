@@ -22,8 +22,10 @@ and described in `ast.Component.FSMs`, which docgen renders as a STATE
 MACHINES section with one table per fsm. The golden output for the example
 below is `cgen/testdata/fsm.c`; `tests/modcompile-fsm` drives the execution
 model in the servo thread; the user documentation is the "State machines"
-section of `docs/src/hal/comp.adoc`. `multiclick` is converted and passes
-its runtest against the unchanged expected output.
+section of `docs/src/hal/comp.adoc`. `tests/multiclick-fsm` validates the
+implementation on a real component: an fsm rewrite of `multiclick` (a test
+copy; the shipped `multiclick.comp` is unchanged) runs on the inputs and
+expected output of `tests/multiclick`.
 
 ## Motivation
 
@@ -529,6 +531,8 @@ is used only by docgen, which adds a state table per FSM to the man page.
 ### 5. Tests and documentation
 
 - Parser and check unit tests, a cgen golden test, a corpus entry.
+- `tests/multiclick-fsm`: an fsm rewrite of `multiclick` as a test copy,
+  checked against `tests/multiclick`'s expected output.
 - A runtest that drives a test component through the execution model in the
   servo thread: init, reset held/released, disable freezing state and timer,
   `any` priority and self-target skipping, timeout last, pulse outputs.
@@ -604,8 +608,8 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
 1. Graphviz state diagram from docgen in addition to the state table.
 2. Which function calls an fsm is not tracked, so the floating-point check
    only warns when every function is `nofp`.
-3. Converting `multiclick` moved its timeouts from `timer > timeout` to the
-   fsm's `timer >= timeout`: with timeouts that are a multiple of the
-   period (the 250 ms defaults at 1 ms), a timeout fires one period
-   earlier than before. The runtest's timings are not multiples and match
-   cycle for cycle.
+3. The fsm timeout fires at `timer >= timeout`; the hand-written
+   `multiclick` uses `timer > timeout`. With timeouts that are a multiple of
+   the period (its 250 ms defaults at 1 ms) the fsm rewrite fires one
+   period earlier. The runtest's timings are not multiples and match cycle
+   for cycle.

@@ -1,0 +1,1 @@
+fsm-block rewrite of multiclick, validated against tests/multiclick: expected is a symlink to its expected output, input-signals a copy that test.sh checks against the original.
