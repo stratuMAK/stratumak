@@ -290,8 +290,14 @@ func CheckArrayName(name string, array bool) error {
 	}
 	switch {
 	case array && runs == 0:
-		return fmt.Errorf("array name %q has no '#'; the '#' mark where each element's index goes, e.g. %q",
-			name, name+"-#")
+		// Suggest a name with the index after a separator; one that ends in
+		// a separator already has it ("out_" gives "out_#", not "out_-#").
+		hint := name + "-#"
+		if strings.HasSuffix(name, "_") || strings.HasSuffix(name, "-") || strings.HasSuffix(name, ".") {
+			hint = name + "#"
+		}
+		return fmt.Errorf("array name %q has no '#'; '#' marks where each element's index goes, e.g. %q",
+			name, hint)
 	case array && runs > 1:
 		return fmt.Errorf("array name %q has more than one block of '#'", name)
 	case !array && runs > 0:

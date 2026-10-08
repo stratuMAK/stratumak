@@ -127,9 +127,10 @@ func TestParseArrayNameHashes(t *testing.T) {
 	for _, tc := range []struct {
 		decl, want string
 	}{
-		{"pin in bit in[4];", `test.comp:2:12: pin array name "in" has no '#'`},
-		{"pin out float out_[2:personality];", `test.comp:2:15: pin array name "out_" has no '#'`},
+		{"pin in bit in[4];", `test.comp:2:12: pin array name "in" has no '#'; '#' marks where each element's index goes, e.g. "in-#"`},
+		{"pin out float out_[2:personality];", `test.comp:2:15: pin array name "out_" has no '#'; '#' marks where each element's index goes, e.g. "out_#"`},
 		{"param rw s32 gain[3] = 1;", `test.comp:2:14: param array name "gain" has no '#'`},
+		{"pin in bit in.[4];", `e.g. "in.#"`},
 		{"pin in bit in-#.#[4];", `test.comp:2:12: pin array name "in-#.#" has more than one block of '#'`},
 		{"param r float p##-##[2];", `test.comp:2:15: param array name "p##-##" has more than one block of '#'`},
 		{"pin in bit in-#;", `test.comp:2:12: pin name "in-#" has a '#' but is not an array`},
