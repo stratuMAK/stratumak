@@ -30,7 +30,6 @@ type halUI struct {
 	estopIsActivated *hal.Pin[bool] // output
 
 	// Mode control (input = request, output = status)
-	autoInhibit  *hal.Pin[bool] // input: refuse AUTO while true
 	mdiInhibit   *hal.Pin[bool] // input: refuse MDI while true
 	modeManual   *hal.Pin[bool]
 	modeIsManual *hal.Pin[bool] // output
@@ -72,6 +71,8 @@ type halUI struct {
 	programBdOn      *hal.Pin[bool]
 	programBdOff     *hal.Pin[bool]
 	programBdIsOn    *hal.Pin[bool] // output
+	programInhibit   *hal.Pin[bool] // input: refuse AUTO while true
+	programUIDisable *hal.Pin[bool] // input: withhold program flow from UIs
 
 	// Tool info (output)
 	toolNumber        *hal.Pin[uint32]  // output
@@ -343,7 +344,7 @@ type halUIValues struct {
 	abort   bool
 	homeAll bool
 
-	autoInhibit bool
+	programInhibit bool
 
 	mdiCommands [haluiMaxMDI]bool
 
@@ -392,17 +393,12 @@ func (h *halUI) createPins() error {
 	if h.machineOn, err = hal.NewPin[bool](c, "machine.on", hal.In); err != nil {
 		return err
 	}
-	// Refuses AUTO before anything starts, so an interlock that forbids
-	// automatic motion produces a rejected mode change rather than a machine
-	// that starts and is then stopped by an E-stop it caused itself.
-	if h.autoInhibit, err = hal.NewPin[bool](c, "auto-inhibit", hal.In); err != nil {
-		return err
-	}
-	// Separate from auto-inhibit on purpose. An interlock that forbids running
-	// a program usually still has to allow the MDI routines the operator homes
-	// and touches off with -- those go through [HALUI]MDI_COMMAND, i.e. this
-	// same MDI path -- so the two are wired independently.
-	if h.mdiInhibit, err = hal.NewPin[bool](c, "mdi-inhibit", hal.In); err != nil {
+	// Separate from program.inhibit on purpose. An interlock that forbids
+	// running a program usually still has to allow the MDI routines the
+	// operator homes and touches off with -- those go through
+	// [HALUI]MDI_COMMAND, i.e. this same MDI path -- so the two are wired
+	// independently.
+	if h.mdiInhibit, err = hal.NewPin[bool](c, "mdi.inhibit", hal.In); err != nil {
 		return err
 	}
 	if h.machineOff, err = hal.NewPin[bool](c, "machine.off", hal.In); err != nil {
@@ -485,6 +481,18 @@ func (h *halUI) createPins() error {
 	}
 
 	// Program control
+	// Refuses AUTO before anything starts, so an interlock that forbids
+	// automatic motion produces a rejected mode change rather than a machine
+	// that starts and is then stopped by an E-stop it caused itself.
+	if h.programInhibit, err = hal.NewPin[bool](c, "program.inhibit", hal.In); err != nil {
+		return err
+	}
+	// Hands program flow to something other than the operator's screen: emccmd
+	// refuses program-flow commands without force while it is high (uiGate).
+	// The halui program pins are not affected.
+	if h.programUIDisable, err = hal.NewPin[bool](c, "program.ui-disable", hal.In); err != nil {
+		return err
+	}
 	if h.programIsIdle, err = hal.NewPin[bool](c, "program.is-idle", hal.Out); err != nil {
 		return err
 	}
@@ -1045,8 +1053,8 @@ func (h *halUI) check(t *Task) {
 		h.cycleCount.Set(h.cycleCount.Get() + 1)
 	}
 
-	if h.autoInhibit != nil {
-		v := h.autoInhibit.Get()
+	if h.programInhibit != nil {
+		v := h.programInhibit.Get()
 		// Refusing new runs is not enough on its own: an interlock that opens
 		// mid-program would otherwise leave the program cutting to the end.
 		// Abort on the rising edge, and say why -- a program that simply
@@ -1055,15 +1063,18 @@ func (h *halUI) check(t *Task) {
 		// Publish the inhibit before aborting, not after: the abort drops
 		// t.mu and takes cmdMu, and an AutoRun arriving in that window has to
 		// be refused by the guard rather than race the abort it would undo.
-		t.setAutoInhibit(v)
-		if risingEdge(v, h.old.autoInhibit) && t.programRunning() {
-			t.operatorError("Program aborted: auto-inhibit went active")
+		t.setProgramInhibit(v)
+		if risingEdge(v, h.old.programInhibit) && t.programRunning() {
+			t.operatorError("Program aborted: program.inhibit went active")
 			_ = t.Abort()
 		}
-		h.old.autoInhibit = v
+		h.old.programInhibit = v
 	}
 	if h.mdiInhibit != nil {
 		t.setMDIInhibit(h.mdiInhibit.Get())
+	}
+	if h.programUIDisable != nil {
+		t.setProgramUIDisabled(h.programUIDisable.Get())
 	}
 	h.checkIOPins(t)
 	h.checkStateAndMode(t)

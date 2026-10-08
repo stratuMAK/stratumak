@@ -168,6 +168,8 @@ that is set in the [TRAJ] section of the INI file.
 
 === MDI
 
+* 'halui.mdi.inhibit' (bit, in) - while TRUE, MDI mode may not be selected and no MDI command may be issued,
+  [HALUI]MDI_COMMAND included
 * 'halui.mdi-command-_<nn>_' (bit, in) - halui will try to send the MDI
   command defined in the INI. _<nn>_ is a two  digit number  starting  at 00. +
   If the command succeeds then it will place LinuxCNC in the MDI mode and then back to Manual mode. +
@@ -266,6 +268,8 @@ _L_ = axis letter (xyzabcuvw)
 * 'halui.program.block-delete.is-on' (bit, out) - status pin telling that block delete is on
 * 'halui.program.block-delete.off' (bit, in) - pin for requesting that block delete is off
 * 'halui.program.block-delete.on' (bit, in) - pin for requesting that block delete is on
+* 'halui.program.inhibit' (bit, in) - while TRUE, AUTO mode may not be selected and no program may be run or
+  stepped; going TRUE aborts a running or paused program (an MDI command in flight is left alone)
 * 'halui.program.is-idle' (bit, out) - status pin telling that no program is running
 * 'halui.program.is-paused' (bit, out) - status pin telling that a program is paused
 * 'halui.program.is-running' (bit, out) - status pin telling that a program is running
@@ -277,6 +281,10 @@ _L_ = axis letter (xyzabcuvw)
 * 'halui.program.run' (bit, in) - pin for running a program
 * 'halui.program.step' (bit, in) - pin for stepping in a program
 * 'halui.program.stop' (bit, in) - pin for stopping a program
+* 'halui.program.ui-disable' (bit, in) - while TRUE, user interfaces lose program flow: emccmd refuses run,
+  step, pause, resume, optional stop, block delete and the abort of a running program unless the caller passes
+  `force`. The halui program pins, forced callers and the running program itself are not affected; AXIS greys
+  out the matching controls.
 
 === Rapid Override
 

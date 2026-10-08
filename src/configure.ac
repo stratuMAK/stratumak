@@ -1669,11 +1669,12 @@ install with "sudo apt-get install npm"])
 fi
 AC_SUBST([HAVE_NODEJS])
 
-# WebKit2GTK for stmakui (native web UI container)
+# WebKit2GTK for stmakui (native web UI container); stmakui also uses Xlib
+# directly for embedding into AXIS
 HAVE_WEBKIT2GTK=no
-PKG_CHECK_MODULES([WEBKIT2GTK], [webkit2gtk-4.1], [HAVE_WEBKIT2GTK=yes], [
-    AC_MSG_ERROR([webkit2gtk-4.1 not found!
-install with "sudo apt-get install libwebkit2gtk-4.1-dev"])
+PKG_CHECK_MODULES([WEBKIT2GTK], [webkit2gtk-4.1 x11], [HAVE_WEBKIT2GTK=yes], [
+    AC_MSG_ERROR([webkit2gtk-4.1 or x11 not found!
+install with "sudo apt-get install libwebkit2gtk-4.1-dev libx11-dev"])
 ])
 AC_SUBST([HAVE_WEBKIT2GTK])
 

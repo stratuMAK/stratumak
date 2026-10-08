@@ -1811,10 +1811,16 @@ proc update_state {args} {
     state  {$::has_ladder} {.menu.file "_Ladder Editor..."}
     state  {$taskfile != ""} {.menu.file "_Properties..."}
     state  {$interp_state == $INTERP_IDLE} .toolbar.file_open \
-        {.menu.file "_Open..." "_Quit" "Recent _Files"} \
+        {.menu.file "_Open..." "_Quit" "Recent _Files"}
+    # program_ui_disabled (halui program.ui-disable pin): program flow is not
+    # this screen's to control. The reliefs below keep showing the state that
+    # halui or a forced emccmd caller sets.
+    state  {$interp_state == $INTERP_IDLE && !$program_ui_disabled} \
         {.menu.machine "Skip lines with '_/'"} .toolbar.program_blockdelete
+    state  {!$program_ui_disabled} \
+        {.menu.machine "Stop at M_1"} .toolbar.program_optpause
     state  {$task_state == $STATE_ON && $interp_state == $INTERP_IDLE \
-            && !$auto_inhibit} \
+            && !$program_inhibit && !$program_ui_disabled} \
         .toolbar.program_run {.menu.machine "_Run program"}
     state  {$task_state == $STATE_ON && $interp_state == $INTERP_IDLE } \
         {.menu.file "Reload tool _data"}
@@ -1825,14 +1831,17 @@ proc update_state {args} {
         {.menu.machine "Homin_g" "_Unhoming" "_Zero coordinate system"}
 
     relief {$interp_state != $INTERP_IDLE} .toolbar.program_run
-    state  {$task_state == $STATE_ON && $taskfile != "" && !$auto_inhibit} \
+    state  {$task_state == $STATE_ON && $taskfile != "" && !$program_inhibit \
+            && !$program_ui_disabled} \
                 .toolbar.program_step {.menu.machine "S_tep"}
-    state  {$task_state == $STATE_ON && \
+    state  {$task_state == $STATE_ON && !$program_ui_disabled && \
       ($interp_state == $INTERP_READING || $interp_state == $INTERP_WAITING) } \
                 {.menu.machine "_Pause"}
-    state  {$task_state == $STATE_ON && $interp_state == $INTERP_PAUSED } \
+    state  {$task_state == $STATE_ON && $interp_state == $INTERP_PAUSED \
+            && !$program_ui_disabled} \
                 {.menu.machine "Re_sume"}
-    state  {$task_state == $STATE_ON && $interp_state != $INTERP_IDLE} \
+    state  {$task_state == $STATE_ON && $interp_state != $INTERP_IDLE \
+            && !$program_ui_disabled} \
                 .toolbar.program_pause
     relief {$interp_pause != 0} \
                 .toolbar.program_pause
@@ -1840,11 +1849,13 @@ proc update_state {args} {
                 .toolbar.program_blockdelete
     relief {$optional_stop != 0} \
                 .toolbar.program_optpause
-    state  {$task_state == $STATE_ON && $interp_state != $INTERP_IDLE} \
+    # Stopping MDI stays available: only a program run is program flow.
+    state  {$task_state == $STATE_ON && $interp_state != $INTERP_IDLE \
+            && !($program_ui_disabled && $task_mode == $TASK_MODE_AUTO)} \
                 .toolbar.program_stop {.menu.machine "Stop"}
     relief {$interp_state == $INTERP_IDLE} \
                 .toolbar.program_stop
-    state {$task_state == $STATE_ON \
+    state {$task_state == $STATE_ON && !$program_ui_disabled \
             && $interp_state == $INTERP_IDLE && $highlight_line != -1} \
                 {.menu.machine "Ru_n from selected line"}
 
@@ -1996,8 +2007,9 @@ set motion_mode 0
 set kinematics_type -1
 set metric 0
 set max_speed 1
-set auto_inhibit 0
+set program_inhibit 0
 set mdi_inhibit 0
+set program_ui_disabled 0
 set queued_mdi_commands 0
 set max_queued_mdi_commands 10
 trace variable taskfile w update_title
@@ -2020,8 +2032,9 @@ trace variable kinematics_type w queue_update_state
 trace variable on_any_limit w queue_update_state
 trace variable motion_mode w joint_mode_switch
 trace variable queued_mdi_commands  w queue_update_state
-trace variable auto_inhibit          w queue_update_state
+trace variable program_inhibit       w queue_update_state
 trace variable mdi_inhibit           w queue_update_state
+trace variable program_ui_disabled   w queue_update_state
 
 set editor_deleted 0
 

@@ -30,10 +30,10 @@ type stubTask struct {
 	err error
 }
 
-func (s *stubTask) SetState(int32) (int32, error)                { return s.rc, s.err }
-func (s *stubTask) SetMode(int32) (int32, error)                 { return s.rc, s.err }
-func (s *stubTask) AutoCmd(emccmd.AutoCmd, int32) (int32, error) { return s.rc, s.err }
-func (s *stubTask) Mdi(string) (int32, error)                    { return s.rc, s.err }
+func (s *stubTask) SetState(int32) (int32, error)                      { return s.rc, s.err }
+func (s *stubTask) SetMode(int32) (int32, error)                       { return s.rc, s.err }
+func (s *stubTask) AutoCmd(emccmd.AutoCmd, int32, bool) (int32, error) { return s.rc, s.err }
+func (s *stubTask) Mdi(string) (int32, error)                          { return s.rc, s.err }
 func (s *stubTask) Jog(emccmd.JogType, bool, int32, float64, float64) (int32, error) {
 	return s.rc, s.err
 }
@@ -56,10 +56,10 @@ func (s *stubTask) Flood(bool) (int32, error)                        { return s.
 func (s *stubTask) Mist(bool) (int32, error)                         { return s.rc, s.err }
 func (s *stubTask) Brake(bool, int32) (int32, error)                 { return s.rc, s.err }
 func (s *stubTask) Lube(bool) (int32, error)                         { return s.rc, s.err }
-func (s *stubTask) Abort() (int32, error)                            { return s.rc, s.err }
+func (s *stubTask) Abort(bool) (int32, error)                        { return s.rc, s.err }
 func (s *stubTask) TaskPlanSynch() (int32, error)                    { return s.rc, s.err }
-func (s *stubTask) SetOptionalStop(bool) (int32, error)              { return s.rc, s.err }
-func (s *stubTask) SetBlockDelete(bool) (int32, error)               { return s.rc, s.err }
+func (s *stubTask) SetOptionalStop(bool, bool) (int32, error)        { return s.rc, s.err }
+func (s *stubTask) SetBlockDelete(bool, bool) (int32, error)         { return s.rc, s.err }
 func (s *stubTask) LoadToolTable(string) (int32, error)              { return s.rc, s.err }
 func (s *stubTask) ToolUnload() (int32, error)                       { return s.rc, s.err }
 func (s *stubTask) ProgramOpen(string) (int32, error)                { return s.rc, s.err }

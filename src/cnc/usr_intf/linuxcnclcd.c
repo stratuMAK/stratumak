@@ -534,7 +534,7 @@ static int sendTaskMode(emcstat_task_mode_t mode)
 
 static int sendAutoCmd(emccmd_auto_cmd_t cmd, int line)
 {
-  return emccmd->auto_cmd(emccmd->ctx, cmd, (int32_t)line) < 0 ? -1 : 0;
+  return emccmd->auto_cmd(emccmd->ctx, cmd, (int32_t)line, false) < 0 ? -1 : 0;
 }
 
 static int sendProgramOpen(const char *program)
@@ -1238,7 +1238,7 @@ static int doKey(keyType k)
     case ktDownRelease:  jogStop(1); break;
     case ktStartPress:   startKey(); break;
     case ktPausePress:   pauseKey(); break;
-    case ktStopPress:    emccmd->abort(emccmd->ctx); break;
+    case ktStopPress:    emccmd->abort(emccmd->ctx, false); break;
     case ktStepPress:    sendAutoCmd(EMCCMD_AUTO_STEP, 0); break;
     case ktTestPress:    toggleMode(); break;
     case ktNextPress:    stepJogMode(-1); break;

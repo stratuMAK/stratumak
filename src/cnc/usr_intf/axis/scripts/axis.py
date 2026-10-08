@@ -69,14 +69,6 @@ import gmi
 from gmi.constants import *
 from glnav import *
 
-if "AXIS_NO_SERVER" in os.environ:
-    server_present = 0;
-else:
-    server_present = 1;
-
-if server_present == 1:
-    import gmi
-
 import configparser
 
 cp = configparser.ConfigParser
@@ -119,7 +111,7 @@ inifile = gmi.IniFile()
 # which is far harder to diagnose than refusing to start. A stack trace here
 # means the server is older than this AXIS, STMAK_TASK_INSTANCE names a task that does
 # not exist, or the task never started.
-_machine_info = gmi.info() if server_present == 1 else None
+_machine_info = gmi.info()
 
 ap = AxisPreferences()
 
@@ -856,20 +848,19 @@ class LivePlotter:
         # exists. Rescheduling continues either way: the poll loop is what
         # notices the server coming back.
         global _server_boot_id, _server_online
-        if server_present == 1:
-            if not self.stat.connected:
-                if _server_online:
-                    _server_online = False
-                    clear_program_display()
-                    notifications.add("error", _("Server connection lost"))
-                self.after = self.win.after(update_ms, self.update)
-                return
-            boot_id = getattr(self.stat, 'boot_id', None)
-            if not _server_online or boot_id != _server_boot_id:
-                _server_boot_id = boot_id
-                _server_online = True
-                adopt_server_program()
-                o.last_preview_seq = getattr(self.stat, 'preview_seq', 0)
+        if not self.stat.connected:
+            if _server_online:
+                _server_online = False
+                clear_program_display()
+                notifications.add("error", _("Server connection lost"))
+            self.after = self.win.after(update_ms, self.update)
+            return
+        boot_id = getattr(self.stat, 'boot_id', None)
+        if not _server_online or boot_id != _server_boot_id:
+            _server_boot_id = boot_id
+            _server_online = True
+            adopt_server_program()
+            o.last_preview_seq = getattr(self.stat, 'preview_seq', 0)
 
         global continuous_jog_in_progress,cjogindices
         global jog_speed_blackout, ajog_speed_blackout
@@ -1103,20 +1094,21 @@ class LivePlotter:
         vupdate(vars.exec_state, self.stat.exec_state)
         vupdate(vars.interp_state, self.stat.interp_state)
         vupdate(vars.queued_mdi_commands, self.stat.queued_mdi_commands)
-        if server_present == 1:
-            if (self.stat.task_state != STATE_ON or
-                    self.stat.interp_state != INTERP_IDLE):
-                widgets.jogminus.configure(state="disabled")
-                widgets.jogplus.configure(state="disabled")
-            else:
-                widgets.jogminus.configure(state="normal")
-                widgets.jogplus.configure(state="normal")
+        if (self.stat.task_state != STATE_ON or
+                self.stat.interp_state != INTERP_IDLE):
+            widgets.jogminus.configure(state="disabled")
+            widgets.jogplus.configure(state="disabled")
+        else:
+            widgets.jogminus.configure(state="normal")
+            widgets.jogplus.configure(state="normal")
         vupdate(vars.task_mode, self.stat.task_mode)
         # Interlocks refusing AUTO / MDI. Published so update_state can grey
         # the controls out rather than leave a button whose command the
         # controller will refuse.
-        vupdate(vars.auto_inhibit, self.stat.auto_inhibit)
+        vupdate(vars.program_inhibit, self.stat.program_inhibit)
         vupdate(vars.mdi_inhibit, self.stat.mdi_inhibit)
+        # Program flow withheld from the UI (halui program.ui-disable pin).
+        vupdate(vars.program_ui_disabled, self.stat.program_ui_disabled)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
         # The title names what the operator opened; for a filtered program
@@ -1221,6 +1213,20 @@ This means this function returns True when the mdi tab is visible."""
     if do_poll: s.poll()
     if s.task_state != STATE_ON: return False
     return s.interp_state == INTERP_IDLE or (s.task_mode == MODE_MDI and s.queued_mdi_commands < vars.max_queued_mdi_commands.get())
+
+def program_flow_locked():
+    """True while the halui program.ui-disable pin withholds program flow.
+
+update_state greys the toolbar buttons and menu entries out, but key bindings
+fire regardless, so every program-flow handler asks too. The controller
+refuses such a command anyway; asking here keeps a keypress from turning into
+an error message the operator can do nothing about."""
+    return bool(vars.program_ui_disabled.get())
+
+def program_running():
+    """True while an AUTO program is running or paused (not MDI, not idle)."""
+    return (s.task_mode == MODE_AUTO and s.interp_state in
+            (INTERP_READING, INTERP_WAITING, INTERP_PAUSED))
 
 class DummyProgress:
     def update(self, count): pass
@@ -1991,7 +1997,6 @@ def parse_increment(jogincr):
 
 def set_hal_jogincrement():
     global jog_incr_blackout
-    if not server_present: return
     if 'c' not in globals(): return
     jog_incr_blackout = time.time() + 1
     jogincr = widgets.jogincr.get()
@@ -2631,10 +2636,16 @@ class TclCommands(nf.TclCommands):
         ap.putpref("tto_g11", vars.tto_g11.get())
 
     def toggle_optional_stop(event=None):
+        if program_flow_locked():
+            vars.optional_stop.set(s.optional_stop)
+            return
         c.set_optional_stop(vars.optional_stop.get())
         ap.putpref("optional_stop", vars.optional_stop.get())
 
     def toggle_block_delete(event=None):
+        if program_flow_locked():
+            vars.block_delete.set(s.block_delete)
+            return
         c.set_block_delete(vars.block_delete.get())
         ap.putpref("block_delete", vars.block_delete.get())
         c.wait_complete()
@@ -2953,10 +2964,10 @@ class TclCommands(nf.TclCommands):
         # the startup answer. refresh=True bypasses the registry cache; an
         # unreachable server answers "no" rather than raising (gmi.registry).
         vars.has_ladder.set(
-            server_present == 1
-            and gmi.has_api("classicladder", "classicladder", refresh=True))
+            gmi.has_api("classicladder", "classicladder", refresh=True))
 
     def task_run(*event):
+        if program_flow_locked(): return
         res = 1
         while res == 1:
             res = run_warn()
@@ -2972,17 +2983,20 @@ class TclCommands(nf.TclCommands):
         o.set_highlight_line(None)
 
     def task_step(*event):
+        if program_flow_locked(): return
         if s.task_mode != MODE_AUTO or s.interp_state != INTERP_IDLE:
             o.set_highlight_line(None)
             if run_warn(): return
         c.auto(AUTO_STEP)
 
     def task_pause(*event):
+        if program_flow_locked(): return
         if s.task_mode != MODE_AUTO or s.interp_state not in (INTERP_READING, INTERP_WAITING):
             return
         c.auto(AUTO_PAUSE)
 
     def task_reverse(*event):
+        if program_flow_locked(): return
         s.poll()
         if s.task_mode != MODE_AUTO:
             return
@@ -2990,6 +3004,7 @@ class TclCommands(nf.TclCommands):
         c.auto(AUTO_REVERSE)
 
     def task_forward(*event):
+        if program_flow_locked(): return
         s.poll()
         if s.task_mode != MODE_AUTO:
             return
@@ -2997,6 +3012,7 @@ class TclCommands(nf.TclCommands):
         c.auto(AUTO_FORWARD)
 
     def task_resume(*event):
+        if program_flow_locked(): return
         s.poll()
         if not s.paused:
             return
@@ -3005,6 +3021,7 @@ class TclCommands(nf.TclCommands):
         c.auto(AUTO_RESUME)
 
     def task_pauseresume(*event):
+        if program_flow_locked(): return
         if s.task_mode not in (MODE_AUTO, MODE_MDI):
             return
         s.poll()
@@ -3014,6 +3031,8 @@ class TclCommands(nf.TclCommands):
             c.auto(AUTO_PAUSE)
 
     def task_stop(*event):
+        # Stopping MDI, a jog or homing is not program flow and stays here.
+        if program_flow_locked() and program_running(): return
         if s.task_mode == MODE_AUTO and vars.running_line.get() != 0:
             o.set_highlight_line(vars.running_line.get())
         c.abort()
@@ -3273,10 +3292,14 @@ class TclCommands(nf.TclCommands):
         if len(event) > 0:
             vars.show_pyvcppanel.set(not vars.show_pyvcppanel.get())
 
-        if vars.show_pyvcppanel.get():
-            vcp_frame.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        else:
-            vcp_frame.grid_remove()
+        # Every side panel (pyvcp, webapp) toggles together. grid() with no
+        # options restores the placement grid_remove() remembered, so a
+        # BOTTOM panel comes back at the bottom.
+        for panel in side_panels:
+            if vars.show_pyvcppanel.get():
+                panel.grid()
+            else:
+                panel.grid_remove()
         o.tkRedraw()
 
     # The next three don't have 'manual_ok' because that's done in jog_on /
@@ -3523,8 +3546,6 @@ class TclCommands(nf.TclCommands):
 
     def axis_activated(*args):
         global jog_axis_blackout
-        # this only makes sense if HAL is present on this machine
-        if not server_present: return
         jog_axis_blackout = time.time() + 1
         axis = vars.ja_rbutton.get()
         idx = "xyzabcuvw".find(axis)
@@ -3596,8 +3617,9 @@ vars = nf.Variables(root_window,
     ("task_paused", IntVar),
     ("interp_state", IntVar),
     ("task_mode", IntVar),
-    ("auto_inhibit", IntVar),
+    ("program_inhibit", IntVar),
     ("mdi_inhibit", IntVar),
+    ("program_ui_disabled", IntVar),
     ("has_editor", IntVar),
     ("has_ladder", IntVar),
     ("ja_rbutton", StringVar),
@@ -4131,7 +4153,7 @@ vars.has_editor.set(editor is not None)
 # value: the File menu's postcommand re-probes (refresh_has_ladder) so a module
 # loaded at runtime enables the entry.
 vars.has_ladder.set(
-    server_present == 1 and gmi.has_api("classicladder", "classicladder"))
+    gmi.has_api("classicladder", "classicladder"))
 
 tooltable  = inifile.find("EMCIO", "TOOL_TABLE")
 db_program = inifile.find("EMCIO", "DB_PROGRAM")
@@ -4373,7 +4395,7 @@ root_window.call(widgets.jogincr._w, "select", 0)
 # longer gates anything — gating on it would request a panel HAL never loaded
 # and 404, the exact failure /info exists to remove. A config that wants a panel
 # names it with pyvcp_instance= on the milltask load line. Empty = no panel.
-vcp = gmi.pyvcp_instance() if server_present == 1 else ""
+vcp = gmi.pyvcp_instance()
 
 arcdivision = int(inifile.find("DISPLAY", "ARCDIVISION") or 64)
 
@@ -4526,8 +4548,12 @@ try:
 except Exception:
     pass
 
-c.set_block_delete(vars.block_delete.get())
-c.set_optional_stop(vars.optional_stop.get())
+# Under program.ui-disable the controller's settings stand; the stat update
+# copies them into the toolbar instead.
+s.poll()
+if not s.program_ui_disabled:
+    c.set_block_delete(vars.block_delete.get())
+    c.set_optional_stop(vars.optional_stop.get())
 
 o = MyOpengl(widgets.preview_frame, width=400, height=300, double=1, depth=1)
 o.last_line = 1
@@ -4623,21 +4649,20 @@ t.bind("<Button-4>", scroll_up)
 t.bind("<Button-5>", scroll_down)
 t.configure(state="disabled")
 
-if server_present == 1 :
-    if vcp:
-        import vcpparse
-        f = Tkinter.Frame(root_window)
-        if inifile.find("DISPLAY", "PYVCP_POSITION") == "BOTTOM":
-            f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
-        else:
-            f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        # vcp is the resolved instance name from /info (gate above).
-        vcpparse.create_vcp_rest(f, compname=vcp)
-        vcp_frame = f
-        root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
-        help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
+# The pyvcp panel and the webapp panel ([DISPLAY]WEBAPP_PANEL); Ctrl-E and
+# View > Show PyVCP panel show and hide them together.
+side_panels = []
+
+if vcp:
+    import vcpparse
+    f = Tkinter.Frame(root_window)
+    if inifile.find("DISPLAY", "PYVCP_POSITION") == "BOTTOM":
+        f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
     else:
-        widgets.menu_view.delete(_("Show PyVCP pan_el").replace("_", ""))
+        f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
+    # vcp is the resolved instance name from /info (gate above).
+    vcpparse.create_vcp_rest(f, compname=vcp)
+    side_panels.append(f)
 
 _dynamic_childs = {}
 
@@ -4688,7 +4713,7 @@ if args:
     initialfile = args[0]
 elif "AXIS_OPEN_FILE" in os.environ:
     initialfile = os.environ["AXIS_OPEN_FILE"]
-elif server_present == 1:
+else:
     # The controller already has a program open (its [DISPLAY]OPEN_FILE, or
     # another client's): adopt it, exactly as on a reconnect. No program_open —
     # it is already open, and this path also has to work while the machine is
@@ -4702,17 +4727,16 @@ if initialfile and os.path.exists(initialfile):
 # Remember which task this startup state came from, so the first update() cycle
 # does not mistake it for a reconnect and re-adopt what we have just set up.
 # From here on the update loop owns these.
-if server_present == 1:
-    s.poll()
-    _server_online = s.connected
-    _server_boot_id = getattr(s, 'boot_id', None)
-    if _server_program is None and not _awaiting_program:
-        # Set already if we opened a file ourselves above; this covers the
-        # branches that only adopted what the task had. Not while a filter is
-        # still converting the program we asked for: claiming it here without
-        # its text on screen makes the resync see no change, and the program
-        # never appears.
-        _server_program = s.file or None
+s.poll()
+_server_online = s.connected
+_server_boot_id = getattr(s, 'boot_id', None)
+if _server_program is None and not _awaiting_program:
+    # Set already if we opened a file ourselves above; this covers the
+    # branches that only adopted what the task had. Not while a filter is
+    # still converting the program we asked for: claiming it here without
+    # its text on screen makes the resync see no change, and the program
+    # never appears.
+    _server_program = s.file or None
 
 if lathe:
     if lathe_backtool:
@@ -4733,6 +4757,82 @@ def destroy_splash():
     except Tkinter.TclError:
         pass
 
+# Webapp tabs and the webapp panel are stmakui (WebKit) processes embedded
+# into a Tk container frame. stmakui builds the URL from STMAK_REST_URL and the
+# configured path, so a page is named by its path below the server root
+# (app/halshow/), never by a full URL.
+WEBAPP_VIEWER = "stmakui"
+_webapp_embedded = False
+
+def _webapp_embed(parent, path, key):
+    """Embed the server page PATH into the Tk frame PARENT (filled entirely)."""
+    global _webapp_embedded
+    from subprocess import Popen
+    import shutil
+    if not shutil.which(WEBAPP_VIEWER):
+        # A build without webkit2gtk has no stmakui. Say so in place of the
+        # page rather than failing the whole GUI over one tab.
+        Tkinter.Label(parent, justify="left", wraplength=300,
+            text=_("Cannot show %s: %s is not installed "
+                   "(stratuMAK was built without webkit2gtk).")
+                 % (path, WEBAPP_VIEWER)).pack(padx=8, pady=8, anchor="nw")
+        return
+    f = Tkinter.Frame(parent, container=1, borderwidth=0, highlightthickness=0)
+    f.pack(fill="both", expand=1)
+    cmd = [WEBAPP_VIEWER, "--xid", str(f.winfo_id()), "--path", path]
+    _dynamic_childs[key] = (Popen(cmd), cmd, False)
+    _webapp_embedded = True
+
+def _webapp_panel(inifile):
+    """[DISPLAY]WEBAPP_PANEL: a server page as side panel, where pyvcp sits."""
+    path = inifile.find("DISPLAY", "WEBAPP_PANEL")
+    if not path:
+        return
+    position = (inifile.find("DISPLAY", "WEBAPP_PANEL_POSITION") or "RIGHT").upper()
+    try:
+        size = int(inifile.find("DISPLAY", "WEBAPP_PANEL_SIZE") or 300)
+    except ValueError:
+        print("Invalid [DISPLAY]WEBAPP_PANEL_SIZE, using 300")
+        size = 300
+    # The embedded view requests a size of its own, which a container frame
+    # would follow; the outer frame holds the configured size instead.
+    # Its own grid slot (column 5 / row 5) lets it sit beside a pyvcp panel.
+    if position == "BOTTOM":
+        outer = Tkinter.Frame(root_window, height=size)
+        outer.grid(row=5, column=0, columnspan=6, sticky="ew", padx=4, pady=4)
+    else:
+        if position != "RIGHT":
+            print("Invalid [DISPLAY]WEBAPP_PANEL_POSITION %r, using RIGHT" % position)
+        outer = Tkinter.Frame(root_window, width=size)
+        outer.grid(row=0, column=5, rowspan=6, sticky="ns", padx=4, pady=4)
+    outer.pack_propagate(False)
+    _webapp_embed(outer, path, "webapp_panel")
+    side_panels.append(outer)
+
+# Tk keeps the X input focus on its own focus window and never hands it to a
+# foreign embedded window, so stmakui takes the focus itself when its page is
+# clicked. This takes it back on a click into any Tk widget: a bind tag in
+# front of every widget's own tags, so no widget binding can "break" it off.
+# focus -force on the widget that already has the Tk focus re-asserts the X
+# focus without moving the Tk focus; the click's own bindings then move it as
+# usual.
+_WEBAPP_FOCUS_TCL = r"""
+proc webapp_reclaim_focus {w} {
+    set top [winfo toplevel $w]
+    set f [focus -lastfor $top]
+    if {$f eq ""} { set f $top }
+    focus -force $f
+}
+proc webapp_tag_focus {w} {
+    if {[lsearch -exact [bindtags $w] WebappFocus] < 0} {
+        bindtags $w [linsert [bindtags $w] 0 WebappFocus]
+    }
+    foreach c [winfo children $w] { webapp_tag_focus $c }
+}
+bind WebappFocus <ButtonPress> {webapp_reclaim_focus %W}
+webapp_tag_focus .
+"""
+
 def _dynamic_tab(name, text):
     tab = widgets.right.insert("end", name, text=text)
     tab.configure(borderwidth=1, highlightthickness=0)
@@ -4747,13 +4847,16 @@ def _dynamic_tabs(inifile):
         # Complain somehow
         return
 
-    # XXX: Set our root window ID in environment so child GladeVcp processes
-    # may forward keyboard events to it
-    rxid = root_window.winfo_id()
-    os.environ['AXIS_FORWARD_EVENTS_TO'] = str(rxid)
     for i,t,c in zip(list(range(len(tab_cmd))), tab_names, tab_cmd):
         w = _dynamic_tab("user_" + str(i), t)
-        if c.split()[0] == 'pyvcp': # this is a pycvp panel
+        if c.split()[0] == 'webapp': # a page of the stmakd web server
+            args = c.split()
+            if len(args) != 2:
+                print("Invalid webapp tab configuration: EMBED_TAB_COMMAND =", c)
+                print("Expected: webapp PATH")
+                continue
+            _webapp_embed(w, args[1], "user_" + str(i))
+        elif c.split()[0] == 'pyvcp': # this is a pycvp panel
             import vcpparse
             f = Tkinter.Frame(w, borderwidth=0, highlightthickness=0)
             pyvcp = c.split()
@@ -4820,8 +4923,9 @@ for win in root_window, widgets.about_window, widgets.help_window:
     root_window.tk.call("wm", "iconphoto", win, *icons)
 
 vars.kinematics_type.set(s.kinematics_type)
-vars.auto_inhibit.set(0)
+vars.program_inhibit.set(0)
 vars.mdi_inhibit.set(0)
+vars.program_ui_disabled.set(0)
 vars.max_queued_mdi_commands.set(int(inifile.find("TASK", "MDI_QUEUED_COMMANDS") or  10))
 
 def balance_ja():
@@ -4874,10 +4978,7 @@ commands.set_spindlerate(100)
 # matched nothing on every multi-instance config and silently hid the spindle,
 # coolant and limit-override controls (~26 REST round-trips to reach the wrong
 # answer, at that).
-# With no server there is no HAL to ask, and nothing is wired as far as this UI
-# can tell — same as the old probe loop, which hid every one of these widgets
-# because gmi was not even imported.
-caps = _machine_info.caps if server_present == 1 else None
+caps = _machine_info.caps
 
 def forget(widget, wired):
     if "AXIS_NO_AUTOCONFIGURE" in os.environ: return
@@ -4932,15 +5033,21 @@ if os.path.exists(rcfile):
 
 # call an empty function that can be overridden
 # by an .axisrc user_hal_pins() function
-if server_present == 1 :
-    user_hal_pins()
+user_hal_pins()
 
+# Set our root window ID in environment so embedded child processes
+# (GladeVcp, stmakui) may forward keyboard events to it
+os.environ['AXIS_FORWARD_EVENTS_TO'] = str(root_window.winfo_id())
 _dynamic_tabs(inifile)
-if server_present == 1:
-    check_dynamic_tabs()
+_webapp_panel(inifile)
+if _webapp_embedded:
+    root_window.tk.eval(_WEBAPP_FOCUS_TCL)
+if side_panels:
+    root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
+    help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
 else:
-    root_window.deiconify()
-    destroy_splash()
+    widgets.menu_view.delete(_("Show PyVCP pan_el").replace("_", ""))
+check_dynamic_tabs()
 
 set_motion_teleop(0) # start in joint mode
 
