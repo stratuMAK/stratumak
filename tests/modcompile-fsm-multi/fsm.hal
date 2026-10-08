@@ -1,7 +1,7 @@
 newthread servo 1000000
 
 load fsm_multi <fsmm>
-load filestream stream_cfg=bbbf sample_cfg=bbbfsssssb infile=input-signals outfile=out.txt depth=100 samples=20
+load filestream stream_cfg=bbbf sample_cfg=bbbfsssssbb infile=input-signals outfile=out.txt depth=100 samples=22
 
 net trig  filestream.stream.0 => fsmm.trig  filestream.sample.0
 net go    filestream.stream.1 => fsmm.go    filestream.sample.1
@@ -14,6 +14,7 @@ net via    fsmm.via    => filestream.sample.6
 net cnt    fsmm.cnt    => filestream.sample.7
 net bstate fsmm.bstate => filestream.sample.8
 net wname  fsmm.wname  => filestream.sample.9
+net xexit  fsmm.xexit  => filestream.sample.10
 
 addf filestream.write servo
 addf fsmm servo

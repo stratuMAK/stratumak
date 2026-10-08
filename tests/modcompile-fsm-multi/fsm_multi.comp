@@ -10,21 +10,23 @@ pin in float to_ms "timeout of state W in ms, read every cycle";
 
 pin out s32 astate;
 pin out s32 code "output with an expression default; 1 in W";
-pin out s32 via "action pulse: 1 = any on, 2 = S's own on";
+pin out s32 via "action pulse: 1 = first any on, 2 = S's own on, 3 = second any on";
 pin out s32 cnt "latched, default 10: entries into Z";
 pin out s32 bstate "b's hidden state through b_in(): 1 = P, 2 = Q";
 pin out bit wname "a_state_name() of a's state starts with W";
+pin out bit xexit "on_exit pulse of X";
 
 function _;
 
 fsm a {
     inputs:    trig, go;
-    outputs:   code = 3 + 4, via;
+    outputs:   code = 3 + 4, via, xexit;
     latched:   cnt = 10;
     state_var: astate;
 
     any {
         on (trig && go) -> X { via = 1; }
+        on (trig && go) -> Z { via = 3; }   /* fires only in X, where the first is skipped */
         timeout -> Z;
     }
 
@@ -40,7 +42,9 @@ fsm a {
     }
 
     state X {
+        on_exit { xexit = 1; }
         on (!trig) -> S;
+        on (!go) -> X;                      /* self-transition: exit and enter */
     }
 
     state Z {

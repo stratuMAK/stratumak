@@ -2,24 +2,30 @@
 # a: S=0 W=1 X=2 Z=3; b: bstate 1 = P, 2 = Q
 # first run: a in S, b initialised to Q (initial: Q) though disabled
 0 0 1 0
-# any on and S's own on both true: the any item wins (via 1, X)
+# both any items and S's own on are true: the first any item wins (via 1, X)
 1 1 1 0
+# X -> X: on_exit runs on a self-transition (xexit)
+1 0 1 0
+# in X the first any item is skipped (its target), the second fires:
+# via 3, X's on_exit, Z's on_enter cnt 10 -> 11 (latched)
 1 1 1 0
-# X -> S; sel 0 while b is disabled: b frozen in Q
+0 1 1 0
+# Z -> S
+0 0 1 0
+# S -> W: b enabled, its pending entry runs, no transition though sel is 0
 0 1 0 0
-# S -> W: b enabled, its pending entry runs, no transition yet
-0 1 1 0
 # timeouts <= 0 never fire; the timer keeps counting (1 ms, 2 ms)
-0 1 1 0
+# b: Q -> P, P -> Q
+0 1 0 0
 0 1 1 -1
-# to_ms 9 from now on; b: Q -> P, P, P -> Q
-0 1 0 9
-0 1 0 9
+# to_ms 9 from now on
 0 1 1 9
 0 1 1 9
 0 1 1 9
 0 1 1 9
-# 9 ms in W exactly: any timeout -> Z, on_enter cnt 10 -> 11 (latched)
+0 1 1 9
+0 1 1 9
+# 9 ms in W exactly: any timeout -> Z, on_enter cnt 11 -> 12
 0 1 1 9
 # b disabled again: sel 0 does not move it
 0 1 0 9
@@ -31,6 +37,6 @@
 1 0 1 9
 0 0 1 0
 0 0 1 0
-# padding past samples=20
+# padding past samples=22
 0 0 1 0
 0 0 1 0
