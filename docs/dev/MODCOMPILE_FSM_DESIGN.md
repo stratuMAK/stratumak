@@ -322,7 +322,9 @@ Consequences worth stating in the user documentation:
   or with a name the generated file defines (`period`, `fperiod`,
   `personality`, the `math.h` functions, `inst_t`, `inst_start`, `New`,
   `funct_<function>`, ...), or that starts with a prefix of the headers it
-  includes (`hal_`, `rtapi_`, `stmak_`, `cmod_`, `mcode_`). The enum tag
+  includes (`hal_`, `rtapi_`, `stmak_`, `cmod_`, `mcode_`, and the same in
+  upper case). Other C library names (`EXIT_SUCCESS`, `uint8_t`) are not
+  checked; a collision there is reported by the C compiler. The enum tag
   `<fsm>_state` is checked against declared and framework names only, since
   C keeps tags apart from other names (a state may be named `state`).
   Examples: a state named `run` (`<fsm>_run`) or `in` (`<fsm>_in`), an fsm

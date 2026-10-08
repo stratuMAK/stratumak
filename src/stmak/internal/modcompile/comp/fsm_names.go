@@ -135,8 +135,10 @@ var cgenNames = strings.Fields(`inst_t inst_hal_t __comp_inst period fperiod per
 	signbit fpclassify abs labs llabs NULL`)
 
 // reservedPrefixes belong to the headers the generated file includes
-// (hal_init, rtapi_print, stmak_logf, cmod_t, ...) and to its M-code bodies.
-var reservedPrefixes = []string{"hal_", "rtapi_", "stmak_", "cmod_", "mcode_"}
+// (hal_init, rtapi_print, stmak_logf, cmod_t, STMAK_NONBLOCKING,
+// CMOD_ABI_VERSION, ...) and to its M-code bodies.
+var reservedPrefixes = []string{"hal_", "rtapi_", "stmak_", "cmod_", "mcode_",
+	"HAL_", "RTAPI_", "STMAK_", "CMOD_", "MCODE_"}
 
 // checkNames rejects generated names that collide.
 func (c *fsmChecker) checkNames(fsms []*fsmDecl) error {

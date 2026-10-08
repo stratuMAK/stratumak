@@ -616,14 +616,13 @@ var openerOf = map[byte]byte{')': '(', ']': '[', '}': '{'}
 func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
 	start, pos := s.pos, s.here()
 	lineStart := strings.LastIndexByte(s.src[:start], '\n') + 1
-	// One blank per character, not per byte: gcc counts columns in
-	// characters, so an umlaut in front must not shift them.
-	var indent []byte
-	for _, c := range s.src[lineStart:start] {
-		if c == '\t' {
-			indent = append(indent, '\t')
-		} else {
-			indent = append(indent, ' ')
+	// One blank per byte, not per character: gcc takes the byte column
+	// and converts it to characters using the source line it reads from
+	// the file named in #line, so an umlaut in front is counted there.
+	indent := []byte(s.src[lineStart:start])
+	for i, c := range indent {
+		if c != '\t' {
+			indent[i] = ' '
 		}
 	}
 	type open struct {

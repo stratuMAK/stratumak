@@ -541,7 +541,8 @@ Each block runs as a function of its own: `return` ends the block, and a transit
 `timeout (EXPR)` is in seconds and evaluated every cycle, so `timeout (delay)` follows a parameter.
 A value of 0 or less means no timeout.
 Number literals may carry a unit: `60s`, `250ms`, `10us`, `500ns`, so `timeout (hold_ns * 1ns)` takes a parameter in nanoseconds.
-Units work only inside `timeout (...)`; a unit literal must not start with `0` (C would read `010s` as octal).
+Units work only inside `timeout (...)`, and only on decimal numbers: a unit literal must not start with `0`
+(C would read `010s` as octal), and `0x10s` is an error.
 The timer counts integer nanoseconds and does not drift; the timeout is rounded to whole nanoseconds,
 so a timeout that is a multiple of the thread period fires exactly on that cycle.
 A transition on 'timer_var' gives a timeout with more than one target:
@@ -563,7 +564,8 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
 with each other, with a declared name, with a C keyword or with a name the generated file defines
 (a state named `run` or `in`, a machine `feed` next to a pin `feed_in` or `feed_state`, a machine named `fabs`,
-a machine `inst` with a state `start`) is an error. Names starting with `hal_`, `rtapi_`, `stmak_`, `cmod_` and `mcode_` are reserved.
+a machine `inst` with a state `start`) is an error. Names starting with `hal_`, `rtapi_`, `stmak_`, `cmod_` and `mcode_`, in lower or upper case, are reserved.
+A collision with another C library name (`EXIT_SUCCESS`, `uint8_t`) is reported by the C compiler.
 
 There is no way to set the state from outside: a request is a flag that an `on` item reacts to and the action clears.
 

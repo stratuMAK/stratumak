@@ -243,8 +243,8 @@ func TestCaptureCPosition(t *testing.T) {
 	sc.Next() // "ä"
 	sc.Next() // x
 	sc.Next() // (
-	if c, _ = sc.CaptureC(")", ast.Pos{}); c.Indent != "       " {
-		t.Errorf("indent %q, want one blank per character", c.Indent)
+	if c, _ = sc.CaptureC(")", ast.Pos{}); c.Indent != "        " {
+		t.Errorf("indent %q, want one blank per byte", c.Indent)
 	}
 }
 
@@ -324,6 +324,8 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"funct name", `fsm funct { state _ { } };`,
 			"funct__ would be the constant of state _ of fsm funct, but it is already the C function of function _"},
 		{"header prefix", `fsm hal { state A { } };`, "hal_in would be the state test macro of fsm hal, but names starting with hal_ are reserved"},
+		{"header macro prefix", `fsm CMOD { state ABI_VERSION { } };`,
+			"CMOD_in would be the state test macro of fsm CMOD, but names starting with CMOD_ are reserved"},
 		{"state named in", `fsm m { state in { } };`,
 			"m_in would be the constant of state in of fsm m, but it is already the state test macro of fsm m"},
 		{"enable reads output", `fsm m { outputs: out1; enable: (out1); state A { } };`, "enable reads output out1"},
