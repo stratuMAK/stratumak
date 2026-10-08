@@ -1,0 +1,55 @@
+component fsm "fsm golden test: the example from MODCOMPILE_FSM_DESIGN.md";
+pin in bit in1;
+pin in bit in2;
+pin in bit estop;
+pin in bit ack;
+pin in bit reset_fsm;
+pin in bit enable_fsm;
+pin out bit out1;
+pin out bit out2;
+pin out bit out3;
+pin out bit special_timeout;
+pin out s32 fsm_state;
+pin out float fsm_timer;
+param rw float wait_s = 1;
+variable int latched1;
+variable int latched2;
+function _;
+fsm test_fsm {
+    inputs:    in1, in2, estop, ack;
+    outputs:   out1, out2, out3 = 1, special_timeout;
+    latched:   latched1, latched2 = 3;
+    reset:     (reset_fsm);
+    enable:    (enable_fsm);
+    state_var: fsm_state;
+    timer_var: fsm_timer;
+    initial:   IDLE;
+
+    any {
+        on (estop) -> FAULT;
+        timeout -> TIMEOUT;
+    }
+
+    state IDLE {
+        on_enter { out1 = 1; }
+        on_exit  { out2 = 1; latched1 = 1; }
+        on (in1 || in2 == 1) -> WAIT_RELEASE;
+        timeout (60s) -> TIMEOUT { special_timeout = 1; }
+    }
+
+    state WAIT_RELEASE {
+        during { out3 = 0; }
+        on (!in1) -> IDLE;
+        timeout (wait_s);           /* handled by any { timeout -> ... } */
+    }
+
+    state TIMEOUT {
+        on (ack) -> IDLE;
+    }
+
+    state FAULT {
+        on (!estop && ack) -> IDLE;
+    }
+};
+;;
+test_fsm();

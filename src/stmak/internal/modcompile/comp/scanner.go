@@ -588,15 +588,22 @@ func (s *Scanner) scanFSMToken(pos ast.Pos, c byte) (Token, bool) {
 // including, the first byte of stop that appears outside any bracket pair.
 // (), [] and {} are balanced; string and character literals and comments are
 // skipped, so a bracket or stop byte inside them does not count.  It returns
-// the text and the position of its first byte.  A closing bracket that does
+// the text with the position of its first byte.  A closing bracket that does
 // not match, or the end of the header, is an error.
-func (s *Scanner) CaptureC(stop string) (string, ast.Pos, error) {
+func (s *Scanner) CaptureC(stop string) (*cfrag, error) {
 	start, pos := s.pos, s.here()
+	lineStart := strings.LastIndexByte(s.src[:start], '\n') + 1
+	indent := []byte(s.src[lineStart:start])
+	for i, c := range indent {
+		if c != '\t' {
+			indent[i] = ' '
+		}
+	}
 	var stack []byte
 	for s.pos < len(s.src) {
 		c := s.cur()
 		if len(stack) == 0 && strings.IndexByte(stop, c) >= 0 {
-			return s.src[start:s.pos], pos, nil
+			return &cfrag{Pos: pos, Text: s.src[start:s.pos], Indent: string(indent)}, nil
 		}
 		switch {
 		case c == '/' && s.peek(1) == '/':
@@ -612,7 +619,7 @@ func (s *Scanner) CaptureC(stop string) (string, ast.Pos, error) {
 				s.advance()
 			}
 			if s.pos >= len(s.src) {
-				return "", pos, fmt.Errorf("%s: unterminated comment", at)
+				return nil, fmt.Errorf("%s: unterminated comment", at)
 			}
 			s.advance()
 			s.advance()
@@ -627,7 +634,7 @@ func (s *Scanner) CaptureC(stop string) (string, ast.Pos, error) {
 				s.advance()
 			}
 			if s.pos >= len(s.src) || s.cur() != c {
-				return "", pos, fmt.Errorf("%s: unterminated %s literal", at,
+				return nil, fmt.Errorf("%s: unterminated %s literal", at,
 					map[byte]string{'"': "string", '\'': "character"}[c])
 			}
 		case c == '(':
@@ -638,14 +645,14 @@ func (s *Scanner) CaptureC(stop string) (string, ast.Pos, error) {
 			stack = append(stack, '}')
 		case c == ')' || c == ']' || c == '}':
 			if len(stack) == 0 || stack[len(stack)-1] != c {
-				return "", pos, fmt.Errorf("%s: unbalanced %q", s.here(), string(c))
+				return nil, fmt.Errorf("%s: unbalanced %q", s.here(), string(c))
 			}
 			stack = stack[:len(stack)-1]
 		}
 		s.advance()
 	}
 	if len(stack) > 0 {
-		return "", pos, fmt.Errorf("%s: missing %q before end of header", pos, string(stack[len(stack)-1]))
+		return nil, fmt.Errorf("%s: missing %q before end of header", pos, string(stack[len(stack)-1]))
 	}
-	return "", pos, fmt.Errorf("%s: expected one of %q before end of header", pos, stop)
+	return nil, fmt.Errorf("%s: expected one of %q before end of header", pos, stop)
 }

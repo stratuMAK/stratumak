@@ -49,6 +49,8 @@ type generator struct {
 	// a directive returning to outName has to name.
 	outName string
 	line    int
+	// midLine is set when the last write did not end with a newline.
+	midLine bool
 }
 
 func (g *generator) generate() error {
@@ -63,7 +65,9 @@ func (g *generator) generate() error {
 	g.emitFunctionForwards()
 	g.emitUserIncludes() // Extract and emit #include lines first
 	g.emitConvenienceDefines()
-	g.emitUserCodeBody() // Emit rest of user code (without includes)
+	g.emitFragments(g.comp.GenPrologue) // frontend-generated declarations
+	g.emitUserCodeBody()                // Emit rest of user code (without includes)
+	g.emitFragments(g.comp.GenEpilogue) // frontend-generated definitions
 	g.emitUndefConvenience()
 	g.emitInitStartStopDestroy()
 	g.emitNew()
@@ -112,6 +116,9 @@ func (g *generator) printf(format string, args ...interface{}) {
 	}
 	s := fmt.Sprintf(format, args...)
 	g.line += strings.Count(s, "\n")
+	if s != "" {
+		g.midLine = s[len(s)-1] != '\n'
+	}
 	_, g.err = io.WriteString(g.w, s)
 }
 
@@ -723,6 +730,29 @@ func (g *generator) emitUserLines(lines []srcLine) {
 	// physical line (g.line+1), so the line after it is g.line+2. g.line is
 	// read before printf updates it.
 	g.printf("#line %d %s\n", g.line+2, cStringLiteral(g.outName))
+}
+
+// emitFragments writes frontend-generated C.  User fragments go on lines of
+// their own, bracketed by #line directives naming the source when the output
+// name is known.
+func (g *generator) emitFragments(frags []ast.CodeFragment) {
+	for _, f := range frags {
+		if f.Pos.Line == 0 {
+			g.printf("%s", f.Text)
+			continue
+		}
+		if g.midLine {
+			g.printf("\n")
+		}
+		directives := g.outName != "" && f.Pos.File != ""
+		if directives {
+			g.printf("#line %d %s\n", f.Pos.Line, cStringLiteral(f.Pos.File))
+		}
+		g.printf("%s\n", f.Text)
+		if directives {
+			g.printf("#line %d %s\n", g.line+2, cStringLiteral(g.outName))
+		}
+	}
 }
 
 func (g *generator) emitUserIncludes() {

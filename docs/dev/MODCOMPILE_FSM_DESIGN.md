@@ -11,13 +11,15 @@ assignments.
 |-------|-------|--------|
 | 1 | Scanner + parser for `fsm` blocks, AST description | ✅ Done |
 | 2 | Semantic checks (names, directions, graph, sensitivity) | ✅ Done |
-| 3 | C lowering + generic cgen hook | ⬜ Open |
+| 3 | C lowering + generic cgen hook | ✅ Done |
 | 4 | docgen state table | ⬜ Open |
 | 5 | Runtests, `comp.adoc` user documentation | ⬜ Open |
 
-Slices 1-2 landed: `fsm` blocks parse into `comp/fsm.go`'s structure, are
-checked in `comp/fsm_check.go` (identifier scans share `comp/ctok.go`) and
-described in `ast.Component.FSMs`; no code generation yet.
+Slices 1-3 landed: `fsm` blocks parse into `comp/fsm.go`'s structure, are
+checked in `comp/fsm_check.go` (identifier scans share `comp/ctok.go`),
+lowered in `comp/fsm_lower.go` to `ast.Component.GenPrologue`/`GenEpilogue`
+and described in `ast.Component.FSMs`. The golden output for the example
+below is `cgen/testdata/fsm.c`.
 
 ## Motivation
 

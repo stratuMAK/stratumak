@@ -215,12 +215,18 @@ func TestCaptureCPosition(t *testing.T) {
 	sc := NewScanner("f", "a = \n  f(1, 2) , y;")
 	sc.Next() // a
 	sc.Next() // =
-	text, pos, err := sc.CaptureC(",;")
+	c, err := sc.CaptureC(",;")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text != " \n  f(1, 2) " || pos.Line != 1 || pos.Col != 4 {
-		t.Errorf("got %q at %v", text, pos)
+	if c.Text != " \n  f(1, 2) " || c.Pos.Line != 1 || c.Pos.Col != 4 || c.Indent != "   " {
+		t.Errorf("got %+v", c)
+	}
+	sc = NewScanner("f", "\tx (y);")
+	sc.Next() // x
+	sc.Next() // (
+	if c, _ = sc.CaptureC(")"); c.Indent != "\t   " {
+		t.Errorf("indent %q, want tab kept", c.Indent)
 	}
 }
 
@@ -362,5 +368,25 @@ func TestFSMCheckWarnings(t *testing.T) {
 				t.Errorf("unexpected warnings:\n%s", got)
 			}
 		})
+	}
+}
+
+func TestRewriteTimeUnits(t *testing.T) {
+	cases := map[string]string{
+		"60":                     "60",
+		"60s":                    "(60)",
+		"1.5ms":                  "(1.5 * 1e-3)",
+		"wait_ms * 1ms":          "wait_ms * (1 * 1e-3)",
+		"2us + 3ns":              "(2 * 1e-6) + (3 * 1e-9)",
+		"1e3us":                  "(1e3 * 1e-6)",
+		".5s":                    "(.5)",
+		"x.s + f(\"5s\") /*5s*/": "x.s + f(\"5s\") /*5s*/",
+		"0x5s + 5min + 1.0f":     "0x5s + 5min + 1.0f",
+		"a\n  + 5ms":             "a\n  + (5 * 1e-3)",
+	}
+	for in, want := range cases {
+		if got := rewriteTimeUnits(in); got != want {
+			t.Errorf("rewriteTimeUnits(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

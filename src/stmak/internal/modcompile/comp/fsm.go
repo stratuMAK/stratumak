@@ -23,6 +23,9 @@ import (
 type cfrag struct {
 	Pos  ast.Pos
 	Text string
+	// Indent is the source line in front of Text with every byte but tabs
+	// blanked, so generated code can reproduce the column.
+	Indent string
 }
 
 // refKind says how a list entry addresses its target.
@@ -263,14 +266,14 @@ func (p *parser) parseDefList() ([]fsmDef, error) {
 		d := fsmDef{fsmRef: r}
 		if p.cur.Kind == TokEq {
 			// The lookahead is '='; the scanner stands right after it.
-			text, pos, err := p.sc.CaptureC(",;")
+			c, err := p.sc.CaptureC(",;")
 			if err != nil {
 				return nil, err
 			}
-			if strings.TrimSpace(text) == "" {
-				return nil, fmt.Errorf("%s: empty default for %s", pos, r)
+			if strings.TrimSpace(c.Text) == "" {
+				return nil, fmt.Errorf("%s: empty default for %s", c.Pos, r)
 			}
-			d.Default = &cfrag{Pos: pos, Text: text}
+			d.Default = c
 			p.next()
 		}
 		defs = append(defs, d)
@@ -318,18 +321,18 @@ func (p *parser) parseParenC() (*cfrag, error) {
 	if p.cur.Kind != TokLParen {
 		return nil, p.errorf("expected '(', got %s (%q)", p.cur.Kind, p.cur.Val)
 	}
-	text, pos, err := p.sc.CaptureC(")")
+	c, err := p.sc.CaptureC(")")
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(text) == "" {
-		return nil, fmt.Errorf("%s: empty expression", pos)
+	if strings.TrimSpace(c.Text) == "" {
+		return nil, fmt.Errorf("%s: empty expression", c.Pos)
 	}
 	p.next() // the ')'
 	if _, err := p.expect(TokRParen); err != nil {
 		return nil, err
 	}
-	return &cfrag{Pos: pos, Text: text}, nil
+	return c, nil
 }
 
 // parseBlock parses block := '{' C statements '}' and returns the body.
@@ -337,7 +340,7 @@ func (p *parser) parseBlock() (*cfrag, error) {
 	if p.cur.Kind != TokLBrace {
 		return nil, p.errorf("expected '{', got %s (%q)", p.cur.Kind, p.cur.Val)
 	}
-	text, pos, err := p.sc.CaptureC("}")
+	c, err := p.sc.CaptureC("}")
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +348,7 @@ func (p *parser) parseBlock() (*cfrag, error) {
 	if _, err := p.expect(TokRBrace); err != nil {
 		return nil, err
 	}
-	return &cfrag{Pos: pos, Text: text}, nil
+	return c, nil
 }
 
 // parseTarget parses '->' STATE action, with action := ';' | block.
@@ -567,8 +570,8 @@ func (f *fsmDecl) describe() ast.FSM {
 	return d
 }
 
-// finishFSMs runs once the whole file is parsed: it checks the fsm blocks
-// and records each one's description in the AST.
+// finishFSMs runs once the whole file is parsed: it checks the fsm blocks,
+// lowers them to C and records each one's description in the AST.
 func (p *parser) finishFSMs() error {
 	for _, f := range p.fsms {
 		if len(f.States) == 0 {
@@ -578,6 +581,7 @@ func (p *parser) finishFSMs() error {
 	if err := p.checkFSMs(); err != nil {
 		return err
 	}
+	p.lowerFSMs()
 	for _, f := range p.fsms {
 		p.pkg.Component.FSMs = append(p.pkg.Component.FSMs, f.describe())
 	}
