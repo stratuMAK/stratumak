@@ -344,6 +344,8 @@ func TestFSMCheckWarnings(t *testing.T) {
 		{"self loop only", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> B; } };`, "m();",
 			[]string{"state B has no way out"}},
 		{"any is a way out", `fsm m { any { on (in1) -> A; timeout -> A; } state A { on (in2) -> B; } state B { timeout (1); } };`, "m();", nil},
+		{"one fp function is enough", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> A; } }; function f nofp;`,
+			"FUNCTION(_) { m(); } FUNCTION(f) { }", nil},
 		{"never called", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> A; } };`, "mm(); /* m() */ \"m()\";",
 			[]string{"m() is never called"}},
 	}
@@ -388,5 +390,19 @@ func TestRewriteTimeUnits(t *testing.T) {
 		if got := rewriteTimeUnits(in); got != want {
 			t.Errorf("rewriteTimeUnits(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestFSMCheckNoFP(t *testing.T) {
+	src := `component t "x";
+pin in bit a;
+function _ nofp;
+fsm m { state A { on (a) -> B; } state B { on (!a) -> A; } };
+;;
+m();
+`
+	pkg := parseFSMSrc(t, src)
+	if got := strings.Join(pkg.Warnings, "\n"); !strings.Contains(got, "t.comp:3:1: function _ is nofp, but fsm m uses floating point") {
+		t.Errorf("warnings: %s", got)
 	}
 }

@@ -465,6 +465,17 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) {
 			c.warn(f.Pos, "fsm %s: %s() is never called", f.Name, f.Name)
 		}
 	}
+
+	// The timer and timeouts are floating point.  Which function calls an
+	// fsm is not known here, but when every one is nofp, that one is too.
+	allNoFP := len(c.comp.Functions) > 0
+	for _, fn := range c.comp.Functions {
+		allNoFP = allNoFP && !fn.FP
+	}
+	if allNoFP && len(fsms) > 0 {
+		c.warn(c.comp.Functions[0].Pos, "function %s is nofp, but fsm %s uses floating point",
+			c.comp.Functions[0].Name, fsms[0].Name)
+	}
 }
 
 // checkFSMs runs every check on the parsed fsm blocks.

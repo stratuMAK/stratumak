@@ -1,0 +1,22 @@
+newthread servo 1000000
+
+load fsm_test <fsmt>
+load filestream stream_cfg=bbbbb sample_cfg=bbbbbsfbbbbs infile=input-signals outfile=out.txt depth=100 samples=36
+
+net go    filestream.stream.0 => fsmt.go    filestream.sample.0
+net abort filestream.stream.1 => fsmt.abort filestream.sample.1
+net ack   filestream.stream.2 => fsmt.ack   filestream.sample.2
+net rst   filestream.stream.3 => fsmt.rst   filestream.sample.3
+net en    filestream.stream.4 => fsmt.en    filestream.sample.4
+
+net state   fsmt.state   => filestream.sample.5
+net t       fsmt.t       => filestream.sample.6
+net entered fsmt.entered => filestream.sample.7
+net exited  fsmt.exited  => filestream.sample.8
+net acted   fsmt.acted   => filestream.sample.9
+net busy    fsmt.busy    => filestream.sample.10
+net runs    fsmt.runs    => filestream.sample.11
+
+addf filestream.write servo
+addf fsmt servo
+addf filestream.read  servo

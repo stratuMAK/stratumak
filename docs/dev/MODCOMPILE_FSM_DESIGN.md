@@ -13,15 +13,17 @@ assignments.
 | 2 | Semantic checks (names, directions, graph, sensitivity) | ✅ Done |
 | 3 | C lowering + generic cgen hook | ✅ Done |
 | 4 | docgen state table | ✅ Done |
-| 5 | Runtests, `comp.adoc` user documentation | ⬜ Open |
+| 5 | Runtests, `comp.adoc` user documentation | ✅ Done |
 
-Slices 1-4 landed: `fsm` blocks parse into `comp/fsm.go`'s structure, are
+All slices landed. `fsm` blocks parse into `comp/fsm.go`'s structure, are
 checked in `comp/fsm_check.go` (identifier scans share `comp/ctok.go`),
 lowered in `comp/fsm_lower.go` to `ast.Component.GenPrologue`/`GenEpilogue`
 and described in `ast.Component.FSMs`, which docgen renders as a STATE
 MACHINES section with one table per fsm. The golden output for the example
-below is `cgen/testdata/fsm.c`. `multiclick` is converted and passes its
-runtest against the unchanged expected output.
+below is `cgen/testdata/fsm.c`; `tests/modcompile-fsm` drives the execution
+model in the servo thread; the user documentation is the "State machines"
+section of `docs/src/hal/comp.adoc`. `multiclick` is converted and passes
+its runtest against the unchanged expected output.
 
 ## Motivation
 
@@ -360,6 +362,13 @@ out:
 }
 ```
 
+The implementation differs from this sketch in form, not behaviour:
+`on_enter`, `on_exit` and `during` are per-state helper functions
+(`test_fsm_enter_IDLE()`, ...), so there are no `goto`s and a `return` in
+a block only ends that block; transition actions run inside
+`do { } while (0)` so a stray `break` cannot leave the generated `switch`.
+`cgen/testdata/fsm.c` is the authoritative output.
+
 - State numbers follow source order, starting at 0. `initial` does not
   renumber.
 - Hidden per-instance variables (`__fsm_<name>_init`, `_enter`, `_timer`, and
@@ -593,3 +602,10 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
 ## Open items
 
 1. Graphviz state diagram from docgen in addition to the state table.
+2. Which function calls an fsm is not tracked, so the floating-point check
+   only warns when every function is `nofp`.
+3. Converting `multiclick` moved its timeouts from `timer > timeout` to the
+   fsm's `timer >= timeout`: with timeouts that are a multiple of the
+   period (the 250 ms defaults at 1 ms), a timeout fires one period
+   earlier than before. The runtest's timings are not multiples and match
+   cycle for cycle.
