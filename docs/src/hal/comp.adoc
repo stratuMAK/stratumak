@@ -509,6 +509,7 @@ If the component has a single function, the code after `;;` can be just that cal
 
 Names are the C names user code uses (`in-1` is written `in_1`).
 Arrays are not listed whole; single elements are, with a constant index: `in_arr(1)` for pins and params, `buf[1]` for variables.
+This applies to 'state_var' and 'timer_var' too.
 Pins with an `if` condition or a personality-sized array may not exist and cannot be written by the machine.
 Defaults are C expressions evaluated every time they are applied.
 
@@ -561,22 +562,24 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 
 Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
 with each other, with a declared name, with a C keyword or with a name the generated file defines
-(a state named `run`, a machine `feed` next to a pin `feed_in`, a machine named `fabs`) is an error.
+(a state named `run` or `in`, a machine `feed` next to a pin `feed_in` or `feed_state`, a machine named `fabs`,
+a machine `inst` with a state `start`) is an error. Names starting with `hal_`, `rtapi_`, `stmak_`, `cmod_` and `mcode_` are reserved.
 
 There is no way to set the state from outside: a request is a flag that an `on` item reacts to and the action clears.
 
 === Checks
 
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
-an entry written by more than one list or machine, an `on` condition reading one of the machine's outputs
-(they always hold their default there), a targetless `timeout` without `any { timeout -> ...; }`,
+an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
+(they always hold their default there), an 'inputs' entry listed twice or also in 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
 colliding generated names, and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).
 
 Warnings: an `on` condition reading a pin or variable that is not in 'inputs' or 'latched' (when 'inputs' is given; params are exempt),
 an input nothing reads, user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
 (the machine overwrites it), a machine's own blocks assigning its 'state_var' or 'timer_var',
-states not reachable from the initial state, states without a way out, and a machine that is never called.
+states not reachable from the initial state, states without a way out, an `any` item that can never fire
+(a `timeout` no state uses, an `on` whose target is the only reachable state), and a machine that is never called.
 
 C fragments are copied with `#line` directives, so compiler errors point at the `.comp` line.
 The man page gets a STATE MACHINES section with a table of each machine's states and transitions.

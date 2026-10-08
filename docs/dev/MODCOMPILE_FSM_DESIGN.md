@@ -34,7 +34,11 @@ reflected below: timeouts compare in whole nanoseconds; transition actions
 are helper functions like `on_enter`/`on_exit`/`during`; every generated
 name is checked for collisions; writes inside fsm blocks are checked like
 writes in the verbatim C; `state_var` must be an `out` pin; reachability is
-transitive; bracket errors name the bracket left open.
+transitive; bracket errors name the bracket left open. A second review round
+marked the helpers unused (a helper that is never called broke `-Werror`
+builds), extended the collision check to the enum tag and the framework's
+names, and made `enable` and `timeout` expressions reading an output an
+error.
 
 ## Motivation
 
@@ -181,7 +185,12 @@ storage when it is not created, and the FSM writes its list entries every
 cycle. In `inputs` they are allowed, since that list generates no code.
 
 `state_var` may not be an `io` pin: one could be set from outside, which is
-a `goto` around the declared graph.
+a `goto` around the declared graph. `state_var` and `timer_var` may be array
+elements (`state_var: st_arr(1);`). An index may carry an integer suffix
+(`in_arr(1u)`).
+
+An `inputs` entry listed twice, or one that is also an output of the same
+fsm, is an error.
 
 ### Array elements
 
@@ -299,8 +308,10 @@ Consequences worth stating in the user documentation:
   direction/type for its list (see the table above).
 - A name in more than one of `outputs` / `latched` / `state_var` /
   `timer_var`, or an output listed in two FSMs.
-- An `on` condition that reads an FSM output. Outputs always hold their
-  default at that point, so this is a bug.
+- An `on` condition, the `enable` expression or a `timeout` expression that
+  reads an FSM output. Outputs always hold their default at that point, so
+  this is a bug (`enable: (o)` with default 0 never runs the fsm). `reset`
+  is read before the outputs are written and is exempt.
 - A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
 - Duplicate `on_enter` / `on_exit` / `during` / `timeout` in a state.
 - An `on` condition that reads an output array through a computed index
@@ -309,10 +320,18 @@ Consequences worth stating in the user documentation:
 - A generated name (see "Generated code") that collides with another
   generated name, with a pin, param, variable or modparam, with a C keyword,
   or with a name the generated file defines (`period`, `fperiod`,
-  `personality`, the `math.h` functions, ...). Examples: a state named
-  `run` (`<fsm>_run`), an fsm `feed` next to a pin `feed_in`, an fsm named
-  `if` or `fabs`. fsm names starting with `__` are reserved.
-- `state_var` an `io` pin; a timeout unit literal with a leading `0`.
+  `personality`, the `math.h` functions, `inst_t`, `inst_start`, `New`,
+  `funct_<function>`, ...), or that starts with a prefix of the headers it
+  includes (`hal_`, `rtapi_`, `stmak_`, `cmod_`, `mcode_`). The enum tag
+  `<fsm>_state` is checked against declared and framework names only, since
+  C keeps tags apart from other names (a state may be named `state`).
+  Examples: a state named `run` (`<fsm>_run`) or `in` (`<fsm>_in`), an fsm
+  `feed` next to a pin `feed_in`, an fsm named `if` or `fabs`, a pin
+  `<fsm>_state`, an fsm `inst` with a state `start`. fsm names starting with
+  `__` are reserved.
+- `state_var` an `io` pin; a timeout unit literal with a leading `0`, or a
+  unit on a number that is not decimal (`0x10s`).
+- An expression or default that holds only comments (`on (/* x */)`).
 - Unbalanced brackets in captured C. The message names where the bracket
   left open was opened; a `;` inside a condition outside braces is reported
   as a missing `)`. Brackets are counted in all captured text, so code inside
@@ -343,6 +362,9 @@ Consequences worth stating in the user documentation:
 - State without a way out (no own `on`/`timeout` and no `any` transition
   leading elsewhere).
 - `test_fsm()` never called in the verbatim C.
+- An `any` `timeout` that no state uses (no `timeout` without a target), and
+  an `any` `on` that cannot fire because its target is the only reachable
+  state.
 - Every function is `nofp`, and an fsm with a `timeout` or `timer_var` (the
   floating-point parts of the generated code) is run from one of them.
 
@@ -419,6 +441,10 @@ are no `goto`s, a `return` in a block only ends that block (a transition
 still completes), and a stray `break` cannot leave the generated `switch`.
 The timeout comparison is
 `__to > 0 && __to < 9.2e9 && timer >= (int64_t)(__to * 1e9 + 0.5)`.
+The helpers and `<fsm>_run` are marked `__attribute__((unused))`: some are
+never called (the `on_exit` of a state without a way out, the action of an
+unused `any` item, an fsm that is never run). The checks warn about those
+instead of a `-Werror` build failing.
 `cgen/testdata/fsm.c` is the authoritative output.
 
 Names the user sees: the enum constants `<fsm>_<STATE>`, `<fsm>_run`,
@@ -587,8 +613,9 @@ is used only by docgen, which adds a state table per FSM to the man page.
 - Parser and check unit tests, a cgen golden test, a corpus entry.
 - `tests/multiclick-fsm`: an fsm rewrite of `multiclick` as a test copy,
   checked against `tests/multiclick`'s expected output.
-- `tests/modcompile-fsm-multi`: two fsms in one component, `any` against a
-  state's own `on`, the `any` timeout, a timeout in ms re-read every cycle
+- `tests/modcompile-fsm-multi`: two fsms in one component, source order
+  between `any` items, `any` against a state's own `on`, `on_exit` on a
+  self-transition, the `any` timeout, a timeout in ms re-read every cycle
   (including `<= 0`, and one a double comparison fired late), expression
   defaults, a hidden `state_var`, `initial` other than the first state, and
   `_in()` / `_state_name()` across fsms.
@@ -674,3 +701,5 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
    multiples and match cycle for cycle. `multiclick_fsm.comp` lists this and
    its other differences from the original.
 4. CI does not run the byte-identical `.comp` gate; it is run by hand.
+5. That the entry run does not advance the timer is not observable on a pin
+   and has no runtest. Neither has a `return` that leaves `during` early.
