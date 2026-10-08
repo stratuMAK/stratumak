@@ -288,12 +288,17 @@ type WatchHandler struct {
 	cancel         context.CancelFunc
 	originPatterns []string   // WebSocket Origin allow-list; empty = same-origin only
 	wsLimit        *wsLimiter // shared with the server's stream endpoint; nil = unlimited
+	pingInterval   time.Duration
+	pingTimeout    time.Duration
 }
 
 // NewWatchHandler creates a new WebSocket watch handler.
 func NewWatchHandler(registry *WatchRegistry) *WatchHandler {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &WatchHandler{registry: registry, logger: slog.Default(), ctx: ctx, cancel: cancel}
+	return &WatchHandler{
+		registry: registry, logger: slog.Default(), ctx: ctx, cancel: cancel,
+		pingInterval: wsPingInterval, pingTimeout: wsPingTimeout,
+	}
 }
 
 // Close cancels all active WebSocket connections managed by this handler.
@@ -358,8 +363,10 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.readLoop()
 }
 
-// Keepalive cadence. Vars, not consts, so tests can shorten them.
-var (
+// Keepalive cadence. Copied into each WatchHandler so tests can shorten it
+// per handler: the keepalive goroutine of a hijacked connection outlives
+// httptest.Server.Close, so a test that restored a shared var would race it.
+const (
 	wsPingInterval = 10 * time.Second
 	wsPingTimeout  = 5 * time.Second
 )
@@ -369,14 +376,14 @@ var (
 // pongs automatically inside the protocol). Control frames may be written
 // concurrently with data frames, so writeMu is not needed here.
 func (c *wsConn) keepalive() {
-	t := time.NewTicker(wsPingInterval)
+	t := time.NewTicker(c.handler.pingInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case <-t.C:
-			ctx, cancel := context.WithTimeout(c.ctx, wsPingTimeout)
+			ctx, cancel := context.WithTimeout(c.ctx, c.handler.pingTimeout)
 			err := c.conn.Ping(ctx)
 			cancel()
 			if err != nil {

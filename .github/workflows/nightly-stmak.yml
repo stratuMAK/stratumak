@@ -43,11 +43,14 @@ jobs:
         cd src
         make stmak-test-race
     - name: Rebuild stmakd with race detector
+      # Through make, not a bare `go build -race`: the install paths are
+      # injected with -ldflags, and a binary without them cannot find
+      # LIB:linuxcnc.hal, so every stmakd test fails at startup.
       run: |
         set -x
-        cd src/stmak
-        CGO_LDFLAGS="-Wl,-rpath,$(cd ../../lib && pwd) -Wl,--disable-new-dtags" \
-          GOFLAGS=-mod=mod go build -race -o ../../bin/stmakd ./cmd/stmakd
+        cd src
+        rm -f ../bin/stmakd
+        make RACE=1 ../bin/stmakd
     - name: runtests against race-built stmakd
       # Race-instrumented binaries are several times slower, so stretch every
       # deadline in the suite rather than re-tune each test (see

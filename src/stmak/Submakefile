@@ -206,11 +206,23 @@ ifeq ($(COVERAGE),1)
 STMAK_GOCOVER := -cover -covermode=atomic -coverpkg=./... -tags gcov
 endif
 
+# Race-detector build of stmakd (opt-in, RACE=1), for the nightly runtests pass.
+# It has to go through the rule below rather than a bare `go build -race`: the
+# install paths reach the binary only through STMAK_LDFLAGS, and without them
+# stmakd cannot resolve LIB:linuxcnc.hal and exits at startup. The flag is not
+# a prerequisite, so an existing bin/stmakd has to be removed first. The race
+# detector does not support -buildmode=pie on linux/amd64, so it builds the
+# default executable instead.
+STMAK_STMAKD_BUILD := $(STMAK_BUILDMODE)
+ifeq ($(RACE),1)
+STMAK_STMAKD_BUILD := -race -buildvcs=false
+endif
+
 # Build the stmakd binary.  Generated GMI Go prerequisites are injected
 # by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).
 ../bin/stmakd: $(STMAK_SRC_BASE) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | stmak/go.mod
 	$(ECHO) Building stmakd
-	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_BUILDMODE) $(STMAK_GOCOVER) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/stmakd ./cmd/stmakd
+	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_STMAKD_BUILD) $(STMAK_GOCOVER) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/stmakd ./cmd/stmakd
 
 # ---------------------------------------------------------------------------
 # ADS XML generator tool — built from cmd/ads-xml-gen within the stmak module
