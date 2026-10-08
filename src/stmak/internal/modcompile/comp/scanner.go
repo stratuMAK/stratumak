@@ -52,6 +52,13 @@ const (
 	TokGT                 // >
 	TokGTE                // >=
 	TokPipe               // |
+
+	// Only produced inside an fsm block (Scanner.fsm), so the rest of the
+	// header keeps its historical tokenisation byte for byte.
+	TokLBrace // {
+	TokRBrace // }
+	TokComma  // ,
+	TokArrow  // ->
 )
 
 func (k TokenKind) String() string {
@@ -116,6 +123,14 @@ func (k TokenKind) String() string {
 		return ">="
 	case TokPipe:
 		return "|"
+	case TokLBrace:
+		return "{"
+	case TokRBrace:
+		return "}"
+	case TokComma:
+		return ","
+	case TokArrow:
+		return "->"
 	default:
 		return "???"
 	}
@@ -150,6 +165,13 @@ type Scanner struct {
 	line int
 	col  int
 	file string
+
+	// fsm switches to the tokenisation used inside an fsm block: C
+	// identifiers (no '-', '.' or '#', so `timeout->X` is three tokens) and
+	// the punctuation the block grammar needs.  The parser toggles it while
+	// the lookahead token sits on the block's first and last token, so no
+	// token is ever scanned in the wrong mode.
+	fsm bool
 }
 
 // NewScanner creates a scanner for the given source text.
@@ -242,6 +264,12 @@ func (s *Scanner) Next() Token {
 	// Regular string: "..."
 	if c == '"' {
 		return s.scanString(pos)
+	}
+
+	if s.fsm {
+		if tok, ok := s.scanFSMToken(pos, c); ok {
+			return tok
+		}
 	}
 
 	// Identifier (or HAL name): starts with letter, _, or #
@@ -523,4 +551,101 @@ func unescapeChar(c byte) byte {
 	default:
 		return c
 	}
+}
+
+// ---------------------------------------------------------------------------
+// fsm block support
+// ---------------------------------------------------------------------------
+
+// scanFSMToken scans the tokens that differ inside an fsm block.  ok is false
+// for everything else, which the regular scanner handles.
+func (s *Scanner) scanFSMToken(pos ast.Pos, c byte) (Token, bool) {
+	switch {
+	case c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
+		start := s.pos
+		for s.pos < len(s.src) && isIdentChar(s.cur()) {
+			s.advance()
+		}
+		return Token{TokIdent, s.src[start:s.pos], pos}, true
+	case c == '-' && s.peek(1) == '>':
+		s.advance()
+		s.advance()
+		return Token{TokArrow, "->", pos}, true
+	case c == '{':
+		s.advance()
+		return Token{TokLBrace, "{", pos}, true
+	case c == '}':
+		s.advance()
+		return Token{TokRBrace, "}", pos}, true
+	case c == ',':
+		s.advance()
+		return Token{TokComma, ",", pos}, true
+	}
+	return Token{}, false
+}
+
+// CaptureC reads verbatim C from the current position up to, but not
+// including, the first byte of stop that appears outside any bracket pair.
+// (), [] and {} are balanced; string and character literals and comments are
+// skipped, so a bracket or stop byte inside them does not count.  It returns
+// the text and the position of its first byte.  A closing bracket that does
+// not match, or the end of the header, is an error.
+func (s *Scanner) CaptureC(stop string) (string, ast.Pos, error) {
+	start, pos := s.pos, s.here()
+	var stack []byte
+	for s.pos < len(s.src) {
+		c := s.cur()
+		if len(stack) == 0 && strings.IndexByte(stop, c) >= 0 {
+			return s.src[start:s.pos], pos, nil
+		}
+		switch {
+		case c == '/' && s.peek(1) == '/':
+			for s.pos < len(s.src) && s.cur() != '\n' {
+				s.advance()
+			}
+			continue
+		case c == '/' && s.peek(1) == '*':
+			at := s.here()
+			s.advance()
+			s.advance()
+			for s.pos < len(s.src) && !(s.cur() == '*' && s.peek(1) == '/') {
+				s.advance()
+			}
+			if s.pos >= len(s.src) {
+				return "", pos, fmt.Errorf("%s: unterminated comment", at)
+			}
+			s.advance()
+			s.advance()
+			continue
+		case c == '"' || c == '\'':
+			at := s.here()
+			s.advance()
+			for s.pos < len(s.src) && s.cur() != c && s.cur() != '\n' {
+				if s.cur() == '\\' {
+					s.advance()
+				}
+				s.advance()
+			}
+			if s.pos >= len(s.src) || s.cur() != c {
+				return "", pos, fmt.Errorf("%s: unterminated %s literal", at,
+					map[byte]string{'"': "string", '\'': "character"}[c])
+			}
+		case c == '(':
+			stack = append(stack, ')')
+		case c == '[':
+			stack = append(stack, ']')
+		case c == '{':
+			stack = append(stack, '}')
+		case c == ')' || c == ']' || c == '}':
+			if len(stack) == 0 || stack[len(stack)-1] != c {
+				return "", pos, fmt.Errorf("%s: unbalanced %q", s.here(), string(c))
+			}
+			stack = stack[:len(stack)-1]
+		}
+		s.advance()
+	}
+	if len(stack) > 0 {
+		return "", pos, fmt.Errorf("%s: missing %q before end of header", pos, string(stack[len(stack)-1]))
+	}
+	return "", pos, fmt.Errorf("%s: expected one of %q before end of header", pos, stop)
 }
