@@ -613,6 +613,13 @@ is used only by docgen, which adds a state table per FSM to the man page.
 ### 5. Tests and documentation
 
 - Parser and check unit tests, a cgen golden test, a corpus entry.
+- A cgen test (`fsm_cc_test.go`) that compiles the generated C with gcc
+  `-Wall -Werror`, as modcompile builds modules: the golden component, the
+  fsm runtest components and edge cases (helpers no transition calls, `return`
+  in every kind of block, two machines). A text comparison cannot see what
+  only the compiler reports, such as a function defined but never used. It
+  also checks that an error after an umlaut is reported at the right column.
+  Skipped without gcc.
 - `tests/multiclick-fsm`: an fsm rewrite of `multiclick` as a test copy,
   checked against `tests/multiclick`'s expected output.
 - `tests/modcompile-fsm-multi`: two fsms in one component, source order
