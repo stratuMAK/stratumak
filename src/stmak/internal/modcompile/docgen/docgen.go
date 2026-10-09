@@ -16,6 +16,9 @@ import (
 // Generate writes a troff-formatted man page to w.
 func Generate(w io.Writer, pkg *ast.Package) error {
 	c := &pkg.Component
+	if err := c.CheckArrayNames(); err != nil {
+		return err
+	}
 	section := "9"
 	if c.Options["userspace"] == "yes" {
 		section = "1"
@@ -144,9 +147,6 @@ func Generate(w io.Writer, pkg *ast.Package) error {
 			_, _ = fmt.Fprintf(w, ".B %s\\fR %s %s", name, pin.Type, pin.Dir)
 			if pin.ArraySize > 0 {
 				nHash := strings.Count(pin.Name, "#")
-				if nHash == 0 {
-					nHash = 1
-				}
 				if pin.ArrayPersonality != "" {
 					_, _ = fmt.Fprintf(w, " (M=%0*d..%s)", nHash, 0, pin.ArrayPersonality)
 				} else {
@@ -179,9 +179,6 @@ func Generate(w io.Writer, pkg *ast.Package) error {
 			_, _ = fmt.Fprintf(w, ".B %s\\fR %s %s", name, param.Type, param.Dir)
 			if param.ArraySize > 0 {
 				nHash := strings.Count(param.Name, "#")
-				if nHash == 0 {
-					nHash = 1
-				}
 				if param.ArrayPersonality != "" {
 					_, _ = fmt.Fprintf(w, " (M=%0*d..%s)", nHash, 0, param.ArrayPersonality)
 				} else {
@@ -307,24 +304,7 @@ func halNameOf(c *ast.Component, entry string) string {
 // elementName fills the # markers of an array pin's name with an index the
 // way cgen does: a run of N markers becomes the index in N digits.
 func elementName(halName string, index int) string {
-	if !strings.Contains(halName, "#") {
-		return halName + strconv.Itoa(index)
-	}
-	var b strings.Builder
-	for i := 0; i < len(halName); {
-		if halName[i] != '#' {
-			b.WriteByte(halName[i])
-			i++
-			continue
-		}
-		n := 0
-		for i < len(halName) && halName[i] == '#' {
-			n++
-			i++
-		}
-		fmt.Fprintf(&b, "%0*d", n, index)
-	}
-	return b.String()
+	return fmt.Sprintf(ast.IndexFormat(halName), index)
 }
 
 // writeFSM documents one fsm block: what drives it, then a table of its

@@ -275,6 +275,76 @@ func stripHashMarkers(s string) string {
 	return b.String()
 }
 
+// CheckArrayName enforces halcompile's naming rule for pins and params: the
+// name of an array has exactly one run of '#', which each element's HAL name
+// fills with its index, and a scalar's name has none.  Without a run every
+// element would register under the same name; with two, which one holds the
+// index is ambiguous.  Every frontend applies the rule, so the backends can
+// rely on it when they expand an array into its elements (IndexFormat).
+func CheckArrayName(name string, array bool) error {
+	runs := 0
+	for i := 0; i < len(name); i++ {
+		if name[i] == '#' && (i == 0 || name[i-1] != '#') {
+			runs++
+		}
+	}
+	switch {
+	case array && runs == 0:
+		// Suggest a name with the index after a separator; one that ends in
+		// a separator already has it ("out_" gives "out_#", not "out_-#").
+		hint := name + "-#"
+		if strings.HasSuffix(name, "_") || strings.HasSuffix(name, "-") || strings.HasSuffix(name, ".") {
+			hint = name + "#"
+		}
+		return fmt.Errorf("array name %q has no '#'; '#' marks where each element's index goes, e.g. %q",
+			name, hint)
+	case array && runs > 1:
+		return fmt.Errorf("array name %q has more than one block of '#'", name)
+	case !array && runs > 0:
+		return fmt.Errorf("name %q has a '#' but is not an array", name)
+	}
+	return nil
+}
+
+// CheckArrayNames applies CheckArrayName to every pin and param of c.  The
+// backends call it so a frontend that skipped the rule fails at generation
+// instead of producing a module whose elements collide at load time.
+func (c *Component) CheckArrayNames() error {
+	for _, p := range c.Pins {
+		if err := CheckArrayName(p.Name, p.ArraySize > 0); err != nil {
+			return fmt.Errorf("%s: pin %v", p.Pos, err)
+		}
+	}
+	for _, p := range c.Params {
+		if err := CheckArrayName(p.Name, p.ArraySize > 0); err != nil {
+			return fmt.Errorf("%s: param %v", p.Pos, err)
+		}
+	}
+	return nil
+}
+
+// IndexFormat returns name with each run of '#' replaced by a printf verb
+// that prints the element index zero-padded to the run's length: "in-##"
+// gives "in-%02d".  A name that passed CheckArrayName as an array has exactly
+// one such verb, so fmt.Sprintf(IndexFormat(name), i) is element i's name.
+func IndexFormat(name string) string {
+	var b strings.Builder
+	for i := 0; i < len(name); {
+		if name[i] != '#' {
+			b.WriteByte(name[i])
+			i++
+			continue
+		}
+		n := 0
+		for i < len(name) && name[i] == '#' {
+			n++
+			i++
+		}
+		fmt.Fprintf(&b, "%%0%dd", n)
+	}
+	return b.String()
+}
+
 // ---------------------------------------------------------------------------
 // HAL types and directions
 // ---------------------------------------------------------------------------

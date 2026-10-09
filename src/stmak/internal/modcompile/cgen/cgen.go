@@ -57,6 +57,9 @@ func (g *generator) generate() error {
 	if err := g.validateArchs(); err != nil {
 		return err
 	}
+	if err := g.comp.CheckArrayNames(); err != nil {
+		return err
+	}
 	g.ensureMcodeConsume() // auto-bind mcode_handler when M-codes are declared
 	g.emitHeader()         // portable framework prologue (both branches)
 	g.emitArchGuardOpen()  // "#if <arch cond>" — opens the real-module branch
@@ -166,34 +169,14 @@ func toC(halName string) string {
 }
 
 // toHALFmt converts a HAL name to a printf format string for pin/param names.
-// Underscores → hyphens, ## → %0Nd (anywhere in the name).
+// Underscores → hyphens, and an array's run of # → %0Nd (ast.IndexFormat).
 func toHALFmt(halName string) string {
-	// Replace _ with -.
 	s := strings.ReplaceAll(halName, "_", "-")
-
-	// Find and replace runs of # with %0Nd.
-	var b strings.Builder
-	i := 0
-	hasHash := false
-	for i < len(s) {
-		if s[i] == '#' {
-			hasHash = true
-			count := 0
-			for i < len(s) && s[i] == '#' {
-				count++
-				i++
-			}
-			fmt.Fprintf(&b, "%%0%dd", count)
-		} else {
-			b.WriteByte(s[i])
-			i++
-		}
-	}
-	if !hasHash {
+	if !strings.Contains(s, "#") {
 		// No array — strip trailing separators for scalar names.
-		return strings.TrimRight(b.String(), "-.")
+		return strings.TrimRight(s, "-.")
 	}
-	return b.String()
+	return ast.IndexFormat(s)
 }
 
 // ---------------------------------------------------------------------------

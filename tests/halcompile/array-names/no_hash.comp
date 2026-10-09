@@ -1,0 +1,6 @@
+component no_hash;
+pin in bit in[4];
+function _;
+license "GPL";
+;;
+FUNCTION(_) { }
