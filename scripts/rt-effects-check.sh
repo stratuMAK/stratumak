@@ -106,6 +106,12 @@ gomod_tu_includes() {
     # place — and so the file cannot drift out of the build's reach.
     src/stmak/internal/classicladder/classicladder_rt.c)
         echo "$CORE_INC" ;;
+    # Golden output of the modcompile fsm lowering (cgen's TestGenerate_FSMGolden
+    # compares against it).  It is the C of a real component, so it is checked
+    # like one: the generated fsm helpers must keep their STMAK_NONBLOCKING
+    # claim.  Section 7 only covers the .comp files under src/hal.
+    src/stmak/internal/modcompile/cgen/testdata/fsm.c)
+        echo "$CORE_INC -Isrc/stmak/pkg/cmodule" ;;
 
     # --- deliberately out of scope (reason on stdout, exit 1) ---
     # Already covered above as the core RTAPI/HAL library (section 1).
