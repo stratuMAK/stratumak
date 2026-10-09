@@ -1,0 +1,53 @@
+
+newthread millisecond 1000000
+
+load multiclick_fsm <multiclick.0,multiclick.1>
+load filestream stream_cfg=bb sample_cfg=bbbbbbbbbsbbbbbbbbbs infile=input-signals outfile=out.txt depth=100 samples=105
+
+
+net in0 filestream.stream.0 => multiclick.0.in filestream.sample.0
+
+net out0.single         multiclick.0.single-click         => filestream.sample.1
+net out0.single-only    multiclick.0.single-click-only    => filestream.sample.2
+net out0.double         multiclick.0.double-click         => filestream.sample.3
+net out0.double-only    multiclick.0.double-click-only    => filestream.sample.4
+net out0.triple         multiclick.0.triple-click         => filestream.sample.5
+net out0.triple-only    multiclick.0.triple-click-only    => filestream.sample.6
+net out0.quadruple      multiclick.0.quadruple-click      => filestream.sample.7
+net out0.quadruple-only multiclick.0.quadruple-click-only => filestream.sample.8
+
+net state.0 multiclick.0.state => filestream.sample.9
+
+
+net in1 filestream.stream.1 => multiclick.1.in filestream.sample.10
+
+net out1.single         multiclick.1.single-click         => filestream.sample.11
+net out1.single-only    multiclick.1.single-click-only    => filestream.sample.12
+net out1.double         multiclick.1.double-click         => filestream.sample.13
+net out1.double-only    multiclick.1.double-click-only    => filestream.sample.14
+net out1.triple         multiclick.1.triple-click         => filestream.sample.15
+net out1.triple-only    multiclick.1.triple-click-only    => filestream.sample.16
+net out1.quadruple      multiclick.1.quadruple-click      => filestream.sample.17
+net out1.quadruple-only multiclick.1.quadruple-click-only => filestream.sample.18
+
+net state.1 multiclick.1.state => filestream.sample.19
+
+
+addf filestream.write    millisecond
+addf multiclick.0  millisecond
+addf multiclick.1  millisecond
+addf filestream.read     millisecond
+
+
+setp multiclick.0.max-hold-ns    2500000
+setp multiclick.0.max-space-ns   4500000
+setp multiclick.0.output-hold-ns  500000
+
+setp multiclick.1.max-hold-ns    3500000
+setp multiclick.1.max-space-ns   3500000
+setp multiclick.1.output-hold-ns 1500000
+setp multiclick.1.invert-input   True
+
+
+
+

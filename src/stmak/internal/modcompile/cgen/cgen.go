@@ -49,6 +49,8 @@ type generator struct {
 	// a directive returning to outName has to name.
 	outName string
 	line    int
+	// midLine is set when the last write did not end with a newline.
+	midLine bool
 }
 
 func (g *generator) generate() error {
@@ -63,7 +65,9 @@ func (g *generator) generate() error {
 	g.emitFunctionForwards()
 	g.emitUserIncludes() // Extract and emit #include lines first
 	g.emitConvenienceDefines()
-	g.emitUserCodeBody() // Emit rest of user code (without includes)
+	g.emitFragments(g.comp.GenPrologue) // frontend-generated declarations
+	g.emitUserCodeBody()                // Emit rest of user code (without includes)
+	g.emitFragments(g.comp.GenEpilogue) // frontend-generated definitions
 	g.emitUndefConvenience()
 	g.emitInitStartStopDestroy()
 	g.emitNew()
@@ -112,6 +116,9 @@ func (g *generator) printf(format string, args ...interface{}) {
 	}
 	s := fmt.Sprintf(format, args...)
 	g.line += strings.Count(s, "\n")
+	if s != "" {
+		g.midLine = s[len(s)-1] != '\n'
+	}
 	_, g.err = io.WriteString(g.w, s)
 }
 
@@ -119,9 +126,6 @@ func (g *generator) printf(format string, args ...interface{}) {
 // Name mangling
 // ---------------------------------------------------------------------------
 
-// toC converts a HAL-style name to a valid C identifier.
-// Strips # characters and adjacent separators, replaces -, . with _,
-// collapses multiple _.
 // cStringLiteral renders s as a C string literal, including the surrounding
 // quotes, with backslash/quote/control characters escaped. The comp scanner
 // unescapes string literals, so a modparam default like `"c:\\ttyS0"` reaches
@@ -156,64 +160,9 @@ func cStringLiteral(s string) string {
 	return b.String()
 }
 
+// toC converts a HAL-style name to a valid C identifier (see ast.CName).
 func toC(halName string) string {
-	// Strip runs of # and their adjacent separators.
-	s := stripHashMarkers(halName)
-	// Replace . and - with _.
-	var b strings.Builder
-	prevUnderscore := false
-	for _, c := range s {
-		switch c {
-		case '-', '.', '_':
-			if !prevUnderscore {
-				b.WriteByte('_')
-				prevUnderscore = true
-			}
-		default:
-			b.WriteRune(c)
-			prevUnderscore = false
-		}
-	}
-	return b.String()
-}
-
-// stripHashMarkers removes runs of # and their directly-adjacent separators.
-// For middle ##: "joint.##.offset" → "joint.offset" (keep one separator).
-// For trailing ##: "x-val-##" → "x-val".
-func stripHashMarkers(s string) string {
-	isSep := func(c byte) bool {
-		return c == '-' || c == '_' || c == '.'
-	}
-
-	var b strings.Builder
-	i := 0
-	for i < len(s) {
-		if isSep(s[i]) && i+1 < len(s) && s[i+1] == '#' {
-			// Separator before a hash run — consume sep + all hashes.
-			leadingSep := s[i]
-			i++ // skip separator
-			for i < len(s) && s[i] == '#' {
-				i++
-			}
-			// If there's a trailing separator AND more content after, keep one separator.
-			if i < len(s) && isSep(s[i]) && i+1 < len(s) {
-				b.WriteByte(leadingSep)
-				i++ // skip trailing separator
-			}
-		} else if s[i] == '#' {
-			// Hash at start of string (no leading sep).
-			for i < len(s) && s[i] == '#' {
-				i++
-			}
-			if i < len(s) && isSep(s[i]) {
-				i++
-			}
-		} else {
-			b.WriteByte(s[i])
-			i++
-		}
-	}
-	return b.String()
+	return ast.CName(halName)
 }
 
 // toHALFmt converts a HAL name to a printf format string for pin/param names.
@@ -781,6 +730,29 @@ func (g *generator) emitUserLines(lines []srcLine) {
 	// physical line (g.line+1), so the line after it is g.line+2. g.line is
 	// read before printf updates it.
 	g.printf("#line %d %s\n", g.line+2, cStringLiteral(g.outName))
+}
+
+// emitFragments writes frontend-generated C.  User fragments go on lines of
+// their own, bracketed by #line directives naming the source when the output
+// name is known.
+func (g *generator) emitFragments(frags []ast.CodeFragment) {
+	for _, f := range frags {
+		if f.Pos.Line == 0 {
+			g.printf("%s", f.Text)
+			continue
+		}
+		if g.midLine {
+			g.printf("\n")
+		}
+		directives := g.outName != "" && f.Pos.File != ""
+		if directives {
+			g.printf("#line %d %s\n", f.Pos.Line, cStringLiteral(f.Pos.File))
+		}
+		g.printf("%s\n", f.Text)
+		if directives {
+			g.printf("#line %d %s\n", g.line+2, cStringLiteral(g.outName))
+		}
+	}
 }
 
 func (g *generator) emitUserIncludes() {

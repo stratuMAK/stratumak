@@ -6,6 +6,7 @@ package docgen
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,6 +204,14 @@ func Generate(w io.Writer, pkg *ast.Package) error {
 		}
 	}
 
+	// STATE MACHINES section
+	if len(c.FSMs) > 0 {
+		_, _ = fmt.Fprintln(w, ".SH STATE MACHINES")
+		for _, f := range c.FSMs {
+			writeFSM(w, c, f)
+		}
+	}
+
 	// EXAMPLES section
 	if c.Examples != "" {
 		_, _ = fmt.Fprintln(w, ".SH EXAMPLES")
@@ -260,4 +269,138 @@ func toHALMan(compName, name string) string {
 	// Replace _ with - for HAL naming convention
 	name = strings.ReplaceAll(name, "_", "-")
 	return fmt.Sprintf("%s.\\fIN\\fB.%s", compName, name)
+}
+
+// troffText escapes C text for a troff text line: backslashes, and a
+// leading '.' or '\” that would make the line a request.
+func troffText(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\e")
+	if strings.HasPrefix(s, ".") || strings.HasPrefix(s, "'") {
+		s = "\\&" + s
+	}
+	return s
+}
+
+// halNameOf returns the man-page name of the pin an fsm list entry refers
+// to, or "" when it names no pin.  The entry is written the way C accesses
+// it: a name, or an array element name(N).
+func halNameOf(c *ast.Component, entry string) string {
+	cName, index := entry, -1
+	if i := strings.IndexAny(entry, "(["); i >= 0 {
+		cName = entry[:i]
+		if n, err := strconv.Atoi(strings.TrimRight(entry[i+1:], ")]")); err == nil {
+			index = n
+		}
+	}
+	for _, p := range c.Pins {
+		if ast.CName(p.Name) != cName {
+			continue
+		}
+		if index < 0 {
+			return toHALMan(c.Name, p.Name)
+		}
+		return toHALMan(c.Name, elementName(p.Name, index))
+	}
+	return ""
+}
+
+// elementName fills the # markers of an array pin's name with an index the
+// way cgen does: a run of N markers becomes the index in N digits.
+func elementName(halName string, index int) string {
+	if !strings.Contains(halName, "#") {
+		return halName + strconv.Itoa(index)
+	}
+	var b strings.Builder
+	for i := 0; i < len(halName); {
+		if halName[i] != '#' {
+			b.WriteByte(halName[i])
+			i++
+			continue
+		}
+		n := 0
+		for i < len(halName) && halName[i] == '#' {
+			n++
+			i++
+		}
+		fmt.Fprintf(&b, "%0*d", n, index)
+	}
+	return b.String()
+}
+
+// writeFSM documents one fsm block: what drives it, then a table of its
+// states and transitions in evaluation order.
+func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
+	_, _ = fmt.Fprintf(w, ".SS %s\n", f.Name)
+	_, _ = fmt.Fprintf(w, "Initial state: \\fB%s\\fR.", f.Initial)
+	if pin := halNameOf(c, f.StateVar); pin != "" {
+		_, _ = fmt.Fprintf(w, " The state number is on \\fB%s\\fR.", pin)
+	}
+	if pin := halNameOf(c, f.TimerVar); pin != "" {
+		_, _ = fmt.Fprintf(w, " The time in the current state, in seconds, is on \\fB%s\\fR.", pin)
+	}
+	_, _ = fmt.Fprintln(w)
+	if f.Reset != "" {
+		_, _ = fmt.Fprintf(w, ".br\nReset while: \\fI%s\\fR\n", troffText(f.Reset))
+	}
+	if f.Enable != "" {
+		_, _ = fmt.Fprintf(w, ".br\nRuns while: \\fI%s\\fR\n", troffText(f.Enable))
+	}
+	_, _ = fmt.Fprintln(w, ".PP")
+	_, _ = fmt.Fprintln(w, "In each state the first matching row fires; \\fIany\\fR rows are checked first, "+
+		"except those leading to the current state, and timeouts (in seconds) last. "+
+		"A * marks a transition with an action.")
+
+	anyTimeout := ""
+	for _, t := range f.Any {
+		if t.Timeout {
+			anyTimeout = t.Target
+		}
+	}
+
+	_, _ = fmt.Fprintln(w, ".TS")
+	_, _ = fmt.Fprintln(w, "box;")
+	_, _ = fmt.Fprintln(w, "rb lb lb lb")
+	_, _ = fmt.Fprintln(w, "r l lw(30) l.")
+	_, _ = fmt.Fprintln(w, "#\tState\tCondition\tNext state")
+	row := func(num, state string, t ast.FSMTransition, timeoutTarget string) {
+		cond := "on " + t.Cond
+		next := t.Target
+		if t.Timeout {
+			cond = "timeout " + t.Cond
+			if t.Cond == "" {
+				cond = "timeout of a state whose timeout has no target"
+			}
+			if next == "" {
+				next = timeoutTarget
+			}
+		}
+		if t.Action {
+			next += " *"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\tT{\n%s\nT}\t%s\n", num, state, troffText(cond), next)
+	}
+	if len(f.Any) > 0 {
+		_, _ = fmt.Fprintln(w, "_")
+		for i, t := range f.Any {
+			state := ""
+			if i == 0 {
+				state = "\\fIany\\fR"
+			}
+			row("", state, t, "")
+		}
+	}
+	for _, s := range f.States {
+		_, _ = fmt.Fprintln(w, "_")
+		if len(s.Transitions) == 0 {
+			_, _ = fmt.Fprintf(w, "%d\t%s\t\t\n", s.Number, s.Name)
+		}
+		for i, t := range s.Transitions {
+			num, state := "", ""
+			if i == 0 {
+				num, state = fmt.Sprint(s.Number), s.Name
+			}
+			row(num, state, t, anyTimeout)
+		}
+	}
+	_, _ = fmt.Fprintln(w, ".TE")
 }

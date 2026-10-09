@@ -186,6 +186,7 @@ Declarations include:
 * 'license LICENSE;'
 * 'author AUTHOR;'
 * 'include HEADERFILE;'
+* 'fsm NAME { ... };' - a state machine, see <<sec:comp-fsm,State machines>>
 
 Parentheses indicate optional items. A vertical bar indicates alternatives.
 Words in 'CAPITALS' indicate variable text, as follows:
@@ -413,7 +414,7 @@ Though HAL permits a pin, a parameter, and a function to have the same name, 'mo
 
 Variable and function names that can not be used or are likely to cause problems include:
 
-* Anything beginning with '__comp_'.
+* Anything beginning with '__comp_' or '__fsm_'.
 * 'comp_id'
 * 'fperiod'
 * 'rtapi_app_main'
@@ -457,6 +458,138 @@ When the item is a conditional item, it is only legal to refer to it when its 'c
 If a component has only one function and the string `"FUNCTION"` does not appear anywhere after `;;`,
 then the portion after `;;` is all taken to be the body of the component's single function.
 See the <<code:simple-comp-example,Simple Comp>> for an example of this.
+
+[[sec:comp-fsm]]
+== State machines
+
+An `fsm` block in the declaration section declares a finite state machine:
+its states, transitions, timeouts and outputs.
+'modcompile' generates the C for it and checks the graph,
+instead of a hand-written `switch (state)` with its own timer and output bookkeeping.
+
+----
+fsm NAME {
+    inputs:    in1, in2;              // names conditions may read
+    outputs:   out1, out2 = 1;        // set to their default every cycle
+    latched:   count;                 // set to their default on init and reset only
+    reset:     (reset_pin);           // optional
+    enable:    (enable_pin);          // optional
+    state_var: state;                 // optional pin or variable showing the state
+    timer_var: elapsed;               // optional pin or variable: seconds in the state
+    initial:   IDLE;                  // optional, default: the first state
+
+    any {                             // checked in every state, first
+        on (estop) -> FAULT;
+        timeout -> TIMED_OUT;         // for states whose timeout has no target
+    }
+
+    state IDLE {
+        on_enter { ... }              // C, runs when the state is entered
+        on_exit  { ... }              // C, runs when the state is left
+        during   { ... }              // C, runs every cycle while in the state
+        on (in1 && !in2) -> RUN;      // condition -> target
+        on (in2) -> RUN { count++; }  // with an action
+        timeout (2.5s) -> FAULT;      // at most one per state
+    }
+    ...
+};
+----
+
+The machine runs when user code calls `NAME();` from a function, exactly once per cycle.
+If the component has a single function, the code after `;;` can be just that call.
+
+=== Lists
+
+* 'inputs' - the pins and variables the `on` conditions read. Used for checks only.
+* 'outputs' - `out`/`io` pins and variables written to their default (`0` unless `= EXPR` is given) at the start of every run.
+* 'latched' - like 'outputs', but written to their default only on init and reset.
+* 'state_var' - an `out` `s32` or `u32` pin, or an integer variable, holding the state number.
+  States are numbered in source order from 0.
+* 'timer_var' - an `out`/`io` `float` pin, or a `double`/`float` variable, holding the time in the current state in seconds.
+
+Names are the C names user code uses (`in-1` is written `in_1`).
+Arrays are not listed whole; single elements are, with a constant index: `in_arr(1)` for pins and params, `buf[1]` for variables.
+This applies to 'state_var' and 'timer_var' too.
+Pins with an `if` condition or a personality-sized array may not exist and cannot be written by the machine.
+Defaults are C expressions evaluated every time they are applied.
+
+=== Execution model
+
+One call of `NAME();`:
+
+. The 'reset' expression is read, then every 'outputs' entry is set to its default, including while reset or disabled.
+. On the first run, and in every run in which 'reset' is true: the state becomes the initial state,
+  the timer and 'timer_var' become 0, 'latched' entries their defaults, and an entry is marked pending.
+  While 'reset' is true, the run ends here. No `on_exit` runs: a reset is not a transition.
+. If 'enable' is false, the run ends here. State, timer and a pending entry are frozen.
+. If an entry is pending, `on_enter` and `during` of the current state run and the run ends.
+  Transitions are checked from the next run on.
+. The timer advances by the thread period.
+. The first matching transition fires, in this order:
+  `any` `on` items (except those leading to the current state), the state's `on` items,
+  the state's `timeout`, and finally `any { timeout -> ... }` if the state's timeout has no target.
+  A firing transition runs `on_exit` of the old state, its action, resets the timer and runs `on_enter` of the new state.
+  At most one transition fires per run; `A -> A` re-enters A.
+. `during` of the current (possibly new) state runs.
+
+An output written in `on_enter`, `on_exit` or an action is therefore a one-cycle pulse.
+An output that holds while in a state is written in `during`.
+Each block runs as a function of its own: `return` ends the block, and a transition still completes.
+
+=== Timeouts
+
+`timeout (EXPR)` is in seconds and evaluated every cycle, so `timeout (delay)` follows a parameter.
+A value of 0 or less means no timeout.
+Number literals may carry a unit: `60s`, `250ms`, `10us`, `500ns`, so `timeout (hold_ns * 1ns)` takes a parameter in nanoseconds.
+Units work only inside `timeout (...)`, and only on decimal numbers: an integer literal must not start with `0`
+(C would read `010s` and `010` as octal), and `0x10s` is an error.
+The timer counts integer nanoseconds and does not drift; the timeout is rounded to whole nanoseconds,
+so a timeout that is a multiple of the thread period fires exactly on that cycle.
+A transition on 'timer_var' gives a timeout with more than one target:
+
+----
+on (elapsed >= delay && retry) -> RETRY;
+timeout (delay) -> FAULT;
+----
+
+Since the timer and the timeout are floating point, a function running an `fsm` with a `timeout` or 'timer_var' must not be declared `nofp`;
+'modcompile' warns when the `FUNCTION` body calling the machine (or a machine that runs it from one of its blocks) belongs to a `nofp` function.
+
+=== Generated names
+
+* `NAME()` - runs the machine (only inside a `FUNCTION`, it uses `period`).
+* `NAME_in(STATE)` - true while the machine is in `STATE`, e.g. `enable: (mode_in(RUNNING));` in another machine.
+* `NAME_STATE` - the number of each state, as an enum constant.
+* `NAME_state_name(n)` - the name of state number `n`, for messages.
+
+Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
+with each other, with a declared name, with a C keyword or with a name the generated file defines
+(a state named `run` or `in`, a machine `feed` next to a pin `feed_in` or `feed_state`, a machine named `fabs`,
+a machine `inst` with a state `start`) is an error. Names starting with `hal_`, `rtapi_`, `stmak_`, `cmod_` and `mcode_`, in lower or upper case, are reserved.
+A collision with another C library name (`EXIT_SUCCESS`, `uint8_t`) is reported by the C compiler.
+
+There is no way to set the state from outside: a request is a flag that an `on` item reacts to and the action clears.
+
+=== Checks
+
+Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
+an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
+(they always hold their default there), an 'inputs' entry listed twice or also in 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
+colliding generated names, machines that run each other (the calls would recurse),
+a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
+brackets inside `#if 0` count too).
+
+Warnings: an `on` condition reading a pin or variable that is not in 'inputs' or 'latched' (when 'inputs' is given; params are exempt),
+an input nothing reads, user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
+(the machine overwrites it), a machine's own blocks assigning its 'state_var' or 'timer_var',
+states not reachable from the initial state, states without a way out, an `any` item that can never fire
+(a `timeout` no state uses, an `on` whose target is the only reachable state), and a machine that is never called.
+
+The operand of `sizeof` is not a read.
+
+C fragments are copied with `#line` directives, so compiler errors point at the `.comp` line.
+The man page gets a STATE MACHINES section with a table of each machine's states and transitions.
+See 'tests/multiclick-fsm/multiclick_fsm.comp' in the source tree for a complete component.
 
 == Component Personality
 

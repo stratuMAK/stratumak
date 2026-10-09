@@ -52,6 +52,13 @@ const (
 	TokGT                 // >
 	TokGTE                // >=
 	TokPipe               // |
+
+	// Only produced inside an fsm block (Scanner.fsm), so the rest of the
+	// header keeps its historical tokenisation byte for byte.
+	TokLBrace // {
+	TokRBrace // }
+	TokComma  // ,
+	TokArrow  // ->
 )
 
 func (k TokenKind) String() string {
@@ -116,6 +123,14 @@ func (k TokenKind) String() string {
 		return ">="
 	case TokPipe:
 		return "|"
+	case TokLBrace:
+		return "{"
+	case TokRBrace:
+		return "}"
+	case TokComma:
+		return ","
+	case TokArrow:
+		return "->"
 	default:
 		return "???"
 	}
@@ -150,6 +165,13 @@ type Scanner struct {
 	line int
 	col  int
 	file string
+
+	// fsm switches to the tokenisation used inside an fsm block: C
+	// identifiers (no '-', '.' or '#', so `timeout->X` is three tokens) and
+	// the punctuation the block grammar needs.  The parser toggles it while
+	// the lookahead token sits on the block's first and last token, so no
+	// token is ever scanned in the wrong mode.
+	fsm bool
 }
 
 // NewScanner creates a scanner for the given source text.
@@ -184,40 +206,36 @@ func (s *Scanner) advance() {
 	}
 }
 
+// advanceTo moves to byte offset end, counting lines and columns.
+func (s *Scanner) advanceTo(end int) {
+	for s.pos < end {
+		s.advance()
+	}
+}
+
 func (s *Scanner) here() ast.Pos {
 	return ast.Pos{File: s.file, Line: s.line, Col: s.col}
 }
 
+// skipWhitespaceAndComments steps over whitespace and C comments.  The
+// header is not compiled, so a '//' comment ends at its line's end even
+// after a backslash.  An unclosed block comment runs to the end of the
+// header.
 func (s *Scanner) skipWhitespaceAndComments() {
 	for s.pos < len(s.src) {
 		c := s.cur()
-		// Whitespace.
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
 			s.advance()
-			continue
+		case c == '/' && s.peek(1) == '/':
+			end, _ := skipLineComment(s.src, s.pos, false)
+			s.advanceTo(end)
+		case c == '/' && s.peek(1) == '*':
+			end, _ := skipBlockComment(s.src, s.pos)
+			s.advanceTo(end)
+		default:
+			return
 		}
-		// Line comment.
-		if c == '/' && s.peek(1) == '/' {
-			for s.pos < len(s.src) && s.cur() != '\n' {
-				s.advance()
-			}
-			continue
-		}
-		// Block comment.
-		if c == '/' && s.peek(1) == '*' {
-			s.advance() // skip /
-			s.advance() // skip *
-			for s.pos < len(s.src) {
-				if s.cur() == '*' && s.peek(1) == '/' {
-					s.advance() // skip *
-					s.advance() // skip /
-					break
-				}
-				s.advance()
-			}
-			continue
-		}
-		break
 	}
 }
 
@@ -242,6 +260,12 @@ func (s *Scanner) Next() Token {
 	// Regular string: "..."
 	if c == '"' {
 		return s.scanString(pos)
+	}
+
+	if s.fsm {
+		if tok, ok := s.scanFSMToken(pos, c); ok {
+			return tok
+		}
 	}
 
 	// Identifier (or HAL name): starts with letter, _, or #
@@ -523,4 +547,159 @@ func unescapeChar(c byte) byte {
 	default:
 		return c
 	}
+}
+
+// ---------------------------------------------------------------------------
+// fsm block support
+// ---------------------------------------------------------------------------
+
+// scanFSMToken scans the tokens that differ inside an fsm block.  ok is false
+// for everything else, which the regular scanner handles.
+func (s *Scanner) scanFSMToken(pos ast.Pos, c byte) (Token, bool) {
+	switch {
+	case c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
+		start := s.pos
+		for s.pos < len(s.src) && isIdentChar(s.cur()) {
+			s.advance()
+		}
+		return Token{TokIdent, s.src[start:s.pos], pos}, true
+	case c >= '0' && c <= '9':
+		// A number with its suffix (1u, 0x1F), as C reads it.
+		start := s.pos
+		for s.pos < len(s.src) && isIdentChar(s.cur()) {
+			s.advance()
+		}
+		return Token{TokNumber, s.src[start:s.pos], pos}, true
+	case c == '-' && s.peek(1) == '>':
+		s.advance()
+		s.advance()
+		return Token{TokArrow, "->", pos}, true
+	case c == '{':
+		s.advance()
+		return Token{TokLBrace, "{", pos}, true
+	case c == '}':
+		s.advance()
+		return Token{TokRBrace, "}", pos}, true
+	case c == ',':
+		s.advance()
+		return Token{TokComma, ",", pos}, true
+	}
+	return Token{}, false
+}
+
+// CaptureError is an error in captured C, at Pos.  The parser adds the fsm
+// it belongs to.
+type CaptureError struct {
+	Pos ast.Pos
+	Msg string
+}
+
+func (e *CaptureError) Error() string { return fmt.Sprintf("%s: %s", e.Pos, e.Msg) }
+
+// openerOf maps a closing bracket to its opening one.
+var openerOf = map[byte]byte{')': '(', ']': '[', '}': '{'}
+
+// CaptureC reads verbatim C from the current position up to, but not
+// including, the first byte of stop that appears outside any bracket pair.
+// (), [] and {} are balanced; string and character literals and comments are
+// skipped, so a bracket or stop byte inside them does not count.  It returns
+// the text with the position of its first byte.  A closing bracket that does
+// not match, or the end of the header, is an error.
+//
+// opened is the position of the bracket the caller consumed in front of the
+// capture (the '(' of a condition, the '{' of a block); errors name it when
+// it is the one left open.  It is ignored for a stop without an opener.
+func (s *Scanner) CaptureC(stop string, opened ast.Pos) (*cfrag, error) {
+	start, pos := s.pos, s.here()
+	lineStart := strings.LastIndexByte(s.src[:start], '\n') + 1
+	indent := blankIndent(s.src[lineStart:start])
+	type open struct {
+		close byte
+		pos   ast.Pos
+	}
+	var stack []open
+	if len(stop) == 1 && openerOf[stop[0]] != 0 {
+		// The caller's bracket sits under everything captured; closing it
+		// is the stop.
+		stack = append(stack, open{stop[0], opened})
+	}
+	base := len(stack) // 1 when the caller's bracket is on the stack
+	frag := func() *cfrag {
+		return &cfrag{Pos: pos, Text: s.src[start:s.pos], Indent: indent}
+	}
+	errf := func(at ast.Pos, format string, args ...interface{}) error {
+		return &CaptureError{at, fmt.Sprintf(format, args...)}
+	}
+	// unclosed describes the innermost open bracket.
+	unclosed := func() string {
+		o := stack[len(stack)-1]
+		return fmt.Sprintf("%q opened at %s is not closed", string(openerOf[o.close]), o.pos)
+	}
+	for s.pos < len(s.src) {
+		c := s.cur()
+		if base == 0 && len(stack) == 0 && strings.IndexByte(stop, c) >= 0 {
+			return frag(), nil
+		}
+		switch {
+		case c == '/' && s.peek(1) == '/':
+			end, spliced := skipLineComment(s.src, s.pos, false)
+			if spliced {
+				// C splices the next line into the comment; the capture
+				// is emitted line by line and would not, so the code
+				// would silently lose that line.
+				return nil, errf(s.here(), "'//' comment ends in a backslash, which continues it onto the next line")
+			}
+			s.advanceTo(end)
+			continue
+		case c == '/' && s.peek(1) == '*':
+			end, ok := skipBlockComment(s.src, s.pos)
+			if !ok {
+				return nil, errf(s.here(), "unterminated comment")
+			}
+			s.advanceTo(end)
+			continue
+		case c == '"' || c == '\'':
+			end, ok := skipCLiteral(s.src, s.pos)
+			if !ok {
+				return nil, errf(s.here(), "unterminated %s literal",
+					map[byte]string{'"': "string", '\'': "character"}[c])
+			}
+			s.advanceTo(end)
+			continue
+		case c == ';' && stop == ")":
+			// An expression holds a ';' only inside a statement
+			// expression's braces; anywhere else a ')' is missing.
+			inBraces := false
+			for _, o := range stack[base:] {
+				inBraces = inBraces || o.close == '}'
+			}
+			if !inBraces {
+				return nil, errf(s.here(), "unexpected ';': %s", unclosed())
+			}
+		case c == '(':
+			stack = append(stack, open{')', s.here()})
+		case c == '[':
+			stack = append(stack, open{']', s.here()})
+		case c == '{':
+			stack = append(stack, open{'}', s.here()})
+		case c == ')' || c == ']' || c == '}':
+			if len(stack) == 0 {
+				return nil, errf(s.here(), "unbalanced %q", string(c))
+			}
+			if stack[len(stack)-1].close != c {
+				return nil, errf(s.here(), "unbalanced %q: %s", string(c), unclosed())
+			}
+			if len(stack) == base && base > 0 {
+				// It closes the caller's bracket; the parser reads it as
+				// the next token.
+				return frag(), nil
+			}
+			stack = stack[:len(stack)-1]
+		}
+		s.advance()
+	}
+	if len(stack) > 0 {
+		return nil, errf(pos, "end of header: %s", unclosed())
+	}
+	return nil, errf(pos, "expected one of %q before end of header", stop)
 }

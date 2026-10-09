@@ -1,0 +1,70 @@
+# columns: go abort ack rst en
+# first run: entry only, go is not acted on yet
+1 0 0 0 1
+# IDLE -> RUN (action, entry, during in the same run)
+1 0 0 0 1
+1 0 0 0 1
+1 0 0 0 1
+1 0 0 0 1
+# timer 4 ms >= delay 3.5 ms: RUN -> DONE (exit, entry)
+1 0 0 0 1
+# DONE -> DONE self transition: entry again, timer reset
+1 0 1 0 1
+1 0 0 0 1
+# DONE -> IDLE
+0 0 0 0 1
+0 0 0 0 1
+# disabled: state, timer and outputs frozen at the defaults, go ignored
+1 0 0 0 0
+1 0 0 0 0
+# enabled again: the timer continues where it stopped
+0 0 0 0 1
+# IDLE -> RUN
+1 0 0 0 1
+1 0 0 0 1
+# any: abort -> FAULT (exit RUN, any action, entry)
+1 1 0 0 1
+# abort held: any skips its own target, FAULT is not re-entered
+1 1 0 0 1
+1 1 0 0 1
+# FAULT -> IDLE
+0 0 1 0 1
+# IDLE -> RUN
+1 0 0 0 1
+1 0 0 0 1
+1 0 0 0 1
+1 0 0 0 1
+# go drops in the cycle the timeout is due: the event wins, RUN -> IDLE
+0 0 0 0 1
+# reset held: initial state, latched and timer to defaults, no user code
+1 0 0 1 1
+1 0 0 1 1
+# reset released: entry run first, go waits a cycle
+1 0 0 0 1
+1 0 0 0 1
+# reset while disabled works
+1 0 0 1 0
+# disabled after reset: the pending entry waits too
+1 0 0 0 0
+# enabled: the pending entry runs, then the transition
+1 0 0 0 1
+1 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+# reset with go low: the entry run does not advance the timer, IDLE counts from 0
+0 0 0 1 1
+0 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+# IDLE -> RUN; ack makes RUN's during return before it sets tail
+1 0 0 0 1
+1 0 1 0 1
+1 0 1 0 1
+1 0 0 0 1
+0 0 0 0 1
+0 0 0 0 1
+# padding past samples=46
+0 0 0 0 1
+0 0 0 0 1

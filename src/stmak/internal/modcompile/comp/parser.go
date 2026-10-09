@@ -46,6 +46,10 @@ func Parse(filename, src string) (*ast.Package, error) {
 		}
 	}
 
+	if err := p.finishFSMs(); err != nil {
+		return nil, err
+	}
+
 	// Reject unsupported RTAPI_MP_ARRAY_* macros.
 	// cmod/gomod allows multiple 'load' commands with different parameters instead.
 	for _, macro := range []string{"RTAPI_MP_ARRAY_STRING", "RTAPI_MP_ARRAY_INT"} {
@@ -88,6 +92,13 @@ type parser struct {
 	file string
 	cur  Token
 	pkg  *ast.Package
+
+	// fsms are the fsm blocks in source order.  They are checked and
+	// lowered once the whole file is known, since their lists refer to
+	// declarations anywhere in the header and to the verbatim C.
+	fsms []*fsmDecl
+	// fsmName is the fsm block being parsed, for error messages.
+	fsmName string
 }
 
 func (p *parser) next() Token {
@@ -97,8 +108,16 @@ func (p *parser) next() Token {
 }
 
 func (p *parser) errorf(format string, args ...interface{}) error {
+	return p.errorAt(p.cur.Pos, format, args...)
+}
+
+// errorAt reports an error at pos; inside an fsm block it names the block.
+func (p *parser) errorAt(pos ast.Pos, format string, args ...interface{}) error {
 	msg := fmt.Sprintf(format, args...)
-	return fmt.Errorf("%s: %s", p.cur.Pos, msg)
+	if p.fsmName != "" {
+		return fmt.Errorf("%s: fsm %s: %s", pos, p.fsmName, msg)
+	}
+	return fmt.Errorf("%s: %s", pos, msg)
 }
 
 // expect consumes the current token if it matches kind, otherwise returns error.
@@ -194,6 +213,8 @@ func (p *parser) parseDeclaration() error {
 		return p.parseGMIConsume()
 	case "arch":
 		return p.parseArch()
+	case "fsm":
+		return p.parseFSM()
 	default:
 		return p.errorf("unknown declaration keyword %q", p.cur.Val)
 	}

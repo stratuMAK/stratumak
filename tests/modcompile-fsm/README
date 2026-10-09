@@ -1,0 +1,1 @@
+Runtest for fsm blocks in .comp files (docs/dev/MODCOMPILE_FSM_DESIGN.md): fsm_test.comp's pins show the execution model cycle by cycle; input-signals comments say what each step checks.

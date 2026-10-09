@@ -1,0 +1,327 @@
+
+//
+//   This is a single-, double-, triple-, and quadruple-click detector
+//   component for LinuxCNC.
+//
+//   Test copy of src/hal/components/multiclick.comp with the state machine
+//   rewritten as an fsm block.  It validates the fsm implementation:
+//   tests/multiclick-fsm runs it on the inputs and expected output of
+//   tests/multiclick, where it matches the original cycle for cycle.  The
+//   shipped component stays unchanged.
+//
+//   Outside those inputs it differs from the original in four ways:
+//   - a timeout that is an exact multiple of the period fires one period
+//     earlier: the fsm fires at timer >= timeout, the original at
+//     timer > timeout (the defaults, 250 ms at 1 ms, are such multiples);
+//   - the first run only enters IDLE, so a press already there in the
+//     first cycle is acted on one cycle later;
+//   - the function is not nofp, since timeouts are floating point;
+//   - the timeouts are read from the params every cycle; the original
+//     fixes them when it enters a state.
+//
+//   Copyright 2012 Sebastian Kuzminsky <seb@highlab.com>
+//
+//   This program is free software; you can redistribute it and/or modify
+//   it under the terms of the GNU General Public License as published by
+//   the Free Software Foundation; either version 2 of the License, or
+//   (at your option) any later version.
+//
+//   This program is distributed in the hope that it will be useful,
+//   but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   GNU General Public License for more details.
+//
+//   You should have received a copy of the GNU General Public License
+//   along with this program; if not, write to the Free Software
+//   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+
+component multiclick_fsm "fsm validation copy: Single-, double-, triple-, and quadruple-click detector";
+license "GPL";
+author "Sebastian Kuzminsky";
+
+pin in  bit in "The input line, this is where we look for clicks.";
+
+pin out bit single_click
+"Goes high briefly when a single-click is detected on the 'in' pin.";
+
+pin out bit single_click_only
+"""Goes high briefly when a single-click is detected on the 'in' pin
+and no second click followed it.""";
+
+pin out bit double_click
+"Goes high briefly when a double-click is detected on the 'in' pin.";
+
+pin out bit double_click_only
+"""Goes high briefly when a double-click is detected on the 'in' pin
+and no third click followed it.""";
+
+pin out bit triple_click
+"Goes high briefly when a triple-click is detected on the 'in' pin.";
+
+pin out bit triple_click_only
+"""Goes high briefly when a triple-click is detected on the 'in' pin
+and no fourth click followed it.""";
+
+pin out bit quadruple_click
+"Goes high briefly when a quadruple-click is detected on the 'in' pin.";
+
+pin out bit quadruple_click_only
+"""Goes high briefly when a quadruple-click is detected on the 'in'
+pin and no fifth click followed it.""";
+
+
+// for debugging
+pin out s32 state;
+
+
+param rw bit invert_input = FALSE
+"""If FALSE (the default), clicks start with rising edges.  If TRUE,
+clicks start with falling edges.""";
+
+param rw u32 max_hold_ns  = 250000000
+"""If the input is held down longer than this, it's not part of a
+multi-click.  (Default 250,000,000 ns, 250 ms.)""";
+
+param rw u32 max_space_ns = 250000000
+"""If the input is released longer than this, it's not part of a
+multi-click.  (Default 250,000,000 ns, 250 ms.)""";
+
+param rw u32 output_hold_ns = 100000000
+"""Positive pulses on the output pins last this long.  (Default
+100,000,000 ns, 100 ms.)""";
+
+
+// The input with invert_input applied, for the state machine below.
+variable int pressed;
+
+
+//
+// When an "X"-click (for X={single,double,triple,quadruple}) is detected,
+// the X-click pin goes high and the X_click_hold_timer is set to the
+// output_hold_ns param.  Each invocation of the function, the
+// X_click_hold_timer is decremented by the thread period, and when the
+// timer falls below 0, the X-click output pin goes  back to low again.
+//
+// Similarly for the X_click_only_hold_timer, but it doesn't start until
+// max_space_ns after the click is detected (to ensure that this is not an
+// X+1 click).
+//
+
+variable unsigned single_click_hold_timer;
+variable unsigned single_click_only_hold_timer;
+
+variable unsigned double_click_hold_timer;
+variable unsigned double_click_only_hold_timer;
+
+variable unsigned triple_click_hold_timer;
+variable unsigned triple_click_only_hold_timer;
+
+variable unsigned quadruple_click_hold_timer;
+variable unsigned quadruple_click_only_hold_timer;
+
+
+description """A click is defined as a rising edge on the 'in' pin,
+followed by the 'in' pin being True for at most 'max-hold-ns' nanoseconds,
+followed by a falling edge.
+
+A double-click is defined as two clicks, separated by at
+most 'max-space-ns' nanoseconds with the 'in' pin in the False state.
+
+I bet you can guess the definition of triple- and quadruple-click.
+
+You probably want to run the input signal through a debounce component
+before feeding it to the multiclick detector, if the input is at all
+noisy.
+
+The '*-click' pins go high as soon as the input detects the correct
+number of clicks.
+
+The '*-click-only' pins go high a short while after the click, after
+the click separator space timeout has expired to show that no further
+click is coming.  This is useful for triggering halui MDI commands.""";
+
+
+function _ "Detect single-, double-, triple-, and quadruple-clicks";
+
+
+//
+// The click detector.  A rising edge starts a click, the falling edge
+// within max_hold_ns completes it and fires the X-click pulse.  A pause
+// longer than max_space_ns ends the sequence and fires the X-click-only
+// pulse; holding longer than max_hold_ns parks the machine in
+// HELD_TOO_LONG until the input is released.  The state numbers are the
+// values of the 'state' pin.
+//
+
+fsm click {
+    inputs:    pressed;
+    state_var: state;
+
+    state IDLE {
+        on (pressed) -> SAW_FIRST_RISING_EDGE;
+    }
+
+    state SAW_FIRST_RISING_EDGE {
+        on (!pressed) -> SAW_FIRST_CLICK {
+            single_click = 1;
+            single_click_hold_timer = output_hold_ns;
+        }
+        timeout (max_hold_ns * 1ns) -> HELD_TOO_LONG;
+    }
+
+    state SAW_FIRST_CLICK {
+        on (pressed) -> SAW_SECOND_RISING_EDGE;
+        timeout (max_space_ns * 1ns) -> IDLE {
+            single_click_only = 1;
+            single_click_only_hold_timer = output_hold_ns;
+        }
+    }
+
+    state SAW_SECOND_RISING_EDGE {
+        on (!pressed) -> SAW_SECOND_CLICK {
+            double_click = 1;
+            double_click_hold_timer = output_hold_ns;
+        }
+        timeout (max_hold_ns * 1ns) -> HELD_TOO_LONG;
+    }
+
+    state SAW_SECOND_CLICK {
+        on (pressed) -> SAW_THIRD_RISING_EDGE;
+        timeout (max_space_ns * 1ns) -> IDLE {
+            double_click_only = 1;
+            double_click_only_hold_timer = output_hold_ns;
+        }
+    }
+
+    state SAW_THIRD_RISING_EDGE {
+        on (!pressed) -> SAW_THIRD_CLICK {
+            triple_click = 1;
+            triple_click_hold_timer = output_hold_ns;
+        }
+        timeout (max_hold_ns * 1ns) -> HELD_TOO_LONG;
+    }
+
+    state SAW_THIRD_CLICK {
+        on (pressed) -> SAW_FOURTH_RISING_EDGE;
+        timeout (max_space_ns * 1ns) -> IDLE {
+            triple_click_only = 1;
+            triple_click_only_hold_timer = output_hold_ns;
+        }
+    }
+
+    state SAW_FOURTH_RISING_EDGE {
+        // four clicks is the most we look for
+        on (!pressed) -> SAW_FOURTH_CLICK {
+            quadruple_click = 1;
+            quadruple_click_hold_timer = output_hold_ns;
+        }
+        timeout (max_hold_ns * 1ns) -> HELD_TOO_LONG;
+    }
+
+    state SAW_FOURTH_CLICK {
+        on (pressed) -> HELD_TOO_LONG;
+        timeout (max_space_ns * 1ns) -> IDLE {
+            quadruple_click_only = 1;
+            quadruple_click_only_hold_timer = output_hold_ns;
+        }
+    }
+
+    state HELD_TOO_LONG {
+        on (!pressed) -> IDLE;
+    }
+};
+
+;;
+
+FUNCTION(_) {
+    pressed = in;
+
+    if (1 == invert_input) {
+        pressed = !pressed;
+    }
+
+
+    //
+    // update the output pins
+    //
+
+    if (single_click_hold_timer > 0) {
+        if (single_click_hold_timer > period) {
+            single_click_hold_timer -= period;
+        } else {
+            single_click_hold_timer = 0;
+            single_click = 0;
+        }
+    }
+
+    if (single_click_only_hold_timer > 0) {
+        if (single_click_only_hold_timer > period) {
+            single_click_only_hold_timer -= period;
+        } else {
+            single_click_only_hold_timer = 0;
+            single_click_only = 0;
+        }
+    }
+
+    if (double_click_hold_timer > 0) {
+        if (double_click_hold_timer > period) {
+            double_click_hold_timer -= period;
+        } else {
+            double_click_hold_timer = 0;
+            double_click = 0;
+        }
+    }
+
+    if (double_click_only_hold_timer > 0) {
+        if (double_click_only_hold_timer > period) {
+            double_click_only_hold_timer -= period;
+        } else {
+            double_click_only_hold_timer = 0;
+            double_click_only = 0;
+        }
+    }
+
+    if (triple_click_hold_timer > 0) {
+        if (triple_click_hold_timer > period) {
+            triple_click_hold_timer -= period;
+        } else {
+            triple_click_hold_timer = 0;
+            triple_click = 0;
+        }
+    }
+
+    if (triple_click_only_hold_timer > 0) {
+        if (triple_click_only_hold_timer > period) {
+            triple_click_only_hold_timer -= period;
+        } else {
+            triple_click_only_hold_timer = 0;
+            triple_click_only = 0;
+        }
+    }
+
+    if (quadruple_click_hold_timer > 0) {
+        if (quadruple_click_hold_timer > period) {
+            quadruple_click_hold_timer -= period;
+        } else {
+            quadruple_click_hold_timer = 0;
+            quadruple_click = 0;
+        }
+    }
+
+    if (quadruple_click_only_hold_timer > 0) {
+        if (quadruple_click_only_hold_timer > period) {
+            quadruple_click_only_hold_timer -= period;
+        } else {
+            quadruple_click_only_hold_timer = 0;
+            quadruple_click_only = 0;
+        }
+    }
+
+
+    //
+    // update state, if needed
+    //
+
+    click();
+}
