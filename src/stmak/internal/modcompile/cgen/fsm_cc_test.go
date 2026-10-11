@@ -117,6 +117,7 @@ func TestFSMGeneratedCCompiles(t *testing.T) {
 		"../../../../../tests/modcompile-fsm/fsm_test.comp",
 		"../../../../../tests/modcompile-fsm-multi/fsm_multi.comp",
 		"../../../../../tests/multiclick-fsm/multiclick_fsm.comp",
+		"../../../../../tests/modcompile-fsm-restore/fsm_restore.comp",
 	} {
 		name := strings.TrimSuffix(filepath.Base(f), ".comp")
 		t.Run(name, func(t *testing.T) {
@@ -159,6 +160,17 @@ function _;
 			 fsm seq { outputs: o; state_var: st; enable: (mode_in(RUN));
 			  state A { during { o = 1; } on (b) -> B; } state B { on (!b) -> A; } };`,
 			"FUNCTION(_) { mode(); seq(); }"},
+		// io state pins of both signs, restored on the first run; output
+		// blocks without during; reset_outputs from user code; an out pin
+		// as input.
+		{"io state, output, reset_outputs",
+			`pin io s32 ios; pin io u32 iou;
+			 fsm m { inputs: o; outputs: o2 = 1; state_var: ios; enable: (a);
+			  state S { output { o2 = 0; } on (o) -> T; } state T { output { int k = 2; o2 = k; } on (!o) -> S; } };
+			 fsm n { state_var: iou; reset: (b);
+			  state X { on_enter { o = 4; } on (a) -> Y; } state Y { on (!a) -> X; } };
+			 pin out s32 o2;`,
+			"FUNCTION(_) { o = a; m(); n(); if (!b) { m_reset_outputs(); n_reset_outputs(); } }"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			compileFSMC(t, "cc", header+tc.fsm+"\n;;\n"+tc.code+"\n")

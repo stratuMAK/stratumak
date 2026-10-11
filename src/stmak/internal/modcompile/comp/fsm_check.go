@@ -144,9 +144,8 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 	}
 
 	if role == roleInput {
-		if s.Kind == symPin && s.Dir == ast.PinOut {
-			return errf("%s is an out pin", r.Name)
-		}
+		// Any pin: an out pin is read as the code before the fsm call
+		// left it.  This fsm's own outputs are rejected in check.
 		return nil
 	}
 
@@ -165,17 +164,16 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 		ok := s.Kind == symPin && (s.Type == ast.HALS32 || s.Type == ast.HALU32) ||
 			s.Kind == symVar && integerCTypes[s.CType]
 		if !ok {
-			return errf("%s is %s; need an out s32/u32 pin or an integer variable", r.Name, withArticle(s.describe()))
+			return errf("%s is %s; need an out or io s32/u32 pin or an integer variable", r.Name, withArticle(s.describe()))
 		}
 		if max, small := smallIntMax[s.CType]; small && s.Kind == symVar && len(f.States)-1 > max {
 			return errf("%s is %s, which holds state numbers up to %d; the fsm has %d states",
 				r.Name, s.CType, max, len(f.States))
 		}
-		if s.Kind == symPin && s.Dir != ast.PinOut {
-			// An io pin could be set from outside: a goto around the
-			// declared graph.
-			return errf("%s is an io pin; the state changes only through transitions, so it must be an out pin", r.Name)
-		}
+		// An io pin is taken over on the first run only (a restore, e.g.
+		// from a retained signal); afterwards the fsm writes it every run,
+		// so a write from outside is no goto around the declared graph.
+		f.StateIO = s.Kind == symPin && s.Dir == ast.PinIO
 	case roleTimer:
 		ok := s.Kind == symPin && s.Type == ast.HALFloat ||
 			s.Kind == symVar && (s.CType == "double" || s.CType == "float")
@@ -225,6 +223,7 @@ func (f *fsmDecl) fragments() []cfrag {
 		add(s.Enter)
 		add(s.Exit)
 		add(s.During)
+		add(s.Output)
 		for i := range s.On {
 			addTrans(&s.On[i])
 		}
@@ -454,6 +453,34 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		}
 	}
 
+	// Output blocks run while the fsm is disabled too, so they map the
+	// state to outputs and write nothing else.  Locals of the block are
+	// not declared names and pass.
+	for _, st := range f.States {
+		if st.Output == nil {
+			continue
+		}
+		blk := st.Output
+		for _, u := range cUses(blk.Text) {
+			s := c.syms[u.Name]
+			if !u.Write || s == nil {
+				continue
+			}
+			pos := offsetPos(blk.Pos, blk.Text, u.Off)
+			hit, computed := outputs.match(u)
+			if hit || computed && len(outputs[u.Name]) == s.Array {
+				continue
+			}
+			if computed {
+				return fmt.Errorf("%s: fsm %s: state %s: output writes %s %s, and not every element "+
+					"of %s is an output of this fsm", pos, f.Name, st.Name, useString(u), howRead(u), u.Name)
+			}
+			return fmt.Errorf("%s: fsm %s: state %s: output writes %s, which is not an output of this fsm; "+
+				"an output block runs while the fsm is disabled too and writes outputs only",
+				pos, f.Name, st.Name, useString(u))
+		}
+	}
+
 	// Unread inputs.  An element counts as read when it is read with its
 	// literal index, or when its array is read with a computed one or as a
 	// whole.
@@ -640,7 +667,7 @@ func (o ownership) match(u cUse, writer *fsmDecl) (*ownedRef, bool) {
 
 // consequence says what happens to a write to an owned entry.
 func (r *ownedRef) consequence() string {
-	if r.role == "state_var" {
+	if r.role == "state_var" && !r.f.StateIO {
 		return "the state changes only through transitions"
 	}
 	return "the fsm overwrites it on its next run"

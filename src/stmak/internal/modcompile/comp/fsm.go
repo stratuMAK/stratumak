@@ -110,6 +110,7 @@ type fsmState struct {
 	Enter   *cfrag
 	Exit    *cfrag
 	During  *cfrag
+	Output  *cfrag
 	On      []fsmTrans
 	Timeout *fsmTimeout
 }
@@ -123,6 +124,10 @@ type fsmDecl struct {
 	Reset    *cfrag
 	Enable   *cfrag
 	StateVar *fsmRef
+	// StateIO is set by the checks when StateVar is an io pin: the fsm then
+	// keeps the state in a hidden variable, takes a valid value from the
+	// pin on its first run (a restore) and writes the pin every run.
+	StateIO  bool
 	TimerVar *fsmRef
 	Initial  string
 	InitPos  ast.Pos
@@ -487,6 +492,8 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 			slot = &st.Exit
 		case "during":
 			slot = &st.During
+		case "output":
+			slot = &st.Output
 		case "on":
 			p.next()
 			t, err := p.parseOn(ipos)
@@ -582,6 +589,7 @@ func (f *fsmDecl) describe() ast.FSM {
 	}
 	if f.StateVar != nil {
 		d.StateVar = f.StateVar.String()
+		d.StateRestored = f.StateIO
 	}
 	if f.TimerVar != nil {
 		d.TimerVar = f.TimerVar.String()
@@ -599,6 +607,7 @@ func (f *fsmDecl) describe() ast.FSM {
 			OnEnter: s.Enter != nil,
 			OnExit:  s.Exit != nil,
 			During:  s.During != nil,
+			Output:  s.Output != nil,
 		}
 		for _, t := range s.On {
 			ds.Transitions = append(ds.Transitions, describeTrans(t, false))

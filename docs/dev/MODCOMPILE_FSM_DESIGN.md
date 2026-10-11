@@ -50,6 +50,33 @@ checked narrow `state_var` types against the number of states, left the
 operand of `sizeof` out of the reads, and put the `nofp` warnings in
 declaration order.
 
+### Extensions (October 2026)
+
+Migrating `transp_slider` (CoatV2conf) showed three gaps, closed on top of
+the slices above:
+
+- **io `state_var`, restored.** A component whose state is retained across a
+  restart (HAL retain needs io-only signals) needs an io state pin. It is
+  read on the first run only: a valid state number is taken over, with the
+  timer at 0 and `on_enter` pending, so a state that measures time starts
+  its timer anew. Afterwards the fsm keeps the state in a hidden variable and
+  writes the pin every run, so a write from outside has no effect; the
+  declared graph stays the only way between states. Before, an io
+  `state_var` was an error and the only idiom was a dispatch state, which
+  re-derives the state from a model and needs one.
+- **`output` blocks.** A disabled fsm froze its transitions and set its
+  outputs to their defaults, so a status output (`empty`, `full`) went to 0
+  while automatic was paused. The per-state `output` block maps the state to
+  the outputs in every run, enabled or not; `during` stays enabled-only and
+  keeps what the state does while it runs (fault checks).
+- **`<fsm>_reset_outputs()`** writes the outputs to their defaults from user
+  code, for a component that clears them at machine-off after the run,
+  without writing fsm outputs outside the fsm.
+- **`out` pins in `inputs`.** An out pin set by user code before the call
+  (a command mux feeding a second fsm) is a legitimate input.
+
+`tests/modcompile-fsm-restore` covers all four.
+
 ## Motivation
 
 State machines are common in `.comp` files (`carousel`, `moveoff`,
@@ -149,6 +176,7 @@ any_item    := 'on' '(' cexpr ')' '->' STATE action
 state_item  := 'on_enter' block
              | 'on_exit'  block
              | 'during'   block
+             | 'output'   block
              | 'on' '(' cexpr ')' '->' STATE action
              | 'timeout' '(' texpr ')' ('->' STATE action | ';')
 
@@ -160,7 +188,7 @@ block       := '{' C statements '}'
   `[]` and `{}` and skips string/char literals and comments. A `def` default
   ends at the first top-level `,` or `;`, so `x = fmin(a, b)` works.
 - Names in the lists are the C names used in code (`in-1` is written `in_1`).
-- `on_enter`, `on_exit` and `during` appear at most once per state; their
+- `on_enter`, `on_exit`, `during` and `output` appear at most once per state; their
   order in the source does not matter. `on` and `timeout` items keep their
   source order (it is their priority, see below).
 - A state has at most one `timeout`. `timeout (...)` without a target takes
@@ -183,9 +211,9 @@ What a name may refer to:
 
 | List | Allowed |
 |------|---------|
-| `inputs` | `in`/`io` pins, variables, elements of either |
+| `inputs` | pins of any direction, variables, elements of either |
 | `outputs`, `latched` | `out`/`io` pins, variables, elements of either |
-| `state_var` | `out` `s32` or `u32` pin, integer variable |
+| `state_var` | `out` or `io` `s32` or `u32` pin, integer variable |
 | `timer_var` | `out`/`io` `float` pin, `double`/`float` variable |
 
 Pins that may not exist are not allowed in the written lists (`outputs`,
@@ -194,8 +222,11 @@ condition, or an element of a personality-sized array. Such a pin has no
 storage when it is not created, and the FSM writes its list entries every
 cycle. In `inputs` they are allowed, since that list generates no code.
 
-`state_var` may not be an `io` pin: one could be set from outside, which is
-a `goto` around the declared graph. `state_var` and `timer_var` may be array
+An `io` `state_var` is read on the first run only (a restore, see the
+execution model); afterwards the fsm writes it every run from a hidden
+variable, so a write from outside is no `goto` around the declared graph.
+An `out` pin in `inputs` is read as user code left it before the call; the
+fsm's own outputs are still an error there. `state_var` and `timer_var` may be array
 elements (`state_var: st_arr(1);`). An index may carry an integer suffix
 (`in_arr(1u)`).
 
@@ -265,18 +296,21 @@ One run:
 
 1. **Outputs.** The `reset` expression is evaluated first, so it sees the
    outputs as the previous run left them. Then every `outputs` entry is
-   written to its default. This happens in every run, including while reset
-   or disabled.
+   written to its default (the helper behind `<fsm>_reset_outputs()`). This
+   happens in every run, including while reset or disabled.
 2. **Reset / init.** On the first run, and in every run in which `reset` is
    true: state = initial, timer = 0, every `latched` entry written to its
-   default, `on_enter` marked pending. If `reset` is true the run ends here.
-   No `on_exit` runs; a reset is an abort, not a transition. Reset works
+   default, `on_enter` marked pending. On the first run without reset, an
+   `io` `state_var` holding a valid state number gives the state instead of
+   `initial` (a restore). If `reset` is true the run ends here. No `on_exit`
+   and no `output` runs; a reset is an abort, not a transition. Reset works
    while disabled. `timer_var` is set to 0.
-3. **Enable.** If `enable` is false the run ends here. State, timer and a
-   pending `on_enter` are frozen.
+3. **Enable.** If `enable` is false, steps 4 to 6 and `during` are skipped;
+   `output` still runs. State, timer and a pending `on_enter` are frozen.
 4. **Pending entry.** If `on_enter` is pending (first run, or first enabled
-   run after reset): run `on_enter` and `during` of the current state, then
-   end the run. Transitions are evaluated from the next run on.
+   run after reset or restore): run `on_enter` of the current state, then
+   `output` and `during` below. Transitions are evaluated from the next run
+   on.
 5. **Timer.** timer += `period`; `timer_var` = timer × 1e-9.
 6. **Transitions.** The first match, in this order, fires:
    1. `any` `on` items in source order, skipping those whose target is the
@@ -289,8 +323,12 @@ One run:
    timer = 0 and `timer_var` = 0, `on_enter` (new). At most one transition per run. A
    self-transition (`A -> A` inside `state A`) runs exit and enter and resets
    the timer.
-7. **During.** Run `during` of the current state, which is the new state if a
-   transition fired.
+7. **Output and during.** An `io` `state_var` is written. Then `output` of
+   the current state runs, which is the new state if a transition fired,
+   and `during`, unless disabled. `output` may write the fsm's `outputs`
+   only: it is the mapping from the state to the outputs and runs while the
+   fsm is disabled, where `during`, which holds what the state does while it
+   runs, must not. `during` runs second, so it may refine an output.
 
 `timer_var` is therefore always current: `on` conditions see the same time the
 `timeout` check uses, and `during` sees the time of the state it runs in. A
@@ -345,7 +383,10 @@ Consequences worth stating in the user documentation:
   `feed` next to a pin `feed_in`, an fsm named `if` or `fabs`, a pin
   `<fsm>_state`, an fsm `inst` with a state `start`. fsm names starting with
   `__` are reserved.
-- `state_var` an `io` pin; a timeout integer literal with a leading `0`
+- An `output` block assigning a declared pin or variable that is not one of
+  the fsm's `outputs` (locals of the block pass); through a computed index,
+  unless every element of the array is an output.
+- A timeout integer literal with a leading `0`
   (`010s`, `010`), or a unit on a number that is not decimal (`0x10s`).
 - An expression or default that holds only comments (`on (/* x */)`).
 - fsms that run each other in a cycle, an fsm running itself included
@@ -482,13 +523,14 @@ instead of a `-Werror` build failing.
 `cgen/testdata/fsm.c` is the authoritative output.
 
 Names the user sees: the enum constants `<fsm>_<STATE>`, `<fsm>_run`,
-`<fsm>_state_name`, and the macros `<fsm>()` and `<fsm>_in()`. Everything
+`<fsm>_state_name`, and the macros `<fsm>()`, `<fsm>_in()` and
+`<fsm>_reset_outputs()`. Everything
 else is prefixed `__fsm_<fsm>_`, which is reserved.
 
 - State numbers follow source order, starting at 0. `initial` does not
   renumber.
 - Hidden per-instance variables (`__fsm_<name>_init`, `_enter`, `_timer`, and
-  `_state` when `state_var` is omitted) are added as ordinary
+  `_state` when `state_var` is omitted or an `io` pin) are added as ordinary
   `ast.Variable`s, so every instance has its own FSM.
 - User code fragments are emitted with `#line` directives pointing into the
   `.comp`, so compiler errors land on the right source line.
@@ -520,6 +562,8 @@ state RESUME {
 ```
 
 Costs one extra cycle after init or reset (entry run, then the dispatch).
+When the state itself is retained, an `io` `state_var` restores it directly
+instead.
 
 ### Manual / setup mode
 
@@ -705,7 +749,12 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
 - **No types in the FSM block.** `x = 0` is valid C for every scalar HAL type,
   and the declarations already carry types for the direction checks.
 - **Enable freezes, reset dominates.** Disabling pauses the machine, timer
-  included; reset works in any situation.
+  included; its `output` blocks keep showing the state. Reset works in any
+  situation.
+- **Restore re-enters.** A restored state is entered like any other:
+  `on_enter` runs and the timer starts at 0. Only the state is retained;
+  time spent in it before a restart is not, and a settle or dwell time
+  starts over rather than being cut short.
 - **Timeouts last.** A real event that arrives in the same cycle as the
   timeout wins.
 - **`any` replaces a global `on_timeout`.** One mechanism for every

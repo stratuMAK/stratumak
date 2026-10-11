@@ -1,0 +1,52 @@
+// Runtest component for the io state_var restore, output blocks,
+// <fsm>_reset_outputs() and an out pin in inputs.  Every behaviour shows up
+// on a pin; input-signals says what each cycle checks.
+component fsm_restore "fsm block runtest, restore and output blocks";
+
+pin in bit go "enable";
+pin in bit rst "reset";
+pin in bit trig;
+pin in bit clr "run r_reset_outputs() after the fsm";
+pin io u32 st "state_var: taken over on the first run, written every run";
+pin out bit trig_copy "copy of trig, an out pin in inputs";
+pin out s32 code "output, default 7; set by the output blocks";
+pin out bit busy "output, set by B's during only";
+pin out s32 nent "latched: entries into B";
+pin out float tv "timer_var";
+
+function _;
+
+fsm r {
+    inputs:    trig_copy;
+    outputs:   code = 7, busy;
+    latched:   nent;
+    state_var: st;
+    timer_var: tv;
+    reset:     (rst);
+    enable:    (go);
+
+    state A {
+        output { code = 1; }
+        on (trig_copy) -> B;
+    }
+
+    state B {
+        on_enter { nent++; }
+        output   { code = 2; }
+        during   { busy = 1; }
+        timeout (3ms) -> C;
+    }
+
+    state C {
+        output { code = 3; }
+        on (!trig_copy) -> A;
+    }
+};
+
+;;
+
+trig_copy = trig;
+r();
+if (clr) {
+    r_reset_outputs();
+}

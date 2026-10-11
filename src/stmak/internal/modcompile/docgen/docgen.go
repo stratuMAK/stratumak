@@ -314,6 +314,10 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 	_, _ = fmt.Fprintf(w, "Initial state: \\fB%s\\fR.", f.Initial)
 	if pin := halNameOf(c, f.StateVar); pin != "" {
 		_, _ = fmt.Fprintf(w, " The state number is on \\fB%s\\fR.", pin)
+		if f.StateRestored {
+			_, _ = fmt.Fprint(w, " A valid state number on it at the first run is taken over (a restore, "+
+				"e.g. from a retained signal); afterwards writes from outside have no effect.")
+		}
 	}
 	if pin := halNameOf(c, f.TimerVar); pin != "" {
 		_, _ = fmt.Fprintf(w, " The time in the current state, in seconds, is on \\fB%s\\fR.", pin)
@@ -324,6 +328,12 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 	}
 	if f.Enable != "" {
 		_, _ = fmt.Fprintf(w, ".br\nRuns while: \\fI%s\\fR\n", troffText(f.Enable))
+		for _, s := range f.States {
+			if s.Output {
+				_, _ = fmt.Fprintln(w, ".br\nThe output blocks of the states run while it does not, too.")
+				break
+			}
+		}
 	}
 	_, _ = fmt.Fprintln(w, ".PP")
 	_, _ = fmt.Fprintln(w, "In each state the first matching row fires; \\fIany\\fR rows are checked first, "+

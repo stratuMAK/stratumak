@@ -277,7 +277,6 @@ func TestFSMCheckErrors(t *testing.T) {
 	}{
 		{"unknown name", `fsm m { inputs: nope; state A { } };`, "nope is not a declared pin or variable"},
 		{"param listed", `fsm m { inputs: prm; state A { } };`, "prm is a param"},
-		{"out pin as input", `fsm m { inputs: out1; state A { } };`, "inputs: out1 is an out pin"},
 		{"in pin as output", `fsm m { outputs: in1; state A { } };`, "outputs: in1 is an in pin"},
 		{"in pin latched", `fsm m { latched: in1; state A { } };`, "latched: in1 is an in pin"},
 		{"conditional pin", `fsm m { outputs: outc; state A { } };`, "may not exist"},
@@ -291,7 +290,22 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"pointer", `fsm m { latched: dptr; state A { } };`, "pointer variable"},
 		{"state_var float", `fsm m { state_var: dvar; state A { } };`, "state_var: dvar is a double variable"},
 		{"state_var bit", `fsm m { state_var: out1; state A { } };`, "state_var: out1 is an out bit pin"},
-		{"state_var io", `pin io s32 iost; fsm m { state_var: iost; state A { } };`, "state_var: iost is an io pin"},
+		{"state_var io bit", `fsm m { state_var: iob; state A { } };`,
+			"state_var: iob is an io bit pin; need an out or io s32/u32 pin or an integer variable"},
+		{"output writes other", `fsm m { outputs: out1; state A { output { out1 = 1; out2 = 1; } } };`,
+			"t.comp:30:53: fsm m: state A: output writes out2, which is not an output of this fsm"},
+		{"output writes latched", `fsm m { latched: out1; state A { output { out1 = 1; } } };`,
+			"state A: output writes out1, which is not an output of this fsm"},
+		{"output writes state_var", `fsm m { state_var: ivar; state A { output { ivar++; } } };`,
+			"state A: output writes ivar, which is not an output of this fsm"},
+		{"output computed index", `fsm m { outputs: outs(0); state A { output { outs(i) = 1; } } };`,
+			"state A: output writes outs(...) with a computed index, and not every element of outs is an output"},
+		{"duplicate output", `fsm m { outputs: out1; state A { output { out1 = 1; } output { } } };`,
+			"state A: duplicate output"},
+		{"reset_outputs macro", `pin in bit m_reset_outputs; fsm m { state A { } };`,
+			"m_reset_outputs would be the output reset macro of fsm m, but it is already the C name of an in bit pin"},
+		{"input is own output, out pin", `fsm m { inputs: out1; outputs: out1; state A { } };`,
+			"inputs: out1 is an output of this fsm"},
 		{"timer_var int", `fsm m { timer_var: ivar; state A { } };`, "timer_var: ivar is an int variable"},
 		{"timer_var in", `fsm m { timer_var: in1; state A { } };`, "timer_var: in1 is an in pin"},
 		{"two lists", `fsm m { outputs: out1; latched: out1; state A { } };`, "more than one of outputs"},
@@ -378,7 +392,17 @@ func TestFSMCheckAccepts(t *testing.T) {
     state B { on (ustate == 1 && fvar > 1.0 && outs(1) && iarr[1]) -> A; }
 };
 fsm n { state_var: ivar; timer_var: fsm_timer; state X { on (in2) -> Y; } state Y { on (!in2) -> X; } };
-` + "\n;;\nm(); n();\n"
+pin io u32 iost;
+pin out bit o2;
+pin out bit o3;
+fsm k {
+    inputs: out2, o2;
+    outputs: outs(2), o3 = 1;
+    state_var: iost;
+    state P { output { int v = out2; outs(2) = v; o3 = 0; } on (out2) -> Q; }
+    state Q { output { outs(2) = 1; } during { o2 = !o2; } on (!out2 && o2) -> P; }
+};
+` + "\n;;\nout2 = in1; m(); n(); k(); if (!in2) k_reset_outputs();\n"
 	pkg := parseFSMSrc(t, src)
 	if len(pkg.Warnings) != 0 {
 		t.Errorf("unexpected warnings:\n%s", strings.Join(pkg.Warnings, "\n"))
@@ -412,6 +436,8 @@ func TestFSMCheckWarnings(t *testing.T) {
 				"33:21: outs(1) is the output of fsm m", "33:48: write to outs(...) may hit outs(1), the output of fsm m",
 				"33:61: fsm_state is the state_var of fsm m; the state changes only through transitions",
 				"33:76: fsm_state is the state_var of fsm m"}},
+		{"write io state_var", `pin io s32 iost; fsm m { state_var: iost; state A { on (in1) -> A; } };`, "m();\niost = 0;",
+			[]string{"t.comp:33:1: iost is the state_var of fsm m; the fsm overwrites it on its next run"}},
 		{"comment continuation", `fsm m { outputs: out1; state A { on (in1) -> A; } };`, "m(); // note \\\nout1 = 1;", nil},
 		{"write from another fsm", `fsm m { outputs: out1; state A { on (in1) -> A; } };
 fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;

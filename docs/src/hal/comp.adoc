@@ -476,7 +476,7 @@ fsm NAME {
     latched:   count;                 // set to their default on init and reset only
     reset:     (reset_pin);           // optional
     enable:    (enable_pin);          // optional
-    state_var: state;                 // optional pin or variable showing the state
+    state_var: state;                 // optional pin or variable holding the state
     timer_var: elapsed;               // optional pin or variable: seconds in the state
     initial:   IDLE;                  // optional, default: the first state
 
@@ -489,6 +489,7 @@ fsm NAME {
         on_enter { ... }              // C, runs when the state is entered
         on_exit  { ... }              // C, runs when the state is left
         during   { ... }              // C, runs every cycle while in the state
+        output   { ... }              // C, sets outputs from the state, also while disabled
         on (in1 && !in2) -> RUN;      // condition -> target
         on (in2) -> RUN { count++; }  // with an action
         timeout (2.5s) -> FAULT;      // at most one per state
@@ -503,10 +504,13 @@ If the component has a single function, the code after `;;` can be just that cal
 === Lists
 
 * 'inputs' - the pins and variables the `on` conditions read. Used for checks only.
+  An `out` pin that user code sets before the call may be listed; the machine's own outputs may not.
 * 'outputs' - `out`/`io` pins and variables written to their default (`0` unless `= EXPR` is given) at the start of every run.
 * 'latched' - like 'outputs', but written to their default only on init and reset.
-* 'state_var' - an `out` `s32` or `u32` pin, or an integer variable, holding the state number.
+* 'state_var' - an `out` or `io` `s32` or `u32` pin, or an integer variable, holding the state number.
   States are numbered in source order from 0.
+  An `io` pin is a restore point: if it holds a valid state number on the first run (a retained signal, or one set before the threads start),
+  the machine continues in that state instead of the initial one. Afterwards the machine writes the pin every run, so writes from outside have no effect.
 * 'timer_var' - an `out`/`io` `float` pin, or a `double`/`float` variable, holding the time in the current state in seconds.
 
 Names are the C names user code uses (`in-1` is written `in_1`).
@@ -520,11 +524,12 @@ Defaults are C expressions evaluated every time they are applied.
 One call of `NAME();`:
 
 . The 'reset' expression is read, then every 'outputs' entry is set to its default, including while reset or disabled.
-. On the first run, and in every run in which 'reset' is true: the state becomes the initial state,
+. On the first run, and in every run in which 'reset' is true: the state becomes the initial state
+  (on the first run, the state an `io` 'state_var' holds, if it is a valid one),
   the timer and 'timer_var' become 0, 'latched' entries their defaults, and an entry is marked pending.
-  While 'reset' is true, the run ends here. No `on_exit` runs: a reset is not a transition.
-. If 'enable' is false, the run ends here. State, timer and a pending entry are frozen.
-. If an entry is pending, `on_enter` and `during` of the current state run and the run ends.
+  While 'reset' is true, the run ends here. No `on_exit` and no `output` runs: a reset is not a transition.
+. If 'enable' is false, the next steps up to `output` are skipped. State, timer and a pending entry are frozen.
+. If an entry is pending, `on_enter` of the current state runs, then `output` and `during` below.
   Transitions are checked from the next run on.
 . The timer advances by the thread period.
 . The first matching transition fires, in this order:
@@ -532,10 +537,15 @@ One call of `NAME();`:
   the state's `timeout`, and finally `any { timeout -> ... }` if the state's timeout has no target.
   A firing transition runs `on_exit` of the old state, its action, resets the timer and runs `on_enter` of the new state.
   At most one transition fires per run; `A -> A` re-enters A.
-. `during` of the current (possibly new) state runs.
+. `output` of the current (possibly new) state runs, also while disabled.
+. `during` of the current state runs, unless disabled.
 
 An output written in `on_enter`, `on_exit` or an action is therefore a one-cycle pulse.
-An output that holds while in a state is written in `during`.
+An output that holds while in a state is written in `output` or `during`.
+`output` is the mapping from the state to outputs, and shows the state while the machine is disabled
+(automatic paused, transitions frozen); it may write the machine's 'outputs' only.
+`during` holds what the state does while it runs, such as fault checks, and stops while disabled.
+`during` runs after `output`, so it may refine an output.
 Each block runs as a function of its own: `return` ends the block, and a transition still completes.
 
 === Timeouts
@@ -563,6 +573,9 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 * `NAME_in(STATE)` - true while the machine is in `STATE`, e.g. `enable: (mode_in(RUNNING));` in another machine.
 * `NAME_STATE` - the number of each state, as an enum constant.
 * `NAME_state_name(n)` - the name of state number `n`, for messages.
+* `NAME_reset_outputs()` - sets every 'outputs' entry to its default, as a run does first.
+  For user code that must clear the outputs after the run, e.g. at machine off, without writing them one by one.
+  State, timer and 'latched' entries are not touched.
 
 Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
 with each other, with a declared name, with a C keyword or with a name the generated file defines
@@ -570,13 +583,15 @@ with each other, with a declared name, with a C keyword or with a name the gener
 a machine `inst` with a state `start`) is an error. Names starting with `hal_`, `rtapi_`, `stmak_`, `cmod_` and `mcode_`, in lower or upper case, are reserved.
 A collision with another C library name (`EXIT_SUCCESS`, `uint8_t`) is reported by the C compiler.
 
-There is no way to set the state from outside: a request is a flag that an `on` item reacts to and the action clears.
+There is no way to set the state from outside while the machine runs (an `io` 'state_var' is read on the first run only):
+a request is a flag that an `on` item reacts to and the action clears.
 
 === Checks
 
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
 an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
-(they always hold their default there), an 'inputs' entry listed twice or also in 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
+(they always hold their default there), an 'inputs' entry listed twice or also in 'outputs',
+an `output` block assigning anything but the machine's 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
 colliding generated names, machines that run each other (the calls would recurse),
 a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).

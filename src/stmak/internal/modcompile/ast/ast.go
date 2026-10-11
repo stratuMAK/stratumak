@@ -160,9 +160,11 @@ type FSM struct {
 	Reset    string // condition text, empty if none
 	Enable   string
 	StateVar string // empty: hidden variable
-	TimerVar string
-	Any      []FSMTransition
-	States   []FSMState
+	// StateRestored: StateVar is an io pin, taken over on the first run.
+	StateRestored bool
+	TimerVar      string
+	Any           []FSMTransition
+	States        []FSMState
 }
 
 // FSMState is one state of an FSM; Number is its value in the state
@@ -173,6 +175,7 @@ type FSMState struct {
 	OnEnter     bool
 	OnExit      bool
 	During      bool
+	Output      bool
 	Transitions []FSMTransition // "on" items in source order, then the timeout
 }
 
