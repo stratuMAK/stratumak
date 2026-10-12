@@ -242,7 +242,7 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		l.action[a.T] = name
 		desc := fmt.Sprintf("%s: %s -> %s (%s)", from, what, a.T.Target, a.T.Pos)
 		if a.T.Internal {
-			desc = fmt.Sprintf("%s: on, internal (%s)", from, a.T.Pos)
+			desc = fmt.Sprintf("%s: %s, internal (%s)", from, what, a.T.Pos)
 		}
 		l.helperFn(name, desc, a.T.Action)
 	}

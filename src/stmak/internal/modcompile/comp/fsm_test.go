@@ -103,6 +103,25 @@ m();
 	}
 }
 
+func TestParseFSMInternalTimeout(t *testing.T) {
+	pkg := parseFSMSrc(t, fsmHeader+`fsm m { inputs: in1; latched: latched1;
+state A { on (in1) -> B; timeout (2) { latched1++; } } state B { on (!in1) -> A; } };
+;;
+m();
+`)
+	got := pkg.Component.FSMs[0].States[0].Transitions
+	want := []ast.FSMTransition{
+		{Cond: "in1", Target: "B"},
+		{Timeout: true, Cond: "2", Action: true, Internal: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("transitions %+v, want %+v", got, want)
+	}
+	if len(pkg.Warnings) != 0 {
+		t.Errorf("unexpected warnings %q", pkg.Warnings)
+	}
+}
+
 func TestParseFSMDesignExample(t *testing.T) {
 	pkg := parseFSMSrc(t, fsmHeader+designExample+fsmCall)
 	if len(pkg.Component.FSMs) != 1 {
@@ -499,6 +518,12 @@ fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;
 			[]string{"state B is unreachable", "state A has no way out"}},
 		{"self loop only", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> B; } };`, "m();",
 			[]string{"state B has no way out"}},
+		{"internal timeout is no way out", `fsm m { inputs: in1; latched: ivar; state A { on (in1) -> B; } state B { timeout (1) { ivar++; } } };`, "m();",
+			[]string{"state B has no way out"}},
+		{"internal timeout, unlisted write", `fsm m { inputs: in1; state A { on (in1) -> A; timeout (1) { ivar = 1; } } };`, "m();",
+			[]string{"fsm m: state A: action of internal timeout writes ivar, which is not in outputs, latched or persistent"}},
+		{"internal timeout does not use any timeout", `fsm m { inputs: in1; latched: ivar; any { timeout -> A; } state A { on (in1) -> A; timeout (1) { ivar++; } } };`, "m();",
+			[]string{"any timeout is never used"}},
 		{"internal on is no way out", `fsm m { inputs: in1; latched: ivar; state A { on (in1) -> B; } state B { on (in1) { ivar++; } } };`, "m();",
 			[]string{"state B has no way out"}},
 		{"internal on, unlisted write", `fsm m { inputs: in1; state A { on (in1) { ivar = 1; } on (!in1) -> A; } };`, "m();",

@@ -613,10 +613,11 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 			}
 		}
 		if to := s.Timeout; to != nil {
-			if to.Trans != nil {
-				todo = append(todo, to.Trans.Target)
-			} else {
+			switch {
+			case to.Trans == nil:
 				todo = append(todo, f.AnyTimeout.Target)
+			case !to.Trans.Internal:
+				todo = append(todo, to.Trans.Target)
 			}
 		}
 	}
@@ -647,10 +648,11 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 			}
 		}
 		if to := s.Timeout; to != nil {
-			if to.Trans != nil {
-				exits = append(exits, to.Trans.Target)
-			} else {
+			switch {
+			case to.Trans == nil:
 				exits = append(exits, f.AnyTimeout.Target)
+			case !to.Trans.Internal:
+				exits = append(exits, to.Trans.Target)
 			}
 		}
 		out := false
@@ -767,7 +769,7 @@ func (f *fsmDecl) blocks() []fsmBlock {
 		switch {
 		case t == nil || t.Action == nil:
 		case t.Internal:
-			out = append(out, fsmBlock{where + ": action of internal on", t.Action})
+			out = append(out, fsmBlock{where + ": action of internal " + item, t.Action})
 		default:
 			out = append(out, fsmBlock{fmt.Sprintf("%s: action of %s -> %s", where, item, t.Target), t.Action})
 		}

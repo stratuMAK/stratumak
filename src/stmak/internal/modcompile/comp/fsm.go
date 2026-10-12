@@ -101,7 +101,8 @@ type fsmTrans struct {
 	Internal bool
 }
 
-// fsmTimeout is a state's "timeout (expr)" item.  Trans.Target is empty when
+// fsmTimeout is a state's "timeout (expr)" item.  Trans is nil when the any
+// block handles it, and Internal for 'timeout (expr) { action }'.  Trans.Target is empty when
 // the any block handles it.
 type fsmTimeout struct {
 	Pos   ast.Pos
@@ -534,9 +535,17 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 				return err
 			}
 			to := &fsmTimeout{Pos: ipos, Expr: *expr}
-			if p.cur.Kind == TokSemi {
+			switch p.cur.Kind {
+			case TokSemi:
 				p.next()
-			} else {
+			case TokLBrace:
+				// Internal, like an internal on: the action runs every run
+				// the timeout is due, the state stays.
+				to.Trans = &fsmTrans{Pos: ipos, Internal: true}
+				if to.Trans.Action, err = p.parseBlock(); err != nil {
+					return err
+				}
+			default:
 				to.Trans = &fsmTrans{Pos: ipos}
 				if err := p.parseTarget(to.Trans); err != nil {
 					return err
@@ -641,6 +650,7 @@ func (f *fsmDecl) describe() ast.FSM {
 			if to.Trans != nil {
 				dt.Target = to.Trans.Target
 				dt.Action = to.Trans.Action != nil
+				dt.Internal = to.Trans.Internal
 			}
 			ds.Transitions = append(ds.Transitions, dt)
 		}

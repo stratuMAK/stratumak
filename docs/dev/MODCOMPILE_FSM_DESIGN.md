@@ -94,10 +94,18 @@ the slices above:
   instead of a check in `during` plus the negated fault in the transition's
   condition. A self-transition is no substitute: it re-enters the state
   every cycle and restarts its timer.
+- **Internal `timeout`.** `timeout (t) { action }`, the same for a timeout:
+  the action runs every run the timeout is due and no `on` item matched,
+  the state stays and the timer runs on. A supervision time that reports
+  and keeps waiting (`timeout (pull_timeout) { err |= ...; }`) needed a
+  `timer_var` and `on (time >= t) { ... }` before, which loses the timeout's
+  rules (`t <= 0` is none, units), or a self-transition, which restarts the
+  timer. `on` and `timeout` now have the same forms: with a target, internal
+  with a block; `timeout (t);` alone is handed to `any`.
 
 `tests/modcompile-fsm-restore` covers all of them except the unlisted-write
-warning, which the unit tests cover, and the internal `on`, which
-`tests/modcompile-fsm-internal` covers.
+warning, which the unit tests cover, and the internal `on` and `timeout`,
+which `tests/modcompile-fsm-internal` covers.
 
 ## Motivation
 
@@ -203,7 +211,7 @@ state_item  := 'on_enter' block
              | 'output'   block
              | 'on' '(' cexpr ')' '->' STATE action
              | 'on' '(' cexpr ')' block          /* internal, no target */
-             | 'timeout' '(' texpr ')' ('->' STATE action | ';')
+             | 'timeout' '(' texpr ')' ('->' STATE action | ';' | block)
 
 action      := ';' | block
 block       := '{' C statements '}'
@@ -216,8 +224,9 @@ block       := '{' C statements '}'
 - `on_enter`, `on_exit`, `during` and `output` appear at most once per state; their
   order in the source does not matter. `on` and `timeout` items keep their
   source order (it is their priority, see below).
-- A state has at most one `timeout`. `timeout (...)` without a target takes
-  no action block; it is handled by `any { timeout -> ...; }`.
+- A state has at most one `timeout`. `timeout (...);` without a target is
+  handled by `any { timeout -> ...; }`; `timeout (...) { ... }` without a
+  target is internal (see the execution model) and does not use `any`.
 
 ### Items
 
@@ -361,6 +370,11 @@ One run:
    `timeout` and the `any` `timeout` included, are not checked. The timer
    keeps running meanwhile: a timeout that fell due fires in the first run
    in which the internal `on` no longer matches.
+
+   An internal `timeout` (`timeout (t) { action }`) is the timeout's form of
+   it: when the timeout is due and nothing before it matched, its action
+   runs, the state stays and the timer is not reset, so it runs again every
+   run while it is due. The `any` `timeout` is not used for such a state.
 7. **Output.** An `io` `state_var` is written. Then `output` of the current
    state runs, which is the new state if a transition fired, also while
    disabled. `output` may write the fsm's `outputs` only: it is the mapping
@@ -491,7 +505,7 @@ Consequences worth stating in the user documentation:
   blocks (a child fsm run from its parent's `during`). A child whose parent
   is never called is not reported again; since cycles are an error, every
   such child has a parent that is reported.
-- An `any` `timeout` that no state uses (no `timeout` without a target), and
+- An `any` `timeout` that no state uses (no `timeout (...);` handed to it), and
   an `any` `on` that cannot fire because its target is the only reachable
   state.
 - An fsm with a `timeout` or `timer_var` (the floating-point parts of the

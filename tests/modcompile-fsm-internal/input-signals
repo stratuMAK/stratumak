@@ -1,5 +1,8 @@
 # columns: go trig hold
-# samples: go trig hold, code nent nhold tv
+# samples: go trig hold, code nent nhold tv, nto
+# fsm n (hold): X's internal timeout of 2 ms counts nto every run it is
+# due; in cycle 2 it is due, but on (hold) -> Y comes first; X again from
+# cycle 5: due at 7 and 8 (a level, the timer runs on), frozen at 9, 10
 # states A B C; code A=1 B=2 C=3
 # first run: entry into A (code 1)
 1 0 0

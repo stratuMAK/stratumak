@@ -179,6 +179,12 @@ function _;
 			  state T { on (b) -> S; } };
 			 variable double tv;`,
 			"FUNCTION(_) { m(); }"},
+		{"internal timeout",
+			`variable int n;
+			 fsm m { inputs: a; latched: n;
+			  state S { on (a) -> T; timeout (2ms) { if (n > 5) return; n++; } }
+			  state T { on (!a) -> S; timeout (1) -> S; } };`,
+			"FUNCTION(_) { m(); }"},
 		{"persistent",
 			`pin io u32 model; variable double pv;
 			 fsm m { inputs: a; persistent: model, pv = 0.5; reset: (b);

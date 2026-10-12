@@ -1,7 +1,9 @@
 // Runtest component for the internal on: 'on (cond) { action }' without a
 // target runs its action and stays in the state, and as the match of the
 // run it holds back the items after it, the timeout included, while the
-// timer runs on.  input-signals says what each cycle checks.
+// timer runs on.  Fsm n has an internal timeout, 'timeout (t) { action }':
+// the same as a level, every run it is due, after the on items.
+// input-signals says what each cycle checks.
 component fsm_internal "fsm block runtest, internal on";
 
 pin in bit go "enable";
@@ -11,6 +13,7 @@ pin out s32 code "output, default 7; set by the output blocks";
 pin out u32 nent "latched: entries into B";
 pin out u32 nhold "latched: runs of B's internal on";
 pin out float tv "timer_var";
+pin out u32 nto "latched: runs of X's internal timeout (fsm n)";
 
 function _;
 
@@ -40,6 +43,22 @@ fsm m {
     }
 };
 
+fsm n {
+    inputs:  hold;
+    latched: nto;
+    enable:  (go);
+
+    state X {
+        on (hold) -> Y;
+        timeout (2ms) { nto++; }
+    }
+
+    state Y {
+        on (!hold) -> X;
+    }
+};
+
 ;;
 
 m();
+n();

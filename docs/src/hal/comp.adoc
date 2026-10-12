@@ -494,7 +494,8 @@ fsm NAME {
         on (in1 && !in2) -> RUN;      // condition -> target
         on (in2) -> RUN { count++; }  // with an action
         on (fault) { err |= 1; }      // internal: action, stay, hold back what follows
-        timeout (2.5s) -> FAULT;      // at most one per state
+        timeout (2.5s) -> FAULT;      // at most one per state; or, internal:
+                                      // timeout (2.5s) { err |= 2; }
     }
     ...
 };
@@ -549,6 +550,9 @@ One call of `NAME();`:
   no `on_exit`, no `on_enter`, and the timer runs on. It still counts as the match of the run,
   so the items after it, the timeout included, are not checked while it matches.
   A timeout that fell due meanwhile fires in the first run the internal `on` no longer matches.
+  An internal `timeout`, `timeout (t) { action }`, is the same for a timeout: in every run in which
+  the timeout is due and no `on` item matched, its action runs and the state stays, the timer running on.
+  A state with an internal timeout does not use `any { timeout -> ... }`.
 . `output` of the current (possibly new) state runs, also while disabled.
 
 So a state's run is either entering it (`on_enter`, in the entry run or by a transition) or staying in it
@@ -592,6 +596,19 @@ Units work only inside `timeout (...)`, and only on decimal numbers: an integer 
 (C would read `010s` and `010` as octal), and `0x10s` is an error.
 The timer counts integer nanoseconds and does not drift; the timeout is rounded to whole nanoseconds,
 so a timeout that is a multiple of the thread period fires exactly on that cycle.
+`timeout (t) { action }` without a target is internal (see the execution model): a level, like
+`on (timer >= t) { action }` placed last, but with the timeout's rules (`t <= 0` is none, units).
+It is for a supervision time that reports and keeps waiting:
+
+----
+state WAIT_PULL {
+    on (!pull) -> FEED_OUT { pull = 1; }
+    timeout (pull_timeout) { err |= ERROR_PULL_TIMEOUT; }
+}
+----
+
+Mind the difference to `timeout (t);`, which is handed to `any { timeout -> ...; }`.
+
 A transition on 'timer_var' gives a timeout with more than one target:
 
 ----
@@ -626,7 +643,7 @@ a request is a flag that an `on` item reacts to and the action clears.
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
 an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
 (they always hold their default there), an 'inputs' entry listed twice or also in 'outputs',
-an `output` block assigning anything but the machine's 'outputs', a `during` block assigning one of them, an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
+an `output` block assigning anything but the machine's 'outputs', a `during` block assigning one of them, an empty or comment-only expression, a `timeout (...);` without `any { timeout -> ...; }`,
 an `on` without a target in `any`, or without a target and an action (`on (x);`),
 colliding generated names, machines that run each other (the calls would recurse),
 a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;

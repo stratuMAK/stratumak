@@ -68,7 +68,7 @@ function _;
 fsm seq {
     inputs: go, hold;
     latched: n;
-    state IDLE { on (hold) { n++; } on (go) -> IDLE; }
+    state IDLE { on (hold) { n++; } on (go) -> IDLE; timeout (1) { n = 0; } }
 };
 ;;
 seq();
@@ -84,6 +84,7 @@ seq();
 	out := buf.String()
 	for _, want := range []string{
 		"0\tIDLE\tT{\non hold\nT}\t\\(en *\n",
+		"\t\tT{\ntimeout 1\nT}\t\\(en *\n",
 		"A row without a next state (\\(en) runs its action and stays in the state",
 	} {
 		if !strings.Contains(out, want) {
