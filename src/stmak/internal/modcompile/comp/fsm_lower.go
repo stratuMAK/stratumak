@@ -311,23 +311,17 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	}
 	writeDefaults("        ", f.Latched)
 	epi.gen("        %s_enter = 1;\n", hid)
-	if f.StateIO {
-		epi.gen("        if (__rst) {\n")
-		publish("            ")
-		epi.gen("            return;\n        }\n")
-	} else {
-		epi.gen("        if (__rst) return;\n")
-	}
 	epi.gen("    }\n")
 
 	// 3. Enable.  A disabled fsm skips 4.-6. and during; its output
-	// block still runs.
+	// block still runs.  A run in reset is a disabled run in the initial
+	// state.
 	if f.Enable != nil {
-		epi.gen("    const int __en = ")
+		epi.gen("    const int __en = !__rst && ")
 		l.expr(*f.Enable)
 		epi.gen(";\n")
 	} else {
-		epi.gen("    const int __en = 1;\n")
+		epi.gen("    const int __en = !__rst;\n")
 	}
 
 	// 4. Pending entry: on_enter, then output and during below; no

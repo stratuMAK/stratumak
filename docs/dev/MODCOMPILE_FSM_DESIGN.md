@@ -67,8 +67,9 @@ the slices above:
 - **`output` blocks.** A disabled fsm froze its transitions and set its
   outputs to their defaults, so a status output (`empty`, `full`) went to 0
   while automatic was paused. The per-state `output` block maps the state to
-  the outputs in every run, enabled or not; `during` stays enabled-only and
-  keeps what the state does while it runs (fault checks).
+  the outputs in every run, enabled or not, and in reset, where it maps the
+  initial state; `during` stays enabled-only and keeps what the state does
+  while it runs (fault checks).
 - **`<fsm>_reset_outputs()`** writes the outputs to their defaults from user
   code, for a component that clears them at machine-off after the run,
   without writing fsm outputs outside the fsm.
@@ -302,10 +303,12 @@ One run:
    true: state = initial, timer = 0, every `latched` entry written to its
    default, `on_enter` marked pending. On the first run without reset, an
    `io` `state_var` holding a valid state number gives the state instead of
-   `initial` (a restore). If `reset` is true the run ends here. No `on_exit`
-   and no `output` runs; a reset is an abort, not a transition. Reset works
-   while disabled. `timer_var` is set to 0.
-3. **Enable.** If `enable` is false, steps 4 to 6 and `during` are skipped;
+   `initial` (a restore). `timer_var` is set to 0. No `on_exit` runs; a
+   reset is an abort, not a transition. Reset works while disabled. A run in
+   which `reset` is true continues as a disabled run (step 3): the `output`
+   of the initial state runs, nothing else.
+3. **Enable.** If `enable` is false, or `reset` is true, steps 4 to 6 and
+   `during` are skipped;
    `output` still runs. State, timer and a pending `on_enter` are frozen.
 4. **Pending entry.** If `on_enter` is pending (first run, or first enabled
    run after reset or restore): run `on_enter` of the current state, then
@@ -348,8 +351,10 @@ Consequences worth stating in the user documentation:
   **one-cycle pulse**. An output that should hold while in a state is written
   in `during`.
 - `on_enter` always runs on entering a state, including after init and reset.
-- While reset is held, all outputs and latched values sit at their defaults
-  and no user code runs.
+- While reset is held, the fsm sits in the initial state with latched values
+  at their defaults; only the initial state's `output` block runs. User code
+  that needs every output off during a reset (or at machine off) calls
+  `<fsm>_reset_outputs()` after the run.
 
 ## Checks
 
@@ -750,7 +755,9 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   and the declarations already carry types for the direction checks.
 - **Enable freezes, reset dominates.** Disabling pauses the machine, timer
   included; its `output` blocks keep showing the state. Reset works in any
-  situation.
+  situation: it resets state, timer and `latched` entries only, and the
+  outputs follow from the initial state through its `output` block, as in a
+  disabled run. Outputs at their defaults would belong to no state.
 - **Restore re-enters.** A restored state is entered like any other:
   `on_enter` runs and the timer starts at 0. Only the state is retained;
   time spent in it before a restart is not, and a settle or dwell time

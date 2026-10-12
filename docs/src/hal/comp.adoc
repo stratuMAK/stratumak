@@ -527,8 +527,9 @@ One call of `NAME();`:
 . On the first run, and in every run in which 'reset' is true: the state becomes the initial state
   (on the first run, the state an `io` 'state_var' holds, if it is a valid one),
   the timer and 'timer_var' become 0, 'latched' entries their defaults, and an entry is marked pending.
-  While 'reset' is true, the run ends here. No `on_exit` and no `output` runs: a reset is not a transition.
-. If 'enable' is false, the next steps up to `output` are skipped. State, timer and a pending entry are frozen.
+  No `on_exit` runs: a reset is not a transition.
+  A run in which 'reset' is true continues as a disabled run: only `output` of the initial state runs.
+. If 'enable' is false, or 'reset' is true, the next steps up to `output` are skipped. State, timer and a pending entry are frozen.
 . If an entry is pending, `on_enter` of the current state runs, then `output` and `during` below.
   Transitions are checked from the next run on.
 . The timer advances by the thread period.
@@ -545,6 +546,8 @@ An output that holds while in a state is written in `output` or `during`.
 `output` is the mapping from the state to outputs, and shows the state while the machine is disabled
 (automatic paused, transitions frozen); it may write the machine's 'outputs' only.
 `during` holds what the state does while it runs, such as fault checks, and stops while disabled.
+While reset is held, the outputs therefore show the initial state; user code that needs them all off then (or at machine off)
+calls `NAME_reset_outputs()` after the run.
 `during` runs after `output`, so it may refine an output.
 Each block runs as a function of its own: `return` ends the block, and a transition still completes.
 

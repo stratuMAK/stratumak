@@ -25,8 +25,8 @@
 1 0 0 1 1
 # r0 in B: code 2, busy 1, tv 1 ms
 1 0 0 1 0
-# reset: every instance in A, outputs at their defaults (code 7, no output
-# block runs), nent 0, tv 0, st 0
+# reset: every instance in A; it runs as disabled, so A's output block
+# runs (code 1), during does not (busy 0); nent 0, tv 0, st 0
 1 1 1 1 0
 # after the reset: entry runs in A (code 1); no restore from st
 1 1 0 0 0
