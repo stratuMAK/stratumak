@@ -310,6 +310,12 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		epi.gen("        %s = 0;\n", f.TimerVar.String())
 	}
 	writeDefaults("        ", f.Latched)
+	if len(f.Persistent) > 0 {
+		// Reset only: init and a restore keep them.
+		epi.gen("        if (__rst) {\n")
+		writeDefaults("            ", f.Persistent)
+		epi.gen("        }\n")
+	}
 	epi.gen("        %s_enter = 1;\n", hid)
 	epi.gen("    }\n")
 

@@ -5,7 +5,7 @@ newthread servo 1000000
 # write from outside for the other, which has no effect.  r2's st2 holds a
 # value that is no state: r2 starts in the initial state.
 load fsm_restore <r0,r1,r2>
-load filestream stream_cfg=bbbbb sample_cfg=bbbbbsbsfsuus infile=input-signals outfile=out.txt depth=100 samples=16
+load filestream stream_cfg=bbbbb sample_cfg=bbbbbsbsfsuusu infile=input-signals outfile=out.txt depth=100 samples=16
 
 net go   filestream.stream.0 => r0.go  r2.go  filestream.sample.0
 net go1  filestream.stream.1 => r1.go         filestream.sample.1
@@ -21,9 +21,11 @@ net code1 r1.code => filestream.sample.9
 net st    r0.st r1.st filestream.sample.10
 net st2   r2.st filestream.sample.11
 net code2 r2.code => filestream.sample.12
+net mdl   r0.model filestream.sample.13
 
 sets st  1
 sets st2 9
+sets mdl 20
 
 addf filestream.write servo
 addf r0 servo

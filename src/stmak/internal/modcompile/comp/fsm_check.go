@@ -97,7 +97,7 @@ type fsmChecker struct {
 	comp *ast.Component
 	syms map[string]*sym
 	warn func(pos ast.Pos, format string, args ...interface{})
-	// owner maps each written entry (outputs, latched, state_var,
+	// owner maps each written entry (outputs, latched, persistent, state_var,
 	// timer_var, as written) to the fsm that writes it.
 	owner map[string]string
 }
@@ -107,7 +107,7 @@ type listRole int
 
 const (
 	roleInput listRole = iota
-	roleWrite          // outputs, latched
+	roleWrite          // outputs, latched, persistent
 	roleState
 	roleTimer
 )
@@ -185,13 +185,20 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 	key := r.String()
 	if prev, ok := c.owner[key]; ok {
 		if prev == f.Name {
-			return fmt.Errorf("%s: fsm %s: %s is written by more than one of outputs, latched, state_var, timer_var",
+			return fmt.Errorf("%s: fsm %s: %s is written by more than one of outputs, latched, persistent, state_var, timer_var",
 				r.Pos, f.Name, key)
 		}
 		return fmt.Errorf("%s: fsm %s: %s is already written by fsm %s", r.Pos, f.Name, key, prev)
 	}
 	c.owner[key] = f.Name
 	return nil
+}
+
+// defs returns the outputs, latched and persistent entries of f.
+func (f *fsmDecl) defs() []fsmDef {
+	out := append([]fsmDef{}, f.Outputs...)
+	out = append(out, f.Latched...)
+	return append(out, f.Persistent...)
 }
 
 // fragments returns every piece of user C in f, for the unread-input scan.
@@ -208,7 +215,7 @@ func (f *fsmDecl) fragments() []cfrag {
 		}
 		add(t.Action)
 	}
-	for _, d := range append(append([]fsmDef{}, f.Outputs...), f.Latched...) {
+	for _, d := range f.defs() {
 		add(d.Default)
 	}
 	add(f.Reset)
@@ -318,6 +325,11 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			return err
 		}
 	}
+	for _, d := range f.Persistent {
+		if err := c.checkRef(f, "persistent", d.fsmRef, roleWrite); err != nil {
+			return err
+		}
+	}
 	if f.StateVar != nil {
 		if err := c.checkRef(f, "state_var", *f.StateVar, roleState); err != nil {
 			return err
@@ -384,7 +396,7 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 	for _, r := range f.Inputs {
 		sensitive.add(r)
 	}
-	for _, d := range f.Latched {
+	for _, d := range append(append([]fsmDef{}, f.Latched...), f.Persistent...) {
 		sensitive.add(d.fsmRef)
 	}
 	for _, r := range []*fsmRef{f.StateVar, f.TimerVar} {
@@ -624,8 +636,8 @@ type ownedRef struct {
 }
 
 // ownership maps what the fsms own by name: their outputs, state_var and
-// timer_var.  Latched entries are left out; code outside may acknowledge
-// them.
+// timer_var.  Latched and persistent entries are left out; code outside
+// may acknowledge or feed them.
 type ownership map[string][]ownedRef
 
 func newOwnership(fsms []*fsmDecl) ownership {
@@ -704,6 +716,92 @@ func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, uses []cUse, src 
 	}
 }
 
+// fsmBlock is a C block of an fsm that runs as part of it, with a label
+// for messages.
+type fsmBlock struct {
+	what string
+	frag *cfrag
+}
+
+// blocks returns the on_enter, on_exit, during and action blocks of f:
+// what runs as the fsm's own code.  Output blocks have a check of their
+// own.
+func (f *fsmDecl) blocks() []fsmBlock {
+	var out []fsmBlock
+	action := func(where string, t *fsmTrans, item string) {
+		if t != nil && t.Action != nil {
+			out = append(out, fsmBlock{fmt.Sprintf("%s: action of %s -> %s", where, item, t.Target), t.Action})
+		}
+	}
+	for i := range f.AnyOn {
+		action("any", &f.AnyOn[i], "on")
+	}
+	action("any", f.AnyTimeout, "timeout")
+	for _, s := range f.States {
+		where := "state " + s.Name
+		for _, b := range []struct {
+			name string
+			frag *cfrag
+		}{{"on_enter", s.Enter}, {"on_exit", s.Exit}, {"during", s.During}} {
+			if b.frag != nil {
+				out = append(out, fsmBlock{where + ": " + b.name, b.frag})
+			}
+		}
+		for i := range s.On {
+			action(where, &s.On[i], "on")
+		}
+		if s.Timeout != nil {
+			action(where, s.Timeout.Trans, "timeout")
+		}
+	}
+	return out
+}
+
+// checkUnlisted warns about writes from f's blocks to pins and variables
+// that are in none of its written lists, for an fsm that declares its
+// interface (has inputs).  Writes to what another fsm owns are left to
+// checkWrites and the owner's lists; params are configuration and cannot
+// be listed; locals are not declared names.
+func (c *fsmChecker) checkUnlisted(f *fsmDecl) {
+	listed := refSet{}
+	for _, d := range f.defs() {
+		listed.add(d.fsmRef)
+	}
+	for _, r := range []*fsmRef{f.StateVar, f.TimerVar} {
+		if r != nil {
+			listed.add(*r)
+		}
+	}
+	ownedElsewhere := func(name string) bool {
+		for key, owner := range c.owner {
+			if owner != f.Name && (key == name || strings.HasPrefix(key, name+"(") || strings.HasPrefix(key, name+"[")) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, b := range f.blocks() {
+		for _, u := range cUses(b.frag.Text) {
+			s := c.syms[u.Name]
+			if !u.Write || s == nil || s.Kind == symParam {
+				continue
+			}
+			hit, computed := listed.match(u)
+			if hit || computed && len(listed[u.Name]) == s.Array || ownedElsewhere(u.Name) {
+				continue
+			}
+			pos := offsetPos(b.frag.Pos, b.frag.Text, u.Off)
+			if computed {
+				c.warn(pos, "fsm %s: %s writes %s %s; not every element of %s is in outputs, latched or persistent",
+					f.Name, b.what, useString(u), howRead(u), u.Name)
+				continue
+			}
+			c.warn(pos, "fsm %s: %s writes %s, which is not in outputs, latched or persistent",
+				f.Name, b.what, useString(u))
+		}
+	}
+}
+
 // checkUserCode scans the verbatim C after ';;' and the fsm blocks for
 // writes to what the fsms own, for fsms that run each other in a cycle, for
 // fsms that are never run, and for fsms with floating point run from a nofp
@@ -736,6 +834,9 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) error {
 	type edge struct{ from, to *fsmDecl }
 	var edges []edge
 	for _, f := range fsms {
+		if f.Inputs != nil {
+			c.checkUnlisted(f)
+		}
 		for _, frag := range f.fragments() {
 			uses := cUses(frag.Text)
 			c.checkWrites(o, f, uses, frag.Text, frag.Pos)

@@ -52,7 +52,7 @@ declaration order.
 
 ### Extensions (October 2026)
 
-Migrating `transp_slider` (CoatV2conf) showed three gaps, closed on top of
+Migrating `transp_slider` (CoatV2conf) showed these gaps, closed on top of
 the slices above:
 
 - **io `state_var`, restored.** A component whose state is retained across a
@@ -75,8 +75,18 @@ the slices above:
   without writing fsm outputs outside the fsm.
 - **`out` pins in `inputs`.** An out pin set by user code before the call
   (a command mux feeding a second fsm) is a legitimate input.
+- **`persistent` list.** Data the fsm owns that must survive a restart with
+  the state, such as a retained tray model (`tray_id`, `load`): written to
+  its default on reset only. `latched` cannot hold it, since it is written
+  on init too and would clear the retained value; without the list the
+  reset lived in user code. Conditions read it without `inputs`; writes
+  from outside (the stations feeding the model) do not warn.
+- **Unlisted writes.** An fsm that declares `inputs` gets a warning for
+  every pin or variable its blocks write that is in none of its written
+  lists, so the lists are its whole interface.
 
-`tests/modcompile-fsm-restore` covers all four.
+`tests/modcompile-fsm-restore` covers all of them except the unlisted-write
+warning, which the unit tests cover.
 
 ## Motivation
 
@@ -156,6 +166,7 @@ fsm_decl    := 'fsm' NAME '{' fsm_item* '}' ';'
 fsm_item    := 'inputs'    ':' name_list ';'
              | 'outputs'   ':' def_list ';'
              | 'latched'   ':' def_list ';'
+             | 'persistent' ':' def_list ';'
              | 'reset'     ':' '(' cexpr ')' ';'
              | 'enable'    ':' '(' cexpr ')' ';'
              | 'state_var' ':' NAME ';'
@@ -202,6 +213,7 @@ block       := '{' C statements '}'
 | `inputs` | no | Sensitivity list for checks only; generates no code |
 | `outputs` | no | Written to their default every cycle before the FSM runs (default `0`) |
 | `latched` | no | Written to their default on init and reset only (default `0`) |
+| `persistent` | no | Written to their default on reset only (default `0`); init and a restore keep them |
 | `reset` | no | Level-triggered reset; omitted = never reset |
 | `enable` | no | omitted = always enabled |
 | `state_var` | no | Pin or variable holding the state number; omitted = hidden variable |
@@ -213,12 +225,12 @@ What a name may refer to:
 | List | Allowed |
 |------|---------|
 | `inputs` | pins of any direction, variables, elements of either |
-| `outputs`, `latched` | `out`/`io` pins, variables, elements of either |
+| `outputs`, `latched`, `persistent` | `out`/`io` pins, variables, elements of either |
 | `state_var` | `out` or `io` `s32` or `u32` pin, integer variable |
 | `timer_var` | `out`/`io` `float` pin, `double`/`float` variable |
 
 Pins that may not exist are not allowed in the written lists (`outputs`,
-`latched`, `state_var`, `timer_var`): a pin with an `if <personality>`
+`latched`, `persistent`, `state_var`, `timer_var`): a pin with an `if <personality>`
 condition, or an element of a personality-sized array. Such a pin has no
 storage when it is not created, and the FSM writes its list entries every
 cycle. In `inputs` they are allowed, since that list generates no code.
@@ -301,7 +313,8 @@ One run:
    happens in every run, including while reset or disabled.
 2. **Reset / init.** On the first run, and in every run in which `reset` is
    true: state = initial, timer = 0, every `latched` entry written to its
-   default, `on_enter` marked pending. On the first run without reset, an
+   default, `on_enter` marked pending. `persistent` entries are written to
+   their default only when `reset` is true, never on init or a restore. On the first run without reset, an
    `io` `state_var` holding a valid state number gives the state instead of
    `initial` (a restore). `timer_var` is set to 0. No `on_exit` runs; a
    reset is an abort, not a transition. Reset works while disabled. A run in
@@ -351,8 +364,8 @@ Consequences worth stating in the user documentation:
   **one-cycle pulse**. An output that should hold while in a state is written
   in `during`.
 - `on_enter` always runs on entering a state, including after init and reset.
-- While reset is held, the fsm sits in the initial state with latched values
-  at their defaults; only the initial state's `output` block runs. User code
+- While reset is held, the fsm sits in the initial state with latched and
+  persistent values at their defaults; only the initial state's `output` block runs. User code
   that needs every output off during a reset (or at machine off) calls
   `<fsm>_reset_outputs()` after the run.
 
@@ -409,7 +422,8 @@ Consequences worth stating in the user documentation:
 ### Warnings
 
 - **Sensitivity:** an `on` condition reads a pin or variable that is not in
-  `inputs` or `latched` and is not this FSM's `state_var` / `timer_var`.
+  `inputs`, `latched` or `persistent` and is not this FSM's `state_var` /
+  `timer_var`.
   Params are exempt (configuration, like VHDL generics). Identifiers that are
   not declared pins/params/variables (C functions, macros, enum constants,
   locals) are ignored, which keeps the check free of false positives.
@@ -424,6 +438,14 @@ Consequences worth stating in the user documentation:
   against every other fsm, and against their own fsm's `state_var` and
   `timer_var` (an fsm's own outputs are its to write). Heuristic: writes
   through pointers or macros are not found.
+- **Unlisted write:** an `on_enter`, `on_exit`, `during` or action block
+  assigns a pin or variable that is in none of the fsm's `outputs`,
+  `latched` and `persistent` (an entry listed only in `inputs` included),
+  so the fsm's lists show everything it writes. Params (configuration, not
+  listable), locals, the fsm's own `state_var` / `timer_var` (warned above)
+  and entries another fsm writes by its lists are exempt. A write with a
+  computed index warns unless every element of the array is listed.
+  Skipped when the FSM has no `inputs` list, like the sensitivity check.
 - Unreachable state: not reached from the initial state along the
   transitions. `any` `on` items lead out of every reachable state; the `any`
   `timeout` only out of reachable states whose `timeout` has no target.
@@ -753,6 +775,11 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   can stick because a path forgot to clear it.
 - **No types in the FSM block.** `x = 0` is valid C for every scalar HAL type,
   and the declarations already carry types for the direction checks.
+- **Init keeps the model, reset clears it.** `latched` is for what a run
+  produces (errors, counters): cleared on init and reset. `persistent` is
+  for what the state stands for (a tray model): a restore brings the state
+  back, so init must not clear the model it belongs to; only a reset, which
+  also sends the state to `initial`, does.
 - **Enable freezes, reset dominates.** Disabling pauses the machine, timer
   included; its `output` blocks keep showing the state. Reset works in any
   situation: it resets state, timer and `latched` entries only, and the

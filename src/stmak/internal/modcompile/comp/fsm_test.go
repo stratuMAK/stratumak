@@ -279,6 +279,11 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"param listed", `fsm m { inputs: prm; state A { } };`, "prm is a param"},
 		{"in pin as output", `fsm m { outputs: in1; state A { } };`, "outputs: in1 is an in pin"},
 		{"in pin latched", `fsm m { latched: in1; state A { } };`, "latched: in1 is an in pin"},
+		{"in pin persistent", `fsm m { persistent: in1; state A { } };`, "persistent: in1 is an in pin"},
+		{"latched and persistent", `fsm m { latched: out1; persistent: out1; state A { } };`,
+			"more than one of outputs, latched, persistent"},
+		{"output writes persistent", `fsm m { persistent: out1; state A { output { out1 = 1; } } };`,
+			"output writes out1, which is not an output of this fsm"},
 		{"conditional pin", `fsm m { outputs: outc; state A { } };`, "may not exist"},
 		{"personality array", `fsm m { outputs: outa(0); state A { } };`, "may not exist"},
 		{"whole array", `fsm m { outputs: outs; state A { } };`, "outs is an array; list single elements (outs(0))"},
@@ -396,8 +401,9 @@ pin io u32 iost;
 pin out bit o2;
 pin out bit o3;
 fsm k {
-    inputs: out2, o2;
+    inputs: out2;
     outputs: outs(2), o3 = 1;
+    persistent: o2;
     state_var: iost;
     state P { output { int v = out2; outs(2) = v; o3 = 0; } on (out2) -> Q; }
     state Q { output { outs(2) = 1; } during { o2 = !o2; } on (!out2 && o2) -> P; }
@@ -417,6 +423,21 @@ func TestFSMCheckWarnings(t *testing.T) {
 		{"sensitivity", `fsm m { inputs: in1; state A { on (in1 && in2 && prm && fabs(x.in2) > 0 && p->ack) -> A; } };`, "m();",
 			[]string{"t.comp:30:43: fsm m: condition reads in2, which is not in inputs"}},
 		{"no inputs list, no check", `fsm m { state A { on (in2) -> A; } };`, "m();", nil},
+		{"unlisted write", `fsm m { inputs: in1; state A { on_enter { ivar = 1; } during { int k = 0; k++; out1 = in1; } on (in1) -> A { outs(1) = 1; } } };`, "m();",
+			[]string{"fsm m: state A: on_enter writes ivar, which is not in outputs, latched or persistent",
+				"fsm m: state A: during writes out1, which is not in outputs, latched or persistent",
+				"fsm m: state A: action of on -> A writes outs(1), which is not in outputs, latched or persistent"}},
+		{"unlisted write, input", `fsm m { inputs: in1, iob; state A { on (in1 && iob) -> A { iob = 0; } } };`, "m();",
+			[]string{"fsm m: state A: action of on -> A writes iob, which is not in outputs, latched or persistent"}},
+		{"unlisted write, any", `fsm m { inputs: in1; any { on (in1) -> B { ivar = 0; } } state A { on (!in1) -> B; } state B { on (!in1) -> A; } };`, "m();",
+			[]string{"fsm m: any: action of on -> B writes ivar"}},
+		{"unlisted write, computed index", `fsm m { inputs: in1; outputs: outs(1); state A { during { outs(ivar) = 1; } on (in1) -> A; } };`, "m();",
+			[]string{"state A: during writes outs(...) with a computed index; not every element of outs is in outputs, latched or persistent"}},
+		{"listed writes", `fsm m { inputs: in1; outputs: out1; latched: ivar; persistent: iob, outs(1) = 1;
+state A { during { ivar++; out1 = in1 && iob; outs(1) = 0; } on (in1 && iob && ivar && outs(1)) -> A { iob = 0; } } };`, "m();\niob = 1; outs(1) = 1; ivar = 0;", nil},
+		{"no inputs list, no write check", `fsm m { state A { during { out1 = 1; } on (in1) -> A; } };`, "m();", nil},
+		{"write to another fsm's latched and persistent", `fsm n { latched: ivar; persistent: iob; state A { on (in1) -> A; } };
+fsm m { inputs: in1; state A { during { ivar = 0; iob = 0; } on (in1) -> A; } };`, "m(); n();", nil},
 		{"element sensitivity", `fsm m { inputs: ina(1); state A { on (ina(1) || ina(2)) -> A; } };`, "m();",
 			[]string{"condition reads ina(2), which is not in inputs"}},
 		{"computed index", `fsm m { inputs: ina(1); state A { on (ina(i)) -> A; } };`, "m();",
@@ -429,7 +450,7 @@ func TestFSMCheckWarnings(t *testing.T) {
 			[]string{"condition reads iarr as a whole; it cannot be matched against inputs"}},
 		{"unread input", `fsm m { inputs: in1, in2, ina(2); state A { on (in1 && ina(1)) -> A; } };`, "m();",
 			[]string{"input in2 is never read", "input ina(2) is never read"}},
-		{"read in action", `fsm m { inputs: in1, in2; state A { on (in1) -> A { out1 = in2; } } };`, "m();", nil},
+		{"read in action", `fsm m { inputs: in1, in2; outputs: out1; state A { on (in1) -> A { out1 = in2; } } };`, "m();", nil},
 		{"write outside", `fsm m { outputs: out1, outs(1); state_var: fsm_state; state A { on (in1) -> A; } };`,
 			"m();\nout1 = 1; out2 = 1; outs(1) |= 1; outs(2) = 1; outs(i) = 0; fsm_state++; --fsm_state; x.out1 = 1;",
 			[]string{"t.comp:33:1: out1 is the output of fsm m; the fsm overwrites it on its next run",
@@ -556,7 +577,7 @@ fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> 
 		{"uncalled parent", `fsm child { state A { on (in1) -> B; } state B { on (!in1) -> A; } };
 fsm par { state X { during { child(); } on (in1) -> Y; } state Y { on (!in1) -> X; } };`, "",
 			[]string{"t.comp:31:1: fsm par: par() is never called"}},
-		{"whole array read", `fsm m { inputs: in1, iarr[0], iarr[1]; state A { on (in1) -> B { out1 = sum(iarr); } } state B { on (!in1) -> A; } };`,
+		{"whole array read", `fsm m { inputs: in1, iarr[0], iarr[1]; outputs: out1; state A { on (in1) -> B { out1 = sum(iarr); } } state B { on (!in1) -> A; } };`,
 			"m();", nil},
 		// sizeof does not read: not an output read, not an unlisted input.
 		{"sizeof", `fsm m { inputs: in1; outputs: outs(0), outs(1), outs(2);

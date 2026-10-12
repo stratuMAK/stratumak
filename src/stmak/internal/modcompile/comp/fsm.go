@@ -81,7 +81,7 @@ func (r fsmRef) String() string {
 	return r.Name
 }
 
-// fsmDef is an outputs/latched entry with its optional default.
+// fsmDef is an outputs/latched/persistent entry with its optional default.
 type fsmDef struct {
 	fsmRef
 	Default *cfrag // nil: 0
@@ -116,14 +116,17 @@ type fsmState struct {
 }
 
 type fsmDecl struct {
-	Pos      ast.Pos
-	Name     string
-	Inputs   []fsmRef
-	Outputs  []fsmDef
-	Latched  []fsmDef
-	Reset    *cfrag
-	Enable   *cfrag
-	StateVar *fsmRef
+	Pos     ast.Pos
+	Name    string
+	Inputs  []fsmRef
+	Outputs []fsmDef
+	Latched []fsmDef
+	// Persistent entries go to their default on reset only: init and a
+	// restore keep them, like a retained model the state belongs to.
+	Persistent []fsmDef
+	Reset      *cfrag
+	Enable     *cfrag
+	StateVar   *fsmRef
 	// StateIO is set by the checks when StateVar is an io pin: the fsm then
 	// keeps the state in a hidden variable, takes a valid value from the
 	// pin on its first run (a restore) and writes the pin every run.
@@ -223,7 +226,7 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 	case "state":
 		p.next()
 		return p.parseState(f, pos)
-	case "inputs", "outputs", "latched", "reset", "enable", "state_var", "timer_var", "initial":
+	case "inputs", "outputs", "latched", "persistent", "reset", "enable", "state_var", "timer_var", "initial":
 	default:
 		return p.errorAt(pos, "unknown item %q", kw)
 	}
@@ -245,6 +248,8 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 		f.Outputs, err = p.parseDefList()
 	case "latched":
 		f.Latched, err = p.parseDefList()
+	case "persistent":
+		f.Persistent, err = p.parseDefList()
 	case "reset":
 		f.Reset, err = p.parseParenC()
 	case "enable":
@@ -572,11 +577,12 @@ func describeTrans(t fsmTrans, timeout bool) ast.FSMTransition {
 // describe returns the documentation view of f.
 func (f *fsmDecl) describe() ast.FSM {
 	d := ast.FSM{
-		Pos:     f.Pos,
-		Name:    f.Name,
-		Initial: f.initialState(),
-		Outputs: describeDefs(f.Outputs),
-		Latched: describeDefs(f.Latched),
+		Pos:        f.Pos,
+		Name:       f.Name,
+		Initial:    f.initialState(),
+		Outputs:    describeDefs(f.Outputs),
+		Latched:    describeDefs(f.Latched),
+		Persistent: describeDefs(f.Persistent),
 	}
 	for _, r := range f.Inputs {
 		d.Inputs = append(d.Inputs, r.String())

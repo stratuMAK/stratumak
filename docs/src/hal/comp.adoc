@@ -474,6 +474,7 @@ fsm NAME {
     inputs:    in1, in2;              // names conditions may read
     outputs:   out1, out2 = 1;        // set to their default every cycle
     latched:   count;                 // set to their default on init and reset only
+    persistent: model;                // set to their default on reset only
     reset:     (reset_pin);           // optional
     enable:    (enable_pin);          // optional
     state_var: state;                 // optional pin or variable holding the state
@@ -507,6 +508,9 @@ If the component has a single function, the code after `;;` can be just that cal
   An `out` pin that user code sets before the call may be listed; the machine's own outputs may not.
 * 'outputs' - `out`/`io` pins and variables written to their default (`0` unless `= EXPR` is given) at the start of every run.
 * 'latched' - like 'outputs', but written to their default only on init and reset.
+  For what a run produces and code outside acknowledges, such as an error word.
+* 'persistent' - like 'outputs', but written to their default only on reset; init and a restore keep them.
+  For data that belongs to the state and survives a restart with it, such as a retained tray model.
 * 'state_var' - an `out` or `io` `s32` or `u32` pin, or an integer variable, holding the state number.
   States are numbered in source order from 0.
   An `io` pin is a restore point: if it holds a valid state number on the first run (a retained signal, or one set before the threads start),
@@ -527,6 +531,7 @@ One call of `NAME();`:
 . On the first run, and in every run in which 'reset' is true: the state becomes the initial state
   (on the first run, the state an `io` 'state_var' holds, if it is a valid one),
   the timer and 'timer_var' become 0, 'latched' entries their defaults, and an entry is marked pending.
+  'persistent' entries become their defaults only when 'reset' is true.
   No `on_exit` runs: a reset is not a transition.
   A run in which 'reset' is true continues as a disabled run: only `output` of the initial state runs.
 . If 'enable' is false, or 'reset' is true, the next steps up to `output` are skipped. State, timer and a pending entry are frozen.
@@ -578,7 +583,7 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 * `NAME_state_name(n)` - the name of state number `n`, for messages.
 * `NAME_reset_outputs()` - sets every 'outputs' entry to its default, as a run does first.
   For user code that must clear the outputs after the run, e.g. at machine off, without writing them one by one.
-  State, timer and 'latched' entries are not touched.
+  State, timer, 'latched' and 'persistent' entries are not touched.
 
 Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
 with each other, with a declared name, with a C keyword or with a name the generated file defines
@@ -599,8 +604,10 @@ colliding generated names, machines that run each other (the calls would recurse
 a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).
 
-Warnings: an `on` condition reading a pin or variable that is not in 'inputs' or 'latched' (when 'inputs' is given; params are exempt),
-an input nothing reads, user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
+Warnings: an `on` condition reading a pin or variable that is not in 'inputs', 'latched' or 'persistent' (when 'inputs' is given; params are exempt),
+an input nothing reads,
+an `on_enter`, `on_exit`, `during` or action block writing a pin or variable that is in none of 'outputs', 'latched' and 'persistent'
+(when 'inputs' is given; params, locals and what another machine's lists hold are exempt), user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
 (the machine overwrites it), a machine's own blocks assigning its 'state_var' or 'timer_var',
 states not reachable from the initial state, states without a way out, an `any` item that can never fire
 (a `timeout` no state uses, an `on` whose target is the only reachable state), and a machine that is never called.

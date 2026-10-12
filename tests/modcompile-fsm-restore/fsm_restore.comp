@@ -1,5 +1,5 @@
 // Runtest component for the io state_var restore, output blocks,
-// <fsm>_reset_outputs() and an out pin in inputs.  Every behaviour shows up
+// <fsm>_reset_outputs(), persistent entries and an out pin in inputs.  Every behaviour shows up
 // on a pin; input-signals says what each cycle checks.
 component fsm_restore "fsm block runtest, restore and output blocks";
 
@@ -13,6 +13,7 @@ pin out s32 code "output, default 7; set by the output blocks";
 pin out bit busy "output, set by B's during only";
 pin out s32 nent "latched: entries into B";
 pin out float tv "timer_var";
+pin io u32 model "persistent: A -> B count; kept on init, 5 on reset";
 
 function _;
 
@@ -20,6 +21,7 @@ fsm r {
     inputs:    trig_copy;
     outputs:   code = 7, busy;
     latched:   nent;
+    persistent: model = 5;
     state_var: st;
     timer_var: tv;
     reset:     (rst);
@@ -27,7 +29,7 @@ fsm r {
 
     state A {
         output { code = 1; }
-        on (trig_copy) -> B;
+        on (trig_copy) -> B { model++; }
     }
 
     state B {

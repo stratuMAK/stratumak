@@ -171,6 +171,11 @@ function _;
 			  state X { on_enter { o = 4; } on (a) -> Y; } state Y { on (!a) -> X; } };
 			 pin out s32 o2;`,
 			"FUNCTION(_) { o = a; m(); n(); if (!b) { m_reset_outputs(); n_reset_outputs(); } }"},
+		{"persistent",
+			`pin io u32 model; variable double pv;
+			 fsm m { inputs: a; persistent: model, pv = 0.5; reset: (b);
+			  state S { on (a && model) -> T { model = 0; pv += 1; } } state T { on (!a) -> S { model = 7; } } };`,
+			"FUNCTION(_) { m(); }"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			compileFSMC(t, "cc", header+tc.fsm+"\n;;\n"+tc.code+"\n")

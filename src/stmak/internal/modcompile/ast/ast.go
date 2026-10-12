@@ -151,15 +151,17 @@ type CodeFragment struct {
 
 // FSM describes one fsm block.
 type FSM struct {
-	Pos      Pos
-	Name     string
-	Initial  string
-	Inputs   []string
-	Outputs  []string // "name" or "name = default", as written
-	Latched  []string
-	Reset    string // condition text, empty if none
-	Enable   string
-	StateVar string // empty: hidden variable
+	Pos     Pos
+	Name    string
+	Initial string
+	Inputs  []string
+	Outputs []string // "name" or "name = default", as written
+	Latched []string
+	// Persistent: written to their default on reset only, kept on init.
+	Persistent []string
+	Reset      string // condition text, empty if none
+	Enable     string
+	StateVar   string // empty: hidden variable
 	// StateRestored: StateVar is an io pin, taken over on the first run.
 	StateRestored bool
 	TimerVar      string
