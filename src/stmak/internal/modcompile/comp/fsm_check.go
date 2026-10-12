@@ -577,7 +577,9 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 		s := f.state(name)
 		todo = append(todo, anyTargets...)
 		for _, t := range s.On {
-			todo = append(todo, t.Target)
+			if !t.Internal {
+				todo = append(todo, t.Target)
+			}
 		}
 		if to := s.Timeout; to != nil {
 			if to.Trans != nil {
@@ -609,7 +611,9 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 		}
 		exits := append([]string{}, anyTargets...)
 		for _, t := range s.On {
-			exits = append(exits, t.Target)
+			if !t.Internal {
+				exits = append(exits, t.Target)
+			}
 		}
 		if to := s.Timeout; to != nil {
 			if to.Trans != nil {
@@ -729,7 +733,11 @@ type fsmBlock struct {
 func (f *fsmDecl) blocks() []fsmBlock {
 	var out []fsmBlock
 	action := func(where string, t *fsmTrans, item string) {
-		if t != nil && t.Action != nil {
+		switch {
+		case t == nil || t.Action == nil:
+		case t.Internal:
+			out = append(out, fsmBlock{where + ": action of internal on", t.Action})
+		default:
 			out = append(out, fsmBlock{fmt.Sprintf("%s: action of %s -> %s", where, item, t.Target), t.Action})
 		}
 	}

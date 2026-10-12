@@ -187,8 +187,10 @@ type FSMState struct {
 type FSMTransition struct {
 	Timeout bool
 	Cond    string
-	Target  string
+	Target  string // empty for an internal on
 	Action  bool
+	// Internal: an on without a target, which runs its action and stays.
+	Internal bool
 }
 
 // GMIConsumeEntry describes a consumed API with an optional default provider instance.

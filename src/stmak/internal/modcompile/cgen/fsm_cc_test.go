@@ -118,6 +118,7 @@ func TestFSMGeneratedCCompiles(t *testing.T) {
 		"../../../../../tests/modcompile-fsm-multi/fsm_multi.comp",
 		"../../../../../tests/multiclick-fsm/multiclick_fsm.comp",
 		"../../../../../tests/modcompile-fsm-restore/fsm_restore.comp",
+		"../../../../../tests/modcompile-fsm-internal/fsm_internal.comp",
 	} {
 		name := strings.TrimSuffix(filepath.Base(f), ".comp")
 		t.Run(name, func(t *testing.T) {
@@ -171,6 +172,13 @@ function _;
 			  state X { on_enter { o = 4; } on (a) -> Y; } state Y { on (!a) -> X; } };
 			 pin out s32 o2;`,
 			"FUNCTION(_) { o = a; m(); n(); if (!b) { m_reset_outputs(); n_reset_outputs(); } }"},
+		{"internal on",
+			`variable int n;
+			 fsm m { inputs: a, b; latched: n; timer_var: tv;
+			  state S { on (a) { n++; } on (b) { if (n > 2) return; n = 0; } on (!a) -> T; timeout (1) -> T; }
+			  state T { on (b) -> S; } };
+			 variable double tv;`,
+			"FUNCTION(_) { m(); }"},
 		{"persistent",
 			`pin io u32 model; variable double pv;
 			 fsm m { inputs: a; persistent: model, pv = 0.5; reset: (b);

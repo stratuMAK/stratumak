@@ -493,6 +493,7 @@ fsm NAME {
         output   { ... }              // C, sets outputs from the state, also while disabled
         on (in1 && !in2) -> RUN;      // condition -> target
         on (in2) -> RUN { count++; }  // with an action
+        on (fault) { err |= 1; }      // internal: action, stay, hold back what follows
         timeout (2.5s) -> FAULT;      // at most one per state
     }
     ...
@@ -543,6 +544,10 @@ One call of `NAME();`:
   the state's `timeout`, and finally `any { timeout -> ... }` if the state's timeout has no target.
   A firing transition runs `on_exit` of the old state, its action, resets the timer and runs `on_enter` of the new state.
   At most one transition fires per run; `A -> A` re-enters A.
+  An internal `on`, written without a target (`on (cond) { action }`, in states only), runs its action and stays:
+  no `on_exit`, no `on_enter`, and the timer runs on. It still counts as the match of the run,
+  so the items after it, the timeout included, are not checked while it matches.
+  A timeout that fell due meanwhile fires in the first run the internal `on` no longer matches.
 . `output` of the current (possibly new) state runs, also while disabled.
 . `during` of the current state runs, unless disabled.
 
@@ -555,6 +560,20 @@ While reset is held, the outputs therefore show the initial state; user code tha
 calls `NAME_reset_outputs()` after the run.
 `during` runs after `output`, so it may refine an output.
 Each block runs as a function of its own: `return` ends the block, and a transition still completes.
+
+An internal `on` is a guard that holds the state up. A fault that must stop progress until it clears
+is written once, ahead of the transition it holds back:
+
+----
+state FULL {
+    output { full = 1; }
+    on (!tray_present) { err |= ERROR_TRAY_MISSING; }
+    on (target_empty) -> FORTH { target_load = 1; }
+}
+----
+
+Unlike a check in `during`, it does not run in the entry run.
+Write it as `on (...) -> FULL` instead and it would re-enter the state every cycle: run `on_exit` and `on_enter`, and restart the timer, so a timeout would never fire.
 
 === Timeouts
 
@@ -600,6 +619,7 @@ Errors: unknown or duplicate states, list entries that are not suitable pins or 
 an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
 (they always hold their default there), an 'inputs' entry listed twice or also in 'outputs',
 an `output` block assigning anything but the machine's 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
+an `on` without a target in `any`, or without a target and an action (`on (x);`),
 colliding generated names, machines that run each other (the calls would recurse),
 a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).

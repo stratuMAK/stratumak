@@ -339,6 +339,16 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 	_, _ = fmt.Fprintln(w, "In each state the first matching row fires; \\fIany\\fR rows are checked first, "+
 		"except those leading to the current state, and timeouts (in seconds) last. "+
 		"A * marks a transition with an action.")
+	internal := false
+	for _, s := range f.States {
+		for _, t := range s.Transitions {
+			internal = internal || t.Internal
+		}
+	}
+	if internal {
+		_, _ = fmt.Fprintln(w, "A row without a next state (\\(en) runs its action and stays in the state; "+
+			"it still counts as the match, so the rows below it, the timeout included, wait while it matches.")
+	}
 
 	anyTimeout := ""
 	for _, t := range f.Any {
@@ -363,6 +373,9 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 			if next == "" {
 				next = timeoutTarget
 			}
+		}
+		if t.Internal {
+			next = "\\(en"
 		}
 		if t.Action {
 			next += " *"

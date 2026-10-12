@@ -1,0 +1,17 @@
+newthread servo 1000000
+
+load fsm_internal <i0>
+load filestream stream_cfg=bbb sample_cfg=bbbsuuf infile=input-signals outfile=out.txt depth=100 samples=11
+
+net go   filestream.stream.0 => i0.go   filestream.sample.0
+net trig filestream.stream.1 => i0.trig filestream.sample.1
+net hold filestream.stream.2 => i0.hold filestream.sample.2
+
+net code  i0.code  => filestream.sample.3
+net nent  i0.nent  => filestream.sample.4
+net nhold i0.nhold => filestream.sample.5
+net tv    i0.tv    => filestream.sample.6
+
+addf filestream.write servo
+addf i0 servo
+addf filestream.read  servo

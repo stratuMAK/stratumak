@@ -85,8 +85,18 @@ the slices above:
   every pin or variable its blocks write that is in none of its written
   lists, so the lists are its whole interface.
 
+- **Internal `on`.** `on (cond) { action }` in a state, without a target:
+  the action runs and the state is not left (no exit, no entry, the timer
+  runs on), but it is the match of the run, so the items after it and the
+  timeout wait while it holds. A fault that holds a state up is written once,
+  `on (!tray_present) { err |= ...; }` ahead of `on (target_empty) -> ...`,
+  instead of a check in `during` plus the negated fault in the transition's
+  condition. A self-transition is no substitute: it re-enters the state
+  every cycle and restarts its timer.
+
 `tests/modcompile-fsm-restore` covers all of them except the unlisted-write
-warning, which the unit tests cover.
+warning, which the unit tests cover, and the internal `on`, which
+`tests/modcompile-fsm-internal` covers.
 
 ## Motivation
 
@@ -190,6 +200,7 @@ state_item  := 'on_enter' block
              | 'during'   block
              | 'output'   block
              | 'on' '(' cexpr ')' '->' STATE action
+             | 'on' '(' cexpr ')' block          /* internal, no target */
              | 'timeout' '(' texpr ')' ('->' STATE action | ';')
 
 action      := ';' | block
@@ -339,6 +350,13 @@ One run:
    timer = 0 and `timer_var` = 0, `on_enter` (new). At most one transition per run. A
    self-transition (`A -> A` inside `state A`) runs exit and enter and resets
    the timer.
+
+   An internal `on` (no target) that matches runs its action only: the
+   state stays, no exit or entry runs, the timer is not reset. It is the
+   match of the run all the same, so the items after it, the state's
+   `timeout` and the `any` `timeout` included, are not checked. The timer
+   keeps running meanwhile: a timeout that fell due fires in the first run
+   in which the internal `on` no longer matches.
 7. **Output and during.** An `io` `state_var` is written. Then `output` of
    the current state runs, which is the new state if a transition fired,
    and `during`, unless disabled. `output` may write the fsm's `outputs`
@@ -383,6 +401,8 @@ Consequences worth stating in the user documentation:
   this is a bug (`enable: (o)` with default 0 never runs the fsm). `reset`
   is read before the outputs are written and is exempt.
 - A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
+- An `on` without a target in `any` (it would hold back every state), or
+  one with neither a target nor an action (`on (x);`).
 - Duplicate `on_enter` / `on_exit` / `during` / `timeout` in a state.
 - An `on` condition that reads an output array through a computed index
   when every element of the array is an output. When only some are, it is
@@ -450,7 +470,7 @@ Consequences worth stating in the user documentation:
   transitions. `any` `on` items lead out of every reachable state; the `any`
   `timeout` only out of reachable states whose `timeout` has no target.
 - State without a way out (no own `on`/`timeout` and no `any` transition
-  leading elsewhere).
+  leading elsewhere; an internal `on` is no way out).
 - `test_fsm()` never called: neither in the verbatim C nor in another fsm's
   blocks (a child fsm run from its parent's `during`). A child whose parent
   is never called is not reported again; since cycles are an error, every
@@ -791,6 +811,12 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   starts over rather than being cut short.
 - **Timeouts last.** A real event that arrives in the same cycle as the
   timeout wins.
+- **An internal `on` blocks, the timer runs on.** It is a guard: while it
+  matches, the state makes no progress, timeout included. The time in the
+  state is not paused, so a settle time that ran out under the fault does
+  not start over when it clears; pausing it would be a second mechanism.
+  Internal `on` items are not allowed in `any` for now: there they would
+  hold up every state; allowing them later breaks nothing.
 - **`any` replaces a global `on_timeout`.** One mechanism for every
   state-independent transition; skipping self-targets keeps
   `any { on (estop) -> FAULT; }` from re-entering FAULT every cycle.

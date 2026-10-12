@@ -58,6 +58,40 @@ seq();
 	}
 }
 
+// An internal on shows as a row without a next state, explained once.
+func TestFSMInternalOnRow(t *testing.T) {
+	src := `component t "x";
+pin in bit go;
+pin in bit hold;
+pin out u32 n;
+function _;
+fsm seq {
+    inputs: go, hold;
+    latched: n;
+    state IDLE { on (hold) { n++; } on (go) -> IDLE; }
+};
+;;
+seq();
+`
+	pkg, err := comp.Parse("t.comp", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Generate(&buf, pkg); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"0\tIDLE\tT{\non hold\nT}\t\\(en *\n",
+		"A row without a next state (\\(en) runs its action and stays in the state",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("man page lacks %q\n--- output ---\n%s", want, out)
+		}
+	}
+}
+
 // state_var and timer_var that are array elements name the element's pin.
 func TestFSMElementPins(t *testing.T) {
 	src := `component t "x";

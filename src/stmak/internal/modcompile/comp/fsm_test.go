@@ -82,6 +82,26 @@ func parseFSMSrc(t *testing.T, src string) *ast.Package {
 	return pkg
 }
 
+func TestParseFSMInternalOn(t *testing.T) {
+	pkg := parseFSMSrc(t, fsmHeader+`fsm m { inputs: in1, in2; latched: latched1;
+state A { on (in1) { latched1++; } on (in2) -> B; timeout (1) -> B; } state B { on (!in2) -> A; } };
+;;
+m();
+`)
+	got := pkg.Component.FSMs[0].States[0].Transitions
+	want := []ast.FSMTransition{
+		{Cond: "in1", Action: true, Internal: true},
+		{Cond: "in2", Target: "B"},
+		{Timeout: true, Cond: "1", Target: "B"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("transitions %+v, want %+v", got, want)
+	}
+	if len(pkg.Warnings) != 0 {
+		t.Errorf("unexpected warnings %q", pkg.Warnings)
+	}
+}
+
 func TestParseFSMDesignExample(t *testing.T) {
 	pkg := parseFSMSrc(t, fsmHeader+designExample+fsmCall)
 	if len(pkg.Component.FSMs) != 1 {
@@ -189,6 +209,8 @@ func TestParseFSMErrors(t *testing.T) {
 		{"dup any timeout", `fsm m { any { timeout -> A; timeout -> A; } state A { } };`, "more than one timeout in any"},
 		{"dup during", `fsm m { state A { during { } during { } } };`, "duplicate during"},
 		{"dup timeout", `fsm m { state A { timeout (1); timeout (2); } };`, "duplicate timeout"},
+		{"internal on in any", `fsm m { any { on (x) { y = 1; } } state A { } };`, "an on without a target is allowed in states only"},
+		{"on without target or action", `fsm m { state A { on (x); } };`, "on without a target needs an action"},
 		{"unknown item", `fsm m { output: out1; state A { } };`, `unknown item "output"`},
 		{"unknown state item", `fsm m { state A { on_entry { } } };`, `unknown item "on_entry"`},
 		{"missing semi", `fsm m { state A { } }`, "expected ';' after '}'"},
@@ -470,6 +492,12 @@ fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;
 			[]string{"state B is unreachable", "state A has no way out"}},
 		{"self loop only", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> B; } };`, "m();",
 			[]string{"state B has no way out"}},
+		{"internal on is no way out", `fsm m { inputs: in1; latched: ivar; state A { on (in1) -> B; } state B { on (in1) { ivar++; } } };`, "m();",
+			[]string{"state B has no way out"}},
+		{"internal on, unlisted write", `fsm m { inputs: in1; state A { on (in1) { ivar = 1; } on (!in1) -> A; } };`, "m();",
+			[]string{"fsm m: state A: action of internal on writes ivar, which is not in outputs, latched or persistent"}},
+		{"internal on, sensitivity", `fsm m { inputs: in1; latched: ivar; state A { on (in2) { ivar = 1; } on (!in1) -> A; } };`, "m();",
+			[]string{"condition reads in2, which is not in inputs"}},
 		{"unreachable cycle", `fsm m { state A { on (in1) -> A; } state B { on (in1) -> C; } state C { on (in1) -> B; } };`, "m();",
 			[]string{"state B is unreachable", "state C is unreachable"}},
 		{"any timeout never used", `fsm m { any { timeout -> A { out1 = 1; } } state A { on (in1) -> B; } state B { on (in1) -> A; } };`, "m();",

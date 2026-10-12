@@ -137,6 +137,13 @@ func (l *fsmLowering) helperFn(name, comment string, blk *cfrag) {
 // action, state change, timer reset, entry -- then leaves the switch.
 func (l *fsmLowering) transition(indent string, from *fsmState, t *fsmTrans) {
 	f := l.f
+	if t.Internal {
+		// The action, then out of the switch: the state is not left,
+		// the timer runs on, and nothing after it is checked.
+		l.epi.gen("%s%s(__comp_inst, period);\n", indent, l.action[t])
+		l.epi.gen("%sbreak;\n", indent)
+		return
+	}
 	if from.Exit != nil {
 		l.epi.gen("%s%s(__comp_inst, period);\n", indent, f.helperName("exit", from.Name))
 	}
@@ -233,7 +240,11 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		}
 		name := f.actionName(k)
 		l.action[a.T] = name
-		l.helperFn(name, fmt.Sprintf("%s: %s -> %s (%s)", from, what, a.T.Target, a.T.Pos), a.T.Action)
+		desc := fmt.Sprintf("%s: %s -> %s (%s)", from, what, a.T.Target, a.T.Pos)
+		if a.T.Internal {
+			desc = fmt.Sprintf("%s: on, internal (%s)", from, a.T.Pos)
+		}
+		l.helperFn(name, desc, a.T.Action)
 	}
 
 	// helperSwitch calls the kind's helper of the current state.

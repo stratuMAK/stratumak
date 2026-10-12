@@ -1,0 +1,28 @@
+# columns: go trig hold
+# samples: go trig hold, code nent nhold tv
+# states A B C; code A=1 B=2 C=3
+# first run: entry into A (code 1)
+1 0 0
+# A -> B: nent 1, tv 0
+1 1 0
+# B, hold: the internal on runs (nhold 1); the timer runs on (1 ms)
+1 1 1
+# hold and !trig: the internal on is the match, B -> A waits (nhold 2,
+# 2 ms); on_enter does not run again (nent 1)
+1 0 1
+# 3 ms: the timeout is due, but held back too (nhold 3)
+1 0 1
+# hold released at 4 ms: on (!trig) is false, the overdue timeout fires
+# at once: B -> C, tv 0
+1 1 0
+# C -> A
+1 0 0
+# A -> B: nent 2
+1 1 0
+# B, 1 ms
+1 1 0
+# disabled: the internal on does not run though hold is set (nhold 3),
+# timer frozen
+0 1 1
+# enabled again: 2 ms, B -> A
+1 0 0

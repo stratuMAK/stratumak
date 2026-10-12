@@ -94,6 +94,11 @@ type fsmTrans struct {
 	Target    string
 	TargetPos ast.Pos
 	Action    *cfrag // nil: no action block
+	// Internal: 'on (cond) { action }' in a state, without a target.  It
+	// runs the action and stays: no on_exit, no on_enter, the timer runs
+	// on.  It still counts as the match of the run, so the items after
+	// it, the timeout included, wait while it matches.
+	Internal bool
 }
 
 // fsmTimeout is a state's "timeout (expr)" item.  Trans.Target is empty when
@@ -435,7 +440,7 @@ func (p *parser) parseAny(f *fsmDecl) error {
 		switch {
 		case p.cur.Kind == TokIdent && p.cur.Val == "on":
 			p.next()
-			t, err := p.parseOn(pos)
+			t, err := p.parseOn(pos, false)
 			if err != nil {
 				return err
 			}
@@ -458,14 +463,26 @@ func (p *parser) parseAny(f *fsmDecl) error {
 	return nil
 }
 
-// parseOn parses '(' cexpr ')' '->' STATE action after 'on'.
-func (p *parser) parseOn(pos ast.Pos) (fsmTrans, error) {
+// parseOn parses '(' cexpr ')' '->' STATE action after 'on', or, in a
+// state, the internal form '(' cexpr ')' block.
+func (p *parser) parseOn(pos ast.Pos, inState bool) (fsmTrans, error) {
 	t := fsmTrans{Pos: pos}
 	cond, err := p.parseParenC()
 	if err != nil {
 		return t, err
 	}
 	t.Cond = *cond
+	switch p.cur.Kind {
+	case TokLBrace:
+		if !inState {
+			return t, p.errorAt(pos, "an on without a target is allowed in states only, not in any")
+		}
+		t.Internal = true
+		t.Action, err = p.parseBlock()
+		return t, err
+	case TokSemi:
+		return t, p.errorAt(pos, "on without a target needs an action: on (...) { ... }, or a target: on (...) -> STATE;")
+	}
 	return t, p.parseTarget(&t)
 }
 
@@ -501,7 +518,7 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 			slot = &st.Output
 		case "on":
 			p.next()
-			t, err := p.parseOn(ipos)
+			t, err := p.parseOn(ipos, true)
 			if err != nil {
 				return err
 			}
@@ -567,10 +584,11 @@ func describeDefs(defs []fsmDef) []string {
 
 func describeTrans(t fsmTrans, timeout bool) ast.FSMTransition {
 	return ast.FSMTransition{
-		Timeout: timeout,
-		Cond:    oneLine(t.Cond.Text),
-		Target:  t.Target,
-		Action:  t.Action != nil,
+		Timeout:  timeout,
+		Cond:     oneLine(t.Cond.Text),
+		Target:   t.Target,
+		Action:   t.Action != nil,
+		Internal: t.Internal,
 	}
 }
 
