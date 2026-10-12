@@ -68,7 +68,8 @@ the slices above:
   outputs to their defaults, so a status output (`empty`, `full`) went to 0
   while automatic was paused. The per-state `output` block maps the state to
   the outputs in every run, enabled or not, and in reset, where it maps the
-  initial state; `during` stays enabled-only and keeps what the state does
+  initial state; `during` stays enabled-only, runs before the `on` items
+  (see the design decision "During before the transitions") and keeps what the state does
   while it runs (fault checks).
 - **`<fsm>_reset_outputs()`** writes the outputs to their defaults from user
   code, for a component that clears them at machine-off after the run,
@@ -153,7 +154,8 @@ fsm test_fsm {
     }
 
     state WAIT_RELEASE {
-        during { out3 = 0; }
+        output { out3 = 0; }
+        during { latched2++; }
         on (!in1) -> IDLE;
         timeout (wait_s);           /* handled by any { timeout -> ... } */
     }
@@ -331,14 +333,16 @@ One run:
    reset is an abort, not a transition. Reset works while disabled. A run in
    which `reset` is true continues as a disabled run (step 3): the `output`
    of the initial state runs, nothing else.
-3. **Enable.** If `enable` is false, or `reset` is true, steps 4 to 6 and
-   `during` are skipped;
-   `output` still runs. State, timer and a pending `on_enter` are frozen.
+3. **Enable.** If `enable` is false, or `reset` is true, steps 4 to 6 are
+   skipped; `output` still runs. State, timer and a pending `on_enter` are
+   frozen.
 4. **Pending entry.** If `on_enter` is pending (first run, or first enabled
-   run after reset or restore): run `on_enter` of the current state, then
-   `output` and `during` below. Transitions are evaluated from the next run
-   on.
-5. **Timer.** timer += `period`; `timer_var` = timer × 1e-9.
+   run after reset or restore): run `on_enter` of the current state and
+   nothing else up to `output`. `during` and the transitions start with the
+   next run, as after a transition.
+5. **Timer and during.** timer += `period`; `timer_var` = timer × 1e-9.
+   Then `during` of the current state runs: the state stays this far, and
+   does its continuous work before anything decides to leave it.
 6. **Transitions.** The first match, in this order, fires:
    1. `any` `on` items in source order, skipping those whose target is the
       current state;
@@ -357,15 +361,23 @@ One run:
    `timeout` and the `any` `timeout` included, are not checked. The timer
    keeps running meanwhile: a timeout that fell due fires in the first run
    in which the internal `on` no longer matches.
-7. **Output and during.** An `io` `state_var` is written. Then `output` of
-   the current state runs, which is the new state if a transition fired,
-   and `during`, unless disabled. `output` may write the fsm's `outputs`
-   only: it is the mapping from the state to the outputs and runs while the
-   fsm is disabled, where `during`, which holds what the state does while it
-   runs, must not. `during` runs second, so it may refine an output.
+7. **Output.** An `io` `state_var` is written. Then `output` of the current
+   state runs, which is the new state if a transition fired, also while
+   disabled. `output` may write the fsm's `outputs` only: it is the mapping
+   from the state to the outputs, and may read anything (an input refining
+   an output). `during` must not write the fsm's outputs: it runs before the
+   transitions, so the value would carry over into the next state for the
+   cycle a transition fires.
 
-`timer_var` is therefore always current: `on` conditions see the same time the
-`timeout` check uses, and `during` sees the time of the state it runs in. A
+So each run of a state is either entering it (`on_enter`: entry run or
+transition) or staying in it (`during`, then the decision), and the cycle a
+state is left still runs its `during`. Since an action runs after `during`,
+it overrides what `during` wrote: `during { tray_id = 0; }` keeps an idle
+state's id cleared every cycle, and `on (load) -> FEED_IN { tray_id =
+tray_id_in; }` after it still takes the new id.
+
+`timer_var` is therefore always current: `during`, the `on` conditions and the
+`timeout` check see the same time. A
 timeout with several targets is written as `on` items on `timer_var` in front
 of the `timeout`:
 
@@ -380,7 +392,7 @@ Consequences worth stating in the user documentation:
 
 - An output written in `on_enter`, `on_exit` or a transition action is a
   **one-cycle pulse**. An output that should hold while in a state is written
-  in `during`.
+  in `output`.
 - `on_enter` always runs on entering a state, including after init and reset.
 - While reset is held, the fsm sits in the initial state with latched and
   persistent values at their defaults; only the initial state's `output` block runs. User code
@@ -401,6 +413,10 @@ Consequences worth stating in the user documentation:
   this is a bug (`enable: (o)` with default 0 never runs the fsm). `reset`
   is read before the outputs are written and is exempt.
 - A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
+- A `during` block assigning one of the fsm's `outputs`: it runs before the
+  transitions, so the value would carry over into the next state. With a
+  computed index into an array of which only some elements are outputs, it
+  is a warning naming them.
 - An `on` without a target in `any` (it would hold back every state), or
   one with neither a target nor an action (`on (x);`).
 - Duplicate `on_enter` / `on_exit` / `during` / `timeout` in a state.
@@ -534,11 +550,13 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
     if (__fsm_test_fsm_enter) {
         __fsm_test_fsm_enter = 0;
         switch (fsm_state) { /* on_enter blocks */ }
-        goto during;
+        goto out;
     }
 
     __fsm_test_fsm_timer += period;
     fsm_timer = __fsm_test_fsm_timer * 1e-9;
+
+    switch (fsm_state) { /* during blocks */ }
 
     switch (fsm_state) {
     case test_fsm_IDLE:
@@ -549,10 +567,8 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
     ...
     }
 
-during:
-    switch (fsm_state) { /* during blocks */ }
 out:
-    ;
+    switch (fsm_state) { /* output blocks */ }
 }
 ```
 
@@ -615,13 +631,13 @@ instead.
 ### Manual / setup mode
 
 Setup mode is an ordinary state, not a feature of the block. Manual buttons
-latch into user variables; the state's `during` drives the outputs from them:
+latch into user variables; the state's `output` drives the outputs from them:
 
 ```
 any { on (switch_setup) -> MANUAL; }
 
 state MANUAL {
-    during { stop_release = manu_release; }
+    output { stop_release = manu_release; }
     on (!switch_setup) -> RESUME;
 }
 ```
@@ -630,19 +646,31 @@ The state pin shows MANUAL while in setup.
 
 ### Faults
 
-A fault condition that must block a state's transitions becomes a state of its
-own instead of a guard repeated in every `on`. The message goes in `on_enter`,
-so it is logged once per occurrence without edge detection (`err_last`):
+A fault that only holds a state up, and is reported through an error word,
+is an internal `on` ahead of the transitions it blocks:
 
 ```
 state FULL {
-    during { full = 1; }
+    output { full = 1; }
+    on (!tray_present) { err |= ERROR_TRAY_MISSING; }
+    on (target_empty)  -> FEED_OUT { target_load = 1; }
+}
+```
+
+A fault with behaviour of its own (a message, other outputs, its own way
+out) becomes a state of its own instead of a guard repeated in every `on`.
+The message goes in `on_enter`, so it is logged once per occurrence without
+edge detection (`err_last`):
+
+```
+state FULL {
+    output { full = 1; }
     on (!tray_present) -> FAULT_NO_TRAY;
     on (target_empty)  -> FEED_OUT { target_load = 1; }
 }
 state FAULT_NO_TRAY {
     on_enter { STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "..."); }
-    during   { err = 1; }
+    output   { err = 1; }
     on (tray_present) -> FULL;
 }
 ```
@@ -650,9 +678,9 @@ state FAULT_NO_TRAY {
 ### Decisions computed in the state
 
 Code that computes the next step (a helper returning a status, a planning
-loop) runs in `during`; an `on` item reacts to its result in the next cycle.
-There is no block that runs before the transitions; one cycle of latency is
-irrelevant for sequencing.
+loop) runs in `during` and leaves its result in a `latched` entry or a
+variable; `during` runs before the transitions, so an `on` item reacts to
+it in the same cycle.
 
 ### Requests from outside, child FSMs
 
@@ -809,6 +837,16 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   `on_enter` runs and the timer starts at 0. Only the state is retained;
   time spent in it before a restart is not, and a settle or dwell time
   starts over rather than being cut short.
+- **During before the transitions.** `during` is what a state does while it
+  stays: it runs before the `on` items, like the body of a hand-written
+  `case` ahead of its `if`s, so a decision sees this cycle's work and an
+  action overrides it (an idle state keeps an id cleared in `during`; the
+  transition out sets the new one). The entering cycle runs `on_enter`
+  only. `during` therefore must not write outputs, which would carry over
+  into the next state; outputs come from `output`, which runs after the
+  transitions in the current state. Before `output` blocks existed,
+  `during` set the outputs and had to run after the transitions in the new
+  state; that order was dropped with them.
 - **Timeouts last.** A real event that arrives in the same cycle as the
   timeout wins.
 - **An internal `on` blocks, the timer runs on.** It is a guard: while it
@@ -827,13 +865,12 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   where it fits; exporting the FSM as a separate HAL function is not planned.
 - **Strict over convenient.** The goal is clean state machines, not covering
   every existing one. Things the analysis of existing code asked for and that
-  have a clean idiom are not added as syntax: no block before the
-  transitions, no `on_init`/resume block (a dispatch state), no manual mode
+  have a clean idiom are not added as syntax: no `on_init`/resume block (a dispatch state), no manual mode
   (an ordinary state), no transition guard (a fault state), no external goto
   (request flags), no timer hold or multi-state timers (user C timers).
 - **No explicit state numbers.** States are numbered in source order. Code
   that must show its own step numbers (e.g. 10, 20, 30 with gaps) assigns
-  them to a `u32` output in `during`.
+  them to a `u32` output in `output`.
 - **No single-step support.** Single-step mode is an edge detect on the step
   button added to the `enable` expression: `enable: (go || step_edge);`.
 - **`timer_var` is always current.** It is written when the timer advances

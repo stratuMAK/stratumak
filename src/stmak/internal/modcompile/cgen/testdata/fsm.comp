@@ -38,7 +38,8 @@ fsm test_fsm {
     }
 
     state WAIT_RELEASE {
-        during { out3 = 0; }
+        output { out3 = 0; }
+        during { latched2++; }
         on (!in1) -> IDLE;
         timeout (wait_s);           /* handled by any { timeout -> ... } */
     }

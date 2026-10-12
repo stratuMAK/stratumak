@@ -493,6 +493,37 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		}
 	}
 
+	// During runs before the transitions: an output it wrote would carry
+	// over into the next state for the cycle a transition fires.  Outputs
+	// come from output blocks.
+	for _, st := range f.States {
+		if st.During == nil {
+			continue
+		}
+		blk := st.During
+		for _, u := range cUses(blk.Text) {
+			s := c.syms[u.Name]
+			if !u.Write || s == nil {
+				continue
+			}
+			pos := offsetPos(blk.Pos, blk.Text, u.Off)
+			hit, computed := outputs.match(u)
+			switch {
+			case hit || computed && len(outputs[u.Name]) == s.Array:
+				return fmt.Errorf("%s: fsm %s: state %s: during writes %s, an output of this fsm; during runs "+
+					"before the transitions, so the value would carry over into the next state: "+
+					"set outputs in an output block", pos, f.Name, st.Name, useString(u))
+			case computed:
+				var elems []string
+				for _, r := range outputs[u.Name] {
+					elems = append(elems, r.String())
+				}
+				c.warn(pos, "fsm %s: state %s: during writes %s %s, which may hit the outputs %s; "+
+					"set outputs in an output block", f.Name, st.Name, useString(u), howRead(u), strings.Join(elems, ", "))
+			}
+		}
+	}
+
 	// Unread inputs.  An element counts as read when it is read with its
 	// literal index, or when its array is read with a computed one or as a
 	// whole.

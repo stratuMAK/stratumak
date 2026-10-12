@@ -151,7 +151,7 @@ function _;
 		// Blocks are functions of their own: return, period and fperiod.
 		{"return and fperiod in blocks",
 			`fsm m { outputs: o; latched: st;
-			  state S { during { if (a) return; o = fperiod > 0; }
+			  state S { output { if (a) return; o = fperiod > 0; } during { if (b) return; st = fperiod > 0; }
 			            on (a) -> T { if (b) return; st = period; } }
 			  state T { on_enter { if (b) return; } on_exit { return; } on (!a) -> S; timeout (1ms) -> S; } };`,
 			"m();"},
@@ -159,7 +159,7 @@ function _;
 		{"two fsms",
 			`fsm mode { state IDLE { on (a) -> RUN; } state RUN { on (!a) -> IDLE; } };
 			 fsm seq { outputs: o; state_var: st; enable: (mode_in(RUN));
-			  state A { during { o = 1; } on (b) -> B; } state B { on (!b) -> A; } };`,
+			  state A { output { o = 1; } on (b) -> B; } state B { on (!b) -> A; } };`,
 			"FUNCTION(_) { mode(); seq(); }"},
 		// io state pins of both signs, restored on the first run; output
 		// blocks without during; reset_outputs from user code; an out pin

@@ -56,7 +56,8 @@ const designExample = `fsm test_fsm {
     }
 
     state WAIT_RELEASE {
-        during { out3 = 0; }
+        output { out3 = 0; }
+        during { latched2++; }
         on (!in1) -> IDLE;
         timeout (wait_s);           /* handled by any { timeout -> ... } */
     }
@@ -128,7 +129,7 @@ func TestParseFSMDesignExample(t *testing.T) {
 				{Cond: "in1 || in2 == 1", Target: "WAIT_RELEASE"},
 				{Timeout: true, Cond: "60s", Target: "TIMEOUT", Action: true},
 			}},
-			{Name: "WAIT_RELEASE", Number: 1, During: true, Transitions: []ast.FSMTransition{
+			{Name: "WAIT_RELEASE", Number: 1, During: true, Output: true, Transitions: []ast.FSMTransition{
 				{Cond: "!in1", Target: "IDLE"},
 				{Timeout: true, Cond: "wait_s"},
 			}},
@@ -304,6 +305,10 @@ func TestFSMCheckErrors(t *testing.T) {
 		{"in pin persistent", `fsm m { persistent: in1; state A { } };`, "persistent: in1 is an in pin"},
 		{"latched and persistent", `fsm m { latched: out1; persistent: out1; state A { } };`,
 			"more than one of outputs, latched, persistent"},
+		{"during writes output", `fsm m { outputs: out1; state A { during { out1 = 1; } } };`,
+			"state A: during writes out1, an output of this fsm; during runs before the transitions"},
+		{"during writes output element", `fsm m { outputs: outs(1); state A { during { outs(1) |= 1; } } };`,
+			"during writes outs(1), an output of this fsm"},
 		{"output writes persistent", `fsm m { persistent: out1; state A { output { out1 = 1; } } };`,
 			"output writes out1, which is not an output of this fsm"},
 		{"conditional pin", `fsm m { outputs: outc; state A { } };`, "may not exist"},
@@ -456,7 +461,9 @@ func TestFSMCheckWarnings(t *testing.T) {
 		{"unlisted write, computed index", `fsm m { inputs: in1; outputs: outs(1); state A { during { outs(ivar) = 1; } on (in1) -> A; } };`, "m();",
 			[]string{"state A: during writes outs(...) with a computed index; not every element of outs is in outputs, latched or persistent"}},
 		{"listed writes", `fsm m { inputs: in1; outputs: out1; latched: ivar; persistent: iob, outs(1) = 1;
-state A { during { ivar++; out1 = in1 && iob; outs(1) = 0; } on (in1 && iob && ivar && outs(1)) -> A { iob = 0; } } };`, "m();\niob = 1; outs(1) = 1; ivar = 0;", nil},
+state A { on_enter { out1 = in1 && iob; } during { ivar++; outs(1) = 0; } on (in1 && iob && ivar && outs(1)) -> A { iob = 0; } } };`, "m();\niob = 1; outs(1) = 1; ivar = 0;", nil},
+		{"during writes output, computed index", `fsm m { outputs: outs(1); latched: ivar; state A { during { outs(ivar) = 0; ivar++; } on (in1) -> A; } };`, "m();",
+			[]string{"fsm m: state A: during writes outs(...) with a computed index, which may hit the outputs outs(1); set outputs in an output block"}},
 		{"no inputs list, no write check", `fsm m { state A { during { out1 = 1; } on (in1) -> A; } };`, "m();", nil},
 		{"write to another fsm's latched and persistent", `fsm n { latched: ivar; persistent: iob; state A { on (in1) -> A; } };
 fsm m { inputs: in1; state A { during { ivar = 0; iob = 0; } on (in1) -> A; } };`, "m(); n();", nil},
@@ -484,10 +491,10 @@ fsm m { inputs: in1; state A { during { ivar = 0; iob = 0; } on (in1) -> A; } };
 		{"comment continuation", `fsm m { outputs: out1; state A { on (in1) -> A; } };`, "m(); // note \\\nout1 = 1;", nil},
 		{"write from another fsm", `fsm m { outputs: out1; state A { on (in1) -> A; } };
 fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;
-    state X { during { out1 = 1; out2 = 1; fsm_state = 0; } on (in2) -> X { fsm_timer = 0; } } };`, "m(); n();",
+    state X { during { out1 = 1; fsm_state = 0; } on (in2) -> X { fsm_timer = 0; out2 = 1; } } };`, "m(); n();",
 			[]string{"t.comp:32:24: fsm n: out1 is the output of fsm m; the fsm overwrites it",
-				"32:44: fsm n: fsm_state is the state_var of this fsm; the state changes only through transitions",
-				"32:77: fsm n: fsm_timer is the timer_var of this fsm"}},
+				"32:34: fsm n: fsm_state is the state_var of this fsm; the state changes only through transitions",
+				"32:67: fsm n: fsm_timer is the timer_var of this fsm"}},
 		{"unreachable", `fsm m { state A { on (in1) -> A; } state B { on (in1) -> A; } };`, "m();",
 			[]string{"state B is unreachable", "state A has no way out"}},
 		{"self loop only", `fsm m { state A { on (in1) -> B; } state B { on (in1) -> B; } };`, "m();",

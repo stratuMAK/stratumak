@@ -10,7 +10,7 @@ pin in bit clr "run r_reset_outputs() after the fsm";
 pin io u32 st "state_var: taken over on the first run, written every run";
 pin out bit trig_copy "copy of trig, an out pin in inputs";
 pin out s32 code "output, default 7; set by the output blocks";
-pin out bit busy "output, set by B's during only";
+pin out s32 ndur "latched: runs of B's during";
 pin out s32 nent "latched: entries into B";
 pin out float tv "timer_var";
 pin io u32 model "persistent: A -> B count; kept on init, 5 on reset";
@@ -19,8 +19,8 @@ function _;
 
 fsm r {
     inputs:    trig_copy;
-    outputs:   code = 7, busy;
-    latched:   nent;
+    outputs:   code = 7;
+    latched:   nent, ndur;
     persistent: model = 5;
     state_var: st;
     timer_var: tv;
@@ -35,7 +35,7 @@ fsm r {
     state B {
         on_enter { nent++; }
         output   { code = 2; }
-        during   { busy = 1; }
+        during   { ndur++; }
         timeout (3ms) -> C;
     }
 

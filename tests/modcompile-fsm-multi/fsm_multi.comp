@@ -36,7 +36,7 @@ fsm a {
     }
 
     state W {
-        during { code = 1; }
+        output { code = 1; }
         on (!go) -> S;
         timeout (to_ms * 1ms);      /* <= 0: none; else any timeout */
     }

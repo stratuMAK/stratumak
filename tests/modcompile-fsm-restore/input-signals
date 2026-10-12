@@ -1,18 +1,19 @@
 # columns: go go1 rst trig clr
-# samples: go go1 rst trig clr, r0: code busy nent tv, r1: code, st (r1
+# samples: go go1 rst trig clr, r0: code ndur nent tv, r1: code, st (r1
 # writes it last), r2: st code, r0: model
 # r0's model is persistent and holds 20 before the start: kept on init
 # and restore, counted up on A -> B, 5 on reset
 # states A=0 B=1 C=2; code A=1 B=2 C=3, default 7
 # first run, disabled: r0 and r1 restored in B, their output blocks run
-# (code 2), during does not (busy 0); r2 got 9, no state: initial A
+# (code 2), during does not (ndur 0); r2 got 9, no state: initial A
 0 0 0 0 0
-# r0 enabled: the pending entry of the restored B runs (nent 1), during
-# busy 1; the entry run does not advance the timer.  r1 stays disabled in B
+# r0 enabled: the pending entry of the restored B runs (nent 1), on_enter
+# only (ndur 0); the entry run does not advance the timer.  r1 stays disabled in B
 # and writes st 1 after r0 every cycle.  r2 enabled in A.
 1 0 0 0 0
-# r0's timer started at 0 on the restore: 1 ms, 2 ms, then the 3 ms timeout
-# to C (tv 0, code 3), though r1 keeps writing st 1
+# r0's timer started at 0 on the restore: 1 ms, 2 ms (ndur 1, 2), then the
+# 3 ms timeout to C (tv 0, code 3), B's during running before it (ndur 3),
+# though r1 keeps writing st 1
 1 0 0 0 0
 1 0 0 0 0
 1 0 0 0 0
@@ -22,19 +23,19 @@
 1 0 0 1 0
 # r0 C -> A (code 1)
 1 0 0 0 0
-# r0 A -> B, nent 2, model 21, then r_reset_outputs() in every instance: code 7,
-# busy 0
+# r0 A -> B, nent 2, model 21, no during in the entering cycle (ndur 3),
+# then r_reset_outputs() in every instance: code 7
 1 0 0 1 1
-# r0 in B: code 2, busy 1, tv 1 ms
+# r0 in B: code 2, during (ndur 4), tv 1 ms
 1 0 0 1 0
 # reset: every instance in A; it runs as disabled, so A's output block
-# runs (code 1), during does not (busy 0); nent 0, tv 0, st 0, model 5
+# runs (code 1), during does not; nent 0, ndur 0, tv 0, st 0, model 5
 1 1 1 1 0
 # after the reset: entry runs in A (code 1); no restore from st
 1 1 0 0 0
 # r0 A -> B, model 6; r1, disabled, writes st 0 last
 1 0 0 1 0
-# r0 disabled in B: code 2 from its output block, busy 0
+# r0 disabled in B: code 2 from its output block, no during (ndur 0)
 0 0 0 0 0
 # r1 A -> B: st 1
 0 1 0 1 0

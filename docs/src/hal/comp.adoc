@@ -489,7 +489,7 @@ fsm NAME {
     state IDLE {
         on_enter { ... }              // C, runs when the state is entered
         on_exit  { ... }              // C, runs when the state is left
-        during   { ... }              // C, runs every cycle while in the state
+        during   { ... }              // C, runs every cycle the state stays, before the on items
         output   { ... }              // C, sets outputs from the state, also while disabled
         on (in1 && !in2) -> RUN;      // condition -> target
         on (in2) -> RUN { count++; }  // with an action
@@ -536,9 +536,10 @@ One call of `NAME();`:
   No `on_exit` runs: a reset is not a transition.
   A run in which 'reset' is true continues as a disabled run: only `output` of the initial state runs.
 . If 'enable' is false, or 'reset' is true, the next steps up to `output` are skipped. State, timer and a pending entry are frozen.
-. If an entry is pending, `on_enter` of the current state runs, then `output` and `during` below.
-  Transitions are checked from the next run on.
+. If an entry is pending, `on_enter` of the current state runs, and nothing else up to `output`:
+  `during` and the transitions start with the next run.
 . The timer advances by the thread period.
+. `during` of the current state runs.
 . The first matching transition fires, in this order:
   `any` `on` items (except those leading to the current state), the state's `on` items,
   the state's `timeout`, and finally `any { timeout -> ... }` if the state's timeout has no target.
@@ -549,16 +550,23 @@ One call of `NAME();`:
   so the items after it, the timeout included, are not checked while it matches.
   A timeout that fell due meanwhile fires in the first run the internal `on` no longer matches.
 . `output` of the current (possibly new) state runs, also while disabled.
-. `during` of the current state runs, unless disabled.
+
+So a state's run is either entering it (`on_enter`, in the entry run or by a transition) or staying in it
+(`during`, then the decision), and `output` follows the state every run.
+`during` runs before the `on` items, in the cycle the state is left too, so it does the state's continuous work
+and a transition's action can override it: `during { tray_id = 0; }` keeps an id cleared while a state is idle,
+and `on (load) -> FEED_IN { tray_id = tray_id_in; }` after it still takes the new id.
 
 An output written in `on_enter`, `on_exit` or an action is therefore a one-cycle pulse.
-An output that holds while in a state is written in `output` or `during`.
+An output that holds while in a state is written in `output`.
 `output` is the mapping from the state to outputs, and shows the state while the machine is disabled
-(automatic paused, transitions frozen); it may write the machine's 'outputs' only.
-`during` holds what the state does while it runs, such as fault checks, and stops while disabled.
+(automatic paused, transitions frozen); it may write the machine's 'outputs' only, and may read anything,
+so `output { idle = auto_mode; }` refines an output by an input.
+`during` must not write the machine's outputs: it runs before the transitions, so the value would carry over
+into the next state for the cycle a transition fires.
+`during` stops while disabled.
 While reset is held, the outputs therefore show the initial state; user code that needs them all off then (or at machine off)
 calls `NAME_reset_outputs()` after the run.
-`during` runs after `output`, so it may refine an output.
 Each block runs as a function of its own: `return` ends the block, and a transition still completes.
 
 An internal `on` is a guard that holds the state up. A fault that must stop progress until it clears
@@ -572,7 +580,7 @@ state FULL {
 }
 ----
 
-Unlike a check in `during`, it does not run in the entry run.
+Like `during`, it does not run in the entry run.
 Write it as `on (...) -> FULL` instead and it would re-enter the state every cycle: run `on_exit` and `on_enter`, and restart the timer, so a timeout would never fire.
 
 === Timeouts
@@ -618,7 +626,7 @@ a request is a flag that an `on` item reacts to and the action clears.
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
 an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
 (they always hold their default there), an 'inputs' entry listed twice or also in 'outputs',
-an `output` block assigning anything but the machine's 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
+an `output` block assigning anything but the machine's 'outputs', a `during` block assigning one of them, an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
 an `on` without a target in `any`, or without a target and an action (`on (x);`),
 colliding generated names, machines that run each other (the calls would recurse),
 a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;

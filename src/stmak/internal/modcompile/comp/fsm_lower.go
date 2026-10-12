@@ -341,18 +341,20 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		epi.gen("    const int __en = !__rst;\n")
 	}
 
-	// 4. Pending entry: on_enter, then output and during below; no
-	// transitions.
+	// 4. Pending entry: on_enter only; during and the transitions start
+	// with the next run, as after a transition.
 	epi.gen("    if (__en && %s_enter) {\n", hid)
 	epi.gen("        %s_enter = 0;\n", hid)
 	helperSwitch("        ", "enter", kinds[0].blk)
 	epi.gen("    } else if (__en) {\n")
 
-	// 5. Timer.
+	// 5. Timer, then during of the current state: what it does while it
+	// stays, before the transitions decide, so an action overrides it.
 	epi.gen("        %s_timer += period;\n", hid)
 	if f.TimerVar != nil {
 		epi.gen("        %s = %s_timer * 1e-9;\n", f.TimerVar.String(), hid)
 	}
+	helperSwitch("        ", "during", kinds[2].blk)
 
 	// 6. Transitions, first match fires.
 	epi.gen("        switch (%s) {\n", stateVar)
@@ -402,17 +404,8 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 
 	publish("    ")
 
-	// 7. Output of the current state, enabled or not, then its during.
+	// 7. Output of the current state, enabled or not.
 	helperSwitch("    ", "output", kinds[3].blk)
-	var during bool
-	for _, st := range f.States {
-		during = during || st.During != nil
-	}
-	if during {
-		epi.gen("    if (__en) {\n")
-		helperSwitch("        ", "during", kinds[2].blk)
-		epi.gen("    }\n")
-	}
 	epi.gen("}\n\n")
 }
 
