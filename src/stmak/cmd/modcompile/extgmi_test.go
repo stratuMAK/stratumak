@@ -49,7 +49,7 @@ func TestAddGmiRecordsAndGenerates(t *testing.T) {
 	src := t.TempDir()
 	idl := writeIDL(t, src, "transp.gmi", "transp")
 
-	if err := addGmi(idl, false); err != nil {
+	if _, err := addGmi(idl, false); err != nil {
 		t.Fatalf("addGmi: %v", err)
 	}
 	entry := filepath.Join(tree, "external", "gmi-transp")
@@ -98,7 +98,7 @@ func TestAllGMIIncludeDirs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(builtin, "kins_api.h"), nil, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := addGmi(writeIDL(t, t.TempDir(), "transp.gmi", "transp"), false); err != nil {
+	if _, err := addGmi(writeIDL(t, t.TempDir(), "transp.gmi", "transp"), false); err != nil {
 		t.Fatal(err)
 	}
 	if err := generateExternalGMI(tree); err != nil {
@@ -123,7 +123,7 @@ func TestAddGmiRefusesBuiltin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := addGmi(writeIDL(t, t.TempDir(), "kins.gmi", "kins"), false)
+	_, err := addGmi(writeIDL(t, t.TempDir(), "kins.gmi", "kins"), false)
 	if err == nil || !strings.Contains(err.Error(), "built into") {
 		t.Fatalf("addGmi of a built-in API: err = %v, want a refusal", err)
 	}
@@ -137,16 +137,16 @@ func TestAddGmiOrigin(t *testing.T) {
 	first := writeIDL(t, t.TempDir(), "transp.gmi", "transp")
 	second := writeIDL(t, t.TempDir(), "transp.gmi", "transp")
 
-	if err := addGmi(first, false); err != nil {
+	if _, err := addGmi(first, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := addGmi(first, false); err != nil {
+	if _, err := addGmi(first, false); err != nil {
 		t.Errorf("re-adding from the same origin: %v", err)
 	}
-	if err := addGmi(second, false); err == nil {
+	if _, err := addGmi(second, false); err == nil {
 		t.Error("adding the same API from another origin without --force succeeded")
 	}
-	if err := addGmi(second, true); err != nil {
+	if _, err := addGmi(second, true); err != nil {
 		t.Errorf("--force: %v", err)
 	}
 }
@@ -157,7 +157,7 @@ func TestAddGmiRefusesInvalidIDL(t *testing.T) {
 	if err := os.WriteFile(path, []byte("@api bad\n@version 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := addGmi(path, false); err == nil {
+	if _, err := addGmi(path, false); err == nil {
 		t.Fatal("an IDL without @license was accepted")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(tree, "external")); len(entries) != 0 {
@@ -177,5 +177,31 @@ func TestGenerateExternalGMIRefusesDuplicates(t *testing.T) {
 	err := generateExternalGMI(tree)
 	if err == nil || !strings.Contains(err.Error(), "provided by both") {
 		t.Fatalf("err = %v, want a duplicate refusal", err)
+	}
+}
+
+func TestAddGmiUnchanged(t *testing.T) {
+	tree := withInPlaceTree(t)
+	idl := writeIDL(t, t.TempDir(), "transp.gmi", "transp")
+
+	if changed, err := addGmi(idl, false); err != nil || !changed {
+		t.Fatalf("first add: changed=%v err=%v, want a change", changed, err)
+	}
+	// Recorded but not generated yet: still a change, the rebuild is due.
+	if changed, err := addGmi(idl, false); err != nil || !changed {
+		t.Fatalf("re-add before a rebuild: changed=%v err=%v, want a change", changed, err)
+	}
+	if err := generateExternalGMI(tree); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := addGmi(idl, false); err != nil || changed {
+		t.Fatalf("re-add of the built IDL: changed=%v err=%v, want none", changed, err)
+	}
+	src, _ := os.ReadFile(idl)
+	if err := os.WriteFile(idl, append(src, []byte("# edited\n")...), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := addGmi(idl, false); err != nil || !changed {
+		t.Fatalf("re-add of an edited IDL: changed=%v err=%v, want a change", changed, err)
 	}
 }

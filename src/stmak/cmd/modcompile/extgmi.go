@@ -18,6 +18,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,24 +39,35 @@ func cmdAddGmi(files []string, force bool) {
 		acquireBuildLock("add-gmi")
 	}
 
+	changed := false
 	for _, file := range files {
-		if err := addGmi(file, force); err != nil {
+		c, err := addGmi(file, force)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "modcompile add-gmi: %v\n", err)
 			os.Exit(1)
 		}
+		changed = changed || c
 	}
 
+	// An install script registers its IDL on every run; rebuilding stmakd
+	// each time for nothing would make that a minutes-long no-op.
+	if !changed {
+		fmt.Fprintln(os.Stderr, "Nothing changed, stmakd not rebuilt")
+		return
+	}
 	cmdRebuild()
 }
 
 // addGmi validates one IDL and records it as the store entry gmi-<api>.
-func addGmi(file string, force bool) error {
+// changed is false when the store already holds the same IDL from the same
+// file and the last rebuild generated it: then there is nothing to rebuild.
+func addGmi(file string, force bool) (changed bool, err error) {
 	absFile, err := filepath.Abs(file)
 	if err != nil {
-		return fmt.Errorf("resolving path: %v", err)
+		return false, fmt.Errorf("resolving path: %v", err)
 	}
 	if !strings.HasSuffix(absFile, ".gmi") {
-		return fmt.Errorf("%s is not a .gmi file", absFile)
+		return false, fmt.Errorf("%s is not a .gmi file", absFile)
 	}
 
 	// Validated before anything is recorded: a broken IDL found by the
@@ -63,11 +75,11 @@ func addGmi(file string, force bool) error {
 	// past.
 	api, err := loadGMI(absFile)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if builtin := builtinGMIDir(api.Name); builtin != "" {
-		return fmt.Errorf("API %q is built into stratuMAK (%s); an external IDL cannot replace it",
+		return false, fmt.Errorf("API %q is built into stratuMAK (%s); an external IDL cannot replace it",
 			api.Name, builtin)
 	}
 
@@ -77,7 +89,7 @@ func addGmi(file string, force bool) error {
 	originFile := filepath.Join(entryDir, ".origin")
 
 	if other := externalGMIProvider(store, api.Name, name); other != "" {
-		return fmt.Errorf("API %q is already provided by the external module %s", api.Name, other)
+		return false, fmt.Errorf("API %q is already provided by the external module %s", api.Name, other)
 	}
 
 	removeStaleExternals(name)
@@ -86,6 +98,9 @@ func addGmi(file string, force bool) error {
 		originData, _ := os.ReadFile(originFile)
 		existingOrigin := strings.TrimSpace(string(originData))
 		switch {
+		case existingOrigin == absFile && gmiUpToDate(entryDir, api.Name, absFile):
+			fmt.Fprintf(os.Stderr, "%s is registered and unchanged\n", absFile)
+			return false, nil
 		case existingOrigin == absFile:
 			fmt.Fprintf(os.Stderr, "Reinstalling %s from %s\n", name, absFile)
 		case !force:
@@ -93,7 +108,7 @@ func addGmi(file string, force bool) error {
 			if existingOrigin != "" {
 				msg += " from " + existingOrigin
 			}
-			return fmt.Errorf("%s\nUse --force to overwrite", msg)
+			return false, fmt.Errorf("%s\nUse --force to overwrite", msg)
 		default:
 			fmt.Fprintf(os.Stderr, "Overwriting %s (--force)\n", name)
 		}
@@ -103,26 +118,40 @@ func addGmi(file string, force bool) error {
 	// the rebuild's to write. Start from empty so a previous generation, or
 	// an IDL recorded under another file name, cannot linger.
 	if err := os.RemoveAll(entryDir); err != nil {
-		return fmt.Errorf("clearing %s: %v", entryDir, err)
+		return false, fmt.Errorf("clearing %s: %v", entryDir, err)
 	}
 	gmiDir := filepath.Join(entryDir, "gmi")
 	if err := os.MkdirAll(gmiDir, 0755); err != nil {
-		return fmt.Errorf("creating %s: %v", gmiDir, err)
+		return false, fmt.Errorf("creating %s: %v", gmiDir, err)
 	}
 	if err := copyFile(absFile, filepath.Join(gmiDir, api.Name+".gmi"), 0644); err != nil {
-		return fmt.Errorf("copying %s: %v", absFile, err)
+		return false, fmt.Errorf("copying %s: %v", absFile, err)
 	}
 	if err := os.WriteFile(originFile, []byte(absFile+"\n"), 0644); err != nil {
-		return fmt.Errorf("writing .origin: %v", err)
+		return false, fmt.Errorf("writing .origin: %v", err)
 	}
 	if config.DerivedBuild() {
 		if err := normalizeModes(entryDir); err != nil {
-			return fmt.Errorf("setting permissions on the recorded copy: %v", err)
+			return false, fmt.Errorf("setting permissions on the recorded copy: %v", err)
 		}
 	}
 
 	fmt.Fprintf(os.Stderr, "Recorded %s → %s\n", absFile, entryDir)
-	return nil
+	return true, nil
+}
+
+// gmiUpToDate reports whether the store entry holds the same IDL as file and
+// the build tree has the package generated from it.
+func gmiUpToDate(entryDir, api, file string) bool {
+	recorded, err := os.ReadFile(filepath.Join(entryDir, "gmi", api+".gmi"))
+	if err != nil {
+		return false
+	}
+	current, err := os.ReadFile(file)
+	if err != nil || !bytes.Equal(recorded, current) {
+		return false
+	}
+	return gmiIncludeDir(api) != ""
 }
 
 // cmdRmGmi removes external IDLs by API name and rebuilds.
