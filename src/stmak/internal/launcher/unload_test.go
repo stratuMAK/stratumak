@@ -165,6 +165,29 @@ func TestResolveRESTAddr_Precedence(t *testing.T) {
 	}
 }
 
+func TestResolveConfigWebAppDir(t *testing.T) {
+	l := testLauncher()
+	if got := l.resolveConfigWebAppDir(); got != "" {
+		t.Errorf("no INI: got %q, want \"\"", got)
+	}
+
+	l.ini = iniWith(t, "[SERVER]\nREST_ADDR = 127.0.0.1:6001\n")
+	if got := l.resolveConfigWebAppDir(); got != "" {
+		t.Errorf("no WEBAPP_DIR: got %q, want \"\"", got)
+	}
+
+	// Relative to the INI file, not to whatever the working directory is.
+	l.ini = iniWith(t, "[SERVER]\nWEBAPP_DIR = webapp\n")
+	if got, want := l.resolveConfigWebAppDir(), filepath.Join(filepath.Dir(l.ini.SourceFile()), "webapp"); got != want {
+		t.Errorf("relative: got %q, want %q", got, want)
+	}
+
+	l.ini = iniWith(t, "[SERVER]\nWEBAPP_DIR = /srv/apps/\n")
+	if got, want := l.resolveConfigWebAppDir(), "/srv/apps"; got != want {
+		t.Errorf("absolute: got %q, want %q", got, want)
+	}
+}
+
 // TestResolveWSOriginPatterns covers the N1 security default: an empty
 // allow-list means same-origin only, which is what blocks cross-site WebSocket
 // hijacking of a machine-controlling endpoint. Anything else is opt-in.

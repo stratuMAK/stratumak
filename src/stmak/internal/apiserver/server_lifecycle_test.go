@@ -525,6 +525,54 @@ func TestAddWebApps(t *testing.T) {
 	}
 }
 
+// TestAddWebAppsConfigDir covers a configuration's own app directory next to
+// the system's: its apps are served too, and a name the system already has
+// stays the system's.
+func TestAddWebAppsConfigDir(t *testing.T) {
+	writeApp := func(base, name, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(base, name), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(base, name, "index.html"), []byte(body), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+	system, cfg := t.TempDir(), t.TempDir()
+	writeApp(system, "halshow", "system halshow")
+	writeApp(cfg, "halshow", "config halshow")
+	writeApp(cfg, "transp", "config transp")
+
+	s := NewServer(NewRegistry(), "127.0.0.1:0")
+	s.SetLogger(quietLogger())
+	s.AddWebApps(system, cfg)
+
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	get := func(path string) (int, string) {
+		t.Helper()
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+
+	if code, body := get("/app/transp/"); code != http.StatusOK || body != "config transp" {
+		t.Errorf("config app = %d %q", code, body)
+	}
+	if code, body := get("/app/halshow/"); code != http.StatusOK || body != "system halshow" {
+		t.Errorf("colliding name = %d %q, want the system's app", code, body)
+	}
+	_, body := get("/")
+	if strings.Count(body, `href="/app/halshow/"`) != 1 || !strings.Contains(body, `href="/app/transp/"`) {
+		t.Errorf("root listing = %q", body)
+	}
+}
+
 func TestAddWebAppsTolerantOfBadDir(t *testing.T) {
 	// A missing or unset webapp directory must degrade to "no apps", not panic
 	// or abort startup — a headless controller has no HMI bundle.

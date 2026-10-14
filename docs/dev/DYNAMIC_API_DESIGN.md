@@ -2216,6 +2216,11 @@ src/webapp/halscope/
 - RIP: `share/stmak/webapp/` (relative to `EMC2_HOME`)
 - Installed: `$(datadir)/stmak/webapp/`
 
+**Configuration-local apps:** `[SERVER]WEBAPP_DIR` (relative to the INI
+file's directory) names a second directory whose subdirectories are served
+the same way, after the system's. A name the system already serves is
+refused with an error naming both directories; the system app stays.
+
 **Implementation Plan:**
 
 1. [x] Add `EMC2WebAppDir` config variable + ldflags
