@@ -1256,7 +1256,7 @@ client.jog_start(axis="x", speed=100.0)
 - [x] axisui.comp: cmod with HAL pins and GMI callbacks
 - [x] HAL config: `axisui.hal` + INI entries for sim configs
 - [x] WatchFactory registry: auto-registration via init() + packages.conf
-- [x] `modcompile add-gmi`: auto-registration during codegen
+- [x] GMI packages auto-discovered from `generated/gmi/` by `regenerate-imports` (`add-gmi` now registers IDLs from outside the tree)
 - [x] Python `gmi` package: `rest_url()`/`ws_url()` central URL helpers
 - [x] Debian packaging: install rules for `gmi/` Python package and `cmod/*.so`
 - [x] `loadusr` PID tracking: proper SIGTERM on shutdown for non-HAL child processes

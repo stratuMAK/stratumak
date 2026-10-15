@@ -1458,11 +1458,11 @@ func cmdAddGomod(dir string, force bool) {
 // removeStaleExternals removes external module directories whose .origin path
 // no longer exists on disk. This prevents "duplicate module registration" panics
 // when a source directory is moved/renamed and reinstalled under a new basename.
-func removeStaleExternals(skipName string) {
+func removeStaleExternals(skipName string) (removed bool) {
 	extBase := moduleStoreDir()
 	subs, err := os.ReadDir(extBase)
 	if err != nil {
-		return
+		return false
 	}
 	for _, sub := range subs {
 		if !sub.IsDir() || sub.Name() == skipName {
@@ -1483,8 +1483,11 @@ func removeStaleExternals(skipName string) {
 		// Origin no longer exists — remove stale entry.
 		staleDir := filepath.Join(extBase, sub.Name())
 		fmt.Fprintf(os.Stderr, "Removing stale module %s (origin %s no longer exists)\n", sub.Name(), origin)
-		_ = os.RemoveAll(staleDir)
+		if err := os.RemoveAll(staleDir); err == nil {
+			removed = true
+		}
 	}
+	return removed
 }
 
 // extGoMod is the part of an external module's go.mod that add-gomod acts on.

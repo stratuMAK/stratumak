@@ -8,21 +8,41 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pkgreg"
 )
 
 // withInPlaceTree points modcompile at an empty run-in-place tree: the module
-// store is <tree>/external and the build tree is the tree itself.
+// store is <tree>/external, the build tree is the tree itself, and stmakd
+// would land in <tree>/bin.
 func withInPlaceTree(t *testing.T) string {
 	t.Helper()
 	tree := t.TempDir()
-	oldState := config.EMC2StateDir
-	t.Cleanup(func() { config.EMC2StateDir = oldState })
+	oldState, oldBin := config.EMC2StateDir, config.EMC2BinDir
+	t.Cleanup(func() { config.EMC2StateDir, config.EMC2BinDir = oldState, oldBin })
 	config.EMC2StateDir = ""
+	config.EMC2BinDir = filepath.Join(tree, "bin")
 	t.Setenv(config.StmakDirEnv, tree)
 	return tree
+}
+
+// buildServer stands in for a rebuild that linked the generated packages:
+// it writes a stmakd newer than anything generated so far.
+func buildServer(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(config.EMC2BinDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(config.EMC2BinDir, "stmakd")
+	if err := os.WriteFile(path, []byte("#!/bin/false\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // writeIDL writes a minimal valid IDL for api into dir as file.
@@ -167,7 +187,7 @@ func TestAddGmiRefusesInvalidIDL(t *testing.T) {
 
 func TestGenerateExternalGMIRefusesDuplicates(t *testing.T) {
 	tree := withInPlaceTree(t)
-	for _, mod := range []string{"one", "two"} {
+	for _, mod := range []string{"gmi-one", "gmi-two"} {
 		dir := filepath.Join(tree, "external", mod, "gmi")
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatal(err)
@@ -194,6 +214,15 @@ func TestAddGmiUnchanged(t *testing.T) {
 	if err := generateExternalGMI(tree); err != nil {
 		t.Fatal(err)
 	}
+	// Generated but stmakd never built from it (the rebuild failed after
+	// codegen): still a change.
+	if changed, err := addGmi(idl, false); err != nil || !changed {
+		t.Fatalf("re-add after a failed build: changed=%v err=%v, want a change", changed, err)
+	}
+	if err := generateExternalGMI(tree); err != nil {
+		t.Fatal(err)
+	}
+	buildServer(t)
 	if changed, err := addGmi(idl, false); err != nil || changed {
 		t.Fatalf("re-add of the built IDL: changed=%v err=%v, want none", changed, err)
 	}
@@ -203,5 +232,99 @@ func TestAddGmiUnchanged(t *testing.T) {
 	}
 	if changed, err := addGmi(idl, false); err != nil || !changed {
 		t.Fatalf("re-add of an edited IDL: changed=%v err=%v, want a change", changed, err)
+	}
+}
+
+func TestAddGmiRefusesStreamIDL(t *testing.T) {
+	tree := withInPlaceTree(t)
+	src := "@api tap\n@author \"Test\"\n@license \"GPL Version 2\"\n@version 1\n@prefix tap\n\n" +
+		"stream_server tap {\n    new_conn(conn_id: u32) -> i32\n    closed_conn(conn_id: u32)\n}\n"
+	path := filepath.Join(t.TempDir(), "tap.gmi")
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := addGmi(path, false)
+	if err == nil || !strings.Contains(err.Error(), "stream_server") {
+		t.Fatalf("addGmi of a stream IDL: err = %v, want a refusal", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(tree, "external")); len(entries) != 0 {
+		t.Errorf("store holds %d entries after a refusal, want 0", len(entries))
+	}
+}
+
+// TestGenerateExternalGMILeavesGomodIDLs: an IDL an external Go module ships
+// comes with its own generated package; regenerate must not touch it.
+func TestGenerateExternalGMILeavesGomodIDLs(t *testing.T) {
+	tree := withInPlaceTree(t)
+	dir := filepath.Join(tree, "external", "mymod", "gmi")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeIDL(t, dir, "transp.gmi", "transp")
+	if err := generateExternalGMI(tree); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "transp")); err == nil {
+		t.Error("a Go module's own IDL was regenerated")
+	}
+	// It still owns the name, though.
+	_, err := addGmi(writeIDL(t, t.TempDir(), "transp.gmi", "transp"), false)
+	if err == nil || !strings.Contains(err.Error(), "mymod") {
+		t.Errorf("add-gmi of an API a Go module provides: err = %v, want a refusal naming it", err)
+	}
+}
+
+func TestAddGmiRenamedAPI(t *testing.T) {
+	tree := withInPlaceTree(t)
+	src := t.TempDir()
+	idl := writeIDL(t, src, "transp.gmi", "transp")
+	if _, err := addGmi(idl, false); err != nil {
+		t.Fatal(err)
+	}
+	// The same file now declares another API: the old entry must go.
+	writeIDL(t, src, "transp.gmi", "transport")
+	if changed, err := addGmi(idl, false); err != nil || !changed {
+		t.Fatalf("re-add after a rename: changed=%v err=%v", changed, err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(tree, "external"))
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if !slices.Equal(names, []string{"gmi-transport"}) {
+		t.Errorf("store = %v, want [gmi-transport]", names)
+	}
+}
+
+// TestAddGmiStaleOrigin: an entry whose origin file is gone is replaced
+// without --force; a live one from elsewhere is not.
+func TestAddGmiStaleOrigin(t *testing.T) {
+	withInPlaceTree(t)
+	gone := t.TempDir()
+	first := writeIDL(t, gone, "transp.gmi", "transp")
+	if _, err := addGmi(first, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	second := writeIDL(t, t.TempDir(), "transp.gmi", "transp")
+	if _, err := checkGmi(second, false); err != nil {
+		t.Errorf("checkGmi against a stale entry: %v", err)
+	}
+	if changed, err := addGmi(second, false); err != nil || !changed {
+		t.Fatalf("replacing a stale entry: changed=%v err=%v", changed, err)
+	}
+}
+
+// TestCheckGmiTouchesNothing: the check add-gmi runs over every file before
+// recording any must not write to the store.
+func TestCheckGmiTouchesNothing(t *testing.T) {
+	tree := withInPlaceTree(t)
+	if _, err := checkGmi(writeIDL(t, t.TempDir(), "transp.gmi", "transp"), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(tree, "external")); err == nil {
+		t.Error("checkGmi created the store")
 	}
 }

@@ -99,7 +99,11 @@ validates it and records it in the module store as `gmi-<api>/gmi/<api>.gmi`
 — the trust decision, privileged on a packaged system — and the rebuild
 generates `--server-c` and `--server-meta` into `gmi-<api>/gmi/<api>/`, where
 external GMI packages are discovered. An API name stratuMAK already has, or
-that another external module provides, is refused.
+that another external module provides, is refused, as is an IDL with
+`stream_server` blocks (the rebuild generates no stream bridge). An IDL an
+external Go module ships itself is left alone: its package is the one the
+module came with. `add-gmi` of a registered, unchanged IDL that stmakd was
+built from does not rebuild; `modcompile rebuild` forces one.
 
 `--compile`/`--install` look an API's header up there when a `.comp` names it
 in `gmi_provide`/`gmi_consume`. A hand-written `.c` declares nothing, so it is
