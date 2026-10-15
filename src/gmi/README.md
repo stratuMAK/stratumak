@@ -82,6 +82,35 @@ so that `stmakd` compiles against fresh output. That Submakefile must appear in
 `SUBDIRS` after `stmak` (which builds `modcompile`) and before anything that
 consumes the generated headers.
 
+## IDLs from outside the tree
+
+A machine configuration can define its own API, next to the component that
+provides it:
+
+```bash
+modcompile add-gmi gmi/transp.gmi    # record it and rebuild stmakd
+modcompile --install transp_main.c   # finds transp_api.h
+modcompile rm-gmi transp             # unregister and rebuild
+```
+
+The REST routing is generated Go code compiled into `stmakd`, so an external
+IDL takes the route an external Go module does (`add-gomod`): `add-gmi`
+validates it and records it in the module store as `gmi-<api>/gmi/<api>.gmi`
+— the trust decision, privileged on a packaged system — and the rebuild
+generates `--server-c` and `--server-meta` into `gmi-<api>/gmi/<api>/`, where
+external GMI packages are discovered. An API name stratuMAK already has, or
+that another external module provides, is refused, as is an IDL with
+`stream_server` blocks (the rebuild generates no stream bridge). An IDL an
+external Go module ships itself is left alone: its package is the one the
+module came with. `add-gmi` of a registered, unchanged IDL that stmakd was
+built from does not rebuild; `modcompile rebuild` forces one.
+
+`--compile`/`--install` look an API's header up there when a `.comp` names it
+in `gmi_provide`/`gmi_consume`. A hand-written `.c` declares nothing, so it is
+compiled with every API header directory on its include path. Client code for
+a web app comes straight from the file, as for any IDL
+(`modcompile gmi --client-ts gmi/transp.gmi -o ...`).
+
 ## Runtime library (libgmi)
 
 C library backing generated C clients and servers: error codes, dynamic

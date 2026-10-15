@@ -152,6 +152,18 @@ func (l *Launcher) Run() (runErr error) {
 	// Initialize the API registry so cmod plugins can register/lookup APIs.
 	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
 
+	// The INI first: the API server created right below binds its listen
+	// address and reads its connection limits and allowed origins from
+	// [SERVER]. Parsed any later, REST_ADDR was silently ignored and the
+	// server bound the default port -- which, on a development machine, can
+	// be a tunnel to a real controller.
+	l.logger.Info("parsing INI file", "path", l.opts.IniFile)
+	ini, err := inifile.Parse(l.opts.IniFile)
+	if err != nil {
+		return err
+	}
+	l.ini = ini
+
 	// Create the API server early so that stream_server registrations
 	// from cmod plugins (which happen during HAL file loading) can find it.
 	// This also binds the listen address — before realtime starts — so a taken
@@ -193,13 +205,6 @@ func (l *Launcher) Run() (runErr error) {
 	// M7: Trap SIGINT and SIGTERM so that Ctrl-C triggers an ordered shutdown
 	// instead of an abrupt process exit that leaves HAL loaded.
 	l.watchSignals()
-
-	l.logger.Info("parsing INI file", "path", l.opts.IniFile)
-	ini, err := inifile.Parse(l.opts.IniFile)
-	if err != nil {
-		return err
-	}
-	l.ini = ini
 
 	// Register the INI REST API handler (exposes parsed INI via /api/v1/ini/query).
 	if err := inirest.Register(apiserver.DefaultRegistry(), l.ini); err != nil {

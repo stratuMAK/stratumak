@@ -1256,7 +1256,7 @@ client.jog_start(axis="x", speed=100.0)
 - [x] axisui.comp: cmod with HAL pins and GMI callbacks
 - [x] HAL config: `axisui.hal` + INI entries for sim configs
 - [x] WatchFactory registry: auto-registration via init() + packages.conf
-- [x] `modcompile add-gmi`: auto-registration during codegen
+- [x] GMI packages auto-discovered from `generated/gmi/` by `regenerate-imports` (`add-gmi` now registers IDLs from outside the tree)
 - [x] Python `gmi` package: `rest_url()`/`ws_url()` central URL helpers
 - [x] Debian packaging: install rules for `gmi/` Python package and `cmod/*.so`
 - [x] `loadusr` PID tracking: proper SIGTERM on shutdown for non-HAL child processes
@@ -2215,6 +2215,11 @@ src/webapp/halscope/
 **RIP vs Installed paths:**
 - RIP: `share/stmak/webapp/` (relative to `EMC2_HOME`)
 - Installed: `$(datadir)/stmak/webapp/`
+
+**Configuration-local apps:** `[SERVER]WEBAPP_DIR` (relative to the INI
+file's directory) names a second directory whose subdirectories are served
+the same way, after the system's. A name the system already serves is
+refused with an error naming both directories; the system app stays.
 
 **Implementation Plan:**
 

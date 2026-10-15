@@ -25,6 +25,8 @@
 //	rebuild          Regenerate imports_generated.go and rebuild stmakd.
 //	add-gomod        Copy a Go package into stratuMAK and rebuild stmakd.
 //	rm-gomod         Remove a Go package and rebuild stmakd.
+//	add-gmi          Register an external IDL file and rebuild stmakd.
+//	rm-gmi           Remove an external IDL and rebuild stmakd.
 //
 // Environment query options (for external Makefiles):
 //
@@ -65,7 +67,7 @@ const usageText = `modcompile: Compile .comp files, generate GMI code, and manag
 Usage:
     modcompile [options] file.comp...
     modcompile gmi [options] file.gmi...
-    modcompile list | rebuild | add-gomod | rm-gomod
+    modcompile list | rebuild | add-gomod | rm-gomod | add-gmi | rm-gmi
     modcompile --cflags | --ldflags | --cmod-dir | --include-dir
     modcompile --print-make-inc
 
@@ -103,6 +105,12 @@ Package registry commands:
     rebuild          Regenerate imports + rebuild stmakd from packages.conf
     add-gomod <dir>  Copy a Go package into stratuMAK, register, and rebuild
     rm-gomod <name>  Unregister, delete source, and rebuild stmakd
+    add-gmi <file.gmi>...
+                     Register an API's IDL from outside the tree (a machine
+                     configuration's own), and rebuild stmakd with its REST
+                     routing. Its C header is then found by --compile and
+                     --install of the cmod that provides or consumes it.
+    rm-gmi <api>...  Unregister an API added by add-gmi, and rebuild stmakd
 
 Environment query options (for external Makefiles):
     --cflags         Print compiler flags for cmod components
@@ -130,6 +138,8 @@ Examples:
     modcompile list
     modcompile add-gomod /path/to/galv-formula
     modcompile rm-gomod galv-formula
+    modcompile add-gmi gmi/transp.gmi
+    modcompile rm-gmi transp
     modcompile rebuild
 
     # Use in external Makefile:
@@ -292,18 +302,27 @@ func main() {
 		return
 
 	case "add-gmi":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "modcompile add-gmi: missing import path argument")
+		force := false
+		var files []string
+		for _, a := range os.Args[2:] {
+			if a == "--force" || a == "-f" {
+				force = true
+			} else if !strings.HasPrefix(a, "-") {
+				files = append(files, a)
+			}
+		}
+		if len(files) == 0 {
+			fmt.Fprintln(os.Stderr, "modcompile add-gmi: missing .gmi file argument")
 			os.Exit(1)
 		}
-		cmdAddGmi(os.Args[2])
+		cmdAddGmi(files, force)
 		return
 	case "rm-gmi":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "modcompile rm-gmi: missing import path argument")
+			fmt.Fprintln(os.Stderr, "modcompile rm-gmi: missing API name argument")
 			os.Exit(1)
 		}
-		cmdRmGmi(os.Args[2])
+		cmdRmGmi(os.Args[2:])
 		return
 
 	// GMI code generation subcommand
@@ -782,7 +801,12 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 		gmiAPIs[entry.API] = true
 	}
 	for api := range gmiAPIs {
-		gmiIncludes = append(gmiIncludes, "-I"+filepath.Join(config.StmakDir(), "generated", "gmi", api))
+		dir := gmiIncludeDir(api)
+		if dir == "" {
+			return fmt.Errorf("%s: unknown GMI API %q: not built into stratuMAK, and no external IDL "+
+				"of that name has been built (modcompile add-gmi <file.gmi>)", compPath, api)
+		}
+		gmiIncludes = append(gmiIncludes, "-I"+dir)
 	}
 
 	// Add the .comp's own directory so a relative #include "local.h" resolves:
@@ -828,9 +852,14 @@ func compileCFile(cPath string, outDir string) error {
 	}
 	// Add the .c's own directory so a relative #include "local.h" resolves.
 	// A hand-written .c has no .comp to declare dependencies in; it belongs to
-	// a Makefile if it needs any.
+	// a Makefile if it needs any. Nor does it declare the GMI APIs it uses,
+	// so every API header there is goes on the include path.
 	dir := filepath.Dir(absCPath)
-	return compileCMod(absCPath, dir, outDir, "", []string{"-I" + dir}, buildDeps{})
+	includes := []string{"-I" + dir}
+	for _, d := range allGMIIncludeDirs() {
+		includes = append(includes, "-I"+d)
+	}
+	return compileCMod(absCPath, dir, outDir, "", includes, buildDeps{})
 }
 
 // cgoFlags returns the include and link flags a build of the stratuMAK Go packages
@@ -1154,6 +1183,10 @@ func cmdList() {
 			os.Exit(1)
 		}
 		for _, name := range mods {
+			if api, ok := strings.CutPrefix(name, extGMIPrefix); ok {
+				reg.Add(pkgreg.Entry{Type: pkgreg.TypeGMI, ImportPath: "external/" + name + "/gmi/" + api})
+				continue
+			}
 			reg.Add(pkgreg.Entry{Type: pkgreg.TypeGomod, ImportPath: "external/" + name})
 		}
 	} else {
@@ -1206,7 +1239,12 @@ func cmdRegenerateImports() {
 		os.Exit(1)
 	}
 
-	// 2. Auto-discover GMI packages.
+	// 2. Generate the external IDLs' packages, then auto-discover GMI
+	// packages.
+	if err := generateExternalGMI(stmakDir); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile: generating external GMI code: %v\n", err)
+		os.Exit(1)
+	}
 	for _, e := range pkgreg.DiscoverGMI(stmakDir) {
 		reg.Add(e)
 	}
@@ -1420,11 +1458,11 @@ func cmdAddGomod(dir string, force bool) {
 // removeStaleExternals removes external module directories whose .origin path
 // no longer exists on disk. This prevents "duplicate module registration" panics
 // when a source directory is moved/renamed and reinstalled under a new basename.
-func removeStaleExternals(skipName string) {
+func removeStaleExternals(skipName string) (removed bool) {
 	extBase := moduleStoreDir()
 	subs, err := os.ReadDir(extBase)
 	if err != nil {
-		return
+		return false
 	}
 	for _, sub := range subs {
 		if !sub.IsDir() || sub.Name() == skipName {
@@ -1445,8 +1483,11 @@ func removeStaleExternals(skipName string) {
 		// Origin no longer exists — remove stale entry.
 		staleDir := filepath.Join(extBase, sub.Name())
 		fmt.Fprintf(os.Stderr, "Removing stale module %s (origin %s no longer exists)\n", sub.Name(), origin)
-		_ = os.RemoveAll(staleDir)
+		if err := os.RemoveAll(staleDir); err == nil {
+			removed = true
+		}
 	}
+	return removed
 }
 
 // extGoMod is the part of an external module's go.mod that add-gomod acts on.
@@ -1617,20 +1658,6 @@ func rmGomodTarget(name, extDir string) (string, error) {
 			name, targetDir, extDir)
 	}
 	return targetDir, nil
-}
-
-// cmdAddGmi adds a GMI package to the registry idempotently.
-// importPath is relative to the stratuMAK module, e.g. "generated/gmi/axisui".
-// cmdAddGmi is a no-op retained for backward compatibility.
-// GMI packages are now auto-discovered from generated/gmi/ and external/*/gmi/
-// during regenerate-imports.  The codegen Submakefile still calls this, but it
-// does nothing.
-func cmdAddGmi(importPath string) {
-}
-
-// cmdRmGmi is a no-op retained for backward compatibility.
-// GMI packages are auto-discovered; removing the generated directory is sufficient.
-func cmdRmGmi(importPath string) {
 }
 
 // goModTidy runs "go mod tidy" in the build tree to clean up unused
@@ -1927,10 +1954,12 @@ func cmdGMI(args []string) {
 	}
 }
 
-func processGMIFile(file string, m gmiMode, outputPath string) error {
+// loadGMI parses and validates one IDL file. The parser's and the checker's
+// own messages go to stderr; the error returned says which step failed.
+func loadGMI(file string) (*gmiast.API, error) {
 	src, err := os.ReadFile(file)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	api, errors := gmiparser.Parse(file, string(src))
@@ -1938,18 +1967,26 @@ func processGMIFile(file string, m gmiMode, outputPath string) error {
 		for _, e := range errors {
 			fmt.Fprintln(os.Stderr, e)
 		}
-		return fmt.Errorf("parse failed")
+		return nil, fmt.Errorf("%s: parse failed", file)
 	}
 
 	if api.License == "" {
-		return fmt.Errorf("%s: missing required @license annotation", file)
+		return nil, fmt.Errorf("%s: missing required @license annotation", file)
 	}
 
 	if errs := gmicheck.Validate(api); len(errs) > 0 {
 		for _, e := range errs {
 			fmt.Fprintln(os.Stderr, e)
 		}
-		return fmt.Errorf("%s: constraint validation failed", file)
+		return nil, fmt.Errorf("%s: constraint validation failed", file)
+	}
+	return api, nil
+}
+
+func processGMIFile(file string, m gmiMode, outputPath string) error {
+	api, err := loadGMI(file)
+	if err != nil {
+		return err
 	}
 
 	switch m {

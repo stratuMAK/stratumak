@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +49,23 @@ func (l *Launcher) resolveRESTAddr() string {
 		}
 	}
 	return defaultRESTAddr
+}
+
+// resolveConfigWebAppDir returns the configuration's own web app directory,
+// [SERVER]WEBAPP_DIR, a relative path taken from the INI file's directory, or
+// "" if there is none.
+func (l *Launcher) resolveConfigWebAppDir() string {
+	if l.ini == nil {
+		return ""
+	}
+	dir := strings.TrimSpace(l.ini.Get("SERVER", "WEBAPP_DIR"))
+	if dir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(filepath.Dir(l.ini.SourceFile()), dir)
+	}
+	return filepath.Clean(dir)
 }
 
 // resolveConnLimit reads a connection cap from the STMAK_<key> environment
@@ -212,13 +230,14 @@ func (l *Launcher) startAPIServer() {
 	}
 	halrest.RegisterWatch(watchReg, watchInterval)
 
-	// Serve web applications from share/stmak/webapp/<app>/
-	if config.EMC2WebAppDir != "" {
-		l.logger.Info("configuring web apps", "dir", config.EMC2WebAppDir)
-		srv.AddWebApps(config.EMC2WebAppDir)
-	} else {
-		l.logger.Warn("EMC2WebAppDir not set, web apps disabled")
+	// Serve web applications from share/stmak/webapp/<app>/, and the
+	// configuration's own from [SERVER]WEBAPP_DIR.
+	if config.EMC2WebAppDir == "" {
+		l.logger.Warn("EMC2WebAppDir not set, system web apps disabled")
 	}
+	configWebApps := l.resolveConfigWebAppDir()
+	l.logger.Info("configuring web apps", "dir", config.EMC2WebAppDir, "config_dir", configWebApps)
+	srv.AddWebApps(config.EMC2WebAppDir, configWebApps)
 
 	addr := l.resolveRESTAddr()
 	srv.SetAddr(addr)
