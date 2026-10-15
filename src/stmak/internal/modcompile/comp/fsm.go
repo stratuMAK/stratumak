@@ -101,9 +101,9 @@ type fsmTrans struct {
 	Internal bool
 }
 
-// fsmTimeout is a state's "timeout (expr)" item.  Trans is nil when the any
-// block handles it, and Internal for 'timeout (expr) { action }'.  Trans.Target is empty when
-// the any block handles it.
+// fsmTimeout is a state's "timeout (expr)" item.  Trans is nil when the
+// any block handles it ('timeout (expr);'), and Internal for
+// 'timeout (expr) { action }'.
 type fsmTimeout struct {
 	Pos   ast.Pos
 	Expr  cfrag

@@ -517,6 +517,8 @@ If the component has a single function, the code after `;;` can be just that cal
   States are numbered in source order from 0.
   An `io` pin is a restore point: if it holds a valid state number on the first run (a retained signal, or one set before the threads start),
   the machine continues in that state instead of the initial one. Afterwards the machine writes the pin every run, so writes from outside have no effect.
+  The first state must be the initial one then: a fresh signal holds 0, which restores the first state.
+  A reset held on the first run discards the retained state, as any reset does, so `reset: (!machine_on)` does not fit a machine whose state is retained.
 * 'timer_var' - an `out`/`io` `float` pin, or a `double`/`float` variable, holding the time in the current state in seconds.
 
 Names are the C names user code uses (`in-1` is written `in_1`).
@@ -563,11 +565,14 @@ and `on (load) -> FEED_IN { tray_id = tray_id_in; }` after it still takes the ne
 
 An output written in `on_enter`, `on_exit` or an action is therefore a one-cycle pulse.
 An output that holds while in a state is written in `output`.
+`output` runs last: a pulse written to an output that the entered state's `output` block also writes is overwritten in the same run,
+so an output is either pulsed or set by `output`, not both.
 `output` is the mapping from the state to outputs, and shows the state while the machine is disabled
 (automatic paused, transitions frozen); it may write the machine's 'outputs' only, and may read anything,
 so `output { idle = auto_mode; }` refines an output by an input.
 `during` must not write the machine's outputs: it runs before the transitions, so the value would carry over
-into the next state for the cycle a transition fires.
+into the next state for the cycle a transition fires. Nor may it read them: they hold their defaults there, like in a condition.
+What a state must remember from one cycle to the next is a 'latched' or 'persistent' entry, not an output read back.
 `during` stops while disabled.
 While reset is held, the outputs therefore show the initial state; user code that needs them all off then (or at machine off)
 calls `NAME_reset_outputs()` after the run.
@@ -641,12 +646,13 @@ a request is a flag that an `on` item reacts to and the action clears.
 === Checks
 
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
-an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
+an entry written by more than one list or machine, an `on` condition, 'enable', `timeout` or `during` reading one of the machine's outputs
 (they always hold their default there), an 'inputs' entry listed twice or also in 'outputs',
 an `output` block assigning anything but the machine's 'outputs', a `during` block assigning one of them, an empty or comment-only expression, a `timeout (...);` without `any { timeout -> ...; }`,
 an `on` without a target in `any`, or without a target and an action (`on (x);`),
 colliding generated names, machines that run each other (the calls would recurse),
-a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
+a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), an `io` 'state_var' with an initial state that is not the first,
+and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).
 
 Warnings: an `on` condition reading a pin or variable that is not in 'inputs', 'latched' or 'persistent' (when 'inputs' is given; params are exempt),
