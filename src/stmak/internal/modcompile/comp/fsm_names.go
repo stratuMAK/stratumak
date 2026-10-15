@@ -21,19 +21,24 @@ func (f *fsmDecl) hidden() string { return "__fsm_" + f.Name }
 // enumName returns the enum constant of a state.
 func (f *fsmDecl) enumName(state string) string { return f.Name + "_" + state }
 
-// helperName returns the per-state helper function of kind enter, exit or
-// during.
+// helperName returns the per-state helper function of kind enter, exit,
+// during or output.
 func (f *fsmDecl) helperName(kind, state string) string {
 	return fmt.Sprintf("%s_%s_%s", f.hidden(), kind, state)
 }
 
-// stateVarName returns the C expression holding the state.
+// stateVarName returns the C expression holding the state: the state_var,
+// or a hidden variable when there is none or it is an io pin.
 func (f *fsmDecl) stateVarName() string {
-	if f.StateVar != nil {
+	if f.StateVar != nil && !f.StateIO {
 		return f.StateVar.String()
 	}
 	return f.hidden() + "_state"
 }
+
+// resetOutputsName returns the helper that writes the outputs to their
+// defaults.
+func (f *fsmDecl) resetOutputsName() string { return f.hidden() + "_reset_outputs" }
 
 // actionTrans pairs a transition that has an action block with the state
 // whose item it is (nil for an any item).
@@ -86,12 +91,14 @@ func (f *fsmDecl) generatedNames() []genName {
 		{n + "_in", "the state test macro of fsm " + n, f.Pos, false},
 		{n + "_run", "the run function of fsm " + n, f.Pos, false},
 		{n + "_state_name", "the state name function of fsm " + n, f.Pos, false},
+		{n + "_reset_outputs", "the output reset macro of fsm " + n, f.Pos, false},
 		{n + "_state", "the enum tag of fsm " + n, f.Pos, true},
 		{f.hidden() + "_init", "a hidden variable of fsm " + n, f.Pos, false},
 		{f.hidden() + "_enter", "a hidden variable of fsm " + n, f.Pos, false},
 		{f.hidden() + "_timer", "a hidden variable of fsm " + n, f.Pos, false},
+		{f.resetOutputsName(), "the output reset helper of fsm " + n, f.Pos, false},
 	}
-	if f.StateVar == nil {
+	if f.StateVar == nil || f.StateIO {
 		names = append(names, genName{f.stateVarName(), "a hidden variable of fsm " + n, f.Pos, false})
 	}
 	for _, s := range f.States {
@@ -99,7 +106,7 @@ func (f *fsmDecl) generatedNames() []genName {
 		for _, h := range []struct {
 			kind string
 			blk  *cfrag
-		}{{"enter", s.Enter}, {"exit", s.Exit}, {"during", s.During}} {
+		}{{"enter", s.Enter}, {"exit", s.Exit}, {"during", s.During}, {"output", s.Output}} {
 			if h.blk != nil {
 				names = append(names, genName{f.helperName(h.kind, s.Name),
 					fmt.Sprintf("the %s helper of state %s of fsm %s", h.kind, s.Name, n), s.Pos, false})

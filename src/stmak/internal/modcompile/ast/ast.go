@@ -151,18 +151,22 @@ type CodeFragment struct {
 
 // FSM describes one fsm block.
 type FSM struct {
-	Pos      Pos
-	Name     string
-	Initial  string
-	Inputs   []string
-	Outputs  []string // "name" or "name = default", as written
-	Latched  []string
-	Reset    string // condition text, empty if none
-	Enable   string
-	StateVar string // empty: hidden variable
-	TimerVar string
-	Any      []FSMTransition
-	States   []FSMState
+	Pos     Pos
+	Name    string
+	Initial string
+	Inputs  []string
+	Outputs []string // "name" or "name = default", as written
+	Latched []string
+	// Persistent: written to their default on reset only, kept on init.
+	Persistent []string
+	Reset      string // condition text, empty if none
+	Enable     string
+	StateVar   string // empty: hidden variable
+	// StateRestored: StateVar is an io pin, taken over on the first run.
+	StateRestored bool
+	TimerVar      string
+	Any           []FSMTransition
+	States        []FSMState
 }
 
 // FSMState is one state of an FSM; Number is its value in the state
@@ -173,6 +177,7 @@ type FSMState struct {
 	OnEnter     bool
 	OnExit      bool
 	During      bool
+	Output      bool
 	Transitions []FSMTransition // "on" items in source order, then the timeout
 }
 
@@ -182,8 +187,10 @@ type FSMState struct {
 type FSMTransition struct {
 	Timeout bool
 	Cond    string
-	Target  string
+	Target  string // empty for an internal on
 	Action  bool
+	// Internal: an on without a target, which runs its action and stays.
+	Internal bool
 }
 
 // GMIConsumeEntry describes a consumed API with an optional default provider instance.

@@ -117,6 +117,8 @@ func TestFSMGeneratedCCompiles(t *testing.T) {
 		"../../../../../tests/modcompile-fsm/fsm_test.comp",
 		"../../../../../tests/modcompile-fsm-multi/fsm_multi.comp",
 		"../../../../../tests/multiclick-fsm/multiclick_fsm.comp",
+		"../../../../../tests/modcompile-fsm-restore/fsm_restore.comp",
+		"../../../../../tests/modcompile-fsm-internal/fsm_internal.comp",
 	} {
 		name := strings.TrimSuffix(filepath.Base(f), ".comp")
 		t.Run(name, func(t *testing.T) {
@@ -149,7 +151,7 @@ function _;
 		// Blocks are functions of their own: return, period and fperiod.
 		{"return and fperiod in blocks",
 			`fsm m { outputs: o; latched: st;
-			  state S { during { if (a) return; o = fperiod > 0; }
+			  state S { output { if (a) return; o = fperiod > 0; } during { if (b) return; st = fperiod > 0; }
 			            on (a) -> T { if (b) return; st = period; } }
 			  state T { on_enter { if (b) return; } on_exit { return; } on (!a) -> S; timeout (1ms) -> S; } };`,
 			"m();"},
@@ -157,8 +159,37 @@ function _;
 		{"two fsms",
 			`fsm mode { state IDLE { on (a) -> RUN; } state RUN { on (!a) -> IDLE; } };
 			 fsm seq { outputs: o; state_var: st; enable: (mode_in(RUN));
-			  state A { during { o = 1; } on (b) -> B; } state B { on (!b) -> A; } };`,
+			  state A { output { o = 1; } on (b) -> B; } state B { on (!b) -> A; } };`,
 			"FUNCTION(_) { mode(); seq(); }"},
+		// io state pins of both signs, restored on the first run; output
+		// blocks without during; reset_outputs from user code; an out pin
+		// as input.
+		{"io state, output, reset_outputs",
+			`pin io s32 ios; pin io u32 iou;
+			 fsm m { inputs: o; outputs: o2 = 1; state_var: ios; enable: (a);
+			  state S { output { o2 = 0; } on (o) -> T; } state T { output { int k = 2; o2 = k; } on (!o) -> S; } };
+			 fsm n { state_var: iou; reset: (b);
+			  state X { on_enter { o = 4; } on (a) -> Y; } state Y { on (!a) -> X; } };
+			 pin out s32 o2;`,
+			"FUNCTION(_) { o = a; m(); n(); if (!b) { m_reset_outputs(); n_reset_outputs(); } }"},
+		{"internal on",
+			`variable int n;
+			 fsm m { inputs: a, b; latched: n; timer_var: tv;
+			  state S { on (a) { n++; } on (b) { if (n > 2) return; n = 0; } on (!a) -> T; timeout (1) -> T; }
+			  state T { on (b) -> S; } };
+			 variable double tv;`,
+			"FUNCTION(_) { m(); }"},
+		{"internal timeout",
+			`variable int n;
+			 fsm m { inputs: a; latched: n;
+			  state S { on (a) -> T; timeout (2ms) { if (n > 5) return; n++; } }
+			  state T { on (!a) -> S; timeout (1) -> S; } };`,
+			"FUNCTION(_) { m(); }"},
+		{"persistent",
+			`pin io u32 model; variable double pv;
+			 fsm m { inputs: a; persistent: model, pv = 0.5; reset: (b);
+			  state S { on (a && model) -> T { model = 0; pv += 1; } } state T { on (!a) -> S { model = 7; } } };`,
+			"FUNCTION(_) { m(); }"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			compileFSMC(t, "cc", header+tc.fsm+"\n;;\n"+tc.code+"\n")

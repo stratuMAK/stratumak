@@ -156,6 +156,16 @@ function _ "Detect single-, double-, triple-, and quadruple-clicks";
 
 fsm click {
     inputs:    pressed;
+    // The pulses and their hold timers: set by the actions, counted down
+    // and cleared by the code below.
+    latched:   single_click, single_click_hold_timer,
+               single_click_only, single_click_only_hold_timer,
+               double_click, double_click_hold_timer,
+               double_click_only, double_click_only_hold_timer,
+               triple_click, triple_click_hold_timer,
+               triple_click_only, triple_click_only_hold_timer,
+               quadruple_click, quadruple_click_hold_timer,
+               quadruple_click_only, quadruple_click_only_hold_timer;
     state_var: state;
 
     state IDLE {

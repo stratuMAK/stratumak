@@ -314,6 +314,10 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 	_, _ = fmt.Fprintf(w, "Initial state: \\fB%s\\fR.", f.Initial)
 	if pin := halNameOf(c, f.StateVar); pin != "" {
 		_, _ = fmt.Fprintf(w, " The state number is on \\fB%s\\fR.", pin)
+		if f.StateRestored {
+			_, _ = fmt.Fprint(w, " A valid state number on it at the first run is taken over (a restore, "+
+				"e.g. from a retained signal); afterwards writes from outside have no effect.")
+		}
 	}
 	if pin := halNameOf(c, f.TimerVar); pin != "" {
 		_, _ = fmt.Fprintf(w, " The time in the current state, in seconds, is on \\fB%s\\fR.", pin)
@@ -325,10 +329,36 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 	if f.Enable != "" {
 		_, _ = fmt.Fprintf(w, ".br\nRuns while: \\fI%s\\fR\n", troffText(f.Enable))
 	}
+	hasOutput := false
+	for _, s := range f.States {
+		hasOutput = hasOutput || s.Output
+	}
+	// The output blocks run in every run; say so where the reader would
+	// expect the outputs at their defaults instead.
+	switch {
+	case !hasOutput:
+	case f.Enable != "" && f.Reset != "":
+		_, _ = fmt.Fprintln(w, ".br\nThe output blocks of the states run while it does not, too, "+
+			"and that of the initial state while it is reset.")
+	case f.Enable != "":
+		_, _ = fmt.Fprintln(w, ".br\nThe output blocks of the states run while it does not, too.")
+	case f.Reset != "":
+		_, _ = fmt.Fprintln(w, ".br\nThe output block of the initial state runs while it is reset.")
+	}
 	_, _ = fmt.Fprintln(w, ".PP")
 	_, _ = fmt.Fprintln(w, "In each state the first matching row fires; \\fIany\\fR rows are checked first, "+
 		"except those leading to the current state, and timeouts (in seconds) last. "+
 		"A * marks a transition with an action.")
+	internal := false
+	for _, s := range f.States {
+		for _, t := range s.Transitions {
+			internal = internal || t.Internal
+		}
+	}
+	if internal {
+		_, _ = fmt.Fprintln(w, "A row without a next state (\\(en) runs its action and stays in the state; "+
+			"it still counts as the match, so the rows below it, the timeout included, wait while it matches.")
+	}
 
 	anyTimeout := ""
 	for _, t := range f.Any {
@@ -353,6 +383,9 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 			if next == "" {
 				next = timeoutTarget
 			}
+		}
+		if t.Internal {
+			next = "\\(en"
 		}
 		if t.Action {
 			next += " *"

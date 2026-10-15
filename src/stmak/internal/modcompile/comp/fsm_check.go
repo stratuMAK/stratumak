@@ -97,7 +97,7 @@ type fsmChecker struct {
 	comp *ast.Component
 	syms map[string]*sym
 	warn func(pos ast.Pos, format string, args ...interface{})
-	// owner maps each written entry (outputs, latched, state_var,
+	// owner maps each written entry (outputs, latched, persistent, state_var,
 	// timer_var, as written) to the fsm that writes it.
 	owner map[string]string
 }
@@ -107,7 +107,7 @@ type listRole int
 
 const (
 	roleInput listRole = iota
-	roleWrite          // outputs, latched
+	roleWrite          // outputs, latched, persistent
 	roleState
 	roleTimer
 )
@@ -144,9 +144,8 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 	}
 
 	if role == roleInput {
-		if s.Kind == symPin && s.Dir == ast.PinOut {
-			return errf("%s is an out pin", r.Name)
-		}
+		// Any pin: an out pin is read as the code before the fsm call
+		// left it.  This fsm's own outputs are rejected in check.
 		return nil
 	}
 
@@ -165,17 +164,16 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 		ok := s.Kind == symPin && (s.Type == ast.HALS32 || s.Type == ast.HALU32) ||
 			s.Kind == symVar && integerCTypes[s.CType]
 		if !ok {
-			return errf("%s is %s; need an out s32/u32 pin or an integer variable", r.Name, withArticle(s.describe()))
+			return errf("%s is %s; need an out or io s32/u32 pin or an integer variable", r.Name, withArticle(s.describe()))
 		}
 		if max, small := smallIntMax[s.CType]; small && s.Kind == symVar && len(f.States)-1 > max {
 			return errf("%s is %s, which holds state numbers up to %d; the fsm has %d states",
 				r.Name, s.CType, max, len(f.States))
 		}
-		if s.Kind == symPin && s.Dir != ast.PinOut {
-			// An io pin could be set from outside: a goto around the
-			// declared graph.
-			return errf("%s is an io pin; the state changes only through transitions, so it must be an out pin", r.Name)
-		}
+		// An io pin is taken over on the first run only (a restore, e.g.
+		// from a retained signal); afterwards the fsm writes it every run,
+		// so a write from outside is no goto around the declared graph.
+		f.StateIO = s.Kind == symPin && s.Dir == ast.PinIO
 	case roleTimer:
 		ok := s.Kind == symPin && s.Type == ast.HALFloat ||
 			s.Kind == symVar && (s.CType == "double" || s.CType == "float")
@@ -187,13 +185,20 @@ func (c *fsmChecker) checkRef(f *fsmDecl, list string, r fsmRef, role listRole) 
 	key := r.String()
 	if prev, ok := c.owner[key]; ok {
 		if prev == f.Name {
-			return fmt.Errorf("%s: fsm %s: %s is written by more than one of outputs, latched, state_var, timer_var",
+			return fmt.Errorf("%s: fsm %s: %s is written by more than one of outputs, latched, persistent, state_var, timer_var",
 				r.Pos, f.Name, key)
 		}
 		return fmt.Errorf("%s: fsm %s: %s is already written by fsm %s", r.Pos, f.Name, key, prev)
 	}
 	c.owner[key] = f.Name
 	return nil
+}
+
+// defs returns the outputs, latched and persistent entries of f.
+func (f *fsmDecl) defs() []fsmDef {
+	out := append([]fsmDef{}, f.Outputs...)
+	out = append(out, f.Latched...)
+	return append(out, f.Persistent...)
 }
 
 // fragments returns every piece of user C in f, for the unread-input scan.
@@ -210,7 +215,7 @@ func (f *fsmDecl) fragments() []cfrag {
 		}
 		add(t.Action)
 	}
-	for _, d := range append(append([]fsmDef{}, f.Outputs...), f.Latched...) {
+	for _, d := range f.defs() {
 		add(d.Default)
 	}
 	add(f.Reset)
@@ -225,6 +230,7 @@ func (f *fsmDecl) fragments() []cfrag {
 		add(s.Enter)
 		add(s.Exit)
 		add(s.During)
+		add(s.Output)
 		for i := range s.On {
 			addTrans(&s.On[i])
 		}
@@ -302,6 +308,46 @@ func howRead(u cUse) string {
 	return "with a computed index"
 }
 
+// matchWrite classifies a write u against the set: certain when it hits an
+// entry, or goes through a computed index (or the whole array) into an
+// array whose every element is in the set; computed when it may hit some
+// of them.
+func (rs refSet) matchWrite(u cUse, s *sym) (certain, computed bool) {
+	hit, computed := rs.match(u)
+	return hit || computed && len(rs[u.Name]) == s.Array, computed
+}
+
+// names lists the entries of array name in the set, for messages.
+func (rs refSet) names(name string) string {
+	var out []string
+	for _, r := range rs[name] {
+		out = append(out, r.String())
+	}
+	return strings.Join(out, ", ")
+}
+
+// blockWrite is a write to a declared pin or variable in a user C block.
+type blockWrite struct {
+	use cUse
+	sym *sym
+	pos ast.Pos
+}
+
+// writes returns the writes to declared pins and variables in blk.  Params
+// are left out: they are configuration, or status the component reports,
+// and no fsm list holds them.  Locals are not declared names.
+func (c *fsmChecker) writes(blk *cfrag) []blockWrite {
+	var out []blockWrite
+	for _, u := range cUses(blk.Text) {
+		s := c.syms[u.Name]
+		if !u.Write || s == nil || s.Kind == symParam {
+			continue
+		}
+		out = append(out, blockWrite{u, s, offsetPos(blk.Pos, blk.Text, u.Off)})
+	}
+	return out
+}
+
 func (c *fsmChecker) check(f *fsmDecl) error {
 	// Lists.
 	for _, r := range f.Inputs {
@@ -319,6 +365,11 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			return err
 		}
 	}
+	for _, d := range f.Persistent {
+		if err := c.checkRef(f, "persistent", d.fsmRef, roleWrite); err != nil {
+			return err
+		}
+	}
 	if f.StateVar != nil {
 		if err := c.checkRef(f, "state_var", *f.StateVar, roleState); err != nil {
 			return err
@@ -333,6 +384,13 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 	// States and targets.
 	if f.Initial != "" && f.state(f.Initial) == nil {
 		return fmt.Errorf("%s: fsm %s: initial state %s is not declared", f.InitPos, f.Name, f.Initial)
+	}
+	if f.StateIO && f.initialState() != f.States[0].Name {
+		// A fresh signal holds 0, which the restore takes as the first
+		// state; an initial state elsewhere would never be entered.
+		return fmt.Errorf("%s: fsm %s: initial state %s is not the first state, but state_var %s is an io pin: "+
+			"a fresh signal holds 0, which restores the first state, so the initial state must come first",
+			f.InitPos, f.Name, f.Initial, f.StateVar)
 	}
 	checkTarget := func(t *fsmTrans) error {
 		if t != nil && t.Target != "" && f.state(t.Target) == nil {
@@ -385,7 +443,7 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 	for _, r := range f.Inputs {
 		sensitive.add(r)
 	}
-	for _, d := range f.Latched {
+	for _, d := range append(append([]fsmDef{}, f.Latched...), f.Persistent...) {
 		sensitive.add(d.fsmRef)
 	}
 	for _, r := range []*fsmRef{f.StateVar, f.TimerVar} {
@@ -393,23 +451,28 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			sensitive.add(*r)
 		}
 	}
-	// The expressions evaluated after the outputs are written: conditions,
-	// enable and timeouts.  Only conditions take part in the sensitivity
-	// check.
+	// What is evaluated after the outputs are written and before anything
+	// writes them again: conditions, enable, timeouts and during (nothing
+	// writes an output between step 1 and during).  Only conditions take
+	// part in the sensitivity check.
 	type readExpr struct {
-		frag cfrag
-		what string
+		frag   cfrag
+		what   string
+		during bool // a block: its writes have a check of their own
 	}
 	var exprs []readExpr
 	for _, cond := range f.conditions() {
-		exprs = append(exprs, readExpr{cond, "condition"})
+		exprs = append(exprs, readExpr{frag: cond, what: "condition"})
 	}
 	if f.Enable != nil {
-		exprs = append(exprs, readExpr{*f.Enable, "enable"})
+		exprs = append(exprs, readExpr{frag: *f.Enable, what: "enable"})
 	}
 	for _, s := range f.States {
 		if s.Timeout != nil {
-			exprs = append(exprs, readExpr{s.Timeout.Expr, "timeout"})
+			exprs = append(exprs, readExpr{frag: s.Timeout.Expr, what: "timeout"})
+		}
+		if s.During != nil {
+			exprs = append(exprs, readExpr{frag: *s.During, what: "state " + s.Name + ": during", during: true})
 		}
 	}
 	for _, e := range exprs {
@@ -417,6 +480,9 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		for _, u := range cUses(cond.Text) {
 			s := c.syms[u.Name]
 			if s == nil || s.Kind == symParam {
+				continue
+			}
+			if e.during && u.Write {
 				continue
 			}
 			pos := offsetPos(cond.Pos, cond.Text, u.Off)
@@ -450,6 +516,49 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 					f.Name, useString(u), howRead(u))
 			default:
 				c.warn(pos, "fsm %s: condition reads %s, which is not in inputs", f.Name, useString(u))
+			}
+		}
+	}
+
+	// Output blocks run while the fsm is disabled too, so they map the
+	// state to outputs and write nothing else.  Locals of the block are
+	// not declared names and pass.
+	for _, st := range f.States {
+		if st.Output == nil {
+			continue
+		}
+		for _, w := range c.writes(st.Output) {
+			certain, computed := outputs.matchWrite(w.use, w.sym)
+			if certain {
+				continue
+			}
+			if computed {
+				return fmt.Errorf("%s: fsm %s: state %s: output writes %s %s, and not every element "+
+					"of %s is an output of this fsm", w.pos, f.Name, st.Name, useString(w.use), howRead(w.use), w.use.Name)
+			}
+			return fmt.Errorf("%s: fsm %s: state %s: output writes %s, which is not an output of this fsm; "+
+				"an output block runs while the fsm is disabled too and writes outputs only",
+				w.pos, f.Name, st.Name, useString(w.use))
+		}
+	}
+
+	// During runs before the transitions: an output it wrote would carry
+	// over into the next state for the cycle a transition fires.  Outputs
+	// come from output blocks.
+	for _, st := range f.States {
+		if st.During == nil {
+			continue
+		}
+		for _, w := range c.writes(st.During) {
+			certain, computed := outputs.matchWrite(w.use, w.sym)
+			switch {
+			case certain:
+				return fmt.Errorf("%s: fsm %s: state %s: during writes %s, an output of this fsm; during runs "+
+					"before the transitions, so the value would carry over into the next state: "+
+					"set outputs in an output block", w.pos, f.Name, st.Name, useString(w.use))
+			case computed:
+				c.warn(w.pos, "fsm %s: state %s: during writes %s %s, which may hit the outputs %s; "+
+					"set outputs in an output block", f.Name, st.Name, useString(w.use), howRead(w.use), outputs.names(w.use.Name))
 			}
 		}
 	}
@@ -538,13 +647,16 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 		s := f.state(name)
 		todo = append(todo, anyTargets...)
 		for _, t := range s.On {
-			todo = append(todo, t.Target)
+			if !t.Internal {
+				todo = append(todo, t.Target)
+			}
 		}
 		if to := s.Timeout; to != nil {
-			if to.Trans != nil {
-				todo = append(todo, to.Trans.Target)
-			} else {
+			switch {
+			case to.Trans == nil:
 				todo = append(todo, f.AnyTimeout.Target)
+			case !to.Trans.Internal:
+				todo = append(todo, to.Trans.Target)
 			}
 		}
 	}
@@ -553,8 +665,8 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 		usedAnyTimeout = usedAnyTimeout || s.Timeout != nil && s.Timeout.Trans == nil
 	}
 	if f.AnyTimeout != nil && !usedAnyTimeout {
-		c.warn(f.AnyTimeout.Pos, "fsm %s: any timeout is never used: no state has a timeout "+
-			"without a target", f.Name)
+		c.warn(f.AnyTimeout.Pos, "fsm %s: any timeout is never used: no state hands its timeout "+
+			"to it ('timeout (...);')", f.Name)
 	}
 	for _, t := range f.AnyOn {
 		// Skipped in its target state: it never fires when that is the
@@ -570,13 +682,16 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 		}
 		exits := append([]string{}, anyTargets...)
 		for _, t := range s.On {
-			exits = append(exits, t.Target)
+			if !t.Internal {
+				exits = append(exits, t.Target)
+			}
 		}
 		if to := s.Timeout; to != nil {
-			if to.Trans != nil {
-				exits = append(exits, to.Trans.Target)
-			} else {
+			switch {
+			case to.Trans == nil:
 				exits = append(exits, f.AnyTimeout.Target)
+			case !to.Trans.Internal:
+				exits = append(exits, to.Trans.Target)
 			}
 		}
 		out := false
@@ -597,8 +712,8 @@ type ownedRef struct {
 }
 
 // ownership maps what the fsms own by name: their outputs, state_var and
-// timer_var.  Latched entries are left out; code outside may acknowledge
-// them.
+// timer_var.  Latched and persistent entries are left out; code outside
+// may acknowledge or feed them.
 type ownership map[string][]ownedRef
 
 func newOwnership(fsms []*fsmDecl) ownership {
@@ -640,7 +755,7 @@ func (o ownership) match(u cUse, writer *fsmDecl) (*ownedRef, bool) {
 
 // consequence says what happens to a write to an owned entry.
 func (r *ownedRef) consequence() string {
-	if r.role == "state_var" {
+	if r.role == "state_var" && !r.f.StateIO {
 		return "the state changes only through transitions"
 	}
 	return "the fsm overwrites it on its next run"
@@ -677,6 +792,86 @@ func (c *fsmChecker) checkWrites(o ownership, writer *fsmDecl, uses []cUse, src 
 	}
 }
 
+// fsmBlock is a C block of an fsm that runs as part of it, with a label
+// for messages.
+type fsmBlock struct {
+	what string
+	frag *cfrag
+}
+
+// blocks returns the on_enter, on_exit, during and action blocks of f:
+// what runs as the fsm's own code.  Output blocks have a check of their
+// own.
+func (f *fsmDecl) blocks() []fsmBlock {
+	var out []fsmBlock
+	action := func(where string, t *fsmTrans, item string) {
+		switch {
+		case t == nil || t.Action == nil:
+		case t.Internal:
+			out = append(out, fsmBlock{where + ": action of internal " + item, t.Action})
+		default:
+			out = append(out, fsmBlock{fmt.Sprintf("%s: action of %s -> %s", where, item, t.Target), t.Action})
+		}
+	}
+	for i := range f.AnyOn {
+		action("any", &f.AnyOn[i], "on")
+	}
+	action("any", f.AnyTimeout, "timeout")
+	for _, s := range f.States {
+		where := "state " + s.Name
+		for _, b := range []struct {
+			name string
+			frag *cfrag
+		}{{"on_enter", s.Enter}, {"on_exit", s.Exit}, {"during", s.During}} {
+			if b.frag != nil {
+				out = append(out, fsmBlock{where + ": " + b.name, b.frag})
+			}
+		}
+		for i := range s.On {
+			action(where, &s.On[i], "on")
+		}
+		if s.Timeout != nil {
+			action(where, s.Timeout.Trans, "timeout")
+		}
+	}
+	return out
+}
+
+// checkUnlisted warns about writes from f's blocks to pins and variables
+// that are in none of its written lists, for an fsm that declares its
+// interface (has inputs).  What another fsm writes by its lists is exempt:
+// checkWrites covers its outputs, and code outside may acknowledge or feed
+// its latched and persistent entries.  Params are left out by writes.
+func (c *fsmChecker) checkUnlisted(f *fsmDecl, fsms []*fsmDecl) {
+	// known holds the written lists of every fsm, element by element.
+	known := refSet{}
+	for _, g := range fsms {
+		for _, d := range g.defs() {
+			known.add(d.fsmRef)
+		}
+		for _, r := range []*fsmRef{g.StateVar, g.TimerVar} {
+			if r != nil {
+				known.add(*r)
+			}
+		}
+	}
+	for _, b := range f.blocks() {
+		for _, w := range c.writes(b.frag) {
+			certain, computed := known.matchWrite(w.use, w.sym)
+			if certain {
+				continue
+			}
+			if computed {
+				c.warn(w.pos, "fsm %s: %s writes %s %s; not every element of %s is in outputs, latched or persistent",
+					f.Name, b.what, useString(w.use), howRead(w.use), w.use.Name)
+				continue
+			}
+			c.warn(w.pos, "fsm %s: %s writes %s, which is not in outputs, latched or persistent",
+				f.Name, b.what, useString(w.use))
+		}
+	}
+}
+
 // checkUserCode scans the verbatim C after ';;' and the fsm blocks for
 // writes to what the fsms own, for fsms that run each other in a cycle, for
 // fsms that are never run, and for fsms with floating point run from a nofp
@@ -709,6 +904,9 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) error {
 	type edge struct{ from, to *fsmDecl }
 	var edges []edge
 	for _, f := range fsms {
+		if f.Inputs != nil {
+			c.checkUnlisted(f, fsms)
+		}
 		for _, frag := range f.fragments() {
 			uses := cUses(frag.Text)
 			c.checkWrites(o, f, uses, frag.Text, frag.Pos)

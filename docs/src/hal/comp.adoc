@@ -474,9 +474,10 @@ fsm NAME {
     inputs:    in1, in2;              // names conditions may read
     outputs:   out1, out2 = 1;        // set to their default every cycle
     latched:   count;                 // set to their default on init and reset only
+    persistent: model;                // set to their default on reset only
     reset:     (reset_pin);           // optional
     enable:    (enable_pin);          // optional
-    state_var: state;                 // optional pin or variable showing the state
+    state_var: state;                 // optional pin or variable holding the state
     timer_var: elapsed;               // optional pin or variable: seconds in the state
     initial:   IDLE;                  // optional, default: the first state
 
@@ -488,10 +489,13 @@ fsm NAME {
     state IDLE {
         on_enter { ... }              // C, runs when the state is entered
         on_exit  { ... }              // C, runs when the state is left
-        during   { ... }              // C, runs every cycle while in the state
+        during   { ... }              // C, runs every cycle the state stays, before the on items
+        output   { ... }              // C, sets outputs from the state, also while disabled
         on (in1 && !in2) -> RUN;      // condition -> target
         on (in2) -> RUN { count++; }  // with an action
-        timeout (2.5s) -> FAULT;      // at most one per state
+        on (fault) { err |= 1; }      // internal: action, stay, hold back what follows
+        timeout (2.5s) -> FAULT;      // at most one per state; or, internal:
+                                      // timeout (2.5s) { err |= 2; }
     }
     ...
 };
@@ -503,10 +507,18 @@ If the component has a single function, the code after `;;` can be just that cal
 === Lists
 
 * 'inputs' - the pins and variables the `on` conditions read. Used for checks only.
+  An `out` pin that user code sets before the call may be listed; the machine's own outputs may not.
 * 'outputs' - `out`/`io` pins and variables written to their default (`0` unless `= EXPR` is given) at the start of every run.
 * 'latched' - like 'outputs', but written to their default only on init and reset.
-* 'state_var' - an `out` `s32` or `u32` pin, or an integer variable, holding the state number.
+  For what a run produces and code outside acknowledges, such as an error word.
+* 'persistent' - like 'outputs', but written to their default only on reset; init and a restore keep them.
+  For data that belongs to the state and survives a restart with it, such as a retained tray model.
+* 'state_var' - an `out` or `io` `s32` or `u32` pin, or an integer variable, holding the state number.
   States are numbered in source order from 0.
+  An `io` pin is a restore point: if it holds a valid state number on the first run (a retained signal, or one set before the threads start),
+  the machine continues in that state instead of the initial one. Afterwards the machine writes the pin every run, so writes from outside have no effect.
+  The first state must be the initial one then: a fresh signal holds 0, which restores the first state.
+  A reset held on the first run discards the retained state, as any reset does, so `reset: (!machine_on)` does not fit a machine whose state is retained.
 * 'timer_var' - an `out`/`io` `float` pin, or a `double`/`float` variable, holding the time in the current state in seconds.
 
 Names are the C names user code uses (`in-1` is written `in_1`).
@@ -520,23 +532,65 @@ Defaults are C expressions evaluated every time they are applied.
 One call of `NAME();`:
 
 . The 'reset' expression is read, then every 'outputs' entry is set to its default, including while reset or disabled.
-. On the first run, and in every run in which 'reset' is true: the state becomes the initial state,
+. On the first run, and in every run in which 'reset' is true: the state becomes the initial state
+  (on the first run, the state an `io` 'state_var' holds, if it is a valid one),
   the timer and 'timer_var' become 0, 'latched' entries their defaults, and an entry is marked pending.
-  While 'reset' is true, the run ends here. No `on_exit` runs: a reset is not a transition.
-. If 'enable' is false, the run ends here. State, timer and a pending entry are frozen.
-. If an entry is pending, `on_enter` and `during` of the current state run and the run ends.
-  Transitions are checked from the next run on.
+  'persistent' entries become their defaults only when 'reset' is true.
+  No `on_exit` runs: a reset is not a transition.
+  A run in which 'reset' is true continues as a disabled run: only `output` of the initial state runs.
+. If 'enable' is false, or 'reset' is true, the next steps up to `output` are skipped. State, timer and a pending entry are frozen.
+. If an entry is pending, `on_enter` of the current state runs, and nothing else up to `output`:
+  `during` and the transitions start with the next run.
 . The timer advances by the thread period.
+. `during` of the current state runs.
 . The first matching transition fires, in this order:
   `any` `on` items (except those leading to the current state), the state's `on` items,
   the state's `timeout`, and finally `any { timeout -> ... }` if the state's timeout has no target.
   A firing transition runs `on_exit` of the old state, its action, resets the timer and runs `on_enter` of the new state.
   At most one transition fires per run; `A -> A` re-enters A.
-. `during` of the current (possibly new) state runs.
+  An internal `on`, written without a target (`on (cond) { action }`, in states only), runs its action and stays:
+  no `on_exit`, no `on_enter`, and the timer runs on. It still counts as the match of the run,
+  so the items after it, the timeout included, are not checked while it matches.
+  A timeout that fell due meanwhile fires in the first run the internal `on` no longer matches.
+  An internal `timeout`, `timeout (t) { action }`, is the same for a timeout: in every run in which
+  the timeout is due and no `on` item matched, its action runs and the state stays, the timer running on.
+  A state with an internal timeout does not use `any { timeout -> ... }`.
+. `output` of the current (possibly new) state runs, also while disabled.
+
+So a state's run is either entering it (`on_enter`, in the entry run or by a transition) or staying in it
+(`during`, then the decision), and `output` follows the state every run.
+`during` runs before the `on` items, in the cycle the state is left too, so it does the state's continuous work
+and a transition's action can override it: `during { tray_id = 0; }` keeps an id cleared while a state is idle,
+and `on (load) -> FEED_IN { tray_id = tray_id_in; }` after it still takes the new id.
 
 An output written in `on_enter`, `on_exit` or an action is therefore a one-cycle pulse.
-An output that holds while in a state is written in `during`.
+An output that holds while in a state is written in `output`.
+`output` runs last: a pulse written to an output that the entered state's `output` block also writes is overwritten in the same run,
+so an output is either pulsed or set by `output`, not both.
+`output` is the mapping from the state to outputs, and shows the state while the machine is disabled
+(automatic paused, transitions frozen); it may write the machine's 'outputs' only, and may read anything,
+so `output { idle = auto_mode; }` refines an output by an input.
+`during` must not write the machine's outputs: it runs before the transitions, so the value would carry over
+into the next state for the cycle a transition fires. Nor may it read them: they hold their defaults there, like in a condition.
+What a state must remember from one cycle to the next is a 'latched' or 'persistent' entry, not an output read back.
+`during` stops while disabled.
+While reset is held, the outputs therefore show the initial state; user code that needs them all off then (or at machine off)
+calls `NAME_reset_outputs()` after the run.
 Each block runs as a function of its own: `return` ends the block, and a transition still completes.
+
+An internal `on` is a guard that holds the state up. A fault that must stop progress until it clears
+is written once, ahead of the transition it holds back:
+
+----
+state FULL {
+    output { full = 1; }
+    on (!tray_present) { err |= ERROR_TRAY_MISSING; }
+    on (target_empty) -> FORTH { target_load = 1; }
+}
+----
+
+Like `during`, it does not run in the entry run.
+Write it as `on (...) -> FULL` instead and it would re-enter the state every cycle: run `on_exit` and `on_enter`, and restart the timer, so a timeout would never fire.
 
 === Timeouts
 
@@ -547,6 +601,19 @@ Units work only inside `timeout (...)`, and only on decimal numbers: an integer 
 (C would read `010s` and `010` as octal), and `0x10s` is an error.
 The timer counts integer nanoseconds and does not drift; the timeout is rounded to whole nanoseconds,
 so a timeout that is a multiple of the thread period fires exactly on that cycle.
+`timeout (t) { action }` without a target is internal (see the execution model): a level, like
+`on (timer >= t) { action }` placed last, but with the timeout's rules (`t <= 0` is none, units).
+It is for a supervision time that reports and keeps waiting:
+
+----
+state WAIT_PULL {
+    on (!pull) -> FEED_OUT { pull = 1; }
+    timeout (pull_timeout) { err |= ERROR_PULL_TIMEOUT; }
+}
+----
+
+Mind the difference to `timeout (t);`, which is handed to `any { timeout -> ...; }`.
+
 A transition on 'timer_var' gives a timeout with more than one target:
 
 ----
@@ -563,6 +630,9 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 * `NAME_in(STATE)` - true while the machine is in `STATE`, e.g. `enable: (mode_in(RUNNING));` in another machine.
 * `NAME_STATE` - the number of each state, as an enum constant.
 * `NAME_state_name(n)` - the name of state number `n`, for messages.
+* `NAME_reset_outputs()` - sets every 'outputs' entry to its default, as a run does first.
+  For user code that must clear the outputs after the run, e.g. at machine off, without writing them one by one.
+  State, timer, 'latched' and 'persistent' entries are not touched.
 
 Other generated names begin with `__fsm_`. A machine or state name whose generated names would collide
 with each other, with a declared name, with a C keyword or with a name the generated file defines
@@ -570,19 +640,25 @@ with each other, with a declared name, with a C keyword or with a name the gener
 a machine `inst` with a state `start`) is an error. Names starting with `hal_`, `rtapi_`, `stmak_`, `cmod_` and `mcode_`, in lower or upper case, are reserved.
 A collision with another C library name (`EXIT_SUCCESS`, `uint8_t`) is reported by the C compiler.
 
-There is no way to set the state from outside: a request is a flag that an `on` item reacts to and the action clears.
+There is no way to set the state from outside while the machine runs (an `io` 'state_var' is read on the first run only):
+a request is a flag that an `on` item reacts to and the action clears.
 
 === Checks
 
 Errors: unknown or duplicate states, list entries that are not suitable pins or variables,
-an entry written by more than one list or machine, an `on` condition, 'enable' or `timeout` reading one of the machine's outputs
-(they always hold their default there), an 'inputs' entry listed twice or also in 'outputs', an empty or comment-only expression, a targetless `timeout` without `any { timeout -> ...; }`,
+an entry written by more than one list or machine, an `on` condition, 'enable', `timeout` or `during` reading one of the machine's outputs
+(they always hold their default there), an 'inputs' entry listed twice or also in 'outputs',
+an `output` block assigning anything but the machine's 'outputs', a `during` block assigning one of them, an empty or comment-only expression, a `timeout (...);` without `any { timeout -> ...; }`,
+an `on` without a target in `any`, or without a target and an action (`on (x);`),
 colliding generated names, machines that run each other (the calls would recurse),
-a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), and unbalanced brackets in the C fragments (the message names the bracket left open;
+a 'state_var' variable too narrow for the number of states (`uint8_t` with more than 256), an `io` 'state_var' with an initial state that is not the first,
+and unbalanced brackets in the C fragments (the message names the bracket left open;
 brackets inside `#if 0` count too).
 
-Warnings: an `on` condition reading a pin or variable that is not in 'inputs' or 'latched' (when 'inputs' is given; params are exempt),
-an input nothing reads, user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
+Warnings: an `on` condition reading a pin or variable that is not in 'inputs', 'latched' or 'persistent' (when 'inputs' is given; params are exempt),
+an input nothing reads,
+an `on_enter`, `on_exit`, `during` or action block writing a pin or variable that is in none of 'outputs', 'latched' and 'persistent'
+(when 'inputs' is given; params, locals and what another machine's lists hold are exempt), user code after `;;` or another machine's blocks assigning an output, 'state_var' or 'timer_var'
 (the machine overwrites it), a machine's own blocks assigning its 'state_var' or 'timer_var',
 states not reachable from the initial state, states without a way out, an `any` item that can never fire
 (a `timeout` no state uses, an `on` whose target is the only reachable state), and a machine that is never called.

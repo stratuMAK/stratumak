@@ -1,12 +1,13 @@
 # columns: go abort ack rst en
 # first run: entry only, go is not acted on yet
 1 0 0 0 1
-# IDLE -> RUN (action, entry, during in the same run)
+# IDLE -> RUN (action, entry; output busy at once, during from the next run)
 1 0 0 0 1
 1 0 0 0 1
 1 0 0 0 1
 1 0 0 0 1
-# timer 4 ms >= delay 3.5 ms: RUN -> DONE (exit, entry)
+# timer 4 ms >= delay 3.5 ms: RUN -> DONE (exit, entry); RUN's during runs
+# before the transitions, in the leaving cycle too (ndur 4)
 1 0 0 0 1
 # DONE -> DONE self transition: entry again, timer reset
 1 0 1 0 1
@@ -58,7 +59,7 @@
 0 0 0 0 1
 0 0 0 0 1
 0 0 0 0 1
-# IDLE -> RUN; ack makes RUN's during return before it sets tail
+# IDLE -> RUN; ack makes RUN's during return before it counts (ndur stays)
 1 0 0 0 1
 1 0 1 0 1
 1 0 1 0 1

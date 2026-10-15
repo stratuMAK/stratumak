@@ -81,7 +81,7 @@ func (r fsmRef) String() string {
 	return r.Name
 }
 
-// fsmDef is an outputs/latched entry with its optional default.
+// fsmDef is an outputs/latched/persistent entry with its optional default.
 type fsmDef struct {
 	fsmRef
 	Default *cfrag // nil: 0
@@ -94,10 +94,16 @@ type fsmTrans struct {
 	Target    string
 	TargetPos ast.Pos
 	Action    *cfrag // nil: no action block
+	// Internal: 'on (cond) { action }' in a state, without a target.  It
+	// runs the action and stays: no on_exit, no on_enter, the timer runs
+	// on.  It still counts as the match of the run, so the items after
+	// it, the timeout included, wait while it matches.
+	Internal bool
 }
 
-// fsmTimeout is a state's "timeout (expr)" item.  Trans.Target is empty when
-// the any block handles it.
+// fsmTimeout is a state's "timeout (expr)" item.  Trans is nil when the
+// any block handles it ('timeout (expr);'), and Internal for
+// 'timeout (expr) { action }'.
 type fsmTimeout struct {
 	Pos   ast.Pos
 	Expr  cfrag
@@ -110,19 +116,27 @@ type fsmState struct {
 	Enter   *cfrag
 	Exit    *cfrag
 	During  *cfrag
+	Output  *cfrag
 	On      []fsmTrans
 	Timeout *fsmTimeout
 }
 
 type fsmDecl struct {
-	Pos      ast.Pos
-	Name     string
-	Inputs   []fsmRef
-	Outputs  []fsmDef
-	Latched  []fsmDef
-	Reset    *cfrag
-	Enable   *cfrag
-	StateVar *fsmRef
+	Pos     ast.Pos
+	Name    string
+	Inputs  []fsmRef
+	Outputs []fsmDef
+	Latched []fsmDef
+	// Persistent entries go to their default on reset only: init and a
+	// restore keep them, like a retained model the state belongs to.
+	Persistent []fsmDef
+	Reset      *cfrag
+	Enable     *cfrag
+	StateVar   *fsmRef
+	// StateIO is set by the checks when StateVar is an io pin: the fsm then
+	// keeps the state in a hidden variable, takes a valid value from the
+	// pin on its first run (a restore) and writes the pin every run.
+	StateIO  bool
 	TimerVar *fsmRef
 	Initial  string
 	InitPos  ast.Pos
@@ -218,7 +232,7 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 	case "state":
 		p.next()
 		return p.parseState(f, pos)
-	case "inputs", "outputs", "latched", "reset", "enable", "state_var", "timer_var", "initial":
+	case "inputs", "outputs", "latched", "persistent", "reset", "enable", "state_var", "timer_var", "initial":
 	default:
 		return p.errorAt(pos, "unknown item %q", kw)
 	}
@@ -240,6 +254,8 @@ func (p *parser) parseFSMItem(f *fsmDecl) error {
 		f.Outputs, err = p.parseDefList()
 	case "latched":
 		f.Latched, err = p.parseDefList()
+	case "persistent":
+		f.Persistent, err = p.parseDefList()
 	case "reset":
 		f.Reset, err = p.parseParenC()
 	case "enable":
@@ -425,7 +441,7 @@ func (p *parser) parseAny(f *fsmDecl) error {
 		switch {
 		case p.cur.Kind == TokIdent && p.cur.Val == "on":
 			p.next()
-			t, err := p.parseOn(pos)
+			t, err := p.parseOn(pos, false)
 			if err != nil {
 				return err
 			}
@@ -448,14 +464,26 @@ func (p *parser) parseAny(f *fsmDecl) error {
 	return nil
 }
 
-// parseOn parses '(' cexpr ')' '->' STATE action after 'on'.
-func (p *parser) parseOn(pos ast.Pos) (fsmTrans, error) {
+// parseOn parses '(' cexpr ')' '->' STATE action after 'on', or, in a
+// state, the internal form '(' cexpr ')' block.
+func (p *parser) parseOn(pos ast.Pos, inState bool) (fsmTrans, error) {
 	t := fsmTrans{Pos: pos}
 	cond, err := p.parseParenC()
 	if err != nil {
 		return t, err
 	}
 	t.Cond = *cond
+	switch p.cur.Kind {
+	case TokLBrace:
+		if !inState {
+			return t, p.errorAt(pos, "an on without a target is allowed in states only, not in any")
+		}
+		t.Internal = true
+		t.Action, err = p.parseBlock()
+		return t, err
+	case TokSemi:
+		return t, p.errorAt(pos, "on without a target needs an action: on (...) { ... }, or a target: on (...) -> STATE;")
+	}
 	return t, p.parseTarget(&t)
 }
 
@@ -487,9 +515,11 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 			slot = &st.Exit
 		case "during":
 			slot = &st.During
+		case "output":
+			slot = &st.Output
 		case "on":
 			p.next()
-			t, err := p.parseOn(ipos)
+			t, err := p.parseOn(ipos, true)
 			if err != nil {
 				return err
 			}
@@ -505,9 +535,17 @@ func (p *parser) parseState(f *fsmDecl, pos ast.Pos) error {
 				return err
 			}
 			to := &fsmTimeout{Pos: ipos, Expr: *expr}
-			if p.cur.Kind == TokSemi {
+			switch p.cur.Kind {
+			case TokSemi:
 				p.next()
-			} else {
+			case TokLBrace:
+				// Internal, like an internal on: the action runs every run
+				// the timeout is due, the state stays.
+				to.Trans = &fsmTrans{Pos: ipos, Internal: true}
+				if to.Trans.Action, err = p.parseBlock(); err != nil {
+					return err
+				}
+			default:
 				to.Trans = &fsmTrans{Pos: ipos}
 				if err := p.parseTarget(to.Trans); err != nil {
 					return err
@@ -555,21 +593,23 @@ func describeDefs(defs []fsmDef) []string {
 
 func describeTrans(t fsmTrans, timeout bool) ast.FSMTransition {
 	return ast.FSMTransition{
-		Timeout: timeout,
-		Cond:    oneLine(t.Cond.Text),
-		Target:  t.Target,
-		Action:  t.Action != nil,
+		Timeout:  timeout,
+		Cond:     oneLine(t.Cond.Text),
+		Target:   t.Target,
+		Action:   t.Action != nil,
+		Internal: t.Internal,
 	}
 }
 
 // describe returns the documentation view of f.
 func (f *fsmDecl) describe() ast.FSM {
 	d := ast.FSM{
-		Pos:     f.Pos,
-		Name:    f.Name,
-		Initial: f.initialState(),
-		Outputs: describeDefs(f.Outputs),
-		Latched: describeDefs(f.Latched),
+		Pos:        f.Pos,
+		Name:       f.Name,
+		Initial:    f.initialState(),
+		Outputs:    describeDefs(f.Outputs),
+		Latched:    describeDefs(f.Latched),
+		Persistent: describeDefs(f.Persistent),
 	}
 	for _, r := range f.Inputs {
 		d.Inputs = append(d.Inputs, r.String())
@@ -582,6 +622,7 @@ func (f *fsmDecl) describe() ast.FSM {
 	}
 	if f.StateVar != nil {
 		d.StateVar = f.StateVar.String()
+		d.StateRestored = f.StateIO
 	}
 	if f.TimerVar != nil {
 		d.TimerVar = f.TimerVar.String()
@@ -599,6 +640,7 @@ func (f *fsmDecl) describe() ast.FSM {
 			OnEnter: s.Enter != nil,
 			OnExit:  s.Exit != nil,
 			During:  s.During != nil,
+			Output:  s.Output != nil,
 		}
 		for _, t := range s.On {
 			ds.Transitions = append(ds.Transitions, describeTrans(t, false))
@@ -608,6 +650,7 @@ func (f *fsmDecl) describe() ast.FSM {
 			if to.Trans != nil {
 				dt.Target = to.Trans.Target
 				dt.Action = to.Trans.Action != nil
+				dt.Internal = to.Trans.Internal
 			}
 			ds.Transitions = append(ds.Transitions, dt)
 		}

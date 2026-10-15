@@ -50,6 +50,67 @@ checked narrow `state_var` types against the number of states, left the
 operand of `sizeof` out of the reads, and put the `nofp` warnings in
 declaration order.
 
+### Extensions (October 2026)
+
+Migrating `transp_slider` (CoatV2conf) showed these gaps, closed on top of
+the slices above:
+
+- **io `state_var`, restored.** A component whose state is retained across a
+  restart (HAL retain needs io-only signals) needs an io state pin. It is
+  read on the first run only: a valid state number is taken over, with the
+  timer at 0 and `on_enter` pending, so a state that measures time starts
+  its timer anew. Afterwards the fsm keeps the state in a hidden variable and
+  writes the pin every run, so a write from outside has no effect; the
+  declared graph stays the only way between states. The first state must
+  be the initial one: a fresh signal holds 0, which restores the first
+  state, so an `initial` elsewhere is an error. A reset held on the first
+  run discards the retained state, as any reset does: `reset:
+  (!machine_on)` does not fit a retained machine. Before, an io
+  `state_var` was an error and the only idiom was a dispatch state, which
+  re-derives the state from a model and needs one.
+- **`output` blocks.** A disabled fsm froze its transitions and set its
+  outputs to their defaults, so a status output (`empty`, `full`) went to 0
+  while automatic was paused. The per-state `output` block maps the state to
+  the outputs in every run, enabled or not, and in reset, where it maps the
+  initial state; `during` stays enabled-only, runs before the `on` items
+  (see the design decision "During before the transitions") and keeps what the state does
+  while it runs (fault checks).
+- **`<fsm>_reset_outputs()`** writes the outputs to their defaults from user
+  code, for a component that clears them at machine-off after the run,
+  without writing fsm outputs outside the fsm.
+- **`out` pins in `inputs`.** An out pin set by user code before the call
+  (a command mux feeding a second fsm) is a legitimate input.
+- **`persistent` list.** Data the fsm owns that must survive a restart with
+  the state, such as a retained tray model (`tray_id`, `load`): written to
+  its default on reset only. `latched` cannot hold it, since it is written
+  on init too and would clear the retained value; without the list the
+  reset lived in user code. Conditions read it without `inputs`; writes
+  from outside (the stations feeding the model) do not warn.
+- **Unlisted writes.** An fsm that declares `inputs` gets a warning for
+  every pin or variable its blocks write that is in none of its written
+  lists, so the lists are its whole interface.
+
+- **Internal `on`.** `on (cond) { action }` in a state, without a target:
+  the action runs and the state is not left (no exit, no entry, the timer
+  runs on), but it is the match of the run, so the items after it and the
+  timeout wait while it holds. A fault that holds a state up is written once,
+  `on (!tray_present) { err |= ...; }` ahead of `on (target_empty) -> ...`,
+  instead of a check in `during` plus the negated fault in the transition's
+  condition. A self-transition is no substitute: it re-enters the state
+  every cycle and restarts its timer.
+- **Internal `timeout`.** `timeout (t) { action }`, the same for a timeout:
+  the action runs every run the timeout is due and no `on` item matched,
+  the state stays and the timer runs on. A supervision time that reports
+  and keeps waiting (`timeout (pull_timeout) { err |= ...; }`) needed a
+  `timer_var` and `on (time >= t) { ... }` before, which loses the timeout's
+  rules (`t <= 0` is none, units), or a self-transition, which restarts the
+  timer. `on` and `timeout` now have the same forms: with a target, internal
+  with a block; `timeout (t);` alone is handed to `any`.
+
+`tests/modcompile-fsm-restore` covers all of them except the unlisted-write
+warning, which the unit tests cover, and the internal `on` and `timeout`,
+which `tests/modcompile-fsm-internal` covers.
+
 ## Motivation
 
 State machines are common in `.comp` files (`carousel`, `moveoff`,
@@ -105,7 +166,8 @@ fsm test_fsm {
     }
 
     state WAIT_RELEASE {
-        during { out3 = 0; }
+        output { out3 = 0; }
+        during { latched2++; }
         on (!in1) -> IDLE;
         timeout (wait_s);           /* handled by any { timeout -> ... } */
     }
@@ -128,6 +190,7 @@ fsm_decl    := 'fsm' NAME '{' fsm_item* '}' ';'
 fsm_item    := 'inputs'    ':' name_list ';'
              | 'outputs'   ':' def_list ';'
              | 'latched'   ':' def_list ';'
+             | 'persistent' ':' def_list ';'
              | 'reset'     ':' '(' cexpr ')' ';'
              | 'enable'    ':' '(' cexpr ')' ';'
              | 'state_var' ':' NAME ';'
@@ -149,8 +212,10 @@ any_item    := 'on' '(' cexpr ')' '->' STATE action
 state_item  := 'on_enter' block
              | 'on_exit'  block
              | 'during'   block
+             | 'output'   block
              | 'on' '(' cexpr ')' '->' STATE action
-             | 'timeout' '(' texpr ')' ('->' STATE action | ';')
+             | 'on' '(' cexpr ')' block          /* internal, no target */
+             | 'timeout' '(' texpr ')' ('->' STATE action | ';' | block)
 
 action      := ';' | block
 block       := '{' C statements '}'
@@ -160,11 +225,12 @@ block       := '{' C statements '}'
   `[]` and `{}` and skips string/char literals and comments. A `def` default
   ends at the first top-level `,` or `;`, so `x = fmin(a, b)` works.
 - Names in the lists are the C names used in code (`in-1` is written `in_1`).
-- `on_enter`, `on_exit` and `during` appear at most once per state; their
+- `on_enter`, `on_exit`, `during` and `output` appear at most once per state; their
   order in the source does not matter. `on` and `timeout` items keep their
   source order (it is their priority, see below).
-- A state has at most one `timeout`. `timeout (...)` without a target takes
-  no action block; it is handled by `any { timeout -> ...; }`.
+- A state has at most one `timeout`. `timeout (...);` without a target is
+  handled by `any { timeout -> ...; }`; `timeout (...) { ... }` without a
+  target is internal (see the execution model) and does not use `any`.
 
 ### Items
 
@@ -173,6 +239,7 @@ block       := '{' C statements '}'
 | `inputs` | no | Sensitivity list for checks only; generates no code |
 | `outputs` | no | Written to their default every cycle before the FSM runs (default `0`) |
 | `latched` | no | Written to their default on init and reset only (default `0`) |
+| `persistent` | no | Written to their default on reset only (default `0`); init and a restore keep them |
 | `reset` | no | Level-triggered reset; omitted = never reset |
 | `enable` | no | omitted = always enabled |
 | `state_var` | no | Pin or variable holding the state number; omitted = hidden variable |
@@ -183,19 +250,22 @@ What a name may refer to:
 
 | List | Allowed |
 |------|---------|
-| `inputs` | `in`/`io` pins, variables, elements of either |
-| `outputs`, `latched` | `out`/`io` pins, variables, elements of either |
-| `state_var` | `out` `s32` or `u32` pin, integer variable |
+| `inputs` | pins of any direction, variables, elements of either |
+| `outputs`, `latched`, `persistent` | `out`/`io` pins, variables, elements of either |
+| `state_var` | `out` or `io` `s32` or `u32` pin, integer variable |
 | `timer_var` | `out`/`io` `float` pin, `double`/`float` variable |
 
 Pins that may not exist are not allowed in the written lists (`outputs`,
-`latched`, `state_var`, `timer_var`): a pin with an `if <personality>`
+`latched`, `persistent`, `state_var`, `timer_var`): a pin with an `if <personality>`
 condition, or an element of a personality-sized array. Such a pin has no
 storage when it is not created, and the FSM writes its list entries every
 cycle. In `inputs` they are allowed, since that list generates no code.
 
-`state_var` may not be an `io` pin: one could be set from outside, which is
-a `goto` around the declared graph. `state_var` and `timer_var` may be array
+An `io` `state_var` is read on the first run only (a restore, see the
+execution model); afterwards the fsm writes it every run from a hidden
+variable, so a write from outside is no `goto` around the declared graph.
+An `out` pin in `inputs` is read as user code left it before the call; the
+fsm's own outputs are still an error there. `state_var` and `timer_var` may be array
 elements (`state_var: st_arr(1);`). An index may carry an integer suffix
 (`in_arr(1u)`).
 
@@ -265,19 +335,27 @@ One run:
 
 1. **Outputs.** The `reset` expression is evaluated first, so it sees the
    outputs as the previous run left them. Then every `outputs` entry is
-   written to its default. This happens in every run, including while reset
-   or disabled.
+   written to its default (the helper behind `<fsm>_reset_outputs()`). This
+   happens in every run, including while reset or disabled.
 2. **Reset / init.** On the first run, and in every run in which `reset` is
    true: state = initial, timer = 0, every `latched` entry written to its
-   default, `on_enter` marked pending. If `reset` is true the run ends here.
-   No `on_exit` runs; a reset is an abort, not a transition. Reset works
-   while disabled. `timer_var` is set to 0.
-3. **Enable.** If `enable` is false the run ends here. State, timer and a
-   pending `on_enter` are frozen.
+   default, `on_enter` marked pending. `persistent` entries are written to
+   their default only when `reset` is true, never on init or a restore. On the first run without reset, an
+   `io` `state_var` holding a valid state number gives the state instead of
+   `initial` (a restore). `timer_var` is set to 0. No `on_exit` runs; a
+   reset is an abort, not a transition. Reset works while disabled. A run in
+   which `reset` is true continues as a disabled run (step 3): the `output`
+   of the initial state runs, nothing else.
+3. **Enable.** If `enable` is false, or `reset` is true, steps 4 to 6 are
+   skipped; `output` still runs. State, timer and a pending `on_enter` are
+   frozen.
 4. **Pending entry.** If `on_enter` is pending (first run, or first enabled
-   run after reset): run `on_enter` and `during` of the current state, then
-   end the run. Transitions are evaluated from the next run on.
-5. **Timer.** timer += `period`; `timer_var` = timer × 1e-9.
+   run after reset or restore): run `on_enter` of the current state and
+   nothing else up to `output`. `during` and the transitions start with the
+   next run, as after a transition.
+5. **Timer and during.** timer += `period`; `timer_var` = timer × 1e-9.
+   Then `during` of the current state runs: the state stays this far, and
+   does its continuous work before anything decides to leave it.
 6. **Transitions.** The first match, in this order, fires:
    1. `any` `on` items in source order, skipping those whose target is the
       current state;
@@ -289,11 +367,37 @@ One run:
    timer = 0 and `timer_var` = 0, `on_enter` (new). At most one transition per run. A
    self-transition (`A -> A` inside `state A`) runs exit and enter and resets
    the timer.
-7. **During.** Run `during` of the current state, which is the new state if a
-   transition fired.
 
-`timer_var` is therefore always current: `on` conditions see the same time the
-`timeout` check uses, and `during` sees the time of the state it runs in. A
+   An internal `on` (no target) that matches runs its action only: the
+   state stays, no exit or entry runs, the timer is not reset. It is the
+   match of the run all the same, so the items after it, the state's
+   `timeout` and the `any` `timeout` included, are not checked. The timer
+   keeps running meanwhile: a timeout that fell due fires in the first run
+   in which the internal `on` no longer matches.
+
+   An internal `timeout` (`timeout (t) { action }`) is the timeout's form of
+   it: when the timeout is due and nothing before it matched, its action
+   runs, the state stays and the timer is not reset, so it runs again every
+   run while it is due. The `any` `timeout` is not used for such a state.
+7. **Output.** An `io` `state_var` is written. Then `output` of the current
+   state runs, which is the new state if a transition fired, also while
+   disabled. `output` may write the fsm's `outputs` only: it is the mapping
+   from the state to the outputs, and may read anything (an input refining
+   an output). `during` must not write the fsm's outputs: it runs before the
+   transitions, so the value would carry over into the next state for the
+   cycle a transition fires. Nor may it read them: they hold their defaults
+   there, as in a condition. Outputs carry no state; what a state remembers
+   from one cycle to the next is a `latched` or `persistent` entry.
+
+So each run of a state is either entering it (`on_enter`: entry run or
+transition) or staying in it (`during`, then the decision), and the cycle a
+state is left still runs its `during`. Since an action runs after `during`,
+it overrides what `during` wrote: `during { tray_id = 0; }` keeps an idle
+state's id cleared every cycle, and `on (load) -> FEED_IN { tray_id =
+tray_id_in; }` after it still takes the new id.
+
+`timer_var` is therefore always current: `during`, the `on` conditions and the
+`timeout` check see the same time. A
 timeout with several targets is written as `on` items on `timer_var` in front
 of the `timeout`:
 
@@ -308,10 +412,14 @@ Consequences worth stating in the user documentation:
 
 - An output written in `on_enter`, `on_exit` or a transition action is a
   **one-cycle pulse**. An output that should hold while in a state is written
-  in `during`.
+  in `output`. `output` runs last: a pulse to an output that the entered
+  state's `output` block also writes is overwritten in the same run, so an
+  output is either pulsed or set by `output`, not both.
 - `on_enter` always runs on entering a state, including after init and reset.
-- While reset is held, all outputs and latched values sit at their defaults
-  and no user code runs.
+- While reset is held, the fsm sits in the initial state with latched and
+  persistent values at their defaults; only the initial state's `output` block runs. User code
+  that needs every output off during a reset (or at machine off) calls
+  `<fsm>_reset_outputs()` after the run.
 
 ## Checks
 
@@ -322,11 +430,21 @@ Consequences worth stating in the user documentation:
   direction/type for its list (see the table above).
 - A name in more than one of `outputs` / `latched` / `state_var` /
   `timer_var`, or an output listed in two FSMs.
-- An `on` condition, the `enable` expression or a `timeout` expression that
-  reads an FSM output. Outputs always hold their default at that point, so
-  this is a bug (`enable: (o)` with default 0 never runs the fsm). `reset`
-  is read before the outputs are written and is exempt.
+- An `on` condition, the `enable` expression, a `timeout` expression or a
+  `during` block that reads an FSM output. Outputs always hold their
+  default at that point, so this is a bug (`enable: (o)` with default 0
+  never runs the fsm). `reset` is read before the outputs are written and
+  is exempt. Reading the previous cycle's output in `during` was
+  considered and rejected: an output would become hidden memory, outside
+  the lists and not cleared by reset; a `latched` entry says the same
+  thing explicitly.
 - A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
+- A `during` block assigning one of the fsm's `outputs`: it runs before the
+  transitions, so the value would carry over into the next state. With a
+  computed index into an array of which only some elements are outputs, it
+  is a warning naming them.
+- An `on` without a target in `any` (it would hold back every state), or
+  one with neither a target nor an action (`on (x);`).
 - Duplicate `on_enter` / `on_exit` / `during` / `timeout` in a state.
 - An `on` condition that reads an output array through a computed index
   when every element of the array is an output. When only some are, it is
@@ -345,7 +463,12 @@ Consequences worth stating in the user documentation:
   `feed` next to a pin `feed_in`, an fsm named `if` or `fabs`, a pin
   `<fsm>_state`, an fsm `inst` with a state `start`. fsm names starting with
   `__` are reserved.
-- `state_var` an `io` pin; a timeout integer literal with a leading `0`
+- An `output` block assigning a declared pin or variable that is not one of
+  the fsm's `outputs` (locals of the block pass); through a computed index,
+  unless every element of the array is an output.
+- An `io` `state_var` with an `initial` that is not the first state: a
+  fresh signal holds 0, which restores the first state.
+- A timeout integer literal with a leading `0`
   (`010s`, `010`), or a unit on a number that is not decimal (`0x10s`).
 - An expression or default that holds only comments (`on (/* x */)`).
 - fsms that run each other in a cycle, an fsm running itself included
@@ -363,7 +486,8 @@ Consequences worth stating in the user documentation:
 ### Warnings
 
 - **Sensitivity:** an `on` condition reads a pin or variable that is not in
-  `inputs` or `latched` and is not this FSM's `state_var` / `timer_var`.
+  `inputs`, `latched` or `persistent` and is not this FSM's `state_var` /
+  `timer_var`.
   Params are exempt (configuration, like VHDL generics). Identifiers that are
   not declared pins/params/variables (C functions, macros, enum constants,
   locals) are ignored, which keeps the check free of false positives.
@@ -378,16 +502,24 @@ Consequences worth stating in the user documentation:
   against every other fsm, and against their own fsm's `state_var` and
   `timer_var` (an fsm's own outputs are its to write). Heuristic: writes
   through pointers or macros are not found.
+- **Unlisted write:** an `on_enter`, `on_exit`, `during` or action block
+  assigns a pin or variable that is in none of the fsm's `outputs`,
+  `latched` and `persistent` (an entry listed only in `inputs` included),
+  so the fsm's lists show everything it writes. Params (configuration, not
+  listable), locals, the fsm's own `state_var` / `timer_var` (warned above)
+  and entries another fsm writes by its lists are exempt. A write with a
+  computed index warns unless every element of the array is listed.
+  Skipped when the FSM has no `inputs` list, like the sensitivity check.
 - Unreachable state: not reached from the initial state along the
   transitions. `any` `on` items lead out of every reachable state; the `any`
   `timeout` only out of reachable states whose `timeout` has no target.
 - State without a way out (no own `on`/`timeout` and no `any` transition
-  leading elsewhere).
+  leading elsewhere; an internal `on` is no way out).
 - `test_fsm()` never called: neither in the verbatim C nor in another fsm's
   blocks (a child fsm run from its parent's `during`). A child whose parent
   is never called is not reported again; since cycles are an error, every
   such child has a parent that is reported.
-- An `any` `timeout` that no state uses (no `timeout` without a target), and
+- An `any` `timeout` that no state uses (no `timeout (...);` handed to it), and
   an `any` `on` that cannot fire because its target is the only reachable
   state.
 - An fsm with a `timeout` or `timer_var` (the floating-point parts of the
@@ -446,11 +578,13 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
     if (__fsm_test_fsm_enter) {
         __fsm_test_fsm_enter = 0;
         switch (fsm_state) { /* on_enter blocks */ }
-        goto during;
+        goto out;
     }
 
     __fsm_test_fsm_timer += period;
     fsm_timer = __fsm_test_fsm_timer * 1e-9;
+
+    switch (fsm_state) { /* during blocks */ }
 
     switch (fsm_state) {
     case test_fsm_IDLE:
@@ -461,10 +595,8 @@ static void test_fsm_run(inst_t *__comp_inst, long period) {
     ...
     }
 
-during:
-    switch (fsm_state) { /* during blocks */ }
 out:
-    ;
+    switch (fsm_state) { /* output blocks */ }
 }
 ```
 
@@ -482,13 +614,14 @@ instead of a `-Werror` build failing.
 `cgen/testdata/fsm.c` is the authoritative output.
 
 Names the user sees: the enum constants `<fsm>_<STATE>`, `<fsm>_run`,
-`<fsm>_state_name`, and the macros `<fsm>()` and `<fsm>_in()`. Everything
+`<fsm>_state_name`, and the macros `<fsm>()`, `<fsm>_in()` and
+`<fsm>_reset_outputs()`. Everything
 else is prefixed `__fsm_<fsm>_`, which is reserved.
 
 - State numbers follow source order, starting at 0. `initial` does not
   renumber.
 - Hidden per-instance variables (`__fsm_<name>_init`, `_enter`, `_timer`, and
-  `_state` when `state_var` is omitted) are added as ordinary
+  `_state` when `state_var` is omitted or an `io` pin) are added as ordinary
   `ast.Variable`s, so every instance has its own FSM.
 - User code fragments are emitted with `#line` directives pointing into the
   `.comp`, so compiler errors land on the right source line.
@@ -520,17 +653,19 @@ state RESUME {
 ```
 
 Costs one extra cycle after init or reset (entry run, then the dispatch).
+When the state itself is retained, an `io` `state_var` restores it directly
+instead.
 
 ### Manual / setup mode
 
 Setup mode is an ordinary state, not a feature of the block. Manual buttons
-latch into user variables; the state's `during` drives the outputs from them:
+latch into user variables; the state's `output` drives the outputs from them:
 
 ```
 any { on (switch_setup) -> MANUAL; }
 
 state MANUAL {
-    during { stop_release = manu_release; }
+    output { stop_release = manu_release; }
     on (!switch_setup) -> RESUME;
 }
 ```
@@ -539,19 +674,31 @@ The state pin shows MANUAL while in setup.
 
 ### Faults
 
-A fault condition that must block a state's transitions becomes a state of its
-own instead of a guard repeated in every `on`. The message goes in `on_enter`,
-so it is logged once per occurrence without edge detection (`err_last`):
+A fault that only holds a state up, and is reported through an error word,
+is an internal `on` ahead of the transitions it blocks:
 
 ```
 state FULL {
-    during { full = 1; }
+    output { full = 1; }
+    on (!tray_present) { err |= ERROR_TRAY_MISSING; }
+    on (target_empty)  -> FEED_OUT { target_load = 1; }
+}
+```
+
+A fault with behaviour of its own (a message, other outputs, its own way
+out) becomes a state of its own instead of a guard repeated in every `on`.
+The message goes in `on_enter`, so it is logged once per occurrence without
+edge detection (`err_last`):
+
+```
+state FULL {
+    output { full = 1; }
     on (!tray_present) -> FAULT_NO_TRAY;
     on (target_empty)  -> FEED_OUT { target_load = 1; }
 }
 state FAULT_NO_TRAY {
     on_enter { STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "..."); }
-    during   { err = 1; }
+    output   { err = 1; }
     on (tray_present) -> FULL;
 }
 ```
@@ -559,9 +706,9 @@ state FAULT_NO_TRAY {
 ### Decisions computed in the state
 
 Code that computes the next step (a helper returning a status, a planning
-loop) runs in `during`; an `on` item reacts to its result in the next cycle.
-There is no block that runs before the transitions; one cycle of latency is
-irrelevant for sequencing.
+loop) runs in `during` and leaves its result in a `latched` entry or a
+variable; `during` runs before the transitions, so an `on` item reacts to
+it in the same cycle.
 
 ### Requests from outside, child FSMs
 
@@ -704,10 +851,38 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   can stick because a path forgot to clear it.
 - **No types in the FSM block.** `x = 0` is valid C for every scalar HAL type,
   and the declarations already carry types for the direction checks.
+- **Init keeps the model, reset clears it.** `latched` is for what a run
+  produces (errors, counters): cleared on init and reset. `persistent` is
+  for what the state stands for (a tray model): a restore brings the state
+  back, so init must not clear the model it belongs to; only a reset, which
+  also sends the state to `initial`, does.
 - **Enable freezes, reset dominates.** Disabling pauses the machine, timer
-  included; reset works in any situation.
+  included; its `output` blocks keep showing the state. Reset works in any
+  situation: it resets state, timer and `latched` entries only, and the
+  outputs follow from the initial state through its `output` block, as in a
+  disabled run. Outputs at their defaults would belong to no state.
+- **Restore re-enters.** A restored state is entered like any other:
+  `on_enter` runs and the timer starts at 0. Only the state is retained;
+  time spent in it before a restart is not, and a settle or dwell time
+  starts over rather than being cut short.
+- **During before the transitions.** `during` is what a state does while it
+  stays: it runs before the `on` items, like the body of a hand-written
+  `case` ahead of its `if`s, so a decision sees this cycle's work and an
+  action overrides it (an idle state keeps an id cleared in `during`; the
+  transition out sets the new one). The entering cycle runs `on_enter`
+  only. `during` therefore must not write outputs, which would carry over
+  into the next state; outputs come from `output`, which runs after the
+  transitions in the current state. Before `output` blocks existed,
+  `during` set the outputs and had to run after the transitions in the new
+  state; that order was dropped with them.
 - **Timeouts last.** A real event that arrives in the same cycle as the
   timeout wins.
+- **An internal `on` blocks, the timer runs on.** It is a guard: while it
+  matches, the state makes no progress, timeout included. The time in the
+  state is not paused, so a settle time that ran out under the fault does
+  not start over when it clears; pausing it would be a second mechanism.
+  Internal `on` items are not allowed in `any` for now: there they would
+  hold up every state; allowing them later breaks nothing.
 - **`any` replaces a global `on_timeout`.** One mechanism for every
   state-independent transition; skipping self-targets keeps
   `any { on (estop) -> FAULT; }` from re-entering FAULT every cycle.
@@ -718,13 +893,12 @@ conditions is `enable`, the shared timer handshake used by about 15 steps is
   where it fits; exporting the FSM as a separate HAL function is not planned.
 - **Strict over convenient.** The goal is clean state machines, not covering
   every existing one. Things the analysis of existing code asked for and that
-  have a clean idiom are not added as syntax: no block before the
-  transitions, no `on_init`/resume block (a dispatch state), no manual mode
+  have a clean idiom are not added as syntax: no `on_init`/resume block (a dispatch state), no manual mode
   (an ordinary state), no transition guard (a fault state), no external goto
   (request flags), no timer hold or multi-state timers (user C timers).
 - **No explicit state numbers.** States are numbered in source order. Code
   that must show its own step numbers (e.g. 10, 20, 30 with gaps) assigns
-  them to a `u32` output in `during`.
+  them to a `u32` output in `output`.
 - **No single-step support.** Single-step mode is an edge detect on the step
   button added to the `enable` expression: `enable: (go || step_edge);`.
 - **`timer_var` is always current.** It is written when the timer advances
