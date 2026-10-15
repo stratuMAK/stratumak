@@ -328,12 +328,22 @@ func writeFSM(w io.Writer, c *ast.Component, f ast.FSM) {
 	}
 	if f.Enable != "" {
 		_, _ = fmt.Fprintf(w, ".br\nRuns while: \\fI%s\\fR\n", troffText(f.Enable))
-		for _, s := range f.States {
-			if s.Output {
-				_, _ = fmt.Fprintln(w, ".br\nThe output blocks of the states run while it does not, too.")
-				break
-			}
-		}
+	}
+	hasOutput := false
+	for _, s := range f.States {
+		hasOutput = hasOutput || s.Output
+	}
+	// The output blocks run in every run; say so where the reader would
+	// expect the outputs at their defaults instead.
+	switch {
+	case !hasOutput:
+	case f.Enable != "" && f.Reset != "":
+		_, _ = fmt.Fprintln(w, ".br\nThe output blocks of the states run while it does not, too, "+
+			"and that of the initial state while it is reset.")
+	case f.Enable != "":
+		_, _ = fmt.Fprintln(w, ".br\nThe output blocks of the states run while it does not, too.")
+	case f.Reset != "":
+		_, _ = fmt.Fprintln(w, ".br\nThe output block of the initial state runs while it is reset.")
 	}
 	_, _ = fmt.Fprintln(w, ".PP")
 	_, _ = fmt.Fprintln(w, "In each state the first matching row fires; \\fIany\\fR rows are checked first, "+

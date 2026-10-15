@@ -308,6 +308,46 @@ func howRead(u cUse) string {
 	return "with a computed index"
 }
 
+// matchWrite classifies a write u against the set: certain when it hits an
+// entry, or goes through a computed index (or the whole array) into an
+// array whose every element is in the set; computed when it may hit some
+// of them.
+func (rs refSet) matchWrite(u cUse, s *sym) (certain, computed bool) {
+	hit, computed := rs.match(u)
+	return hit || computed && len(rs[u.Name]) == s.Array, computed
+}
+
+// names lists the entries of array name in the set, for messages.
+func (rs refSet) names(name string) string {
+	var out []string
+	for _, r := range rs[name] {
+		out = append(out, r.String())
+	}
+	return strings.Join(out, ", ")
+}
+
+// blockWrite is a write to a declared pin or variable in a user C block.
+type blockWrite struct {
+	use cUse
+	sym *sym
+	pos ast.Pos
+}
+
+// writes returns the writes to declared pins and variables in blk.  Params
+// are left out: they are configuration, or status the component reports,
+// and no fsm list holds them.  Locals are not declared names.
+func (c *fsmChecker) writes(blk *cfrag) []blockWrite {
+	var out []blockWrite
+	for _, u := range cUses(blk.Text) {
+		s := c.syms[u.Name]
+		if !u.Write || s == nil || s.Kind == symParam {
+			continue
+		}
+		out = append(out, blockWrite{u, s, offsetPos(blk.Pos, blk.Text, u.Off)})
+	}
+	return out
+}
+
 func (c *fsmChecker) check(f *fsmDecl) error {
 	// Lists.
 	for _, r := range f.Inputs {
@@ -344,6 +384,13 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 	// States and targets.
 	if f.Initial != "" && f.state(f.Initial) == nil {
 		return fmt.Errorf("%s: fsm %s: initial state %s is not declared", f.InitPos, f.Name, f.Initial)
+	}
+	if f.StateIO && f.initialState() != f.States[0].Name {
+		// A fresh signal holds 0, which the restore takes as the first
+		// state; an initial state elsewhere would never be entered.
+		return fmt.Errorf("%s: fsm %s: initial state %s is not the first state, but state_var %s is an io pin: "+
+			"a fresh signal holds 0, which restores the first state, so the initial state must come first",
+			f.InitPos, f.Name, f.Initial, f.StateVar)
 	}
 	checkTarget := func(t *fsmTrans) error {
 		if t != nil && t.Target != "" && f.state(t.Target) == nil {
@@ -404,23 +451,28 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 			sensitive.add(*r)
 		}
 	}
-	// The expressions evaluated after the outputs are written: conditions,
-	// enable and timeouts.  Only conditions take part in the sensitivity
-	// check.
+	// What is evaluated after the outputs are written and before anything
+	// writes them again: conditions, enable, timeouts and during (nothing
+	// writes an output between step 1 and during).  Only conditions take
+	// part in the sensitivity check.
 	type readExpr struct {
-		frag cfrag
-		what string
+		frag   cfrag
+		what   string
+		during bool // a block: its writes have a check of their own
 	}
 	var exprs []readExpr
 	for _, cond := range f.conditions() {
-		exprs = append(exprs, readExpr{cond, "condition"})
+		exprs = append(exprs, readExpr{frag: cond, what: "condition"})
 	}
 	if f.Enable != nil {
-		exprs = append(exprs, readExpr{*f.Enable, "enable"})
+		exprs = append(exprs, readExpr{frag: *f.Enable, what: "enable"})
 	}
 	for _, s := range f.States {
 		if s.Timeout != nil {
-			exprs = append(exprs, readExpr{s.Timeout.Expr, "timeout"})
+			exprs = append(exprs, readExpr{frag: s.Timeout.Expr, what: "timeout"})
+		}
+		if s.During != nil {
+			exprs = append(exprs, readExpr{frag: *s.During, what: "state " + s.Name + ": during", during: true})
 		}
 	}
 	for _, e := range exprs {
@@ -428,6 +480,9 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		for _, u := range cUses(cond.Text) {
 			s := c.syms[u.Name]
 			if s == nil || s.Kind == symParam {
+				continue
+			}
+			if e.during && u.Write {
 				continue
 			}
 			pos := offsetPos(cond.Pos, cond.Text, u.Off)
@@ -472,24 +527,18 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		if st.Output == nil {
 			continue
 		}
-		blk := st.Output
-		for _, u := range cUses(blk.Text) {
-			s := c.syms[u.Name]
-			if !u.Write || s == nil {
-				continue
-			}
-			pos := offsetPos(blk.Pos, blk.Text, u.Off)
-			hit, computed := outputs.match(u)
-			if hit || computed && len(outputs[u.Name]) == s.Array {
+		for _, w := range c.writes(st.Output) {
+			certain, computed := outputs.matchWrite(w.use, w.sym)
+			if certain {
 				continue
 			}
 			if computed {
 				return fmt.Errorf("%s: fsm %s: state %s: output writes %s %s, and not every element "+
-					"of %s is an output of this fsm", pos, f.Name, st.Name, useString(u), howRead(u), u.Name)
+					"of %s is an output of this fsm", w.pos, f.Name, st.Name, useString(w.use), howRead(w.use), w.use.Name)
 			}
 			return fmt.Errorf("%s: fsm %s: state %s: output writes %s, which is not an output of this fsm; "+
 				"an output block runs while the fsm is disabled too and writes outputs only",
-				pos, f.Name, st.Name, useString(u))
+				w.pos, f.Name, st.Name, useString(w.use))
 		}
 	}
 
@@ -500,26 +549,16 @@ func (c *fsmChecker) check(f *fsmDecl) error {
 		if st.During == nil {
 			continue
 		}
-		blk := st.During
-		for _, u := range cUses(blk.Text) {
-			s := c.syms[u.Name]
-			if !u.Write || s == nil {
-				continue
-			}
-			pos := offsetPos(blk.Pos, blk.Text, u.Off)
-			hit, computed := outputs.match(u)
+		for _, w := range c.writes(st.During) {
+			certain, computed := outputs.matchWrite(w.use, w.sym)
 			switch {
-			case hit || computed && len(outputs[u.Name]) == s.Array:
+			case certain:
 				return fmt.Errorf("%s: fsm %s: state %s: during writes %s, an output of this fsm; during runs "+
 					"before the transitions, so the value would carry over into the next state: "+
-					"set outputs in an output block", pos, f.Name, st.Name, useString(u))
+					"set outputs in an output block", w.pos, f.Name, st.Name, useString(w.use))
 			case computed:
-				var elems []string
-				for _, r := range outputs[u.Name] {
-					elems = append(elems, r.String())
-				}
-				c.warn(pos, "fsm %s: state %s: during writes %s %s, which may hit the outputs %s; "+
-					"set outputs in an output block", f.Name, st.Name, useString(u), howRead(u), strings.Join(elems, ", "))
+				c.warn(w.pos, "fsm %s: state %s: during writes %s %s, which may hit the outputs %s; "+
+					"set outputs in an output block", f.Name, st.Name, useString(w.use), howRead(w.use), outputs.names(w.use.Name))
 			}
 		}
 	}
@@ -626,8 +665,8 @@ func (c *fsmChecker) checkGraph(f *fsmDecl) {
 		usedAnyTimeout = usedAnyTimeout || s.Timeout != nil && s.Timeout.Trans == nil
 	}
 	if f.AnyTimeout != nil && !usedAnyTimeout {
-		c.warn(f.AnyTimeout.Pos, "fsm %s: any timeout is never used: no state has a timeout "+
-			"without a target", f.Name)
+		c.warn(f.AnyTimeout.Pos, "fsm %s: any timeout is never used: no state hands its timeout "+
+			"to it ('timeout (...);')", f.Name)
 	}
 	for _, t := range f.AnyOn {
 		// Skipped in its target state: it never fires when that is the
@@ -800,45 +839,35 @@ func (f *fsmDecl) blocks() []fsmBlock {
 
 // checkUnlisted warns about writes from f's blocks to pins and variables
 // that are in none of its written lists, for an fsm that declares its
-// interface (has inputs).  Writes to what another fsm owns are left to
-// checkWrites and the owner's lists; params are configuration and cannot
-// be listed; locals are not declared names.
-func (c *fsmChecker) checkUnlisted(f *fsmDecl) {
-	listed := refSet{}
-	for _, d := range f.defs() {
-		listed.add(d.fsmRef)
-	}
-	for _, r := range []*fsmRef{f.StateVar, f.TimerVar} {
-		if r != nil {
-			listed.add(*r)
+// interface (has inputs).  What another fsm writes by its lists is exempt:
+// checkWrites covers its outputs, and code outside may acknowledge or feed
+// its latched and persistent entries.  Params are left out by writes.
+func (c *fsmChecker) checkUnlisted(f *fsmDecl, fsms []*fsmDecl) {
+	// known holds the written lists of every fsm, element by element.
+	known := refSet{}
+	for _, g := range fsms {
+		for _, d := range g.defs() {
+			known.add(d.fsmRef)
 		}
-	}
-	ownedElsewhere := func(name string) bool {
-		for key, owner := range c.owner {
-			if owner != f.Name && (key == name || strings.HasPrefix(key, name+"(") || strings.HasPrefix(key, name+"[")) {
-				return true
+		for _, r := range []*fsmRef{g.StateVar, g.TimerVar} {
+			if r != nil {
+				known.add(*r)
 			}
 		}
-		return false
 	}
 	for _, b := range f.blocks() {
-		for _, u := range cUses(b.frag.Text) {
-			s := c.syms[u.Name]
-			if !u.Write || s == nil || s.Kind == symParam {
+		for _, w := range c.writes(b.frag) {
+			certain, computed := known.matchWrite(w.use, w.sym)
+			if certain {
 				continue
 			}
-			hit, computed := listed.match(u)
-			if hit || computed && len(listed[u.Name]) == s.Array || ownedElsewhere(u.Name) {
-				continue
-			}
-			pos := offsetPos(b.frag.Pos, b.frag.Text, u.Off)
 			if computed {
-				c.warn(pos, "fsm %s: %s writes %s %s; not every element of %s is in outputs, latched or persistent",
-					f.Name, b.what, useString(u), howRead(u), u.Name)
+				c.warn(w.pos, "fsm %s: %s writes %s %s; not every element of %s is in outputs, latched or persistent",
+					f.Name, b.what, useString(w.use), howRead(w.use), w.use.Name)
 				continue
 			}
-			c.warn(pos, "fsm %s: %s writes %s, which is not in outputs, latched or persistent",
-				f.Name, b.what, useString(u))
+			c.warn(w.pos, "fsm %s: %s writes %s, which is not in outputs, latched or persistent",
+				f.Name, b.what, useString(w.use))
 		}
 	}
 }
@@ -876,7 +905,7 @@ func (c *fsmChecker) checkUserCode(fsms []*fsmDecl) error {
 	var edges []edge
 	for _, f := range fsms {
 		if f.Inputs != nil {
-			c.checkUnlisted(f)
+			c.checkUnlisted(f, fsms)
 		}
 		for _, frag := range f.fragments() {
 			uses := cUses(frag.Text)

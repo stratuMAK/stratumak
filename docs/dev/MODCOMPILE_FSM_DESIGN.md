@@ -61,7 +61,11 @@ the slices above:
   timer at 0 and `on_enter` pending, so a state that measures time starts
   its timer anew. Afterwards the fsm keeps the state in a hidden variable and
   writes the pin every run, so a write from outside has no effect; the
-  declared graph stays the only way between states. Before, an io
+  declared graph stays the only way between states. The first state must
+  be the initial one: a fresh signal holds 0, which restores the first
+  state, so an `initial` elsewhere is an error. A reset held on the first
+  run discards the retained state, as any reset does: `reset:
+  (!machine_on)` does not fit a retained machine. Before, an io
   `state_var` was an error and the only idiom was a dispatch state, which
   re-derives the state from a model and needs one.
 - **`output` blocks.** A disabled fsm froze its transitions and set its
@@ -381,7 +385,9 @@ One run:
    from the state to the outputs, and may read anything (an input refining
    an output). `during` must not write the fsm's outputs: it runs before the
    transitions, so the value would carry over into the next state for the
-   cycle a transition fires.
+   cycle a transition fires. Nor may it read them: they hold their defaults
+   there, as in a condition. Outputs carry no state; what a state remembers
+   from one cycle to the next is a `latched` or `persistent` entry.
 
 So each run of a state is either entering it (`on_enter`: entry run or
 transition) or staying in it (`during`, then the decision), and the cycle a
@@ -406,7 +412,9 @@ Consequences worth stating in the user documentation:
 
 - An output written in `on_enter`, `on_exit` or a transition action is a
   **one-cycle pulse**. An output that should hold while in a state is written
-  in `output`.
+  in `output`. `output` runs last: a pulse to an output that the entered
+  state's `output` block also writes is overwritten in the same run, so an
+  output is either pulsed or set by `output`, not both.
 - `on_enter` always runs on entering a state, including after init and reset.
 - While reset is held, the fsm sits in the initial state with latched and
   persistent values at their defaults; only the initial state's `output` block runs. User code
@@ -422,10 +430,14 @@ Consequences worth stating in the user documentation:
   direction/type for its list (see the table above).
 - A name in more than one of `outputs` / `latched` / `state_var` /
   `timer_var`, or an output listed in two FSMs.
-- An `on` condition, the `enable` expression or a `timeout` expression that
-  reads an FSM output. Outputs always hold their default at that point, so
-  this is a bug (`enable: (o)` with default 0 never runs the fsm). `reset`
-  is read before the outputs are written and is exempt.
+- An `on` condition, the `enable` expression, a `timeout` expression or a
+  `during` block that reads an FSM output. Outputs always hold their
+  default at that point, so this is a bug (`enable: (o)` with default 0
+  never runs the fsm). `reset` is read before the outputs are written and
+  is exempt. Reading the previous cycle's output in `during` was
+  considered and rejected: an output would become hidden memory, outside
+  the lists and not cleared by reset; a `latched` entry says the same
+  thing explicitly.
 - A state with `timeout (...)` without target and no `any { timeout -> ...; }`.
 - A `during` block assigning one of the fsm's `outputs`: it runs before the
   transitions, so the value would carry over into the next state. With a
@@ -454,6 +466,8 @@ Consequences worth stating in the user documentation:
 - An `output` block assigning a declared pin or variable that is not one of
   the fsm's `outputs` (locals of the block pass); through a computed index,
   unless every element of the array is an output.
+- An `io` `state_var` with an `initial` that is not the first state: a
+  fresh signal holds 0, which restores the first state.
 - A timeout integer literal with a leading `0`
   (`010s`, `010`), or a unit on a number that is not decimal (`0x10s`).
 - An expression or default that holds only comments (`on (/* x */)`).

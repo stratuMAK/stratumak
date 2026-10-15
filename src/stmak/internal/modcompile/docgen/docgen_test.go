@@ -58,6 +58,43 @@ seq();
 	}
 }
 
+// The output blocks run in reset and disabled runs; the note names the
+// case the fsm has.
+func TestFSMOutputNote(t *testing.T) {
+	for _, tc := range []struct{ items, want string }{
+		{"reset: (stop);", ".br\nThe output block of the initial state runs while it is reset.\n"},
+		{"enable: (go);", ".br\nThe output blocks of the states run while it does not, too.\n"},
+		{"reset: (stop); enable: (go);",
+			".br\nThe output blocks of the states run while it does not, too, and that of the initial state while it is reset.\n"},
+	} {
+		src := `component t "x";
+pin in bit go;
+pin in bit stop;
+pin out s32 code;
+function _;
+fsm seq {
+    outputs: code;
+    ` + tc.items + `
+    state IDLE { output { code = 1; } on (go) -> RUN; }
+    state RUN { on (!go) -> IDLE; }
+};
+;;
+seq();
+`
+		pkg, err := comp.Parse("t.comp", src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		if err := Generate(&buf, pkg); err != nil {
+			t.Fatal(err)
+		}
+		if out := buf.String(); !strings.Contains(out, tc.want) {
+			t.Errorf("%s: man page lacks %q\n--- output ---\n%s", tc.items, tc.want, out)
+		}
+	}
+}
+
 // An internal on shows as a row without a next state, explained once.
 func TestFSMInternalOnRow(t *testing.T) {
 	src := `component t "x";
