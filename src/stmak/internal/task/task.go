@@ -439,7 +439,11 @@ type Task struct {
 	// programRes resolves G-code paths against the program directories
 	// (PROGRAM_PREFIX + SUBROUTINE_PATH + share).  Built in loadConfig.
 	programRes *pathres.Resolver
-	previewSeq int32 // increments on changes that invalidate preview
+	// previewSeq increments on changes that invalidate preview. Atomic, not
+	// t.mu-guarded: the canon setters (G10/G92/G68 callbacks) bump it from the
+	// interpreter goroutine, which drives the interpreter without t.mu, while
+	// BuildStat reads it under t.mu. No cross-field invariant depends on it.
+	previewSeq atomic.Int32
 	// bootID identifies THIS run of the task (start timestamp, unix ns).
 	// Reported in stat so a client can tell "the task restarted under me"
 	// from "nothing changed": every other counter we publish — previewSeq

@@ -935,7 +935,7 @@ func (t *Task) openProgramFileLocked(gcode, source string) error {
 	t.programFile = gcode
 	t.sourceFile = source
 	t.programOpen = true
-	t.previewSeq++
+	t.previewSeq.Add(1)
 	return nil
 }
 
@@ -2770,9 +2770,7 @@ func (t *Task) LoadToolTable(file string) error {
 	if t.interp != nil {
 		_ = t.interp.Synch()
 	}
-	t.mu.Lock()
-	t.previewSeq++
-	t.mu.Unlock()
+	t.previewSeq.Add(1)
 	return nil
 }
 

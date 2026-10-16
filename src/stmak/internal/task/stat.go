@@ -100,7 +100,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			U: cs.g92Offset.U, V: cs.g92Offset.V, W: cs.g92Offset.W,
 		},
 		RotationXy: cs.xyRotation,
-		PreviewSeq: t.previewSeq,
+		PreviewSeq: t.previewSeq.Load(),
 		BootId:     t.bootID,
 		Heartbeat:  heartbeat,
 		// Config-derived scalars (task-side; not a motion echo).
