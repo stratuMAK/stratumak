@@ -1,0 +1,6 @@
+# One sampler, many successive clients.  The stream server numbers its
+# connections for as long as it runs; the sampler took that number for a
+# slot index and refused every client from the ninth connection on.
+loadrt sampler cfg=f depth=100
+newthread fast 1000000
+addf sampler fast
