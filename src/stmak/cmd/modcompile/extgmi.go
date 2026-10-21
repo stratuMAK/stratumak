@@ -307,10 +307,21 @@ func cmdRmGmi(apis []string) {
 // builtinGMIDir returns the generated package directory of a built-in API, or
 // "" if stratuMAK has no API of that name. Looked up in the pristine sources:
 // the build tree also holds the external packages.
+//
+// Falls back to the flat include directory, where the build copies every
+// built-in <api>_api.h (and only those). The pristine sources are found
+// through $STMAK_DIR, which a run-in-place tree gets from rip-environment
+// only; a modcompile started without it -- from a systemd unit or an
+// install script -- would otherwise call every built-in API unknown and
+// refuse a .comp whose header sits on its include path.
 func builtinGMIDir(api string) string {
-	dir := filepath.Join(config.StmakDir(), "generated", "gmi", api)
-	if _, err := os.Stat(filepath.Join(dir, api+"_api.h")); err == nil {
-		return dir
+	for _, dir := range []string{
+		filepath.Join(config.StmakDir(), "generated", "gmi", api),
+		linuxcncIncludeDir(),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, api+"_api.h")); err == nil {
+			return dir
+		}
 	}
 	return ""
 }

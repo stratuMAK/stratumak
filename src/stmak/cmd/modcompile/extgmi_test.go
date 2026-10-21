@@ -328,3 +328,33 @@ func TestCheckGmiTouchesNothing(t *testing.T) {
 		t.Error("checkGmi created the store")
 	}
 }
+
+// A run-in-place tree only has $STMAK_DIR when rip-environment was sourced.
+// Without it the pristine sources are not found, but the build has copied
+// every built-in header into the flat include directory: the API is still
+// built in, so a .comp consuming it compiles and an external IDL cannot take
+// its name.
+func TestBuiltinGMIDirFlatIncludeFallback(t *testing.T) {
+	home := t.TempDir()
+	inc := filepath.Join(home, "include")
+	if err := os.MkdirAll(inc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inc, "mcode_handler_api.h"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldHome, oldRIP := config.EMC2Home, config.RunInPlace
+	t.Cleanup(func() { config.EMC2Home, config.RunInPlace = oldHome, oldRIP })
+	config.EMC2Home, config.RunInPlace = home, "yes"
+	t.Setenv(config.StmakDirEnv, t.TempDir()) // a stmak tree without generated/
+
+	if got := builtinGMIDir("mcode_handler"); got != inc {
+		t.Errorf("builtinGMIDir(mcode_handler) = %q, want %q", got, inc)
+	}
+	if got := gmiIncludeDir("mcode_handler"); got != inc {
+		t.Errorf("gmiIncludeDir(mcode_handler) = %q, want %q", got, inc)
+	}
+	if got := builtinGMIDir("nosuchapi"); got != "" {
+		t.Errorf("builtinGMIDir(nosuchapi) = %q, want \"\"", got)
+	}
+}
