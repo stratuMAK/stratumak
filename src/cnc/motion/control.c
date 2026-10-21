@@ -1158,6 +1158,20 @@ static void check_for_faults(motmod_inst_t *inst)
     }
 }
 
+/* A mode switch is only made in position; one requested while a move or jog
+   is still running (or the jerk filter is still flushing) is dropped and has
+   to be requested again.  Leave a trace of that, once per episode -- task
+   re-requests every poll while it waits -- so a requester that never asks
+   again does not leave motion in the wrong mode without a word. */
+static void mode_switch_refused(motmod_inst_t *inst, const char *mode)
+{
+    if (!inst->internal->mode_refused) {
+        stmak_log_warnf(inst->log, inst->name,
+                        "switch to %s mode refused: not in position", mode);
+        inst->internal->mode_refused = 1;
+    }
+}
+
 static void set_operating_mode(motmod_inst_t *inst)
 {
     int joint_num;
@@ -1274,9 +1288,11 @@ static void set_operating_mode(motmod_inst_t *inst)
             motmod_kinematicsForward(inst, positions, &inst->status->carte_pos_cmd, &inst->fflags, &inst->iflags);
             // entering teleop (INPOS), remove ext offsets
             axis_sync_teleop_tp_to_carte_pos(ai, -1, pcmd_p);
+	    inst->internal->mode_refused = 0;
 	} else {
 	    /* not in position-- don't honor mode change */
 	    inst->internal->teleoperating = 0;
+	    mode_switch_refused(inst, "teleop");
 	}
     } else {
 	if (GET_MOTION_INPOS_FLAG()) {
@@ -1314,9 +1330,11 @@ static void set_operating_mode(motmod_inst_t *inst)
 		SET_MOTION_COORD_FLAG(1);
 		SET_MOTION_TELEOP_FLAG(0);
 		SET_MOTION_ERROR_FLAG(0);
+		inst->internal->mode_refused = 0;
 	    } else {
 		/* not in position-- don't honor mode change */
 		inst->internal->coordinating = 0;
+		mode_switch_refused(inst, "coordinated");
 	    }
 	}
 
@@ -1334,9 +1352,11 @@ static void set_operating_mode(motmod_inst_t *inst)
 		SET_MOTION_COORD_FLAG(0);
 		SET_MOTION_TELEOP_FLAG(0);
 		SET_MOTION_ERROR_FLAG(0);
+		inst->internal->mode_refused = 0;
 	    } else {
 		/* not in position-- don't honor mode change */
 		inst->internal->coordinating = 1;
+		mode_switch_refused(inst, "free");
 	    }
 	}
     }
@@ -2025,6 +2045,15 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 
 
 	/* END OF OUTPUT KINS */
+
+	/* report motion status -- in position once no axis jog is running and
+	   the jerk filter has flushed.  Left alone, INPOS kept whatever value it
+	   had when teleop was entered, so a switch out of teleop (which waits on
+	   INPOS) went through mid-jog -- or, had it been FALSE, never */
+	SET_MOTION_INPOS_FLAG(0);
+	if (!axis_jog_is_active(ai) && jerk_filter_flushed(inst)) {
+	    SET_MOTION_INPOS_FLAG(1);
+	}
 
 	/* if overriding is true and the jog is complete, the limits should be re-enabled */
 	if ( ( inst->internal->overriding ) && ( !axis_jog_is_active(ai) ) ) {

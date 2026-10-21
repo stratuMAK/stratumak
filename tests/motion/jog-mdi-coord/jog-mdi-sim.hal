@@ -1,0 +1,16 @@
+# Kinematics + motion controller + a perfect servo loop.  linuxcnc.hal has
+# already loaded homemod for joint 0, io, milltask, etc.; threads.hal created
+# servo-thread.
+
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+
+net j0-cmd   joint.0.motor-pos-cmd => joint.0.motor-pos-fb
+
+# estop + tool-change loopbacks (as in core_sim.hal) so milltask can enable.
+net estop-loop      iocontrol.user-enable-out iocontrol.emc-enable-in
+net tool-prep-loop  iocontrol.tool-prepare    iocontrol.tool-prepared
+net tool-change-loop iocontrol.tool-change    iocontrol.tool-changed

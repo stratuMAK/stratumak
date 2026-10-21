@@ -762,6 +762,10 @@ typedef struct emcmot_internal_t {
     int teleoperating;  /* starts up in free mode */
     int overriding;     /* non-zero means we've initiated an joint
                            move while overriding limits */
+    int mode_refused;   /* once-latch for the "mode switch refused" log: set
+                           when a requested switch is dropped because motion
+                           is not in position, cleared by the next switch that
+                           goes through */
     int idForStep;      /* status id while stepping */
     int soft_limit_reported; /* once-latch for the soft-limit trip fault:
                                 status->on_soft_limit is live state (the pin's

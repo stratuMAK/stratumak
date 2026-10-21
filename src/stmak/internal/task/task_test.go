@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"path/filepath"
@@ -28,6 +29,24 @@ type mockMotion struct {
 	rapidScale   float64
 	spindleScale float64
 	velLimit     float64
+	// Motion mode as the last SetCoord/SetTeleop/SetFree left it, reported
+	// back through a mockStatus linked to this mock: task waits for motion
+	// to actually enter coordinated mode.
+	coord, teleop int32
+}
+
+func (m *mockMotion) mode() (coord, teleop int32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.coord, m.teleop
+}
+
+func (m *mockMotion) setMode(call string, coord, teleop int32) error {
+	m.setCall(call)
+	m.mu.Lock()
+	m.coord, m.teleop = coord, teleop
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *mockMotion) scales() (feed, rapid, spindle, vel float64) {
@@ -87,9 +106,9 @@ func (m *mockMotion) Resume() error    { m.setCall("Resume"); return nil }
 func (m *mockMotion) Step(int32) error { m.setCall("Step"); return nil }
 func (m *mockMotion) Reverse() error   { m.setCall("Reverse"); return nil }
 func (m *mockMotion) Forward() error   { m.setCall("Forward"); return nil }
-func (m *mockMotion) SetFree() error   { m.setCall("SetFree"); return nil }
-func (m *mockMotion) SetCoord() error  { m.setCall("SetCoord"); return nil }
-func (m *mockMotion) SetTeleop() error { m.setCall("SetTeleop"); return nil }
+func (m *mockMotion) SetFree() error   { return m.setMode("SetFree", 0, 0) }
+func (m *mockMotion) SetCoord() error  { return m.setMode("SetCoord", 1, 0) }
+func (m *mockMotion) SetTeleop() error { return m.setMode("SetTeleop", 0, 1) }
 func (m *mockMotion) Enable() error    { m.setCall("Enable"); return nil }
 func (m *mockMotion) Disable() error   { m.setCall("Disable"); return nil }
 func (m *mockMotion) JogCont(int32, float64, int32) error {
@@ -220,10 +239,18 @@ func (m *mockIO) GetIOFullStatus() (IOFullStatus, error) {
 // a healthy mock must reflect the enable or every power-on would time out.
 // Tests exercising a refused/lost enable use a mock with a settable flag
 // (mockStatusWithError) and flip it AFTER power-on.
-type mockStatus struct{}
+// mockStatus reports an enabled machine; linked to a mockMotion (mot) it
+// also reports the motion mode that mock was last switched to.
+type mockStatus struct{ mot *mockMotion }
 
 func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) {
-	return motstat.MotionStatus{Enabled: 1}, nil
+	st := motstat.MotionStatus{Enabled: 1}
+	if m.mot != nil {
+		m.mot.mu.Lock()
+		st.Coord, st.Teleop = m.mot.coord, m.mot.teleop
+		m.mot.mu.Unlock()
+	}
+	return st, nil
 }
 func (m *mockStatus) GetPosCmd() (motstat.Pose, error)      { return motstat.Pose{}, nil }
 func (m *mockStatus) GetPosFb() (motstat.Pose, error)       { return motstat.Pose{}, nil }
@@ -238,7 +265,7 @@ func (m *mockStatus) GetAnalogInput(int32) (float64, error) { return 0, nil }
 func newTestTask() (*Task, *mockMotion, *mockIO) {
 	mot := &mockMotion{}
 	io := &mockIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: mot}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	t := NewTask(mot, io, stat, logger)
 	t.SetIOStatusReader(io)
@@ -323,7 +350,7 @@ type homedStatus struct {
 }
 
 func (h *homedStatus) GetStatus() (motstat.MotionStatus, error) {
-	ms := motstat.MotionStatus{Enabled: 1} // healthy mock — see mockStatus
+	ms, _ := h.mockStatus.GetStatus() // healthy mock — see mockStatus
 	for j := 0; j < h.homed && j < len(ms.Joints); j++ {
 		ms.Joints[j].Homed = 1
 	}
@@ -352,7 +379,7 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 
 	t.Run("homed->SetTeleop", func(t *testing.T) {
 		task, mot, _ := newTestTask()
-		task.status = &homedStatus{homed: 3}
+		task.status = &homedStatus{mockStatus: mockStatus{mot: mot}, homed: 3}
 		task.numJoints = 3
 		bringUp(t, task)
 		if err := task.SetMode(int32(ModeAuto)); err != nil {
@@ -400,6 +427,70 @@ func TestJog_MDIBusyRejects(t *testing.T) {
 	err := task.Jog(JogContinuous, true, 0, 100, 0)
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("expected ErrBusy, got %v", err)
+	}
+}
+
+// A jog while task is in MDI switches motion to teleop/free and leaves the
+// task mode at MDI. The next MDI must put motion back into coordinated mode:
+// ensureMode used to see "already MDI" and return, and every MDI line after
+// the jog failed in motion with "need to be enabled, in coord mode".
+func TestEnsureMode_MDIAfterJogReentersCoord(t *testing.T) {
+	task, mot, _ := newTestTask()
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
+	if err := task.Jog(JogIncrement, false, 0, 10, 1); err != nil {
+		t.Fatalf("Jog: %v", err)
+	}
+	if coord, teleop := mot.mode(); coord != 0 || teleop != 1 {
+		t.Fatalf("after jog: coord=%d teleop=%d, want teleop", coord, teleop)
+	}
+
+	task.mu.Lock()
+	err := task.ensureMode(ModeMDI)
+	task.mu.Unlock()
+	if err != nil {
+		t.Fatalf("ensureMode(MDI): %v", err)
+	}
+	if coord, teleop := mot.mode(); coord != 1 || teleop != 0 {
+		t.Fatalf("after ensureMode(MDI): coord=%d teleop=%d, want coord", coord, teleop)
+	}
+}
+
+// refuseCoordMotion drops every SetCoord, as motion does while not in
+// position (a jog still running out).
+type refuseCoordMotion struct{ mockMotion }
+
+func (m *refuseCoordMotion) SetCoord() error { m.setCall("SetCoord"); return nil }
+
+// When motion does not enter coordinated mode, the MDI is refused with a
+// reason instead of queueing lines motion will reject one by one.
+func TestEnsureMode_MDIRefusedWhenMotionStaysOutOfCoord(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	defer restore()
+	old := coordSwitchTimeout
+	coordSwitchTimeout = 20 * time.Millisecond
+	defer func() { coordSwitchTimeout = old }()
+
+	mot := &refuseCoordMotion{}
+	io := &mockIO{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	task := NewTask(mot, io, &mockStatus{mot: &mot.mockMotion}, logger)
+	task.SetIOStatusReader(io)
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeMDI)); !errors.Is(err, errNotCoord) {
+		t.Fatalf("SetMode(MDI) = %v, want errNotCoord", err)
+	}
+
+	task.mu.Lock()
+	err := task.ensureMode(ModeMDI)
+	task.mu.Unlock()
+	if !errors.Is(err, errNotCoord) {
+		t.Fatalf("ensureMode(MDI) = %v, want errNotCoord", err)
+	}
+	if n := mot.countCall("SetCoord"); n < 2 {
+		t.Fatalf("SetCoord sent %d times, want it re-sent while waiting", n)
 	}
 }
 

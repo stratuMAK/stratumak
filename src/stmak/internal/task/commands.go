@@ -796,12 +796,15 @@ func (t *Task) SetMode(mode int32) error {
 		// current mode during a run must not touch the producer-owned interp.
 		canSynch := t.interp != nil && !t.programBusy()
 		t.mu.Unlock()
-		_ = t.motion.SetCoord()
+		err := t.enterCoord()
 		if canSynch {
 			t.canon.syncEndPointFromMachine()
 			_ = t.interp.Synch()
 		}
-		return nil
+		if err != nil {
+			t.operatorError(fmt.Sprintf("Cannot switch to MDI mode: %v", err))
+		}
+		return err
 	case ModeAuto:
 		if t.mode != ModeAuto {
 			t.modeAbortLocked()
@@ -809,12 +812,15 @@ func (t *Task) SetMode(mode int32) error {
 		t.mode = ModeAuto
 		canSynch := t.interp != nil && !t.programBusy()
 		t.mu.Unlock()
-		_ = t.motion.SetCoord()
+		err := t.enterCoord()
 		if canSynch {
 			t.canon.syncEndPointFromMachine()
 			_ = t.interp.Synch()
 		}
-		return nil
+		if err != nil {
+			t.operatorError(fmt.Sprintf("Cannot switch to Auto mode: %v", err))
+		}
+		return err
 	}
 	t.mu.Unlock()
 	return ErrWrongMode
@@ -1384,7 +1390,11 @@ func (t *Task) MDI(command string) error {
 	}
 	if err := t.ensureMode(ModeMDI); err != nil {
 		t.mu.Unlock()
-		t.operatorError("Must be in MDI mode to issue MDI command")
+		if errors.Is(err, errNotCoord) {
+			t.operatorError(fmt.Sprintf("Cannot issue MDI command: %v", err))
+		} else {
+			t.operatorError("Must be in MDI mode to issue MDI command")
+		}
 		return err
 	}
 	if err := t.requireHomedForMDILocked(); err != nil {
