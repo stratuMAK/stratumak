@@ -59,7 +59,7 @@ typedef struct {
 
     // Pin configuration
     int num_pins;
-    char pin_types[MAX_PINS];  // 'f', 'b', 'u', 's'
+    char pin_types[MAX_PINS + 1];  // 'f', 'b', 'u', 's'; NUL-terminated: it is the stream's cfg string
     pin_ptr_t pins[MAX_PINS];
 
     // Ring buffer (allocated at init)
@@ -287,6 +287,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->num_pins = num_pins;
     inst->depth = depth;
     memcpy(inst->pin_types, cfg_str, num_pins);
+    inst->pin_types[num_pins] = '\0';
 
     // Allocate ring buffer
     inst->ring = calloc(depth * num_pins, sizeof(sample_val_t));
