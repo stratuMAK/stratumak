@@ -1585,6 +1585,7 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
                 inst->jerk_filter.sum[j] = pos * max_window;
             }
             inst->jerk_filter.filled = max_window;
+            inst->jerk_filter.still = max_window;
         }
     }
 }
@@ -1648,6 +1649,7 @@ static void jerk_filter_reanchor(motmod_inst_t *inst)
     }
     inst->jerk_filter.idx = 0;
     inst->jerk_filter.filled = ws;
+    inst->jerk_filter.still = ws;
 }
 
 static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
@@ -1661,10 +1663,14 @@ static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
     int idx = inst->jerk_filter.idx;
     int filled = inst->jerk_filter.filled;
     int count = (filled < ws) ? filled + 1 : ws;
+    int prev = (idx - 1 + ws) % ws;
+    int changed = (filled == 0);
     int j;
 
     for (j = 0; j < nj; j++) {
         double *jbuf = buf + j * ws;  /* row for this joint */
+        if (positions[j] != jbuf[prev])
+            changed = 1;
         /* subtract oldest value from running sum */
         sum[j] -= jbuf[idx];
         /* store new value */
@@ -1678,6 +1684,20 @@ static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
     inst->jerk_filter.idx = (idx + 1) % ws;
     if (inst->jerk_filter.filled < ws)
         inst->jerk_filter.filled++;
+    if (changed)
+        inst->jerk_filter.still = 0;
+    else if (inst->jerk_filter.still < ws)
+        inst->jerk_filter.still++;
+}
+
+/* True once the filter output has caught up with its input: the input has
+   been constant for a full window (or the filter is off).  The planner
+   reports done when its own output stops; the joints are still moving for
+   up to a window after that. */
+static inline int jerk_filter_flushed(motmod_inst_t *inst)
+{
+    int ws = inst->jerk_filter.window_size;
+    return ws <= 0 || inst->jerk_filter.still >= ws;
 }
 
 static void get_pos_cmds(motmod_inst_t *inst, long period)
@@ -1937,9 +1957,13 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    /* interpolate to get new position and velocity */
 	    joint->pos_cmd = cubicInterpolate(&(joint->cubic), 0, &(joint->vel_cmd), &(joint->acc_cmd), 0);
 	}
-	/* report motion status */
+	/* report motion status -- in position only once the jerk filter has
+	   flushed as well: task's motion barriers (M-codes, I/O, end of MDI,
+	   probe "finished without contact", mode switches) wait on INPOS, and
+	   the joints keep moving for up to a filter window after the planner
+	   is done (free mode holds free_tp.active the same way) */
 	SET_MOTION_INPOS_FLAG(0);
-	if (inst->tp_api->is_done(inst->tp_api->ctx)) {
+	if (inst->tp_api->is_done(inst->tp_api->ctx) && jerk_filter_flushed(inst)) {
 	    SET_MOTION_INPOS_FLAG(1);
 	}
 	break;
