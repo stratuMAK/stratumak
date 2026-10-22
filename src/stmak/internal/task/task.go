@@ -456,6 +456,9 @@ type Task struct {
 	interpQueue chan QueuedCmd
 	seqDone     chan struct{} // closed when sequencer goroutine exits
 	seqAbort    chan struct{} // close to abort sequencer
+	// abortSeq counts the aborts signalAbort fired. A wait that holds cmdMu
+	// (enterCoord) polls it and yields to an abort, which takes cmdMu next.
+	abortSeq atomic.Uint64
 	// seqInflight is true while the sequencer is processing a dequeued command
 	// (from dequeue until its wait/post-wait completes). waitSequencerDrain
 	// needs it: an empty queue with ExecDone is also observable in the instant

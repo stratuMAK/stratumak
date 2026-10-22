@@ -289,6 +289,7 @@ func (t *Task) preflightManualMode(requireOn bool) error {
 // EnqueueCmd backpressure on a paused sequencer). Abort-class entry points
 // call this first, then take cmdMu for the state cleanup.
 func (t *Task) signalAbort() {
+	t.abortSeq.Add(1)
 	t.mu.Lock()
 	t.closeOnceLocked(t.seqAbort)
 	t.mu.Unlock()
@@ -787,38 +788,18 @@ func (t *Task) SetMode(mode int32) error {
 			return t.motion.SetTeleop()
 		}
 		return t.motion.SetFree()
-	case ModeMDI:
-		if t.mode != ModeMDI {
+	case ModeMDI, ModeAuto:
+		if t.mode != target {
 			t.modeAbortLocked()
 		}
-		t.mode = ModeMDI
-		// Synch only while the interpreter is idle — a re-assertion of the
-		// current mode during a run must not touch the producer-owned interp.
-		canSynch := t.interp != nil && !t.programBusy()
+		err := t.switchToCoordLocked(target)
 		t.mu.Unlock()
-		err := t.enterCoord()
-		if canSynch {
-			t.canon.syncEndPointFromMachine()
-			_ = t.interp.Synch()
-		}
 		if err != nil {
-			t.operatorError(fmt.Sprintf("Cannot switch to MDI mode: %v", err))
-		}
-		return err
-	case ModeAuto:
-		if t.mode != ModeAuto {
-			t.modeAbortLocked()
-		}
-		t.mode = ModeAuto
-		canSynch := t.interp != nil && !t.programBusy()
-		t.mu.Unlock()
-		err := t.enterCoord()
-		if canSynch {
-			t.canon.syncEndPointFromMachine()
-			_ = t.interp.Synch()
-		}
-		if err != nil {
-			t.operatorError(fmt.Sprintf("Cannot switch to Auto mode: %v", err))
+			name := "MDI"
+			if target == ModeAuto {
+				name = "Auto"
+			}
+			t.operatorError(fmt.Sprintf("Cannot switch to %s mode: %v", name, err))
 		}
 		return err
 	}

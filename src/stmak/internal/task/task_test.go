@@ -505,6 +505,109 @@ func TestEnsureMode_MDIRefusedWhenMotionStaysOutOfCoord(t *testing.T) {
 	}
 }
 
+// refuseCoordTask is a powered-up task whose motion never enters coordinated
+// mode, with the coord wait shortened to timeout.
+func refuseCoordTask(t *testing.T, timeout time.Duration) (*Task, *refuseCoordMotion) {
+	t.Helper()
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+	old := coordSwitchTimeout
+	coordSwitchTimeout = timeout
+	t.Cleanup(func() { coordSwitchTimeout = old })
+
+	mot := &refuseCoordMotion{}
+	io := &mockIO{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	task := NewTask(mot, io, &mockStatus{mot: &mot.mockMotion}, logger)
+	task.SetIOStatusReader(io)
+	bringUp(t, task)
+	return task, mot
+}
+
+func taskMode(task *Task) TaskMode {
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	return task.mode
+}
+
+// A refused switch leaves task in the mode it was in: stat, the halui mode
+// pins and the jog rules must not claim MDI while motion is still in teleop.
+func TestSetMode_MDIRefusedKeepsPreviousMode(t *testing.T) {
+	task, _ := refuseCoordTask(t, 20*time.Millisecond)
+	before := taskMode(task)
+	if err := task.SetMode(int32(ModeMDI)); !errors.Is(err, errNotCoord) {
+		t.Fatalf("SetMode(MDI) = %v, want errNotCoord", err)
+	}
+	if got := taskMode(task); got != before {
+		t.Fatalf("task mode %s after the refused switch, want %s", got, before)
+	}
+}
+
+// An abort must not queue behind the wait for coordinated mode (the wait
+// holds cmdMu, which the abort takes next): it ends the wait at once.
+func TestSetMode_AbortEndsCoordWait(t *testing.T) {
+	task, _ := refuseCoordTask(t, 5*time.Second)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		task.signalAbort()
+	}()
+	start := time.Now()
+	err := task.SetMode(int32(ModeMDI))
+	if !errors.Is(err, errCoordAborted) {
+		t.Fatalf("SetMode(MDI) = %v, want errCoordAborted", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("abort did not end the coord wait")
+	}
+}
+
+// droppingStatus is a mockStatus whose Enabled flag can be cleared (an ESTOP
+// while a command waits on motion).
+type droppingStatus struct {
+	mockStatus
+	enabled atomic.Int32
+}
+
+func (s *droppingStatus) GetStatus() (motstat.MotionStatus, error) {
+	ms, err := s.mockStatus.GetStatus()
+	ms.Enabled = s.enabled.Load()
+	return ms, err
+}
+
+// Motion going off during the wait (an ESTOP) ends it as well: nothing moves
+// to wait for, and the mode is accepted as it is while the machine is off.
+func TestSetMode_EstopEndsCoordWait(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+	old := coordSwitchTimeout
+	coordSwitchTimeout = 5 * time.Second
+	t.Cleanup(func() { coordSwitchTimeout = old })
+
+	mot := &refuseCoordMotion{}
+	io := &mockIO{}
+	st := &droppingStatus{mockStatus: mockStatus{mot: &mot.mockMotion}}
+	st.enabled.Store(1)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	task := NewTask(mot, io, st, logger)
+	task.SetIOStatusReader(io)
+	bringUp(t, task)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		st.enabled.Store(0)
+	}()
+	start := time.Now()
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI) with motion going off = %v, want nil", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("motion going off did not end the coord wait")
+	}
+	if got := taskMode(task); got != ModeMDI {
+		t.Fatalf("task mode %s, want MDI (accepted while the machine is off)", got)
+	}
+}
+
 // TestAutoCommand_EnsureModeWhenIdle pins an INTENTIONAL divergence from C++
 // milltask. In an idle Manual mode, a RUN command auto-switches the machine to
 // AUTO (ensureMode) and proceeds; C++ instead rejects it ("Can't do that in
