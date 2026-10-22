@@ -70,6 +70,17 @@ func TestWheelEnable_RefusedWhileInterpBusy(t *testing.T) {
 	if coord, teleop := mot.mode(); coord != 1 || teleop != 0 {
 		t.Fatalf("switched while interpreter busy: coord=%d teleop=%d", coord, teleop)
 	}
+
+	// The enable is not forgotten: once the interpreter is idle again the
+	// pending enable switches motion, without the operator toggling the
+	// pendant switch again.
+	task.mu.Lock()
+	task.interpState = InterpIdle
+	task.mu.Unlock()
+	h.checkWheelEnable(task)
+	if coord, teleop := mot.mode(); coord != 0 || teleop != 1 {
+		t.Fatalf("pending enable did not switch once idle: coord=%d teleop=%d", coord, teleop)
+	}
 }
 
 // Axes outside the configured set are ignored.

@@ -225,6 +225,11 @@ type halUI struct {
 	lastWrittenJogSpeed  float64
 	lastWrittenAjogSpeed float64
 
+	// A jog wheel enable raised while the switch to teleop was refused
+	// (program running, machine off, motion not in position) stays pending
+	// and is retried every poll; the refusal is logged once per episode.
+	wheelEnableDeferred bool
+
 	// --- axisui pins (merged) ---
 	// Notification control (input from HAL)
 	notificationsClear      *hal.Pin[bool]
@@ -1648,20 +1653,38 @@ func (h *halUI) checkWheelEnable(t *Task) {
 	if err != nil {
 		return
 	}
-	rising := false
+	var rising [maxAxes]bool
+	raised := false
 	for i := 0; i < maxAxes && i < len(ms.Axes); i++ {
 		if h.axisMask&(1<<i) == 0 {
 			continue
 		}
 		v := ms.Axes[i].JogEnable != 0
 		if risingEdge(v, h.old.ajogWheelEnable[i]) {
-			rising = true
+			rising[i] = true
+			raised = true
 		}
 		h.old.ajogWheelEnable[i] = v
 	}
-	if rising {
-		_ = t.WheelJogEnabled()
+	if !raised {
+		return
 	}
+	if err := t.WheelJogEnabled(); err != nil {
+		// Keep the edge: an enable raised while an MDI is still running or
+		// the machine is off must take effect once the switch is possible,
+		// not only after the operator toggles the pendant switch again.
+		for i, r := range rising {
+			if r {
+				h.old.ajogWheelEnable[i] = false
+			}
+		}
+		if !h.wheelEnableDeferred {
+			h.wheelEnableDeferred = true
+			t.logger.Info("jog wheel enable deferred", "err", err)
+		}
+		return
+	}
+	h.wheelEnableDeferred = false
 }
 
 // joggingJoint reports whether joint j is being jogged via its own per-joint
