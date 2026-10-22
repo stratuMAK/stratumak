@@ -132,13 +132,7 @@ func (t *Task) restoreModeTx() {
 	case ModeManual:
 		t.mode = ModeManual
 		t.mu.Unlock()
-		if t.allHomed() {
-			_ = t.motion.SetTeleop()
-			t.waitMotionTeleop()
-		} else {
-			_ = t.motion.SetFree()
-			t.waitMotionFree()
-		}
+		t.enterManualMotion()
 		t.mu.Lock()
 	case ModeMDI, ModeAuto:
 		t.mode = target
@@ -152,6 +146,58 @@ func (t *Task) restoreModeTx() {
 			_ = t.interp.Synch()
 		}
 		t.mu.Lock()
+	}
+}
+
+// dropModeTxLocked ends a transactional mode switch without touching motion:
+// estop and machine off tear an MDI down with motion disabled, and machine on
+// then puts motion into the restored mode. Without it task stayed in MDI after
+// an estop out of an MDI, motion came back coordinated, and the jog wheel
+// (which only runs in teleop) was dead until something else switched motion.
+// Must be called with t.mu held.
+func (t *Task) dropModeTxLocked() {
+	if !t.modeTx {
+		return
+	}
+	t.modeTx = false
+	t.mode = t.modeBeforeTx
+}
+
+// enterManualMotion puts motion into the mode manual control needs: teleop
+// once every joint is homed, free before that. The jog wheel and the axis jogs
+// only run in teleop. Motion makes the switch only in position, so after an
+// abort this waits out the stop (coordSwitchTimeout), re-sending the request
+// as the coordinated-mode wait does. While motion is disabled nothing is sent;
+// machine on calls this again. Must be called with t.mu NOT held.
+func (t *Task) enterManualMotion() {
+	if t.status == nil {
+		return
+	}
+	if ms, err := t.status.GetStatus(); err != nil || ms.Enabled == 0 {
+		return
+	}
+	teleop := t.allHomed()
+	deadline := time.Now().Add(coordSwitchTimeout)
+	for {
+		ms, err := t.status.GetStatus()
+		if err == nil {
+			if teleop && ms.Teleop != 0 {
+				return
+			}
+			if !teleop && ms.Teleop == 0 && ms.Coord == 0 {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.logger.Warn("motion did not enter manual mode", "teleop", teleop)
+			return
+		}
+		if teleop {
+			_ = t.motion.SetTeleop()
+		} else {
+			_ = t.motion.SetFree()
+		}
+		time.Sleep(pollInterval)
 	}
 }
 
