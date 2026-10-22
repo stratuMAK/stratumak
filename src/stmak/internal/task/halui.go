@@ -307,6 +307,7 @@ type halUIValues struct {
 	ajogAnalog         [maxAxes + 1]float64
 	ajogIncrementPlus  [maxAxes + 1]bool
 	ajogIncrementMinus [maxAxes + 1]bool
+	ajogWheelEnable    [maxAxes]bool
 	axisNrSelect       [maxAxes]bool
 
 	foCounts int32
@@ -1084,6 +1085,7 @@ func (h *halUI) check(t *Task) {
 	h.checkSpindles(t)
 	h.checkJointJog(t)
 	h.checkAxisJog(t)
+	h.checkWheelEnable(t)
 	h.checkJointSelection(t)
 	h.checkAxisSelection(t)
 	h.checkHoming(t)
@@ -1632,6 +1634,33 @@ func (h *halUI) checkAxisJog(t *Task) {
 			}
 			h.old.ajogPlusUI[i] = v
 		}
+	}
+}
+
+// checkWheelEnable watches the axis jog wheel enables (axis.N.jog-enable, a
+// motion pin read back through the motion status) and prepares motion for the
+// wheel on a rising edge. See Task.WheelJogEnabled.
+func (h *halUI) checkWheelEnable(t *Task) {
+	if t.status == nil {
+		return
+	}
+	ms, err := t.status.GetStatus()
+	if err != nil {
+		return
+	}
+	rising := false
+	for i := 0; i < maxAxes && i < len(ms.Axes); i++ {
+		if h.axisMask&(1<<i) == 0 {
+			continue
+		}
+		v := ms.Axes[i].JogEnable != 0
+		if risingEdge(v, h.old.ajogWheelEnable[i]) {
+			rising = true
+		}
+		h.old.ajogWheelEnable[i] = v
+	}
+	if rising {
+		_ = t.WheelJogEnabled()
 	}
 }
 

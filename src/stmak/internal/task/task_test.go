@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -241,7 +242,11 @@ func (m *mockIO) GetIOFullStatus() (IOFullStatus, error) {
 // (mockStatusWithError) and flip it AFTER power-on.
 // mockStatus reports an enabled machine; linked to a mockMotion (mot) it
 // also reports the motion mode that mock was last switched to.
-type mockStatus struct{ mot *mockMotion }
+type mockStatus struct {
+	mot *mockMotion
+	// axis.N.jog-enable as motion reports it back (jog wheel enables).
+	wheelEnable atomic.Uint32
+}
 
 func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) {
 	st := motstat.MotionStatus{Enabled: 1}
@@ -249,6 +254,12 @@ func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) {
 		m.mot.mu.Lock()
 		st.Coord, st.Teleop = m.mot.coord, m.mot.teleop
 		m.mot.mu.Unlock()
+	}
+	en := m.wheelEnable.Load()
+	for i := range st.Axes {
+		if en&(1<<i) != 0 {
+			st.Axes[i].JogEnable = 1
+		}
 	}
 	return st, nil
 }

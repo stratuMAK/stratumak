@@ -2085,26 +2085,8 @@ func (t *Task) jogInternal(jogType int32, jjogmode bool, axisOrJoint int32, velo
 	if err := t.canJog(); err != nil {
 		return err
 	}
-
-	// Ensure motion is in the correct mode for the requested jog type.
-	if isTeleop == 1 {
-		ms, err := t.status.GetStatus()
-		if err == nil && ms.Teleop == 0 {
-			t.mu.Unlock()
-			ok := t.waitMotionTeleop()
-			t.mu.Lock()
-			if !ok {
-				return fmt.Errorf("cannot jog: motion did not switch to teleop mode")
-			}
-		}
-	} else {
-		ms, err := t.status.GetStatus()
-		if err == nil && (ms.Coord != 0 || ms.Teleop != 0) {
-			_ = t.motion.SetFree()
-			t.mu.Unlock()
-			t.waitMotionFree()
-			t.mu.Lock()
-		}
+	if err := t.ensureJogModeLocked(isTeleop == 1); err != nil {
+		return err
 	}
 
 	// Clamp velocity to joint/axis max (matches C milltask emcJogCont/Incr).
@@ -2129,6 +2111,54 @@ func (t *Task) jogInternal(jogType int32, jjogmode bool, axisOrJoint int32, velo
 		return t.motion.JogAbs(axisOrJoint, velocity, distance, isTeleop)
 	}
 	return nil
+}
+
+// ensureJogModeLocked puts motion into the mode a jog needs: teleop for an
+// axis jog, free for a joint jog. A jog changes only the motion mode, never the
+// task mode; the next MDI/AUTO command re-enters coordinated mode itself.
+// Must be called with t.mu held. May temporarily unlock t.mu for I/O.
+func (t *Task) ensureJogModeLocked(teleop bool) error {
+	ms, err := t.status.GetStatus()
+	if err != nil {
+		return nil
+	}
+	if teleop {
+		if ms.Teleop == 0 {
+			t.mu.Unlock()
+			ok := t.waitMotionTeleop()
+			t.mu.Lock()
+			if !ok {
+				return fmt.Errorf("cannot jog: motion did not switch to teleop mode")
+			}
+		}
+	} else if ms.Coord != 0 || ms.Teleop != 0 {
+		_ = t.motion.SetFree()
+		t.mu.Unlock()
+		t.waitMotionFree()
+		t.mu.Lock()
+	}
+	return nil
+}
+
+// WheelJogEnabled prepares motion for the axis jog wheel when its enable
+// (axis.N.jog-enable) goes high. Motion runs the wheel on its own and only in
+// teleop, and task never sees the wheel counts, so the enable edge is the one
+// moment task can switch motion -- the same way, and under the same guards
+// (machine on, interpreter idle), as a HAL or UI axis jog. Without it the
+// wheel stayed dead whenever motion was left coordinated: after an MDI that
+// was aborted, failed or cut short by an estop, or after a program run.
+func (t *Task) WheelJogEnabled() error {
+	if err := t.preflightJog(); err != nil {
+		return err
+	}
+	t.cmdMu.Lock()
+	defer t.cmdMu.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := t.canJog(); err != nil {
+		return err
+	}
+	return t.ensureJogModeLocked(true)
 }
 
 // clampJogVel clamps velocity to the joint or axis max velocity.

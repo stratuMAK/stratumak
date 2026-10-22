@@ -45,6 +45,7 @@ void axis_set_locking_joint(axis_inst_t *ai, int axis_num, int joint) STMAK_NONB
 double axis_get_min_pos_limit(axis_inst_t *ai, int axis_num) STMAK_NONBLOCKING;
 double axis_get_max_pos_limit(axis_inst_t *ai, int axis_num) STMAK_NONBLOCKING;
 double axis_get_vel_limit(axis_inst_t *ai, int axis_num) STMAK_NONBLOCKING;
+int axis_get_jog_enable(axis_inst_t *ai, int axis_num) STMAK_NONBLOCKING;
 double axis_get_acc_limit(axis_inst_t *ai, int axis_num) STMAK_NONBLOCKING;
 int axis_get_locking_joint(axis_inst_t *ai, int axis_num) STMAK_NONBLOCKING;
 double axis_get_compound_velocity(axis_inst_t *ai) STMAK_NONBLOCKING;
