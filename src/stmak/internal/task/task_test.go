@@ -302,8 +302,8 @@ func TestSetState_PowerOn(t *testing.T) {
 	if err := task.SetState(int32(StateOn)); err != nil {
 		t.Fatalf("on: %v", err)
 	}
-	if !mot.hasCall("Enable") {
-		t.Fatalf("expected Enable, calls: last %s", mot.last())
+	if mot.last() != "Enable" {
+		t.Fatalf("expected Enable, got %s", mot.last())
 	}
 	if task.state != StateOn {
 		t.Fatalf("expected StateOn, got %s", task.state)

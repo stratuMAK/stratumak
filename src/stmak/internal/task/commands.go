@@ -575,7 +575,6 @@ func (t *Task) setState(state int32) error {
 		t.floodOn = false
 		t.mistOn = false
 		t.lubeOn = false
-		t.dropModeTxLocked()
 		t.mu.Unlock()
 		return nil
 
@@ -663,7 +662,6 @@ func (t *Task) setState(state int32) error {
 		t.floodOn = false
 		t.mistOn = false
 		t.lubeOn = false
-		t.dropModeTxLocked()
 		t.mu.Unlock()
 		return nil
 
@@ -712,13 +710,7 @@ func (t *Task) setState(state int32) error {
 			t.execState = ExecDone
 			t.interpState = InterpIdle
 		}
-		// Motion keeps its coordinated/teleop flag across disable/enable; in
-		// manual mode bring it back to what manual control needs.
-		manual := t.mode == ModeManual
 		t.mu.Unlock()
-		if manual {
-			t.enterManualMotion()
-		}
 		return nil
 	}
 	t.mu.Unlock()
@@ -1829,10 +1821,6 @@ func (t *Task) faultMDI(msg string) {
 	// is ours to update: the broadcast just stopped the spindles it describes.
 	t.canon.clearSpindleRunState()
 	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
-	// A failed MDI never reaches finishMDI's restore either.
-	t.mu.Lock()
-	t.restoreModeTx()
-	t.mu.Unlock()
 }
 
 // runStartupCode executes [RS274NGC]RS274NGC_STARTUP_CODE once at task startup,
@@ -2710,10 +2698,6 @@ func (t *Task) abortMachineLocked(full bool) {
 	if full {
 		t.floodOn = false
 		t.mistOn = false
-		// An aborted MDI never reaches finishMDI's restore: return to the
-		// mode it switched away from. Only the full abort -- the light one
-		// runs inside ensureMode, right after the mode was saved.
-		t.restoreModeTx()
 	}
 }
 
