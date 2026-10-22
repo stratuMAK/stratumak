@@ -1160,16 +1160,32 @@ static void check_for_faults(motmod_inst_t *inst)
 
 /* A mode switch is only made in position; one requested while a move or jog
    is still running (or the jerk filter is still flushing) is dropped and has
-   to be requested again.  Leave a trace of that, once per episode -- task
-   re-requests every poll while it waits -- so a requester that never asks
-   again does not leave motion in the wrong mode without a word. */
+   to be requested again.  Task does so every poll while it waits, so a
+   refusal is the normal start of every MDI after a jog and not worth a
+   word.  A requester that gives up is: the refusal is remembered for a
+   grace period, renewed by every repeat of the request, and logged once if
+   the period runs out without the switch having gone through -- motion is
+   then left in the wrong mode and nobody asked again. */
+#define MODE_REFUSED_GRACE_SEC 0.25
+
 static void mode_switch_refused(motmod_inst_t *inst, const char *mode)
 {
-    if (!inst->internal->mode_refused) {
+    int grace = (int)(MODE_REFUSED_GRACE_SEC / servo_period);
+
+    inst->internal->mode_refused_mode = mode;
+    inst->internal->mode_refused_cycles = grace > 0 ? grace : 1;
+}
+
+/* Runs once per servo cycle after the switch requests were tried. */
+static void mode_switch_refused_tick(motmod_inst_t *inst)
+{
+    if (inst->internal->mode_refused_cycles <= 0)
+        return;
+    if (--inst->internal->mode_refused_cycles == 0)
         stmak_log_warnf(inst->log, inst->name,
-                        "switch to %s mode refused: not in position", mode);
-        inst->internal->mode_refused = 1;
-    }
+                        "switch to %s mode refused: not in position, "
+                        "and not requested again",
+                        inst->internal->mode_refused_mode);
 }
 
 static void set_operating_mode(motmod_inst_t *inst)
@@ -1202,6 +1218,13 @@ static void set_operating_mode(motmod_inst_t *inst)
 
     axis_jog_abort_all(ai, 1);
 
+	/* Nothing moves while disabled: report in position.  The TELEOP and
+	   COORD cases clear the flag while a jog or move runs and the DISABLED
+	   case never recomputes it, so an ESTOP mid-jog left it FALSE and every
+	   mode switch requested before the next enable (a UI mode selector,
+	   task's SetMode in ESTOP) was refused for a jog the disable had
+	   already stopped. */
+	SET_MOTION_INPOS_FLAG(1);
 	SET_MOTION_ENABLE_FLAG(0);
 	/* don't clear the motion error flag, since that may signify why we
 	   just went into disabled state */
@@ -1288,7 +1311,7 @@ static void set_operating_mode(motmod_inst_t *inst)
             motmod_kinematicsForward(inst, positions, &inst->status->carte_pos_cmd, &inst->fflags, &inst->iflags);
             // entering teleop (INPOS), remove ext offsets
             axis_sync_teleop_tp_to_carte_pos(ai, -1, pcmd_p);
-	    inst->internal->mode_refused = 0;
+	    inst->internal->mode_refused_cycles = 0;
 	} else {
 	    /* not in position-- don't honor mode change */
 	    inst->internal->teleoperating = 0;
@@ -1330,7 +1353,7 @@ static void set_operating_mode(motmod_inst_t *inst)
 		SET_MOTION_COORD_FLAG(1);
 		SET_MOTION_TELEOP_FLAG(0);
 		SET_MOTION_ERROR_FLAG(0);
-		inst->internal->mode_refused = 0;
+		inst->internal->mode_refused_cycles = 0;
 	    } else {
 		/* not in position-- don't honor mode change */
 		inst->internal->coordinating = 0;
@@ -1352,7 +1375,7 @@ static void set_operating_mode(motmod_inst_t *inst)
 		SET_MOTION_COORD_FLAG(0);
 		SET_MOTION_TELEOP_FLAG(0);
 		SET_MOTION_ERROR_FLAG(0);
-		inst->internal->mode_refused = 0;
+		inst->internal->mode_refused_cycles = 0;
 	    } else {
 		/* not in position-- don't honor mode change */
 		inst->internal->coordinating = 1;
@@ -1360,6 +1383,8 @@ static void set_operating_mode(motmod_inst_t *inst)
 	    }
 	}
     }
+    mode_switch_refused_tick(inst);
+
     /*! \todo FIXME - this code is temporary - eventually this function will be
        cleaned up and simplified, and 'motion_state' will become the master
        for this info, instead of having to gather it from several flags */
