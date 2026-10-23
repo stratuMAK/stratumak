@@ -191,7 +191,11 @@ RTAPI_BEGIN_DECLS
     Returns a 64 bit value.  The resolution of the returned value may
     be as good as one nano-second, or as poor as several microseconds.
     May be called from init/cleanup code, and from within realtime tasks.
-    
+
+    In uspace this is CLOCK_MONOTONIC_RAW, the same timebase the task
+    deadlines use (see rtapi_clock.h).  It is not slewed by NTP and must
+    not be compared with CLOCK_MONOTONIC values.
+
     Experience has shown that the implementation of this function in
     some RTOS/Kernel combinations is horrible.  It can take up to 
     several microseconds, which is at least 100 times longer than it
