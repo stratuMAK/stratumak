@@ -68,7 +68,7 @@ typedef struct {
   int fb2_enabled;            /**< Non-zero when secondary feedback PDO was activated via module param. */
   int diag_enabled;           /**< Non-zero when diagnostics PDO was activated via module param. */
 
-  stmak_hal_u32_t *status;          /**< HAL IN: raw 16-bit drive status word (IDN S-0-0135). */
+  stmak_hal_u32_t *status;          /**< HAL OUT: raw 16-bit drive status word (IDN S-0-0135). */
   stmak_hal_float_t *torque_fb_pct; /**< HAL OUT: actual torque feedback as percentage of rated torque. */
   stmak_hal_u32_t *diag;            /**< HAL OUT: raw 32-bit diagnostics word (only valid if diag_enabled). */
 

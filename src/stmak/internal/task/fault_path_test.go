@@ -72,7 +72,7 @@ func (m *faultSeqMotion) SpindleOff(s int32) error {
 func newRecordingTask() (*Task, *mockMotion, *recordingIO) {
 	mot := &mockMotion{}
 	io := &recordingIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: mot}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	t := NewTask(mot, io, stat, logger)
 	t.SetIOStatusReader(io)
@@ -156,7 +156,7 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 
 	mot := &faultSeqMotion{failSetLine: true}
 	io := &recordingIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
 	task.numSpindles = 2
@@ -435,7 +435,7 @@ func TestSeqFault_RecoversInterpWithoutProducer(t *testing.T) {
 
 	mot := &faultSeqMotion{failSetLine: true}
 	io := &recordingIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
 	task.numSpindles = 1
@@ -489,7 +489,7 @@ func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
 
 	mot := &faultSeqMotion{failSetLine: true}
 	io := &recordingIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
 	task.SetIOStatusReader(io) // estop-reset confirms via the IO status read

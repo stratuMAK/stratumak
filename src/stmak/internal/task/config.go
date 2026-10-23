@@ -70,6 +70,20 @@ func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	t.axisMaxVel = res.AxisMaxVel
 	t.axisMaxAcc = res.AxisMaxAcc
 
+	// Shared jog speed the HAL UI jog pins (halui.*.minus-ui/plus-ui) start
+	// with. A UI sets it at startup, but one that reconnects to a restarted
+	// server adopts the server's value -- left at 0, every HAL UI jog then ran
+	// at zero speed until somebody moved a slider. Same INI lookup as AXIS;
+	// the INI value is machine units (or degrees) per second.
+	if v := getFloatOr(ini, "DISPLAY", "DEFAULT_LINEAR_VELOCITY",
+		getFloatOr(ini, "TRAJ", "DEFAULT_LINEAR_VELOCITY", 0)); v > 0 {
+		t.jogSpeed = v / t.linearUnits
+	}
+	if v := getFloatOr(ini, "DISPLAY", "DEFAULT_ANGULAR_VELOCITY",
+		getFloatOr(ini, "TRAJ", "DEFAULT_ANGULAR_VELOCITY", 0)); v > 0 {
+		t.ajogSpeed = v
+	}
+
 	// MDI queue depth from [TASK] section (default 10, matching C milltask).
 	if n := getIntOr(ini, "TASK", "MDI_QUEUED_COMMANDS", t.maxMDIQueued); n > 0 {
 		t.maxMDIQueued = n

@@ -140,6 +140,9 @@ typedef struct motmod_inst {
         int idx;
         int filled;
         int window_size;   /* 0 = filter disabled */
+        int still;         /* cycles the input has not changed, capped at
+                              window_size: == window_size means the output
+                              has reached the input (filter flushed) */
     } jerk_filter;
 } motmod_inst_t;
 

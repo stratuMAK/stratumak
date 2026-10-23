@@ -26,6 +26,7 @@
 #include <malloc.h>
 
 #include "rtapi_core.h"
+#include "../rtapi_clock.h"
 
 /* ------------------------------------------------------------------ */
 /* Memory locking                                                      */
@@ -100,10 +101,9 @@ void rtapi_free(void *p) {
 /* Timing                                                              */
 /* ------------------------------------------------------------------ */
 
+/* Same timebase as the in-process RTAPI — see rtapi_clock.h. */
 long long rtapi_get_time(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    return rtapi_clock_now();
 }
 
 long int rtapi_delay_max(void) {

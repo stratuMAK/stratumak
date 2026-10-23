@@ -465,6 +465,7 @@ SRCHEADERS := \
     rtapi/rtapi_errno.h \
     rtapi/rtapi_string.h \
     rtapi/rtapi_task.h \
+    rtapi/rtapi_clock.h \
     rtapi/uspace_common.h
 
 # C files that are #included rather than compiled on their own.

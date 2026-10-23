@@ -242,6 +242,11 @@ double axis_get_vel_limit(axis_inst_t *ai, int axis_num)
     return ai->axis_array[axis_num].vel_limit;
 }
 
+int axis_get_jog_enable(axis_inst_t *ai, int axis_num)
+{
+    return *(ai->hal_data->axis[axis_num].ajog_enable) ? 1 : 0;
+}
+
 double axis_get_acc_limit(axis_inst_t *ai, int axis_num)
 {
     return ai->axis_array[axis_num].acc_limit;

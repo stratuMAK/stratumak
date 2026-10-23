@@ -210,6 +210,7 @@ static int32_t h_get_status(void *ctx, motstat_motion_status_t *status)
         d->max_pos_limit = s.axis_status[i].max_pos_limit;
         d->vel_limit = axis_get_vel_limit(mc->axis_inst, i);
         d->acc_limit = axis_get_acc_limit(mc->axis_inst, i);
+        d->jog_enable = axis_get_jog_enable(mc->axis_inst, i);
     }
 
     /* I/O arrays */

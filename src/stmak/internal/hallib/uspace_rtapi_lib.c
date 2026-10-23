@@ -628,8 +628,6 @@ static int task_start(int task_id, unsigned long int period_nsec)
     return 0;
 }
 
-#define RTAPI_CLOCK (CLOCK_MONOTONIC)
-
 static void *task_wrapper(void *arg)
 {
     struct posix_task *ptask = (struct posix_task*)arg;
@@ -689,7 +687,7 @@ static void *task_wrapper(void *arg)
     }
 
     struct timespec now;
-    clock_gettime(RTAPI_CLOCK, &now);
+    rtapi_clock_ns2ts(rtapi_clock_sleeper_init(&task->clock), &now);
     rtapi_timespec_advance(&task->nextstart, &now, task->period + task->pll_correction);
 
     (task->taskcode)(task->arg);
@@ -822,7 +820,7 @@ static void task_wait(void) {
     }
     rtapi_timespec_advance(&task->nextstart, &task->nextstart, task->period + task->pll_correction);
     struct timespec now;
-    clock_gettime(RTAPI_CLOCK, &now);
+    rtapi_clock_ns2ts(rtapi_clock_sleeper_sample(&task->clock), &now);
     if(rtapi_timespec_less(task->nextstart, now))
     {
         if(app_policy == SCHED_FIFO)
@@ -830,7 +828,11 @@ static void task_wait(void) {
     }
     else
     {
-        int res = rtapi_clock_nanosleep(RTAPI_CLOCK, TIMER_ABSTIME, &task->nextstart, NULL, &now);
+        /* the deadline is RAW, clock_nanosleep only takes MONOTONIC */
+        struct timespec target, mono_now;
+        rtapi_clock_sleeper_target(&task->clock, rtapi_clock_ts2ns(&task->nextstart),
+                &target, &mono_now);
+        int res = rtapi_clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &target, NULL, &mono_now);
         if(res < 0) perror("clock_nanosleep");
     }
     if(do_thread_lock) {
@@ -868,15 +870,15 @@ static void do_outb(unsigned char val, unsigned int port)
 #endif
 }
 
+/* Relative and at most rtapi_delay_max(), so the MONOTONIC slew is
+   negligible here. */
 static void do_delay(long ns) {
     struct timespec ts = {0, ns};
     rtapi_clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, NULL, NULL);
 }
 
 static long long do_get_time(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    return rtapi_clock_now();
 }
 
 static long clock_set_period(long nsecs)
@@ -998,7 +1000,7 @@ long int simple_strtol(const char *nptr, char **endptr, int base) {
     return strtol(nptr, endptr, base);
 }
 
-/* TRUSTED: rtapi_get_time reads CLOCK_MONOTONIC via clock_gettime(),
+/* TRUSTED: rtapi_get_time reads CLOCK_MONOTONIC_RAW via clock_gettime(),
  * which is a vDSO read on Linux — no syscall, no lock, no allocation. */
 RTAPI_NONBLOCKING_TRUSTED_BEGIN
 long long rtapi_get_time(void) {
