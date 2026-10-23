@@ -3663,6 +3663,14 @@ proc ::ngcgui::embed_in_axis_tab {f args} {
 
   ::ngcgui::preset $hdl ::ngc   ;# setup defaults
 
+  # UIs are attached separately on stratuMAK, so their cwd is arbitrary:
+  # keep auto.ngc in [DISPLAY]PROGRAM_PREFIX instead of wherever axis started
+  set_path
+  if {[file pathtype $::ngc($hdl,fname,autosend)] eq "relative"} {
+    set ::ngc($hdl,fname,autosend) \
+        [file join [lindex $::ngc(any,paths) 0] $::ngc($hdl,fname,autosend)]
+  }
+
   set equalitems {subfile preamble postamble \
                   font \
                   startdir \
