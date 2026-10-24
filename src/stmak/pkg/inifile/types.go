@@ -74,7 +74,9 @@ func (ini *IniFile) Namespace() string {
 
 // AllSections returns the full INI content as a nested section→key→value map.
 // When a section or key appears more than once (e.g. via #INCLUDE or repeated
-// keys), the last value encountered wins. The namespace prefix is ignored;
+// keys), the first value encountered wins, as with Get: a key set above an
+// #INCLUDE overrides the included file's value for templates exactly as it
+// does for [SECTION]KEY substitution. The namespace prefix is ignored;
 // sections are keyed by their literal names. This form is used for Go-template
 // rendering, which accesses the raw section map.
 func (ini *IniFile) AllSections() map[string]map[string]string {
@@ -84,7 +86,9 @@ func (ini *IniFile) AllSections() map[string]map[string]string {
 			m[sec.Name] = make(map[string]string)
 		}
 		for _, entry := range sec.Entries {
-			m[sec.Name][entry.Key] = entry.Value
+			if _, ok := m[sec.Name][entry.Key]; !ok {
+				m[sec.Name][entry.Key] = entry.Value
+			}
 		}
 	}
 	return m
