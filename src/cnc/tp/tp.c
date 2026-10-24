@@ -87,6 +87,7 @@ STATIC int tpUpdateCycle(TP_STRUCT * const tp,
 STATIC int tpRunOptimization(TP_STRUCT * const tp) STMAK_NONBLOCKING;
 
 STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc, int inc_id) STMAK_NONBLOCKING;
+STATIC int tpApplyJointLimits(TP_STRUCT const * const tp, TC_STRUCT * const tc, const char *move_type) STMAK_NONBLOCKING;
 
 STATIC inline double tpGetMaxTargetVel(TP_STRUCT const * const tp, TC_STRUCT const * const tc) STMAK_NONBLOCKING;
 
@@ -2030,6 +2031,11 @@ STATIC tc_blend_type_t tpHandleBlendArc(TP_STRUCT * const tp, TC_STRUCT * const 
     if (arc_blend_ok) {
         //Need to do this here since the length changed
         blend_used = ARC_BLEND;
+        // The minimum of the neighbours' joint caps does not bound a blend
+        // arc: its direction turns between theirs, and a joint can move up to
+        // 1/sin(theta) faster along it.  Sample the arc like any segment (its
+        // end points lie on the neighbours, so no position check).
+        tpApplyJointLimits(tp, &blend_tc, NULL);
         tpAddSegmentToQueue(tp, &blend_tc, false);
     } else {
         // If blend arc creation failed early on, catch it here and find the best blend
@@ -2037,6 +2043,213 @@ STATIC tc_blend_type_t tpHandleBlendArc(TP_STRUCT * const tp, TC_STRUCT * const 
     }
 
     return blend_used;
+}
+
+/* Joint limit planning ([TRAJ]PLAN_JOINT_LIMITS).
+ *
+ * The planner works in world coordinates and limits a segment by the axis
+ * limits only.  Under non-identity kinematics the joints do not move like the
+ * axes: a rotation around a tool point drives the linear joints along an arc
+ * the axis limits know nothing about.  So the path is sampled through the
+ * inverse kinematics, and the segment's maxvel/maxaccel are capped by the
+ * joint limits:
+ *
+ *   q'  = dq/ds, q'' = d2q/ds2 along the path (s = progress, the unit the
+ *         segment is planned in)
+ *   joint velocity      q' * v            <= vel_limit
+ *   joint acceleration  q' * a + q'' * v^2 <= acc_limit
+ *
+ * The maxima of |q'| and |q''| over the samples are taken as constant for the
+ * segment, as the planner holds maxvel/maxaccel constant per segment.  Half a
+ * joint's acceleration is the most the path curvature term (q'' * v^2) may
+ * take, which caps v; the tangential acceleration gets the rest.
+ *
+ * The same samples check the joint position limits between the end points,
+ * which inRange() in motion checks at the end point only: a C rotation swings
+ * the linear joints through positions beyond both ends.
+ */
+#define TP_JL_MIN_SAMPLES 16
+#define TP_JL_MAX_SAMPLES 128
+#define TP_JL_ROTARY_STEP 2.0    /* deg of rotary motion per sample */
+#define TP_JL_MIN_STEP_D2 1e-4   /* below this sample step q'' is roundoff */
+
+STATIC double tcRotaryLength(TC_STRUCT const * const tc) STMAK_NONBLOCKING
+{
+    switch (tc->motion_type) {
+        case TC_LINEAR:
+            return tc->coords.line.abc.tmag;
+        case TC_CIRCULAR:
+            return tc->coords.circle.abc.tmag;
+        default:
+            return 0.0;
+    }
+}
+
+/* Vertex of the parabola through three equally spaced samples where the
+ * joint turns around between them, else q1.  Catches an extremum that falls
+ * between two samples. */
+STATIC double tpJointPeak(double q0, double q1, double q2) STMAK_NONBLOCKING
+{
+    if ((q1 - q0) * (q2 - q1) >= 0.0) {
+        return q1;
+    }
+    return q1 - (q2 - q0) * (q2 - q0) / (8.0 * (q2 - 2.0 * q1 + q0));
+}
+
+STATIC int tpCheckJointPosition(TP_STRUCT const * const tp, const char *move_type,
+        int jno, double q, double q_start, double progress, double target) STMAK_NONBLOCKING
+{
+    const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
+    double max_pos = mot->joint_get_max_pos_limit(mot->ctx, jno);
+    double min_pos = mot->joint_get_min_pos_limit(mot->ctx, jno);
+
+    // A joint already outside (pushed there with the amps off, or after an
+    // override) may move back in; only a path carrying it further out fails.
+    if (q > max_pos && q > q_start + TP_POS_EPSILON) {
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                "%s move (segment %d) would exceed joint %d's positive limit at %.0f%% of its path",
+                move_type, tp->nextId, jno, 100.0 * progress / target);
+        return TP_ERR_RANGE;
+    }
+    if (q < min_pos && q < q_start - TP_POS_EPSILON) {
+        stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                "%s move (segment %d) would exceed joint %d's negative limit at %.0f%% of its path",
+                move_type, tp->nextId, jno, 100.0 * progress / target);
+        return TP_ERR_RANGE;
+    }
+    return TP_ERR_OK;
+}
+
+/**
+ * Cap a new segment's maxvel and maxaccel by the joint limits, and check its
+ * path against the joint position limits (move_type != NULL).  Does nothing
+ * unless motion asks for it (cfg_get_plan_joint_limits).
+ */
+STATIC int tpApplyJointLimits(TP_STRUCT const * const tp, TC_STRUCT * const tc,
+        const char *move_type) STMAK_NONBLOCKING
+{
+    const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
+    double q_prev2[MOT_MAX_JOINTS], q_prev[MOT_MAX_JOINTS], q[MOT_MAX_JOINTS];
+    double q_start[MOT_MAX_JOINTS];
+    double d1[MOT_MAX_JOINTS], d2[MOT_MAX_JOINTS];
+    int active[MOT_MAX_JOINTS];
+    EmcPose pos;
+    int n, i, jno, num_joints, res;
+
+    if (!mot->cfg_get_plan_joint_limits(mot->ctx)) {
+        return TP_ERR_NO_ACTION;
+    }
+    if (tc->motion_type == TC_RIGIDTAP || tc->target < TP_POS_EPSILON) {
+        return TP_ERR_NO_ACTION;
+    }
+
+    num_joints = mot->get_num_kins_joints(mot->ctx);
+    if (num_joints > MOT_MAX_JOINTS) {
+        num_joints = MOT_MAX_JOINTS;
+    }
+    for (jno = 0; jno < num_joints; jno++) {
+        active[jno] = mot->joint_get_active_flag(mot->ctx, jno);
+        d1[jno] = 0.0;
+        d2[jno] = 0.0;
+    }
+
+    n = TP_JL_MIN_SAMPLES + (int)ceil(tcRotaryLength(tc) / TP_JL_ROTARY_STEP);
+    if (n > TP_JL_MAX_SAMPLES) {
+        n = TP_JL_MAX_SAMPLES;
+    }
+    double h = tc->target / n;
+    int use_d2 = (h > TP_JL_MIN_STEP_D2);
+
+    for (i = 0; i <= n; i++) {
+        double progress = (i == n) ? tc->target : i * h;
+        if (tcGetPosAt(tc, progress, &pos) != TP_ERR_OK
+                || mot->kins_inverse(mot->ctx, (const mot_pose_t *)&pos, q) != 0) {
+            if (move_type) {
+                stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                        "%s move (segment %d) fails inverse kinematics at %.0f%% of its path",
+                        move_type, tp->nextId, 100.0 * progress / tc->target);
+                return TP_ERR_RANGE;
+            }
+            return TP_ERR_NO_ACTION;
+        }
+
+        for (jno = 0; jno < num_joints; jno++) {
+            if (!active[jno]) {
+                continue;
+            }
+            if (!isfinite(q[jno])) {
+                if (move_type) {
+                    stmak_logf(tp->log, tp->log_comp, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                            "%s move (segment %d) gives a non-finite position for joint %d at %.0f%% of its path",
+                            move_type, tp->nextId, jno, 100.0 * progress / tc->target);
+                    return TP_ERR_RANGE;
+                }
+                return TP_ERR_NO_ACTION;
+            }
+            if (i == 0) {
+                q_start[jno] = q[jno];
+                continue;
+            }
+            d1[jno] = fmax(d1[jno], fabs(q[jno] - q_prev[jno]) / h);
+            if (i >= 2) {
+                if (use_d2) {
+                    d2[jno] = fmax(d2[jno],
+                            fabs(q[jno] - 2.0 * q_prev[jno] + q_prev2[jno]) / (h * h));
+                }
+                if (move_type) {
+                    res = tpCheckJointPosition(tp, move_type, jno,
+                            tpJointPeak(q_prev2[jno], q_prev[jno], q[jno]),
+                            q_start[jno], progress - h, tc->target);
+                    if (res != TP_ERR_OK) {
+                        return res;
+                    }
+                }
+            }
+            if (move_type) {
+                res = tpCheckJointPosition(tp, move_type, jno, q[jno],
+                        q_start[jno], progress, tc->target);
+                if (res != TP_ERR_OK) {
+                    return res;
+                }
+            }
+        }
+        memcpy(q_prev2, q_prev, sizeof(q_prev));
+        memcpy(q_prev, q, sizeof(q));
+    }
+
+    // Velocity: the joint rate and the curvature term each cap v.
+    double v_cap = tc->maxvel;
+    for (jno = 0; jno < num_joints; jno++) {
+        if (!active[jno]) {
+            continue;
+        }
+        double vel_limit = mot->joint_get_vel_limit(mot->ctx, jno);
+        double acc_limit = mot->joint_get_acc_limit(mot->ctx, jno);
+        if (d1[jno] > TP_VEL_EPSILON && vel_limit > 0.0) {
+            v_cap = fmin(v_cap, vel_limit / d1[jno]);
+        }
+        if (d2[jno] > TP_VEL_EPSILON && acc_limit > 0.0) {
+            v_cap = fmin(v_cap, sqrt(0.5 * acc_limit / d2[jno]));
+        }
+    }
+
+    // Tangential acceleration: what the curvature term leaves at v_cap.
+    double a_cap = tc->maxaccel;
+    for (jno = 0; jno < num_joints; jno++) {
+        if (!active[jno] || d1[jno] <= TP_VEL_EPSILON) {
+            continue;
+        }
+        double acc_limit = mot->joint_get_acc_limit(mot->ctx, jno);
+        if (acc_limit > 0.0) {
+            a_cap = fmin(a_cap, (acc_limit - v_cap * v_cap * d2[jno]) / d1[jno]);
+        }
+    }
+
+    tp_debug_print("joint limits: %d samples, maxvel %f -> %f, maxaccel %f -> %f\n",
+            n, tc->maxvel, v_cap, tc->maxaccel, a_cap);
+    tc->maxvel = v_cap;
+    tc->maxaccel = a_cap;
+    return TP_ERR_OK;
 }
 
 //TODO final setup steps as separate functions
@@ -2090,6 +2303,9 @@ static int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     }
     tc.nominal_length = tc.target;
     tcClampVelocityByLength(&tc);
+    if (tpApplyJointLimits(tp, &tc, "Linear") < 0) {
+        return TP_ERR_FAIL;
+    }
 
     // For linear move, set joint corresponding to a locking indexer axis
     tc.indexer_jnum = indexer_jnum;
@@ -2187,6 +2403,9 @@ static int tpAddCircle(TP_STRUCT * const tp,
 
     //Reduce max velocity to match sample rate
     tcClampVelocityByLength(&tc);
+    if (tpApplyJointLimits(tp, &tc, "Circular") < 0) {
+        return TP_ERR_FAIL;
+    }
 
     TC_STRUCT *prev_tc;
     prev_tc = tcqLast(&tp->queue);

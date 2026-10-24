@@ -374,9 +374,6 @@ int tcGetEndpoint(TC_STRUCT const * const tc, EmcPose * const out) {
 
 int tcGetPosReal(TC_STRUCT const * const tc, int of_point, EmcPose * const pos)
 {
-    PmCartesian xyz;
-    PmCartesian abc;
-    PmCartesian uvw;
     double progress=0.0;
 
     switch (of_point) {
@@ -390,6 +387,17 @@ int tcGetPosReal(TC_STRUCT const * const tc, int of_point, EmcPose * const pos)
             progress = 0.0;
             break;
     }
+    return tcGetPosAt(tc, progress, pos);
+}
+
+/**
+ * Position of a segment at the given progress (0 .. tc->target).
+ */
+int tcGetPosAt(TC_STRUCT const * const tc, double progress, EmcPose * const pos)
+{
+    PmCartesian xyz;
+    PmCartesian abc;
+    PmCartesian uvw;
 
 
     // Used for arc-length to angle conversion with spiral segments
