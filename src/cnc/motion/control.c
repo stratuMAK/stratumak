@@ -1745,6 +1745,238 @@ static inline int jerk_filter_flushed(motmod_inst_t *inst)
     return ws <= 0 || inst->jerk_filter.still >= ws;
 }
 
+/***********************************************************************
+*        JOINT LIMITS OF WORLD JOGS AND JOINT COMMANDS                  *
+*                    ([TRAJ]PLAN_JOINT_LIMITS)                          *
+************************************************************************/
+
+/* A world jog moves the axes with their own limits; under non-identity
+   kinematics the joints do not follow 1:1.  Every teleop cycle the jacobian
+   dq/dx of the jogging axes is taken numerically at the commanded pose, and
+   the jog planners are slowed so that no joint exceeds its velocity or
+   acceleration limit (the path curvature along the jog direction takes at
+   most half a joint's acceleration, as in the TP).  Each jogging axis is
+   also clamped where, along its own direction, the first joint reaches its
+   position limit, so the planner decelerates onto the joint limit as it
+   does onto an axis limit.  The clamp is a linearization renewed every
+   cycle; it converges as the joint approaches.  Several axes jogged at once
+   are clamped one by one -- their sum is still caught by the joint soft
+   limit backstop in get_pos_cmds. */
+#define JL_JOG_DIFF_STEP  1e-3   /* world step of the jacobian */
+#define JL_JOG_CURV_STEP  1e-2   /* step of the second derivative */
+#define JL_JOG_MARGIN     0.95   /* share of the joint limits a jog may use */
+#define JL_JOG_POS_MARGIN 1e-3   /* joint stops this far inside its limit */
+#define JL_JOG_BIG        1e99
+
+static int jl_inverse(motmod_inst_t *inst, const EmcPose *pos, double *q) STMAK_NONBLOCKING
+{
+    KINEMATICS_INVERSE_FLAGS iflags = inst->iflags;
+    KINEMATICS_FORWARD_FLAGS fflags = inst->fflags;
+    int joint_num;
+
+    for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {
+        q[joint_num] = inst->joints[joint_num].pos_cmd;
+    }
+    return motmod_kinematicsInverse(inst, pos, q, &iflags, &fflags);
+}
+
+static void teleop_joint_limits(motmod_inst_t *inst) STMAK_NONBLOCKING
+{
+    double pos[EMCMOT_MAX_AXIS], vel[EMCMOT_MAX_AXIS], pos_cmd[EMCMOT_MAX_AXIS];
+    double vreq[EMCMOT_MAX_AXIS], amax[EMCMOT_MAX_AXIS], dir[EMCMOT_MAX_AXIS];
+    double jac[EMCMOT_MAX_JOINTS][EMCMOT_MAX_AXIS];
+    double q0[EMCMOT_MAX_JOINTS], q1[EMCMOT_MAX_JOINTS], q2[EMCMOT_MAX_JOINTS];
+    double curv[EMCMOT_MAX_JOINTS];
+    int moving[EMCMOT_MAX_AXIS];
+    int axis_num, joint_num, n_moving = 0;
+    double vmag = 0.0, vel_scale = 1.0, acc_scale = 1.0;
+    EmcPose x0 = inst->status->carte_pos_cmd, x;
+    int nj = NO_OF_KINS_JOINTS;
+
+    if (motmod_plan_joint_limits(inst)) {
+        for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+            double max_vel;
+            axis_get_teleop_state(ai, axis_num, &pos[axis_num], &vel[axis_num],
+                    &pos_cmd[axis_num], &max_vel, &amax[axis_num], &moving[axis_num]);
+            dir[axis_num] = 0.0;
+            if (moving[axis_num]) {
+                double to_go = pos_cmd[axis_num] - pos[axis_num];
+                dir[axis_num] = (to_go > 0.0 || (to_go == 0.0 && vel[axis_num] > 0.0)) ? 1.0 : -1.0;
+                vreq[axis_num] = max_vel;
+                vmag += max_vel * max_vel;
+                n_moving++;
+            }
+        }
+    }
+    if (n_moving == 0 || jl_inverse(inst, &x0, q0) != 0) {
+        for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+            axis_set_teleop_joint_limits(ai, axis_num, 0, 1.0, 1.0, -JL_JOG_BIG, JL_JOG_BIG, 0);
+        }
+        return;
+    }
+    vmag = sqrt(vmag);
+
+    /* jacobian columns of the jogging axes */
+    for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+        for (joint_num = 0; joint_num < nj; joint_num++) {
+            jac[joint_num][axis_num] = 0.0;
+        }
+        if (!moving[axis_num]) {
+            continue;
+        }
+        x = x0;
+        ((double *)&x)[axis_num] += JL_JOG_DIFF_STEP;
+        if (jl_inverse(inst, &x, q1) != 0) {
+            continue;
+        }
+        for (joint_num = 0; joint_num < nj; joint_num++) {
+            jac[joint_num][axis_num] = (q1[joint_num] - q0[joint_num]) / JL_JOG_DIFF_STEP;
+        }
+    }
+
+    /* second derivative along the jog direction (unit vector over the jogging axes) */
+    for (joint_num = 0; joint_num < nj; joint_num++) {
+        curv[joint_num] = 0.0;
+    }
+    if (vmag > 0.0) {
+        EmcPose xp = x0, xm = x0;
+        for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+            if (moving[axis_num]) {
+                double d = JL_JOG_CURV_STEP * dir[axis_num] * vreq[axis_num] / vmag;
+                ((double *)&xp)[axis_num] += d;
+                ((double *)&xm)[axis_num] -= d;
+            }
+        }
+        if (jl_inverse(inst, &xp, q1) == 0 && jl_inverse(inst, &xm, q2) == 0) {
+            for (joint_num = 0; joint_num < nj; joint_num++) {
+                curv[joint_num] = fabs(q1[joint_num] - 2.0 * q0[joint_num] + q2[joint_num])
+                        / (JL_JOG_CURV_STEP * JL_JOG_CURV_STEP);
+            }
+        }
+    }
+
+    /* velocity and acceleration scale, common to all jogging axes */
+    for (joint_num = 0; joint_num < nj; joint_num++) {
+        emcmot_joint_t *joint = &inst->joints[joint_num];
+        double vlim = joint->vel_limit * JL_JOG_MARGIN;
+        double alim = joint->acc_limit * JL_JOG_MARGIN;
+        double sum_v = 0.0;
+        if (!GET_JOINT_ACTIVE_FLAG(joint)) {
+            continue;
+        }
+        for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+            if (moving[axis_num]) {
+                sum_v += fabs(jac[joint_num][axis_num]) * vreq[axis_num];
+            }
+        }
+        if (sum_v * vel_scale > vlim) {
+            vel_scale = vlim / sum_v;
+        }
+        if (curv[joint_num] > 0.0 && vmag > 0.0) {
+            vel_scale = fmin(vel_scale, sqrt(0.5 * alim / curv[joint_num]) / vmag);
+        }
+    }
+    for (joint_num = 0; joint_num < nj; joint_num++) {
+        emcmot_joint_t *joint = &inst->joints[joint_num];
+        double v = vel_scale * vmag;
+        double rest = joint->acc_limit * JL_JOG_MARGIN - v * v * curv[joint_num];
+        double sum_a = 0.0;
+        if (!GET_JOINT_ACTIVE_FLAG(joint)) {
+            continue;
+        }
+        for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+            if (moving[axis_num]) {
+                sum_a += fabs(jac[joint_num][axis_num]) * amax[axis_num];
+            }
+        }
+        if (sum_a * acc_scale > rest) {
+            acc_scale = fmax(rest, 0.0) / sum_a;
+        }
+    }
+
+    /* position clamp per jogging axis: travel left until the first joint
+       limit along the axis direction */
+    for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num++) {
+        double travel = JL_JOG_BIG;
+        if (!moving[axis_num]) {
+            axis_set_teleop_joint_limits(ai, axis_num, 0, 1.0, 1.0, -JL_JOG_BIG, JL_JOG_BIG, 0);
+            continue;
+        }
+        for (joint_num = 0; joint_num < nj; joint_num++) {
+            emcmot_joint_t *joint = &inst->joints[joint_num];
+            double rate = jac[joint_num][axis_num] * dir[axis_num];
+            double d;
+            if (!GET_JOINT_ACTIVE_FLAG(joint)) {
+                continue;
+            }
+            if (rate > 1e-9) {
+                d = (joint->max_pos_limit - JL_JOG_POS_MARGIN - q0[joint_num]) / rate;
+            } else if (rate < -1e-9) {
+                d = (joint->min_pos_limit + JL_JOG_POS_MARGIN - q0[joint_num]) / rate;
+            } else {
+                continue;
+            }
+            travel = fmin(travel, fmax(d, 0.0));
+        }
+        if (dir[axis_num] > 0.0) {
+            axis_set_teleop_joint_limits(ai, axis_num, 1, vel_scale, acc_scale,
+                    -JL_JOG_BIG, pos[axis_num] + travel, travel < JL_JOG_POS_MARGIN);
+        } else {
+            axis_set_teleop_joint_limits(ai, axis_num, 1, vel_scale, acc_scale,
+                    pos[axis_num] - travel, JL_JOG_BIG, travel < JL_JOG_POS_MARGIN);
+        }
+    }
+}
+
+/* The backstop behind both: a joint commanded faster than its limits allow
+   stops the motion with a message naming the joint, instead of a following
+   error further down the line.  The velocity tolerance covers the cubic
+   interpolation, the acceleration one its noisier second derivative.
+   Reported once per joint until it is back within its limits. */
+#define JL_CHECK_VEL_TOL 1.02
+#define JL_CHECK_ACC_TOL 1.10
+
+static void check_joint_dynamics(motmod_inst_t *inst) STMAK_NONBLOCKING
+{
+    int joint_num, tripped = 0;
+
+    if (!motmod_plan_joint_limits(inst)) {
+        inst->jl_reported = 0;
+        return;
+    }
+    for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
+        emcmot_joint_t *joint = &inst->joints[joint_num];
+        unsigned int bit = 1u << joint_num;
+        int over_vel, over_acc;
+        if (!GET_JOINT_ACTIVE_FLAG(joint)) {
+            continue;
+        }
+        over_vel = joint->vel_limit > 0.0 && fabs(joint->vel_cmd) > joint->vel_limit * JL_CHECK_VEL_TOL;
+        over_acc = joint->acc_limit > 0.0 && fabs(joint->acc_cmd) > joint->acc_limit * JL_CHECK_ACC_TOL;
+        if (!over_vel && !over_acc) {
+            inst->jl_reported &= ~bit;
+            continue;
+        }
+        if (inst->jl_reported & bit) {
+            continue;
+        }
+        inst->jl_reported |= bit;
+        tripped = 1;
+        if (over_vel) {
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                _("joint %d velocity %.3f exceeds its limit %.3f"),
+                joint_num, fabs(joint->vel_cmd), joint->vel_limit);
+        } else {
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                _("joint %d acceleration %.3f exceeds its limit %.3f"),
+                joint_num, fabs(joint->acc_cmd), joint->acc_limit);
+        }
+    }
+    if (tripped) {
+        SET_MOTION_ERROR_FLAG(1);
+    }
+}
+
 static void get_pos_cmds(motmod_inst_t *inst, long period)
 {
     int joint_num, result;
@@ -2002,6 +2234,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    /* interpolate to get new position and velocity */
 	    joint->pos_cmd = cubicInterpolate(&(joint->cubic), 0, &(joint->vel_cmd), &(joint->acc_cmd), 0);
 	}
+	check_joint_dynamics(inst);
 	/* report motion status -- in position only once the jerk filter has
 	   flushed as well: task's motion barriers (M-codes, I/O, end of MDI,
 	   probe "finished without contact", mode switches) wait on INPOS, and
@@ -2014,6 +2247,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	break;
 
     case EMCMOT_MOTION_TELEOP:
+        teleop_joint_limits(inst);
         ext_offset_teleop_limit = axis_calc_motion(ai, servo_period);
         if (!ext_offset_teleop_limit) {
             ext_offset_coord_limit = 0; //in case was set in prior coord motion
@@ -2059,6 +2293,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 		/* interpolate to get new position and velocity */
 		joint->pos_cmd = cubicInterpolate(&(joint->cubic), 0, &(joint->vel_cmd), &(joint->acc_cmd), 0);
 	    }
+	    check_joint_dynamics(inst);
 	}
 	else
 	{

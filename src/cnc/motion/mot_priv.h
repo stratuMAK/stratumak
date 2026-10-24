@@ -101,6 +101,7 @@ typedef struct motmod_inst {
     int coord_cubic_active;
     int ctl_switchkins_type;
     int kins_is_identity;   /* kins type IDENTITY, read once at Init */
+    unsigned int jl_reported; /* joints reported over their vel/acc limit */
     long ctl_last_period;
     double ctl_servo_period;
     double *pcmd_p[EMCMOT_MAX_AXIS];

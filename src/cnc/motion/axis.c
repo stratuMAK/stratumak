@@ -25,6 +25,15 @@ typedef struct {
     double ext_offset_acc_limit;    /* upper limit of axis accel for ext offset */
     int old_eoffset_counts;
     simple_tp_t ext_offset_tp;      /* planner for external coordinate offsets*/
+
+    /* joint limits of a world jog ([TRAJ]PLAN_JOINT_LIMITS), set every
+       teleop cycle by motion, applied around the teleop_tp update only */
+    int jl_active;                  /* non-zero: apply the values below */
+    double jl_vel_scale;            /* factor on teleop_tp.max_vel */
+    double jl_acc_scale;            /* factor on teleop_tp.max_acc */
+    double jl_pos_min;              /* teleop_tp.pos_cmd clamp, joint limits */
+    double jl_pos_max;
+    int jl_at_limit;                /* a joint stands at its limit: clamp final */
 } emcmot_axis_t;
 
 typedef struct {
@@ -683,6 +692,77 @@ static int update_teleop_with_check(axis_inst_t *ai, int axis_num, simple_tp_t *
     return 0;
 }
 
+/* The teleop_tp update under the joint limits motion set for this cycle
+   (axis_set_teleop_joint_limits): slower and shorter, never different in
+   kind.  The jog's own target, velocity and acceleration are restored after
+   the update, so a joint limit that stops binding gives the jog back, and a
+   clamp that a linearization set short moves on as motion renews it --
+   except where a joint has arrived at its limit (jl_at_limit): the clamp
+   then becomes the target, or a wheel would first have to unwind every count
+   it was turned past the limit before the axis moved back. */
+static int axis_update_teleop_with_joint_limits(axis_inst_t *ai, int axis_num, double servo_period)
+{
+    emcmot_axis_t *axis = &ai->axis_array[axis_num];
+    simple_tp_t *tp = &axis->teleop_tp;
+    double save_vel, save_acc, save_cmd, clamped;
+    int ret;
+
+    if (!axis->jl_active) {
+        return update_teleop_with_check(ai, axis_num, tp, servo_period);
+    }
+
+    save_vel = tp->max_vel;
+    save_acc = tp->max_acc;
+    save_cmd = tp->pos_cmd;
+    clamped = save_cmd;
+    if (clamped > axis->jl_pos_max) {
+        clamped = axis->jl_pos_max;
+    }
+    if (clamped < axis->jl_pos_min) {
+        clamped = axis->jl_pos_min;
+    }
+    tp->max_vel = save_vel * axis->jl_vel_scale;
+    tp->max_acc = save_acc * axis->jl_acc_scale;
+    tp->pos_cmd = clamped;
+
+    ret = update_teleop_with_check(ai, axis_num, tp, servo_period);
+
+    tp->max_vel = save_vel;
+    tp->max_acc = save_acc;
+    // a disabled planner set pos_cmd to where it stands; keep that
+    if (tp->enable && (clamped == save_cmd || tp->active || !axis->jl_at_limit)) {
+        tp->pos_cmd = save_cmd;
+    }
+    return ret;
+}
+
+void axis_set_teleop_joint_limits(axis_inst_t *ai, int axis_num, int active,
+        double vel_scale, double acc_scale, double pos_min, double pos_max, int at_limit)
+{
+    emcmot_axis_t *axis = &ai->axis_array[axis_num];
+
+    axis->jl_at_limit = at_limit;
+    axis->jl_active = active;
+    axis->jl_vel_scale = vel_scale;
+    axis->jl_acc_scale = acc_scale;
+    axis->jl_pos_min = pos_min;
+    axis->jl_pos_max = pos_max;
+}
+
+void axis_get_teleop_state(axis_inst_t *ai, int axis_num, double *pos, double *vel,
+        double *pos_cmd, double *max_vel, double *max_acc, int *moving)
+{
+    emcmot_axis_t *axis = &ai->axis_array[axis_num];
+    simple_tp_t *tp = &axis->teleop_tp;
+
+    *pos = tp->curr_pos;
+    *vel = tp->curr_vel;
+    *pos_cmd = tp->pos_cmd;
+    *max_vel = fmin(tp->max_vel, axis->vel_limit);
+    *max_acc = tp->max_acc;
+    *moving = tp->active || (tp->enable && tp->pos_cmd != tp->curr_pos);
+}
+
 int axis_calc_motion(axis_inst_t *ai, double servo_period)
 {
     int axis_num;
@@ -695,7 +775,7 @@ int axis_calc_motion(axis_inst_t *ai, double servo_period)
         if (axis->teleop_tp.max_vel > axis->vel_limit) {
             axis->teleop_tp.max_vel = axis->vel_limit;
         }
-        if (update_teleop_with_check(ai, axis_num, &(axis->teleop_tp), servo_period)) {
+        if (axis_update_teleop_with_joint_limits(ai, axis_num, servo_period)) {
             violated_teleop_limit = 1;
         } else {
             axis->teleop_vel_cmd = axis->teleop_tp.curr_vel;

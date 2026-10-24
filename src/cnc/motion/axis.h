@@ -61,6 +61,12 @@ int axis_update_coord_with_bound(axis_inst_t *ai, double *pcmd_p[], double servo
 
 int axis_calc_motion(axis_inst_t *ai, double servo_period) STMAK_NONBLOCKING;
 
+/* joint limits of a world jog ([TRAJ]PLAN_JOINT_LIMITS) */
+void axis_set_teleop_joint_limits(axis_inst_t *ai, int axis_num, int active,
+        double vel_scale, double acc_scale, double pos_min, double pos_max, int at_limit) STMAK_NONBLOCKING;
+void axis_get_teleop_state(axis_inst_t *ai, int axis_num, double *pos, double *vel,
+        double *pos_cmd, double *max_vel, double *max_acc, int *moving) STMAK_NONBLOCKING;
+
 
 #ifdef __cplusplus
 }
