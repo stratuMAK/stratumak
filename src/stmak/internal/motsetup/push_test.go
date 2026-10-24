@@ -17,6 +17,7 @@ type pushRec struct {
 	arcBlend           []float64 // enable, fallback, depth, gapCycles, rampFreq, kinkRatio
 	spindles           []int32
 	activated          []int32
+	planJointLimits    int32
 }
 
 func newPushRec() *pushRec { return &pushRec{recMotionConfig: newRec()} }
@@ -30,6 +31,10 @@ func (r *pushRec) SetMaxFeedOverride(v float64) error {
 }
 func (r *pushRec) SetupArcBlends(enable, fallback, depth, gap int32, ramp, kink float64) error {
 	r.arcBlend = []float64{float64(enable), float64(fallback), float64(depth), float64(gap), ramp, kink}
+	return nil
+}
+func (r *pushRec) SetPlanJointLimits(enable int32) error {
+	r.planJointLimits = enable
 	return nil
 }
 func (r *pushRec) JointActivate(j int32) error { r.activated = append(r.activated, j); return nil }
@@ -110,6 +115,10 @@ func TestPush_MetricMachine(t *testing.T) {
 	// to parabolic blending.
 	if len(rec.arcBlend) != 6 || rec.arcBlend[0] != 1 || rec.arcBlend[2] != 50 {
 		t.Errorf("arc blends = %v, want enable=1 depth=50 defaults", rec.arcBlend)
+	}
+	// PLAN_JOINT_LIMITS defaults ON.
+	if rec.planJointLimits != 1 {
+		t.Errorf("plan joint limits = %d, want the default 1", rec.planJointLimits)
 	}
 	// No [DISPLAY]MAX_FEED_OVERRIDE: the ceiling is 1.0, not 0 — a zero would
 	// pin every feed override to a standstill.

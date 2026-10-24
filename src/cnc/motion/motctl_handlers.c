@@ -244,6 +244,14 @@ static int32_t h_setup_arc_blends(void *ctx, int32_t enable, int32_t fallback_en
     return send_command(mc, &cmd);
 }
 
+static int32_t h_set_plan_joint_limits(void *ctx, int32_t enable)
+{
+    CTX; emcmot_command_t cmd;
+    cmd_init(&cmd, EMCMOT_SET_PLAN_JOINT_LIMITS);
+    cmd.planJointLimits = enable;
+    return send_command(mc, &cmd);
+}
+
 static int32_t h_set_spindlesync(void *ctx, double sync, int32_t motion_type)
 {
     CTX; emcmot_command_t cmd;
@@ -904,6 +912,7 @@ motctl_callbacks_t motctl_get_callbacks(motctl_ctx_t **ctx_out)
         .set_acc                   = h_set_acc,
         .set_term_cond             = h_set_term_cond,
         .setup_arc_blends          = h_setup_arc_blends,
+        .set_plan_joint_limits     = h_set_plan_joint_limits,
         .set_spindlesync           = h_set_spindlesync,
         .set_offset                = h_set_offset,
         .abort                     = h_abort,

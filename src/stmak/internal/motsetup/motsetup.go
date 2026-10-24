@@ -51,6 +51,7 @@ type MotionConfig interface {
 	SetWorldHome(pos Pose) error
 	SetProbeErrInhibit(jogInhibit, homeInhibit int32) error
 	SetupArcBlends(enable, fallbackEnable, optDepth, gapCycles int32, rampFreq, tangentKinkRatio float64) error
+	SetPlanJointLimits(enable int32) error
 
 	// Joints
 	JointActivate(joint int32) error
@@ -259,6 +260,15 @@ func pushTraj(ini *inifile.IniFile, opts Options, u units, mc MotionConfig, res 
 		getFloatOr(ini, "TRAJ", "ARC_BLEND_RAMP_FREQ", 100.0),
 		getFloatOr(ini, "TRAJ", "ARC_BLEND_KINK_RATIO", 0.1),
 	); err != nil {
+		return err
+	}
+
+	// Joint limit planning: under non-identity kinematics the TP caps every
+	// segment by the joint velocity/acceleration limits and refuses a path
+	// through a joint position limit, world jogs are scaled and stopped at the
+	// joint limits, and the joint commands are checked at run time. Default on;
+	// identity kinematics are not affected either way.
+	if err := mc.SetPlanJointLimits(int32(getIntOr(ini, "TRAJ", "PLAN_JOINT_LIMITS", 1))); err != nil {
 		return err
 	}
 

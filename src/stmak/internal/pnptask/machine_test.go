@@ -264,6 +264,7 @@ func (f *fakeMotion) SetProbeErrInhibit(int32, int32) error { return nil }
 func (f *fakeMotion) SetupArcBlends(int32, int32, int32, int32, float64, float64) error {
 	return nil
 }
+func (f *fakeMotion) SetPlanJointLimits(int32) error                       { return nil }
 func (f *fakeMotion) JointActivate(int32) error                            { return nil }
 func (f *fakeMotion) SetJointPositionLimits(int32, float64, float64) error { return nil }
 func (f *fakeMotion) SetJointBacklash(int32, float64) error                { return nil }

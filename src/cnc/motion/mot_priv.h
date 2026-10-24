@@ -100,6 +100,7 @@ typedef struct motmod_inst {
     int ext_offset_coord_limit;
     int coord_cubic_active;
     int ctl_switchkins_type;
+    int kins_is_identity;   /* kins type IDENTITY, read once at Init */
     long ctl_last_period;
     double ctl_servo_period;
     double *pcmd_p[EMCMOT_MAX_AXIS];
@@ -198,6 +199,13 @@ int joint_is_lockable(motmod_inst_t *inst, int joint_num) STMAK_NONBLOCKING;
 // number of kinematics-only joints:
 #define NO_OF_KINS_JOINTS (ALL_JOINTS - inst->config->numExtraJoints)
 #define IS_EXTRA_JOINT(jno) (jno >= NO_OF_KINS_JOINTS)
+
+/* Joint limit planning ([TRAJ]PLAN_JOINT_LIMITS): the TP caps segments, world
+   jogs are scaled and clamped, and the joint commands are checked against the
+   joint velocity/acceleration limits.  Under identity kinematics the axis
+   limits already are the joint limits, so there is nothing to do. */
+#define motmod_plan_joint_limits(inst) \
+    ((inst)->config->planJointLimits && !(inst)->kins_is_identity)
 
  /* rtapi_get_time() returns a nanosecond value. */
 #define etime() (((double) inst->rtapi->get_time(inst->rtapi->ctx)) / 1.0e9)

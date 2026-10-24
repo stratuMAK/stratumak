@@ -146,6 +146,7 @@ extern "C" {
         EMCMOT_SET_OFFSET, /* set tool offsets */
         EMCMOT_SET_MAX_FEED_OVERRIDE,
         EMCMOT_SETUP_ARC_BLENDS,
+        EMCMOT_SET_PLAN_JOINT_LIMITS, /* [TRAJ]PLAN_JOINT_LIMITS */
 
 	EMCMOT_SET_PROBE_ERR_INHIBIT,
 	EMCMOT_ENABLE_WATCHDOG,         /* enable watchdog sound, parport */
@@ -268,6 +269,7 @@ extern "C" {
     double arcBlendRampFreq;
     double arcBlendTangentKinkRatio;
     double maxFeedScale;
+    int planJointLimits;        /* EMCMOT_SET_PLAN_JOINT_LIMITS */
     double ext_offset_vel;	/* velocity for an external axis offset */
     double ext_offset_acc;	/* acceleration for an external axis offset */
     double feed_mm_per_min;        /* commanded feed rate in mm/min (canon works in internal mm) */
@@ -749,6 +751,7 @@ Suggestion: Split this in to an Error and a Status flag register..
         double arcBlendRampFreq;
         double arcBlendTangentKinkRatio;
         double maxFeedScale;
+        int planJointLimits;    /* [TRAJ]PLAN_JOINT_LIMITS: plan within the joint limits */
         int inhibit_probe_jog_error;
         int inhibit_probe_home_error;
     } emcmot_config_t;

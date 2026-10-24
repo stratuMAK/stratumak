@@ -309,3 +309,8 @@ func set_world_home(pos: Pose) -> i32
 
 @doc "Set debug level"
 func set_debug(level: i32) -> i32
+
+# ─── Joint limit planning ───
+
+@doc "Plan coordinated moves and world jogs within the joint velocity, acceleration and position limits under non-identity kinematics ([TRAJ]PLAN_JOINT_LIMITS)"
+func set_plan_joint_limits(enable: i32) -> i32

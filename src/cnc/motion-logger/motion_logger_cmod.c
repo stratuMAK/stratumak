@@ -104,6 +104,11 @@ static int32_t w_setup_arc_blends(void *ctx, int32_t enable, int32_t fallback_en
     return RC->setup_arc_blends(RC->ctx, enable, fallback_enable, opt_depth,
                                 gap_cycles, ramp_freq, tangent_kink_ratio);
 }
+/* Forwarded, not logged: 2.9 has no such command, and logging it would break
+   the parity-vs-2.9 oracles over a configuration value. */
+static int32_t w_set_plan_joint_limits(void *ctx, int32_t enable) {
+    return RC->set_plan_joint_limits(RC->ctx, enable);
+}
 static int32_t w_set_spindlesync(void *ctx, double sync, int32_t mt) {
     ml_log(ML, "SET_SPINDLESYNC sync=%.6f, motion_type=%d\n", sync, mt);
     return RC->set_spindlesync(RC->ctx, sync, mt);
@@ -304,6 +309,7 @@ int New(const cmod_env_t *env, const char *name,
         .rigid_tap = w_rigid_tap, .set_vel = w_set_vel, .set_vel_limit = w_set_vel_limit,
         .set_acc = w_set_acc, .set_term_cond = w_set_term_cond,
         .setup_arc_blends = w_setup_arc_blends,
+        .set_plan_joint_limits = w_set_plan_joint_limits,
         .set_spindlesync = w_set_spindlesync, .set_offset = w_set_offset,
         .abort = w_abort, .pause = w_pause, .resume = w_resume, .step = w_step,
         .reverse = w_reverse, .forward = w_forward, .set_free = w_set_free,

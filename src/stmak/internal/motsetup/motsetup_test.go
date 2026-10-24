@@ -20,6 +20,7 @@ func (noopMotionConfig) SetProbeErrInhibit(int32, int32) error { return nil }
 func (noopMotionConfig) SetupArcBlends(int32, int32, int32, int32, float64, float64) error {
 	return nil
 }
+func (noopMotionConfig) SetPlanJointLimits(int32) error                       { return nil }
 func (noopMotionConfig) JointActivate(int32) error                            { return nil }
 func (noopMotionConfig) SetJointPositionLimits(int32, float64, float64) error { return nil }
 func (noopMotionConfig) SetJointBacklash(int32, float64) error                { return nil }

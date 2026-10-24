@@ -497,6 +497,44 @@ static int32_t gmi_mot_joint_get_on_neg_limit(void *ctx, int32_t jno) STMAK_NONB
     return inst->joints[jno].on_neg_limit;
 }
 
+/* --- Joint limit planning ([TRAJ]PLAN_JOINT_LIMITS) --- */
+
+static int32_t gmi_mot_cfg_get_plan_joint_limits(void *ctx) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+
+    return motmod_plan_joint_limits(inst);
+}
+
+static int32_t gmi_mot_get_num_kins_joints(void *ctx) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+
+    return NO_OF_KINS_JOINTS;
+}
+
+static double gmi_mot_joint_get_acc_limit(void *ctx, int32_t jno) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+
+    return inst->joints[jno].acc_limit;
+}
+
+static int32_t gmi_mot_kins_inverse(void *ctx, const mot_pose_t *world,
+                                    double joints[MOT_MAX_JOINTS]) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+    KINEMATICS_INVERSE_FLAGS iflags = inst->iflags;
+    KINEMATICS_FORWARD_FLAGS fflags = inst->fflags;
+    int jno;
+
+    for (jno = 0; jno < MOT_MAX_JOINTS && jno < ALL_JOINTS; jno++) {
+        joints[jno] = inst->joints[jno].pos_cmd;
+    }
+    return motmod_kinematicsInverse(inst, (const struct EmcPose *)world, joints,
+                                    &iflags, &fflags);
+}
+
 /* mot API callback table (template — per-instance copy gets ctx set in New()) */
 static const mot_callbacks_t motmod_mot_callbacks_template = GMI_MOT_CALLBACKS;
 
@@ -970,6 +1008,10 @@ static int motmod_init(cmod_t *self)
             env->api->record_consumer(env->api->ctx, inst->name, "home", hname);
         }
     }
+
+    /* The kinematics type decides whether joint limit planning has anything
+       to do; the kins API's type() is not realtime-callable, so read it once. */
+    inst->kins_is_identity = (motmod_kinematicsType(inst) == KINEMATICS_IDENTITY);
 
     /* Record consumer relationships for introspection */
     env->api->record_consumer(env->api->ctx, inst->name, "kins", inst->kins_inst_name);

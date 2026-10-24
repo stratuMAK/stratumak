@@ -2199,6 +2199,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             inst->config->arcBlendRampFreq = inst->command->arcBlendRampFreq;
             inst->config->arcBlendTangentKinkRatio = inst->command->arcBlendTangentKinkRatio;
             break;
+        case EMCMOT_SET_PLAN_JOINT_LIMITS:
+            inst->config->planJointLimits = inst->command->planJointLimits;
+            break;
         case EMCMOT_SET_PROBE_ERR_INHIBIT:
             inst->config->inhibit_probe_jog_error = inst->command->probe_jog_err_inhibit;
             inst->config->inhibit_probe_home_error = inst->command->probe_home_err_inhibit;

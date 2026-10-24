@@ -10,6 +10,8 @@
 @prefix mot
 @rest_export false
 
+const MAX_JOINTS = 16
+
 # ─── Types ───
 
 type Pose {
@@ -291,3 +293,21 @@ func joint_get_on_pos_limit(jno: i32) -> i32
 @doc "Get joint on_neg_limit"
 @rt_safe "true"
 func joint_get_on_neg_limit(jno: i32) -> i32
+
+# ─── Joint limit planning ([TRAJ]PLAN_JOINT_LIMITS) ───
+
+@doc "Plan within the joint limits: [TRAJ]PLAN_JOINT_LIMITS is set and the kinematics are not identity"
+@rt_safe "true"
+func cfg_get_plan_joint_limits() -> i32
+
+@doc "Number of kinematic joints (the ones inverse kinematics computes; extra joints excluded)"
+@rt_safe "true"
+func get_num_kins_joints() -> i32
+
+@doc "Get joint acc_limit"
+@rt_safe "true"
+func joint_get_acc_limit(jno: i32) -> f64
+
+@doc "Inverse kinematics for planning: world pose to joint positions. Leaves the controller's kinematics flags alone; joints the kinematics do not compute keep their current command."
+@rt_safe "true"
+func kins_inverse(world: Pose, joints: [MAX_JOINTS]f64 byref) -> i32
