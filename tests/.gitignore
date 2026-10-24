@@ -9,6 +9,8 @@ out.txt
 *.db-wal
 # servo-thread capture written by tests/soft-limits/soft-limits.hal
 trace.txt
-# servo-thread velocity captures written by tests/pnptask-blend and
-# tests/trajectory-planner/decel-rate
+# servo-thread velocity captures written by tests/pnptask-blend,
+# tests/trajectory-planner/decel-rate and tests/trajectory-planner/joint-limits
 vel.txt
+# observations of tests/trajectory-planner/joint-limits/run-jl.py
+result.txt

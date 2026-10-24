@@ -1,0 +1,22 @@
+# Five joints looped back, and the X/Y joint velocity command sampled every
+# servo cycle (filestream.read after motion-controller).
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS kins_instance=xyzac-trt-kins
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+
+net j0pos joint.0.motor-pos-cmd => joint.0.motor-pos-fb
+net j1pos joint.1.motor-pos-cmd => joint.1.motor-pos-fb
+net j2pos joint.2.motor-pos-cmd => joint.2.motor-pos-fb
+net j3pos joint.3.motor-pos-cmd => joint.3.motor-pos-fb
+net j4pos joint.4.motor-pos-cmd => joint.4.motor-pos-fb
+
+net estop-loop iocontrol.user-enable-out => iocontrol.emc-enable-in
+net tool-prep-loop iocontrol.tool-prepare => iocontrol.tool-prepared
+net tool-change-loop iocontrol.tool-change => iocontrol.tool-changed
+
+load filestream sample_cfg=fff outfile=vel.txt depth=65536 samples=0
+net j0vel joint.0.vel-cmd => filestream.sample.0
+net j1vel joint.1.vel-cmd => filestream.sample.1
+net j1pos => filestream.sample.2
+addf filestream.read servo-thread

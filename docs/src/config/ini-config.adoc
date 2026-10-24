@@ -847,6 +847,26 @@ A value in the range 20 Hz to 200 Hz should be reasonable to start.
 
 Finally, no amount of tweaking will speed up a tool path with lots of small, tight corners, since you're limited by cornering acceleration.
 
+* `PLAN_JOINT_LIMITS = 1` - Keep coordinated moves and world (teleop) jogs within the joint limits under non-identity kinematics (Default: 1).
++
+The trajectory planner works in world coordinates and limits a move by the axis limits.
+Under non-identity kinematics the joints do not move like the axes: a rotation around a tool center point drives the linear joints along an arc, and a joint can be asked for far more velocity or acceleration than its `[JOINT_n]` limits allow -- typically ending in a following error.
+With this setting on:
++
+--
+** every queued line and arc is sampled through the inverse kinematics (16 points, plus one per 2 degrees of rotary motion, at most 128), and its maximum velocity and acceleration are lowered until no joint exceeds its `MAX_VELOCITY` or `MAX_ACCELERATION`.
+Half of a joint's acceleration is the most the curvature of the joint path may take, the tangential acceleration gets the rest.
+Arc blends are sampled the same way; parabolic blends stay within the slower neighbour.
+** the same samples check the joint `MIN_LIMIT`/`MAX_LIMIT` along the whole move, not only at its end point.
+A move that passes through a joint limit is refused when it is queued ("... would exceed joint N's positive limit at 40% of its path").
+** world jogs are slowed every servo cycle so that no joint exceeds 95% of its velocity or acceleration limit, and stop on their own where a joint reaches its position limit, like they do at an axis limit.
+** a joint commanded more than 2% over its velocity limit or 10% over its acceleration limit stops the motion with a message naming the joint.
+--
++
+Identity kinematics (trivkins) are not affected either way.
+Switchable kinematics (switchkins) report themselves as non-identity, so the planning runs in every type; in an identity type it finds nothing to lower.
+Set it to 0 to plan by the axis limits only, as before, e.g. for kinematics too expensive to be evaluated ~20 times per queued segment in the servo thread.
+
 * `SPINDLES = 3` - The number of spindles to support. It is imperative that this number matches the "num_spindles" parameter passed to the motion module.
 * `COORDINATES = X Y Z` - The names of the axes being controlled.  Only X, Y, Z, A, B, C, U, V, W are valid.
   Only axes named in `COORDINATES` are accepted in G-code.

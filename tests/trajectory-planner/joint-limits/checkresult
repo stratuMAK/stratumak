@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Check the joint limit planning scenarios (see test.sh).
+
+vel.txt: joint.0.vel-cmd joint.1.vel-cmd joint.1.motor-pos-cmd per servo
+cycle.  result.txt: what run-jl.py observed.
+"""
+import os, sys
+
+VEL_LIMIT = 20.0      # [JOINT_0/1]MAX_VELOCITY
+VEL_TOL = 1.02        # the backstop's tolerance
+POS_LIMIT = 40.0      # [JOINT_1]MIN/MAX_LIMIT
+
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
+fail = []
+
+peak_v = peak_y = 0.0
+with open(os.path.join(here, 'vel.txt')) as f:
+    for line in f:
+        p = line.split()
+        if len(p) < 3:
+            continue
+        peak_v = max(peak_v, abs(float(p[0])), abs(float(p[1])))
+        peak_y = max(peak_y, abs(float(p[2])))
+print("peak X/Y joint velocity %.3f (limit %.1f), peak |joint Y| %.4f (limit %.1f)"
+      % (peak_v, VEL_LIMIT, peak_y, POS_LIMIT))
+if peak_v > VEL_LIMIT * VEL_TOL:
+    fail.append("joint velocity %.3f over the limit" % peak_v)
+if peak_v < VEL_LIMIT * 0.8:
+    fail.append("joint velocity %.3f: the C move did not run at the joint limit" % peak_v)
+if peak_y > POS_LIMIT:
+    fail.append("joint Y %.4f beyond its limit" % peak_y)
+
+res = open(os.path.join(here, 'result.txt')).read()
+print(res, end='')
+if "marker C90 done" not in res or "move error" in res:
+    fail.append("C90 move did not run cleanly")
+if "would exceed joint 1's" not in res:
+    fail.append("C180 through the Y joint limit was not refused")
+if "after refused C180: C 0.0000" not in res and "after refused C180: C -0.0000" not in res:
+    fail.append("C moved although the C180 was refused")
+jog = [l for l in res.splitlines() if l.startswith("jog stop:")]
+if not jog or abs(abs(float(jog[0].split()[4])) - POS_LIMIT) > 0.1:
+    fail.append("jog did not stop at the Y joint limit: %s" % jog)
+if "jog error" in res:
+    fail.append("jog raised an error")
+back = [l for l in res.splitlines() if l.startswith("jog back:")]
+if not back or abs(float(back[0].split()[2])) > POS_LIMIT - 5:
+    fail.append("jog back off the limit did not move: %s" % back)
+
+log = open(os.path.join(here, 'server.log')).read()
+for bad in ("exceeds its limit", "following error"):
+    if bad in log:
+        fail.append("server log: %s" % bad)
+
+for f_ in fail:
+    print("FAIL:", f_)
+sys.exit(1 if fail else 0)
