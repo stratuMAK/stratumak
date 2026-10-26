@@ -235,7 +235,7 @@ int parseIcmds(lcec_conf_module *mod, LCEC_CONF_SLAVE_T *slave, LCEC_CONF_OUTBUF
     // parse current block
     if (!XML_Parse(state.xml.parser, buffer, len, done)) {
       xml_log_error_fmt((LCEC_CONF_XML_INST_T *)&state, "parse error at line %u: %s",
-        (unsigned int)XML_GetCurrentLineNumber(state.xml.parser),
+        (unsigned int)xml_current_line(state.xml.parser),
         XML_ErrorString(XML_GetErrorCode(state.xml.parser)));
       goto fail3;
     }

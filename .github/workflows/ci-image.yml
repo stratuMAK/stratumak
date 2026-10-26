@@ -1,0 +1,53 @@
+# vim: sw=2
+
+# Prebuilt CI image (.github/ci/Dockerfile): debian:trixie with the
+# build-deps and CI tools baked in. Called by ci.yml and nightly-stmak.yml
+# ahead of the jobs that run in the image.
+#
+# The tag is derived from what the image is built from (the Dockerfile and
+# debian/) plus the ISO week, so this only builds when one of those changed or
+# a new week started; every other call it finds the tag already on GHCR and
+# finishes in seconds. Callers take the image name from the `image` output, so
+# a PR that changes the build-deps runs against an image built from that PR.
+#
+# PRs from forks get a read-only token and cannot push; they work as long as
+# the tag already exists, i.e. unless the fork touched debian/ or the image.
+# The calling job must grant packages: write.
+name: CI image
+
+on:
+  workflow_call:
+    outputs:
+      image:
+        description: Full name of the image for this tree, tag included
+        value: ${{ jobs.ci-image.outputs.image }}
+
+jobs:
+  ci-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Compute image tag
+      id: tag
+      run: |
+        hash=$(git ls-files -s .github/ci debian | sha256sum | cut -c1-12)
+        echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/stratumak-ci:$(date -u +%G-w%V)-$hash" >> "$GITHUB_OUTPUT"
+    - name: Build and push the image unless it exists
+      timeout-minutes: 40
+      env:
+        IMAGE: ${{ steps.tag.outputs.image }}
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+          echo "$IMAGE already exists"
+          exit 0
+        fi
+        docker build -f .github/ci/Dockerfile -t "$IMAGE" debian
+        docker push "$IMAGE"

@@ -24,6 +24,8 @@ on:
 #     and boots a config. This is the job that catches install-layout rot:
 #     runtests exercises the RIP tree, where the layout differs.
 #   - package-*: releases/tags (feeds the release job) or manual dispatch.
+#   - ci-image: every run, ahead of the jobs that use the image; builds only
+#     when the image inputs changed or a new week started.
 
 permissions:
   contents: read #  to fetch code (actions/checkout)
@@ -31,7 +33,24 @@ permissions:
 jobs:
 
   rip-and-test:
+    needs: ci-image
     runs-on: ubuntu-24.04
+    # Without a job timeout GitHub waits 360 minutes for a hung step.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    # Runs in the prebuilt CI image, like stmak; see there and ci-image for
+    # why it is not realtime and for the shell.
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --shm-size=1g --ulimit rtprio=0:0
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Dump GitHub context
       env:
@@ -41,14 +60,44 @@ jobs:
       with:
         submodules: true
         fetch-depth: 0
-    - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
-    # Pin the Go toolchain: the apt go on the runner is older than go.mod
-    # requires, so without this every fresh run downloads a toolchain from
-    # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v7
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    - name: Install build deps
+      timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
+    # Same ccache setup as stmak, under its own key: COVERAGE=1 compiles with
+    # different flags, so the two jobs could never share an entry.
+    #
+    # Go's build cache is kept as well. ccache cannot help with cgo: go build
+    # compiles the cgo C in a fresh random $WORK directory each time, so those
+    # compiles (about 400 of them) always miss. With GOCACHE restored, go build
+    # does not recompile them at all. That is safe here because this job runs
+    # no go test, whose cached results could not see a rebuilt stmakd; stmak,
+    # which does, keeps a cold GOCACHE.
+    #
+    # GOCOVERDIR is set here for every later step, from $GITHUB_WORKSPACE:
+    # in a container ${{ github.workspace }} still names the runner's path,
+    # not the one the workspace is mounted at.
+    - name: Set up build caches and GOCOVERDIR
+      run: |
+        {
+          echo "GOCOVERDIR=$GITHUB_WORKSPACE/coverage/gocov"
+          echo "GOCACHE=$HOME/.cache/go-build"
+          echo "GOMODCACHE=$HOME/go/pkg/mod"
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=1G"
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+        echo /usr/lib/ccache >> "$GITHUB_PATH"
+    - name: Restore build caches
+      uses: actions/cache/restore@v6
       with:
-        go-version: '1.24.x'
-        cache: false
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: build-cache-rip-and-test-
     # COVERAGE=1 instruments this build so the suite below reports what it
     # reaches. It rides the run that was happening anyway rather than adding a
     # second one. The flag is a make variable with no default (see the block in
@@ -57,19 +106,33 @@ jobs:
     #
     # rip-and-test-clang runs this same suite uninstrumented on every push to
     # main, so an uninstrumented full-suite run still exists, at no extra cost.
-    - name: Build RIP & test
-      env:
-        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
+    #
+    # The build creates GOCOVERDIR: instrumented Go tools such as
+    # modcompile already run during make, and their coverage counts.
+    - name: Build RIP
       run: |
         set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
-        eatmydata sudo apt-get install -y lcov
+        ccache -z
         mkdir -p "$GOCOVERDIR"
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make COVERAGE=1 -O -j$((1+$(nproc))) default pycheck V=1
+        ccache -s
+    # Saved before the suite runs, so a red suite still warms the next build.
+    - name: Save build caches
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
+    - name: Test
+      run: |
+        set -x
+        cd src
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
     - name: Collect coverage
@@ -77,8 +140,6 @@ jobs:
       # suite red. The suite's own result is the pass/fail signal.
       if: always()
       continue-on-error: true
-      env:
-        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: ./scripts/collect-coverage
     # continue-on-error keeps a failed upload from gating the merge; the job
     # still concludes success. fail_ci_if_error makes the step itself go red
@@ -133,8 +194,28 @@ jobs:
         if-no-files-found: ignore
 
   rip-and-test-clang:
+    needs: ci-image
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # workflow_dispatch so a branch that touches this job can run it before
+    # it reaches main.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    # Runs in the prebuilt CI image, like stmak; see there and ci-image for
+    # why it is not realtime and for the shell.
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --shm-size=1g --ulimit rtprio=0:0
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Dump GitHub context
       env:
@@ -144,7 +225,6 @@ jobs:
       with:
         submodules: true
         fetch-depth: 0
-    - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
     # The RT function-effects check downloads a pinned clang (see
     # scripts/rt-clang.sh) — cache it so post-merge runs don't re-download.
     - name: Cache pinned RT-check clang
@@ -152,28 +232,66 @@ jobs:
       with:
         path: ~/.cache/stratumak-rt-clang
         key: rt-clang-22.1.8-${{ runner.arch }}
-    # Pin the Go toolchain: the apt go on the runner is older than go.mod
-    # requires, so without this every fresh run downloads a toolchain from
-    # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v7
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    - name: Install build deps
+      timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
+    # Same build caches as rip-and-test, under a key of their own; see there.
+    # The pinned RT-check clang is called by path and bypasses ccache.
+    - name: Set up build caches
+      run: |
+        {
+          echo "GOCACHE=$HOME/.cache/go-build"
+          echo "GOMODCACHE=$HOME/go/pkg/mod"
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=1G"
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+        echo /usr/lib/ccache >> "$GITHUB_PATH"
+    - name: Restore build caches
+      uses: actions/cache/restore@v6
       with:
-        go-version: '1.24.x'
-        cache: false
-    - name: Clang build RIP & test
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-clang-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: build-cache-rip-and-test-clang-
+    - name: Clang build RIP
       run: |
         set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
-        sudo eatmydata apt-get install -y clang
+        ccache -z
         cd src
         eatmydata ./autogen.sh
         CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make -O -j$((1+$(nproc))) default pycheck V=1
+        ccache -s
+    - name: Save build caches
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-clang-${{ github.run_id }}-${{ github.run_attempt }}
+    - name: RT effects check & test
+      run: |
+        set -x
+        cd src
         # RT path verification: clang function-effects analysis over the
         # RTAPI/HAL core and every generated component (warnings = errors).
         eatmydata make rt-effects-check
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
+
+  # The prebuilt CI image, see .github/workflows/ci-image.yml.
+  ci-image:
+    uses: ./.github/workflows/ci-image.yml
+    permissions:
+      contents: read
+      packages: write
 
   # stmak gate: build + Go vet/tests + pinned lint (no NEW findings vs the
   # stmak merge base) + fmt. The make targets are the source of truth
@@ -186,51 +304,84 @@ jobs:
   # log for six path prefixes and could only ever cover what those prefixes
   # matched -- notably NOT the .comp-derived modules, which the compiler reports
   # against their generated objects/cmod/*.c path.
+  #
+  # Runs in the prebuilt CI image (see .github/workflows/ci-image.yml): Go,
+  # Node and golangci-lint come from the image, the dep install is a near
+  # no-op, and C compiles go through ccache.
   stmak:
+    needs: ci-image
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Deliberately NOT realtime, unlike package-gate: the container runs as
+      # root, and with CAP_SYS_RESOURCE rtapi's harden_rt() could raise
+      # RLIMIT_RTPRIO and switch to SCHED_FIFO with the HAL threads free to
+      # run on different CPUs. The suites have always run as the runner's
+      # unprivileged user, where that fails and rtapi falls back to POSIX
+      # non-realtime, which serialises the HAL threads under one lock.
+      # threads.0 checks exactly that ordering and failed in RT mode, as did
+      # abort/g64. Docker's default capabilities lack CAP_SYS_RESOURCE, and
+      # with a zero hard limit raising RLIMIT_RTPRIO needs exactly that.
+      options: --shm-size=1g --ulimit rtprio=0:0
+    # On the runner the default shell is bash; in a container it is sh, which
+    # has no PIPESTATUS for the build-log tee below.
+    defaults:
+      run:
+        shell: bash
     steps:
     - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
-    - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
-    - uses: actions/setup-go@v7
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    - name: Install build deps
+      timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
+    # ccache: the C side of the build is the same from run to run, so most
+    # compiles are cache hits. Restored from the newest entry any earlier run
+    # saved, and saved even when a later step fails so a red run still warms
+    # the next one. COMPILERCHECK=content because a rebuilt image gives gcc a
+    # new mtime but not a new compiler.
+    - name: Set up ccache
+      run: |
+        {
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=1G"
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+        echo /usr/lib/ccache >> "$GITHUB_PATH"
+    - name: Restore ccache
+      uses: actions/cache/restore@v6
       with:
-        go-version: '1.24.x'
-        # go.sum is build-generated (not in the repo), so setup-go's automatic
-        # cache keying cannot work; the module cache is small enough to skip.
-        cache: false
-    - uses: actions/setup-node@v7
-      with:
-        node-version: '20'
-    # GOTOOLCHAIN=auto for this step only. setup-go v6 and later export
-    # GOTOOLCHAIN=local, which is what we want for the project itself -- the Go
-    # version is pinned above precisely so a build never pauses to fetch a
-    # toolchain -- but this step builds a lint tool, not the project, and
-    # golangci-lint's own module requires a newer Go than the one we pin. Under
-    # GOTOOLCHAIN=local, go install refuses instead of fetching what the tool
-    # needs, and the step fails with "requires go >= 1.25.0".
-    #
-    # Scoped to the step so the pinned toolchain still governs everything that
-    # compiles stratuMAK.
-    - name: Install golangci-lint (pinned — keep in sync with GOLANGCI_LINT_VERSION in src/stmak/Submakefile)
-      env:
-        GOTOOLCHAIN: auto
-      run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+        path: ~/.ccache
+        key: ccache-stmak-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: ccache-stmak-
     - name: Build RIP
       run: |
         set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
+        ccache -z
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make -O -j$((1+$(nproc))) default V=1 2>&1 | tee ../build.log
         test "${PIPESTATUS[0]}" -eq 0
+        ccache -s
+    - name: Save ccache
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.ccache
+        key: ccache-stmak-${{ github.run_id }}-${{ github.run_attempt }}
     - name: Go tests + lint + fmt gate
       run: |
-        export PATH="$PATH:$HOME/go/bin"
         cd src
         make stmak-check STMAK_LINT_BASE=origin/main
     # Webapp gate: ESLint + cold vue-tsc type-check + vitest over the
@@ -265,11 +416,27 @@ jobs:
       run: ./scripts/check-static
 
   htmldocs:
+    needs: ci-image
     runs-on: ubuntu-24.04
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch'
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    # Runs in the prebuilt CI image, like stmak; see there and ci-image for
+    # why it is not realtime and for the shell.
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --shm-size=1g --ulimit rtprio=0:0
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Dump GitHub context
       env:
@@ -279,18 +446,13 @@ jobs:
       with:
         submodules: true
         fetch-depth: 0
-    - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
-    # Pin the Go toolchain: the apt go on the runner is older than go.mod
-    # requires, so without this every fresh run downloads a toolchain from
-    # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v7
-      with:
-        go-version: '1.24.x'
-        cache: false
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    # The doc toolchain (texlive, dblatex, inkscape, …) is in the image.
+    - name: Install build deps
+      timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
     - name: Build HTML docmentation
       run: |
-        ./scripts/travis-install-build-deps.sh
-        sudo apt-get install -y eatmydata
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-build-documentation=html
