@@ -242,6 +242,57 @@ R = rootval
 	}
 }
 
+// An #INCLUDE is textual: an included file without a section header
+// continues the section the directive stands in, through nested includes.
+func TestIncludeContinuesSection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "deep.inc", "D = deepval\n")
+	writeFile(t, dir, "keys.inc", "INC = incval\n#INCLUDE deep.inc\n")
+	f := writeFile(t, dir, "main.ini", `
+[MAIN]
+BEFORE = 1
+#INCLUDE keys.inc
+AFTER = 2
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for _, k := range []string{"BEFORE", "INC", "D", "AFTER"} {
+		if len(ini.GetAll("MAIN", k)) == 0 {
+			t.Errorf("[MAIN]%s missing", k)
+		}
+	}
+	if len(ini.Sections) != 1 {
+		t.Errorf("got %d sections, want 1 ([MAIN])", len(ini.Sections))
+	}
+}
+
+// The lines after an #INCLUDE continue the section the included file
+// ended in, not the one the directive stood in.
+func TestIncludeLeavesSection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "paths.inc", "SUBROUTINE_PATH = subs\n\n[DISPLAY]\nPROGRAM_PREFIX = nc\n")
+	f := writeFile(t, dir, "main.ini", `
+[RS274NGC]
+#INCLUDE paths.inc
+PARAMETER_FILE = sim.var
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("RS274NGC", "SUBROUTINE_PATH"); got != "subs" {
+		t.Errorf("[RS274NGC]SUBROUTINE_PATH = %q, want %q", got, "subs")
+	}
+	if got := ini.Get("DISPLAY", "PARAMETER_FILE"); got != "sim.var" {
+		t.Errorf("[DISPLAY]PARAMETER_FILE = %q, want %q", got, "sim.var")
+	}
+	if got := ini.GetAll("RS274NGC", "PARAMETER_FILE"); len(got) != 0 {
+		t.Errorf("[RS274NGC]PARAMETER_FILE = %q, want it in [DISPLAY]", got)
+	}
+}
+
 // --------------------------------------------------------------------------
 // 6. #INCLUDE with missing file (should error)
 // --------------------------------------------------------------------------
@@ -503,6 +554,23 @@ func TestMissing(t *testing.T) {
 	}
 	if got := ini.Get("S", "NOKEY"); got != "" {
 		t.Errorf("missing key = %q, want empty", got)
+	}
+}
+
+// A leading ~/ in an #INCLUDE path is the home directory.
+func TestIncludeTildeExpansion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeFile(t, home, "home.inc", "[HOMESEC]\nH = homeval\n")
+
+	dir := t.TempDir()
+	f := writeFile(t, dir, "main.ini", "#INCLUDE ~/home.inc\n")
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("HOMESEC", "H"); got != "homeval" {
+		t.Errorf("H = %q, want %q", got, "homeval")
 	}
 }
 
@@ -940,5 +1008,20 @@ HALFILE = x.hal
 	}
 	if m["mill2:EMCIO"]["TOOL_TABLE"] != "mill2.tbl" {
 		t.Errorf("literal [mill2:EMCIO] no longer addressable: %v", m["mill2:EMCIO"])
+	}
+}
+
+func TestHasIncludes(t *testing.T) {
+	dir := t.TempDir()
+	with := writeFile(t, dir, "with.ini", "[A]\n  #INCLUDE b.inc\n")
+	without := writeFile(t, dir, "without.ini", "[A]\n# INCLUDE is only a comment here\nK = #INCLUDE\n")
+	if !inifile.HasIncludes(with) {
+		t.Error("HasIncludes(with.ini) = false, want true")
+	}
+	if inifile.HasIncludes(without) {
+		t.Error("HasIncludes(without.ini) = true, want false")
+	}
+	if inifile.HasIncludes(filepath.Join(dir, "missing.ini")) {
+		t.Error("HasIncludes(missing.ini) = true, want false")
 	}
 }

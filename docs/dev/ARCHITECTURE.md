@@ -472,8 +472,10 @@ running program's interpreter state.
 ### Configuration inputs
 
 - **INI file** — machine configuration, classic LinuxCNC format. `#INCLUDE` is
-  expanded into a `.expanded` sibling at startup because the C INI parser used
-  by modules does not handle includes.
+  resolved only by stmakd's parser, textually as in LinuxCNC; clients read the
+  INI through the REST API (`gmi.IniFile`). The C reader (`iniparse`, behind
+  `linuxcnc.ini`, `rs274 -i` and mb2hal) reads exactly one file and rejects
+  `#INCLUDE`.
 - **HAL files** — module loading and signal wiring, processed as **Go
   templates** before parsing. `ini`, `seq`, string and math helpers are
   available, so a HAL file can size itself to the configured joint count:

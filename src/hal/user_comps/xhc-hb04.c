@@ -178,7 +178,7 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
         return -1;
     }
 
-    FILE *fd = fopen(cfgpath, "r");
+    FILE *fd = ini_open(cfgpath);
     if (!fd) {
         stmak_logf(inst->env->log, "xhc-hb04", STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "cannot open button config: %s\n", cfgpath);

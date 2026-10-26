@@ -14,11 +14,22 @@
  * deadline is converted to CLOCK_MONOTONIC right before sleeping, using the
  * MONOTONIC/RAW rate measured between successive samples.  The conversion
  * error does not accumulate: the deadlines themselves stay in RAW time.
+ * Neither does a rate change while asleep on the MONOTONIC timer: it shifts
+ * that one wakeup by at most the rate change times the period, and the next
+ * deadline is again converted from RAW with a fresh sample.
  *
  * Header-only so that every RTAPI implementation (uspace_rtapi_lib.c,
  * librtapi_core.so) shares this one definition.  RTAPI time must never be
  * compared with CLOCK_MONOTONIC values taken elsewhere — the two drift
  * apart whenever NTP slews.
+ *
+ * RAW runs at the uncorrected oscillator rate, so RTAPI time also drifts
+ * from wall-clock time by the crystal error (typically tens of ppm, a few
+ * seconds per day).  A wall-clock offset taken once at startup — e.g. the
+ * EtherCAT dc_time_offset — therefore yields a time that diverges from UTC
+ * over the uptime.  That is fine for anything that only needs a consistent
+ * timebase (DC sync), but such times must not be used as wall-clock
+ * timestamps.
  */
 #ifndef RTAPI_CLOCK_H
 #define RTAPI_CLOCK_H

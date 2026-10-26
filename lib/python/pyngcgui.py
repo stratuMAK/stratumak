@@ -497,10 +497,20 @@ def vprint(txt):
     if g_verbose:
         print('::' + txt)
 
+def ini_from_file(fname):
+    # The running machine's INI comes from stmakd, with #INCLUDEs resolved
+    # and namespaced the way milltask reads it.  Any other file (cmdline INI
+    # without a running controller) is read as is.
+    running = get_linuxcnc_ini_file()
+    if (g_stat is not None and running
+            and os.path.abspath(fname) == os.path.abspath(running)):
+        return gmi.IniFile()
+    return linuxcnc.ini(fname)
+
 def spath_from_inifile(fname):
     if not fname:
         return []
-    ini = linuxcnc.ini(fname)
+    ini = ini_from_file(fname)
     homedir = os.path.dirname(os.path.realpath(fname))
     # http://www.linuxcnc.org/docs/2.9/html/config/ini_config.html
     l = []
@@ -533,7 +543,7 @@ def spath_from_inifile(fname):
 def mpath_from_inifile(fname):
     if not fname:
         return None
-    ini = linuxcnc.ini(ifname)
+    ini = ini_from_file(fname)
     homedir = os.path.dirname(os.path.abspath(fname))
     l = []
     p = ini.find('DISPLAY','PROGRAM_PREFIX')
@@ -1033,7 +1043,7 @@ class LinuxcncInterface():
 
         if ini_file:
             self.ini_file = ini_file
-            self.ini_data = linuxcnc.ini(self.ini_file)
+            self.ini_data = ini_from_file(self.ini_file)
             # get it again to avoid (unlikely) race
             self.subroutine_path = spath_from_inifile(ini_file)
             self.ngcgui_options = self.ini_data.find('DISPLAY','NGCGUI_OPTIONS')
