@@ -194,9 +194,28 @@ jobs:
         if-no-files-found: ignore
 
   rip-and-test-clang:
+    needs: ci-image
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # workflow_dispatch so a branch that touches this job can run it before
+    # it reaches main.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    # Runs in the prebuilt CI image, like stmak; see there and ci-image for
+    # why it is not realtime and for the shell.
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --shm-size=1g --ulimit rtprio=0:0
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Dump GitHub context
       env:
@@ -213,71 +232,66 @@ jobs:
       with:
         path: ~/.cache/stratumak-rt-clang
         key: rt-clang-22.1.8-${{ runner.arch }}
-    # Pin the Go toolchain: the apt go on the runner is older than go.mod
-    # requires, so without this every fresh run downloads a toolchain from
-    # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v7
-      with:
-        go-version: '1.24.x'
-        cache: false
+    # Picks up build-deps added since the image was built; otherwise a no-op.
     - name: Install build deps
       timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
+    # Same build caches as rip-and-test, under a key of their own; see there.
+    # The pinned RT-check clang is called by path and bypasses ccache.
+    - name: Set up build caches
+      run: |
+        {
+          echo "GOCACHE=$HOME/.cache/go-build"
+          echo "GOMODCACHE=$HOME/go/pkg/mod"
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=1G"
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+        echo /usr/lib/ccache >> "$GITHUB_PATH"
+    - name: Restore build caches
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-clang-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: build-cache-rip-and-test-clang-
+    - name: Clang build RIP
       run: |
         set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
-        sudo eatmydata apt-get install -y clang
-    - name: Clang build RIP & test
-      run: |
-        set -x
+        ccache -z
         cd src
         eatmydata ./autogen.sh
         CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make -O -j$((1+$(nproc))) default pycheck V=1
+        ccache -s
+    - name: Save build caches
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-clang-${{ github.run_id }}-${{ github.run_attempt }}
+    - name: RT effects check & test
+      run: |
+        set -x
+        cd src
         # RT path verification: clang function-effects analysis over the
         # RTAPI/HAL core and every generated component (warnings = errors).
         eatmydata make rt-effects-check
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
 
-  # Prebuilt CI image (.github/ci/Dockerfile): debian:trixie with the
-  # build-deps and CI tools baked in. The tag is derived from what the image is
-  # built from (the Dockerfile and debian/) plus the ISO week, so this job only
-  # builds when one of those changed or a new week started; every other run it
-  # finds the tag already on GHCR and finishes in seconds. Jobs that run in the
-  # image take its name from this job's output, so a PR that changes the
-  # build-deps runs against an image built from that PR.
-  #
-  # PRs from forks get a read-only token and cannot push; they work as long as
-  # the tag already exists, i.e. unless the fork touched debian/ or the image.
+  # The prebuilt CI image, see .github/workflows/ci-image.yml.
   ci-image:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    uses: ./.github/workflows/ci-image.yml
     permissions:
       contents: read
       packages: write
-    outputs:
-      image: ${{ steps.tag.outputs.image }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Compute image tag
-      id: tag
-      run: |
-        hash=$(git ls-files -s .github/ci debian | sha256sum | cut -c1-12)
-        echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/stratumak-ci:$(date -u +%G-w%V)-$hash" >> "$GITHUB_OUTPUT"
-    - name: Build and push the image unless it exists
-      timeout-minutes: 40
-      env:
-        IMAGE: ${{ steps.tag.outputs.image }}
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-        if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
-          echo "$IMAGE already exists"
-          exit 0
-        fi
-        docker build -f .github/ci/Dockerfile -t "$IMAGE" debian
-        docker push "$IMAGE"
 
   # stmak gate: build + Go vet/tests + pinned lint (no NEW findings vs the
   # stmak merge base) + fmt. The make targets are the source of truth
@@ -291,9 +305,9 @@ jobs:
   # matched -- notably NOT the .comp-derived modules, which the compiler reports
   # against their generated objects/cmod/*.c path.
   #
-  # This job is the trial for running the RIP jobs in the prebuilt CI image
-  # (see ci-image below): Go, Node and golangci-lint come from the image, the
-  # dep install is a near no-op, and C compiles go through ccache.
+  # Runs in the prebuilt CI image (see .github/workflows/ci-image.yml): Go,
+  # Node and golangci-lint come from the image, the dep install is a near
+  # no-op, and C compiles go through ccache.
   stmak:
     needs: ci-image
     runs-on: ubuntu-24.04
@@ -402,12 +416,27 @@ jobs:
       run: ./scripts/check-static
 
   htmldocs:
+    needs: ci-image
     runs-on: ubuntu-24.04
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch'
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    # Runs in the prebuilt CI image, like stmak; see there and ci-image for
+    # why it is not realtime and for the shell.
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --shm-size=1g --ulimit rtprio=0:0
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Dump GitHub context
       env:
@@ -417,18 +446,11 @@ jobs:
       with:
         submodules: true
         fetch-depth: 0
-    # Pin the Go toolchain: the apt go on the runner is older than go.mod
-    # requires, so without this every fresh run downloads a toolchain from
-    # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v7
-      with:
-        go-version: '1.24.x'
-        cache: false
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    # The doc toolchain (texlive, dblatex, inkscape, …) is in the image.
     - name: Install build deps
       timeout-minutes: 15
-      run: |
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
+      run: eatmydata ./scripts/travis-install-build-deps.sh
     - name: Build HTML docmentation
       run: |
         cd src

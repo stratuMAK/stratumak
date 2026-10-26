@@ -16,24 +16,43 @@ permissions:
   contents: read
 
 jobs:
+  # The prebuilt CI image, see ci-image.yml. Called here too rather than
+  # assuming ci.yml already built this week's tag: a Monday-morning nightly
+  # can run before any push has.
+  ci-image:
+    uses: ./.github/workflows/ci-image.yml
+    permissions:
+      contents: read
+      packages: write
+
+  # Runs in the image non-realtime, like ci.yml's stmak job; see there for
+  # why. No build caches: go test runs here, and a nightly can afford a
+  # cold build.
   stmak-race:
+    needs: ci-image
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --shm-size=1g --ulimit rtprio=0:0
+    defaults:
+      run:
+        shell: bash
     steps:
     - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
-    - uses: actions/setup-go@v7
-      with:
-        go-version: '1.24.x'
-        cache: false
+    # Picks up build-deps added since the image was built; otherwise a no-op.
     - name: Install build deps
       timeout-minutes: 15
-      run: |
-        set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
+      run: eatmydata ./scripts/travis-install-build-deps.sh
     - name: Build RIP
       run: |
         set -x
