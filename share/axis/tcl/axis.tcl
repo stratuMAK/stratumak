@@ -1797,8 +1797,13 @@ proc update_state {args} {
         $::STATE_ESTOP_RESET { set ::task_state_string [_ "OFF"] } \
         $::STATE_ON { set ::task_state_string [_ "ON"] }
 
+    # machine_ui_disabled (halui machine.ui-disable pin): estop and machine
+    # power are not this screen's to control. The reliefs keep showing the
+    # state that halui or a forced emccmd caller sets.
     relief {$task_state == $STATE_ESTOP} .toolbar.machine_estop
-    state  {$task_state != $STATE_ESTOP} \
+    state  {!$machine_ui_disabled} \
+        .toolbar.machine_estop {.menu.machine "Toggle _Emergency Stop"}
+    state  {$task_state != $STATE_ESTOP && !$machine_ui_disabled} \
         .toolbar.machine_power {.menu.machine "Toggle _Machine Power"}
     relief {$task_state == $STATE_ON}    .toolbar.machine_power 
 
@@ -2010,6 +2015,7 @@ set max_speed 1
 set program_inhibit 0
 set mdi_inhibit 0
 set program_ui_disabled 0
+set machine_ui_disabled 0
 set queued_mdi_commands 0
 set max_queued_mdi_commands 10
 trace variable taskfile w update_title
@@ -2035,6 +2041,7 @@ trace variable queued_mdi_commands  w queue_update_state
 trace variable program_inhibit       w queue_update_state
 trace variable mdi_inhibit           w queue_update_state
 trace variable program_ui_disabled   w queue_update_state
+trace variable machine_ui_disabled   w queue_update_state
 
 set editor_deleted 0
 
