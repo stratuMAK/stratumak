@@ -96,6 +96,11 @@ forgets the stat field gets refusals instead of working buttons. AXIS
 (`program_flow_locked()` in axis.py, `program_ui_disabled` in axis.tcl) is the
 reference.
 
+E-stop and machine power controls likewise honour `machine_ui_disabled`, the
+halui `<prefix>.machine.ui-disable` pin: the server refuses `set_state` without
+`force` while it is set, E-stop included. AXIS (`machine_power_locked()` in
+axis.py, `machine_ui_disabled` in axis.tcl) is the reference.
+
 ### Widget State Persistence
 
 Use the existing `persist_sqlite` module with a `ui_` namespace prefix:

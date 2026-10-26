@@ -221,8 +221,8 @@ caller passes \fBforce\fR=true. An abort that stops an MDI command, a jog or
 homing is not affected.
 Nothing is stopped or held: a running program carries on, and the
 halui.program.* pins keep working, as does any REST, WebSocket or in\-process
-\fBemccmd\fR caller that passes \fBforce\fR. Machine power and E\-stop are
-never affected.
+\fBemccmd\fR caller that passes \fBforce\fR. Machine power and E\-stop have
+their own pin, halui.machine.ui\-disable.
 The state is published as \fBprogram_ui_disabled\fR in the \fBemcstat\fR
 buffer; AXIS greys out its run, step, pause/resume, stop, "Stop at M1" and
 "Skip lines with /" controls (toolbar, menu and keys) and keeps showing their
@@ -340,6 +340,22 @@ pin for setting machine Off
 .TP 
 .B halui.machine.on\fR bit in \fR
 pin for setting machine On
+.TP
+.B halui.machine.ui\-disable\fR bit in \fR
+When TRUE, E\-stop and machine power are withheld from user interfaces. The
+\fBemccmd\fR command \fBset_state\fR is refused for every state \(em E\-stop,
+E\-stop reset, machine on and machine off \(em unless the caller passes
+\fBforce\fR=true. It is meant for a milltask that is one part of a machine
+network whose E\-stop chain is wired in hardware: the operator must not take
+that part down from its screen by accident. Do not set it on a machine whose
+only E\-stop is the one on the screen.
+The halui.machine.* and halui.estop.* pins keep working, as does any REST,
+WebSocket or in\-process \fBemccmd\fR caller that passes \fBforce\fR;
+E\-stops the controller raises itself (external E\-stop input, faults) are not
+affected. Program flow has its own pin, halui.program.ui\-disable.
+The state is published as \fBmachine_ui_disabled\fR in the \fBemcstat\fR
+buffer; AXIS greys out its E\-stop and machine power controls (toolbar, menu,
+F1 and F2) and keeps showing their state.
 
 .SS Lube
 .TP

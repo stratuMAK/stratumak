@@ -256,6 +256,10 @@ machine angular units per deg, reflects [TRAJ]ANGULAR_UNITS INI value.
 *lube_level*:: '(returns integer)' -
   reflects 'iocontrol.0.lube_level'.
 
+*machine_ui_disabled*:: '(returns boolean)' -
+  the `halui.machine.ui-disable` pin is set: a UI should disable its E-stop
+  and machine power controls while still showing their state.
+
 *max_acceleration*:: '(returns float)' -
   maximum  acceleration. Reflects [TRAJ]MAX_ACCELERATION.
 
@@ -793,8 +797,9 @@ c.spindle.(linuxcnc.SPINDLE_OFF, 0)
 `spindleoverride(float [, int])`::
   Set spindle override factor. Defaults to spindle 0.
 
-`state(int)`::
+`state(int[, force=False])`::
   Set the machine state. Machine state should be STATE_ESTOP, STATE_ESTOP_RESET, STATE_ON, or STATE_OFF.
+  Refused while the `halui.machine.ui-disable` pin is set, unless `force` is true.
 
 `task_plan_sync()`::
   On completion of this call, the VAR file on disk is updated with
