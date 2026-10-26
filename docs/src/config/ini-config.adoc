@@ -189,11 +189,12 @@ An INI file may include the contents of another file by using a #INCLUDE directi
 
 The filename can be specified as:
 
-* a file in the same directory as the INI file
-* a file located relative to the working directory
+* a file in the same directory as the file containing the directive
+* a file located relative to that directory
 * an absolute file name (starts with a /)
-* a user-home-relative file name (starts with a ~)
+* a user-home-relative file name (starts with ~/)
 
+Environment variables such as `$HOME` in the filename are expanded.
 Multiple #INCLUDE directives are supported.
 
 .#INCLUDE Examples
@@ -206,7 +207,10 @@ Multiple #INCLUDE directives are supported.
 #INCLUDE ~/stratumak/myincludes/rs274ngc.inc
 ----
 
-The #INCLUDE directives are supported for one level of expansion only -- an included file may not include additional files.
+The included file is inserted in place of the directive, as if its text stood there:
+it continues the section the directive stands in, and the lines after the directive continue the section the included file ended in.
+An included file may include further files; a circular include is an error.
+A missing included file, or a directive without a filename, is an error and stmakd does not start.
 The recommended file extension is '.inc'.
 Do _not_ use a file extension of '.ini' for included files.
 

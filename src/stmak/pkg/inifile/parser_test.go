@@ -557,6 +557,23 @@ func TestMissing(t *testing.T) {
 	}
 }
 
+// A leading ~/ in an #INCLUDE path is the home directory.
+func TestIncludeTildeExpansion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeFile(t, home, "home.inc", "[HOMESEC]\nH = homeval\n")
+
+	dir := t.TempDir()
+	f := writeFile(t, dir, "main.ini", "#INCLUDE ~/home.inc\n")
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("HOMESEC", "H"); got != "homeval" {
+		t.Errorf("H = %q, want %q", got, "homeval")
+	}
+}
+
 // --------------------------------------------------------------------------
 // Extra: parse error for circular #INCLUDE
 // --------------------------------------------------------------------------

@@ -20,8 +20,8 @@ const maxExtendLines = 20
 
 // Parse reads and parses an INI file, recursively handling #INCLUDE directives.
 // Relative paths in #INCLUDE are resolved relative to the directory of the
-// file containing the directive.  Environment variables (e.g. $HOME) in
-// #INCLUDE paths are expanded before resolution.
+// file containing the directive.  Environment variables (e.g. $HOME) and a
+// leading ~/ in #INCLUDE paths are expanded before resolution.
 //
 // An #INCLUDE is textual, as in LinuxCNC's handle_includes(): the included
 // file continues the section the directive stands in, and the lines after
@@ -127,8 +127,15 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool, current 
 			if rest == "" {
 				return current, fmt.Errorf("inifile: %s:%d: empty #INCLUDE path", filename, startLine)
 			}
-			// Expand environment variables in the path.
+			// Expand environment variables and a leading ~/ in the path.
 			rest = os.ExpandEnv(rest)
+			if strings.HasPrefix(rest, "~/") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return current, fmt.Errorf("inifile: %s:%d: expanding ~ in #INCLUDE path %q: %w", filename, startLine, rest, err)
+				}
+				rest = filepath.Join(home, rest[2:])
+			}
 			if !filepath.IsAbs(rest) {
 				rest = filepath.Join(dir, rest)
 			}
