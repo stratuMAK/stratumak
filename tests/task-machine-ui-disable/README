@@ -1,0 +1,14 @@
+halui.machine.ui-disable takes estop and machine power away from the UIs, and
+only from them.
+
+A milltask that is one part of a machine network has its estop wired in
+hardware, and the master switches it on and off.  The operator must not take
+that part down from its screen by accident, so emccmd refuses every set_state
+-- estop, estop reset, machine on and off -- while the pin is high, unless the
+caller passes force.  Estop is refused too: the hardware chain is the estop.
+
+What must keep working is checked as well: halui's machine and estop pins,
+forced emccmd calls, and program flow, which has its own pin.
+
+The pin is linked from the config's own HAL file to prove it exists by the
+time that file runs.
