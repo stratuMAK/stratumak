@@ -168,6 +168,30 @@ MACHINE = Test
 	}
 }
 
+// TestCheckVersion_Includes verifies that a config using #INCLUDE is refused
+// before update_ini is run, even with an X display.
+func TestCheckVersion_Includes(t *testing.T) {
+	dir := t.TempDir()
+	writeIni(t, dir, "emc.inc", `[EMC]
+MACHINE = Test
+`)
+	f := writeIni(t, dir, "test.ini", `#INCLUDE emc.inc
+`)
+	l := newLauncherWithIniPath(t, f)
+	// update_ini must not run: an empty PATH makes any attempt fail with a
+	// different error.
+	t.Setenv("DISPLAY", ":99")
+	t.Setenv("PATH", "")
+
+	err := l.checkVersion()
+	if err == nil {
+		t.Fatal("checkVersion on a config with #INCLUDE should return error")
+	}
+	if !strings.Contains(err.Error(), "#INCLUDE") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 // --------------------------------------------------------------------------
 // Tests for checkPlasmaC
 // --------------------------------------------------------------------------

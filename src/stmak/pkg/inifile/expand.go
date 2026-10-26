@@ -28,7 +28,7 @@ func WriteExpanded(filename string) (string, error) {
 		return "", fmt.Errorf("inifile: resolving path %q: %w", filename, err)
 	}
 
-	if !fileHasIncludes(abs) {
+	if !HasIncludes(abs) {
 		return filename, nil
 	}
 
@@ -62,9 +62,9 @@ func WriteExpanded(filename string) (string, error) {
 	return outPath, nil
 }
 
-// fileHasIncludes reports whether the file at filename contains at least one
+// HasIncludes reports whether the file at filename contains at least one
 // line whose trimmed content starts with "#INCLUDE".
-func fileHasIncludes(filename string) bool {
+func HasIncludes(filename string) bool {
 	f, err := os.Open(filename)
 	if err != nil {
 		return false
