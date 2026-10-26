@@ -22,13 +22,17 @@ const maxExtendLines = 20
 // Relative paths in #INCLUDE are resolved relative to the directory of the
 // file containing the directive.  Environment variables (e.g. $HOME) in
 // #INCLUDE paths are expanded before resolution.
+//
+// An #INCLUDE is textual, as in LinuxCNC's handle_includes(): the included
+// file continues the section the directive stands in, and the lines after
+// the directive continue the section the included file ended in.
 func Parse(filename string) (*IniFile, error) {
 	abs, err := filepath.Abs(filename)
 	if err != nil {
 		return nil, fmt.Errorf("inifile: resolving path %q: %w", filename, err)
 	}
 	ini := &IniFile{sourceFile: abs}
-	if err := ini.parseFile(abs, map[string]bool{}); err != nil {
+	if _, err := ini.parseFile(abs, map[string]bool{}, -1); err != nil {
 		return nil, err
 	}
 	return ini, nil
@@ -36,20 +40,22 @@ func Parse(filename string) (*IniFile, error) {
 
 // parseFile parses a single file and appends its content into ini.
 // visited tracks already-included files to detect simple import cycles.
-func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
+// current is the index in ini.Sections that keys before the file's first
+// section header belong to (-1: none yet); the index the file ended in is
+// returned, so that the including file carries on there.
+func (ini *IniFile) parseFile(filename string, visited map[string]bool, current int) (int, error) {
 	if visited[filename] {
-		return fmt.Errorf("inifile: circular #INCLUDE detected: %s", filename)
+		return current, fmt.Errorf("inifile: circular #INCLUDE detected: %s", filename)
 	}
 	visited[filename] = true
 
 	f, err := os.Open(filename)
 	if err != nil {
-		return fmt.Errorf("inifile: opening %q: %w", filename, err)
+		return current, fmt.Errorf("inifile: opening %q: %w", filename, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	dir := filepath.Dir(filename)
-	var currentSection *Section
 
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
@@ -77,7 +83,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 				lineNum++
 				extend++
 				if extend > maxExtendLines {
-					return fmt.Errorf("inifile: %s:%d: too many backslash line continuations (limit %d)", filename, startLine, maxExtendLines)
+					return current, fmt.Errorf("inifile: %s:%d: too many backslash line continuations (limit %d)", filename, startLine, maxExtendLines)
 				}
 				next := scanner.Text()
 				if strings.HasSuffix(next, `\`) {
@@ -101,7 +107,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 		if strings.HasPrefix(line, "#INCLUDE") {
 			rest := strings.TrimSpace(line[len("#INCLUDE"):])
 			if rest == "" {
-				return fmt.Errorf("inifile: %s:%d: empty #INCLUDE path", filename, startLine)
+				return current, fmt.Errorf("inifile: %s:%d: empty #INCLUDE path", filename, startLine)
 			}
 			// Expand environment variables in the path.
 			rest = os.ExpandEnv(rest)
@@ -110,28 +116,15 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 			}
 			abs, err := filepath.Abs(rest)
 			if err != nil {
-				return fmt.Errorf("inifile: %s:%d: resolving #INCLUDE path %q: %w", filename, startLine, rest, err)
+				return current, fmt.Errorf("inifile: %s:%d: resolving #INCLUDE path %q: %w", filename, startLine, rest, err)
 			}
 			// Pass a copy of visited so sibling includes don't interfere.
 			visited2 := make(map[string]bool, len(visited))
 			for k, v := range visited {
 				visited2[k] = v
 			}
-			if err := ini.parseFile(abs, visited2); err != nil {
-				return err
-			}
-			// Restore current section pointer – parseFile may have appended
-			// new sections; our current section still lives at its original index.
-			if currentSection != nil {
-				// Re-point to the last section that matches our current name
-				// (section may have been continued by the included file – keep
-				// appending to the latest section with that name to stay correct).
-				for i := len(ini.Sections) - 1; i >= 0; i-- {
-					if ini.Sections[i].Name == currentSection.Name {
-						currentSection = &ini.Sections[i]
-						break
-					}
-				}
+			if current, err = ini.parseFile(abs, visited2, current); err != nil {
+				return current, err
 			}
 			continue
 		}
@@ -145,11 +138,11 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 		if strings.HasPrefix(line, "[") {
 			end := strings.Index(line, "]")
 			if end < 0 {
-				return fmt.Errorf("inifile: %s:%d: malformed section header %q", filename, startLine, line)
+				return current, fmt.Errorf("inifile: %s:%d: malformed section header %q", filename, startLine, line)
 			}
 			name := line[1:end]
 			ini.Sections = append(ini.Sections, Section{Name: name})
-			currentSection = &ini.Sections[len(ini.Sections)-1]
+			current = len(ini.Sections) - 1
 			continue
 		}
 
@@ -163,17 +156,17 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 		rawVal := strings.TrimSpace(line[eqIdx+1:])
 		value := stripInlineComment(rawVal)
 
-		if currentSection == nil {
+		if current < 0 {
 			// Key before any section header – create an anonymous section.
 			ini.Sections = append(ini.Sections, Section{Name: ""})
-			currentSection = &ini.Sections[len(ini.Sections)-1]
+			current = len(ini.Sections) - 1
 		}
-		currentSection.Entries = append(currentSection.Entries, Entry{Key: key, Value: value, SourceFile: filename, SourceLine: startLine})
+		ini.Sections[current].Entries = append(ini.Sections[current].Entries, Entry{Key: key, Value: value, SourceFile: filename, SourceLine: startLine})
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("inifile: reading %q: %w", filename, err)
+		return current, fmt.Errorf("inifile: reading %q: %w", filename, err)
 	}
-	return nil
+	return current, nil
 }
 
 // stripInlineComment removes a trailing whitespace-preceded '#' inline comment

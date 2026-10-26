@@ -242,6 +242,57 @@ R = rootval
 	}
 }
 
+// An #INCLUDE is textual: an included file without a section header
+// continues the section the directive stands in, through nested includes.
+func TestIncludeContinuesSection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "deep.inc", "D = deepval\n")
+	writeFile(t, dir, "keys.inc", "INC = incval\n#INCLUDE deep.inc\n")
+	f := writeFile(t, dir, "main.ini", `
+[MAIN]
+BEFORE = 1
+#INCLUDE keys.inc
+AFTER = 2
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for _, k := range []string{"BEFORE", "INC", "D", "AFTER"} {
+		if len(ini.GetAll("MAIN", k)) == 0 {
+			t.Errorf("[MAIN]%s missing", k)
+		}
+	}
+	if len(ini.Sections) != 1 {
+		t.Errorf("got %d sections, want 1 ([MAIN])", len(ini.Sections))
+	}
+}
+
+// The lines after an #INCLUDE continue the section the included file
+// ended in, not the one the directive stood in.
+func TestIncludeLeavesSection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "paths.inc", "SUBROUTINE_PATH = subs\n\n[DISPLAY]\nPROGRAM_PREFIX = nc\n")
+	f := writeFile(t, dir, "main.ini", `
+[RS274NGC]
+#INCLUDE paths.inc
+PARAMETER_FILE = sim.var
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("RS274NGC", "SUBROUTINE_PATH"); got != "subs" {
+		t.Errorf("[RS274NGC]SUBROUTINE_PATH = %q, want %q", got, "subs")
+	}
+	if got := ini.Get("DISPLAY", "PARAMETER_FILE"); got != "sim.var" {
+		t.Errorf("[DISPLAY]PARAMETER_FILE = %q, want %q", got, "sim.var")
+	}
+	if got := ini.GetAll("RS274NGC", "PARAMETER_FILE"); len(got) != 0 {
+		t.Errorf("[RS274NGC]PARAMETER_FILE = %q, want it in [DISPLAY]", got)
+	}
+}
+
 // --------------------------------------------------------------------------
 // 6. #INCLUDE with missing file (should error)
 // --------------------------------------------------------------------------
