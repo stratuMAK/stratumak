@@ -68,6 +68,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			ProgramInhibit:    t.programInhibited(),
 			MdiInhibit:        t.mdiInhibited(),
 			ProgramUiDisabled: t.programUIDisabled(),
+			MachineUiDisabled: t.machineUIDisabled(),
 		},
 		Flood:          t.floodOn,
 		Mist:           t.mistOn,

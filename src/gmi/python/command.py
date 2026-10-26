@@ -69,9 +69,13 @@ class Command:
                   file=sys.stderr)
             raise
 
-    def state(self, state: int):
-        """Set task state (STATE_ESTOP, STATE_ON, etc.)."""
-        return self._post("/state", {"state": state})
+    def state(self, state: int, force: bool = False):
+        """Set task state (STATE_ESTOP, STATE_ON, etc.).
+
+        Refused while the halui machine.ui-disable pin is set unless force is
+        true. A UI never passes force; a caller that owns the machine does.
+        """
+        return self._post("/state", {"state": state, "force": bool(force)})
 
     def mode(self, mode: int):
         """Set task mode (MODE_MANUAL, MODE_MDI, MODE_AUTO)."""

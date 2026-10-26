@@ -25,6 +25,7 @@ type halUI struct {
 	machineOn        *hal.Pin[bool]
 	machineOff       *hal.Pin[bool]
 	machineIsOn      *hal.Pin[bool] // output
+	machineUIDisable *hal.Pin[bool] // input: withhold estop and machine power from UIs
 	estopActivate    *hal.Pin[bool]
 	estopReset       *hal.Pin[bool]
 	estopIsActivated *hal.Pin[bool] // output
@@ -411,6 +412,12 @@ func (h *halUI) createPins() error {
 		return err
 	}
 	if h.machineIsOn, err = hal.NewPin[bool](c, "machine.is-on", hal.Out); err != nil {
+		return err
+	}
+	// Hands estop and machine power to something other than the operator's
+	// screen: emccmd refuses set_state without force while it is high
+	// (machineUIGate). The halui machine and estop pins are not affected.
+	if h.machineUIDisable, err = hal.NewPin[bool](c, "machine.ui-disable", hal.In); err != nil {
 		return err
 	}
 	if h.estopActivate, err = hal.NewPin[bool](c, "estop.activate", hal.In); err != nil {
@@ -1081,6 +1088,9 @@ func (h *halUI) check(t *Task) {
 	}
 	if h.programUIDisable != nil {
 		t.setProgramUIDisabled(h.programUIDisable.Get())
+	}
+	if h.machineUIDisable != nil {
+		t.setMachineUIDisabled(h.machineUIDisable.Get())
 	}
 	h.checkIOPins(t)
 	h.checkStateAndMode(t)

@@ -186,6 +186,11 @@ type StatTaskInfo {
     # showing their state. Unlike program_inhibit nothing is refused outright:
     # emccmd callers that pass force still get through.
     program_ui_disabled: bool
+    # Mirrors the halui machine.ui-disable pin: estop and machine power are not
+    # the operator's screen's to control. A UI disables its estop and machine
+    # power controls and keeps showing the state; emccmd callers that pass
+    # force still get through.
+    machine_ui_disabled: bool
 }
 
 type StatMotionInfo {

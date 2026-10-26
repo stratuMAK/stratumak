@@ -30,7 +30,7 @@ type stubTask struct {
 	err error
 }
 
-func (s *stubTask) SetState(int32) (int32, error)                      { return s.rc, s.err }
+func (s *stubTask) SetState(int32, bool) (int32, error)                { return s.rc, s.err }
 func (s *stubTask) SetMode(int32) (int32, error)                       { return s.rc, s.err }
 func (s *stubTask) AutoCmd(emccmd.AutoCmd, int32, bool) (int32, error) { return s.rc, s.err }
 func (s *stubTask) Mdi(string) (int32, error)                          { return s.rc, s.err }
