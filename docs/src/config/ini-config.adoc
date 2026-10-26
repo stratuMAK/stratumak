@@ -210,6 +210,11 @@ The #INCLUDE directives are supported for one level of expansion only -- an incl
 The recommended file extension is '.inc'.
 Do _not_ use a file extension of '.ini' for included files.
 
+#INCLUDE is resolved by stmakd only.
+User interfaces and other clients read the INI through stmakd's REST API and see the included keys.
+Tools that read an INI file directly -- `inivar`, `rs274 -i`, Python's `linuxcnc.ini()` and the mb2hal configuration -- read exactly that one file and refuse a file that uses #INCLUDE.
+A configuration that uses #INCLUDE is not converted automatically when its `[EMC]VERSION` is out of date; convert it by hand.
+
 [[sec:ini:sections]]
 == INI File Sections
 

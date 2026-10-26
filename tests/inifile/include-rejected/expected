@@ -1,0 +1,6 @@
+inivar plain: mm
+inivar include: rc=255
+rs274 plain: rc=0
+rs274 include: rc=1
+linuxcnc.ini plain: mm
+linuxcnc.ini include: refused, gmi hint: True

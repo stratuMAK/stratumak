@@ -8,6 +8,10 @@
  * - backslash line continuation
  * - tilde expansion
  *
+ * It reads exactly one file: #INCLUDE is not resolved, and ini_open()
+ * refuses a file that uses it.  The machine INI with its includes is read
+ * through stmakd (REST API, gmi.IniFile).
+ *
  * Copyright (C) 2004 Fred Proctor & Will Shackleford (original)
  * Copyright (C) 2026 LinuxCNC contributors (cleanup)
  * License: GPL Version 2
@@ -22,6 +26,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/*
+ * Open file for ini_find(): tilde expansion, then fopen(file, "r").
+ * A file that contains an #INCLUDE directive is refused with a message on
+ * stderr - returns NULL with errno = ENOTSUP - because skipping the
+ * directive would silently lose the included keys.
+ * Returns NULL with errno set on any other error as well.
+ */
+FILE *ini_open(const char *file);
 
 /*
  * Find the nth occurrence of tag in section.
