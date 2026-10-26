@@ -141,7 +141,11 @@ static int Ini_init(pyIniFile *self, PyObject *a, PyObject *) {
     if(!PyArg_ParseTuple(a, "s", &inifile)) return -1;
     self->i = new IniFile();
     if (!self->i->Open(inifile)) {
-        PyErr_Format(error, "inifile.open(%s) failed", inifile);
+        if (errno == ENOTSUP)
+            PyErr_Format(error, "%s uses #INCLUDE, which linuxcnc.ini does not "
+                         "resolve; read the machine INI with gmi.IniFile()", inifile);
+        else
+            PyErr_Format(error, "inifile.open(%s) failed", inifile);
         return -1;
     }
     return 0;

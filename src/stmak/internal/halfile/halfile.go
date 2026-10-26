@@ -49,7 +49,7 @@ func (a *iniLookupAdapter) GetAll() map[string]map[string]string {
 // Executor loads and executes HAL files for a LinuxCNC configuration.
 type Executor struct {
 	ini         *inifile.IniFile
-	iniFilePath string // effective INI path for error messages (may be .expanded)
+	iniFilePath string // INI path for error messages
 	halibPath   string
 	logger      *slog.Logger
 	configDir   string

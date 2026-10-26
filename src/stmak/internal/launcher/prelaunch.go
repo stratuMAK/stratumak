@@ -34,6 +34,8 @@ var ErrPlasmaC = errors.New("PlasmaC configuration detected")
 //	    ...
 //	fi
 //
+// A config that uses #INCLUDE is refused instead of handed to update_ini.
+//
 // Returns ErrUpdateCancelled (exit 42) for a user-cancelled update, which the
 // caller should convert to a nil (clean exit).  After a successful update the
 // INI file is re-parsed since update_ini modifies it in place.
@@ -44,6 +46,13 @@ func (l *Launcher) checkVersion() error {
 	}
 
 	l.logger.Info("INI file [EMC]VERSION indicates update is needed", "version", version)
+
+	// update_ini rewrites the one file it is given and does not follow
+	// #INCLUDE: what it has to convert may live in an included file, and a
+	// half-converted config is worse than none.
+	if inifile.HasIncludes(l.ini.SourceFile()) {
+		return fmt.Errorf("INI file [EMC]VERSION indicates update is needed, but update_ini can't convert a config that uses #INCLUDE; convert it by hand and set [EMC]VERSION = 1.1")
+	}
 
 	if os.Getenv("DISPLAY") == "" {
 		return fmt.Errorf("INI file [EMC]VERSION indicates update is needed, but the update GUI can't run without an X display")
