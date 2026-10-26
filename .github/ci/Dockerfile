@@ -8,6 +8,10 @@
 # change to either produces a new image, and carries the ISO week, so the
 # image never drifts more than a week behind the archive.
 #
+# Beyond the build-deps it carries what the GitHub runner image had and the
+# jobs relied on without saying so: lsof and procps for runtests, Xvfb for the
+# embedding test, curl and gpg for codecov-action's uploader.
+#
 # The jobs still run scripts/travis-install-build-deps.sh on top of this
 # image. Normally that is a no-op of a few seconds; when a PR adds a
 # build-dep, it installs just that package, so nobody waits for an image
@@ -30,7 +34,7 @@ RUN cd /tmp/deps \
  && apt-get update \
  && eatmydata apt-get install -y --no-install-recommends \
         ccache clang lcov lintian cppcheck shellcheck \
-        curl gpg \
+        curl gpg lsof procps xvfb \
  && eatmydata apt-get build-dep -y . \
  && rm -rf /tmp/deps /var/lib/apt/lists/*
 

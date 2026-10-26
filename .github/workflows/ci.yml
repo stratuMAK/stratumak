@@ -71,9 +71,14 @@ jobs:
       run: eatmydata ./scripts/travis-install-build-deps.sh
     # Same ccache setup as stmak, under its own key: COVERAGE=1 compiles with
     # different flags, so the two jobs could never share an entry.
-    - name: Set up ccache
+    #
+    # GOCOVERDIR is set here for every later step, from $GITHUB_WORKSPACE:
+    # in a container ${{ github.workspace }} still names the runner's path,
+    # not the one the workspace is mounted at.
+    - name: Set up ccache and GOCOVERDIR
       run: |
         {
+          echo "GOCOVERDIR=$GITHUB_WORKSPACE/coverage/gocov"
           echo "CCACHE_DIR=$HOME/.ccache"
           echo "CCACHE_MAXSIZE=1G"
           echo "CCACHE_COMPILERCHECK=content"
@@ -95,11 +100,9 @@ jobs:
     # rip-and-test-clang runs this same suite uninstrumented on every push to
     # main, so an uninstrumented full-suite run still exists, at no extra cost.
     #
-    # GOCOVERDIR is set for the build too: instrumented Go tools such as
+    # The build creates GOCOVERDIR: instrumented Go tools such as
     # modcompile already run during make, and their coverage counts.
     - name: Build RIP
-      env:
-        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: |
         set -x
         ccache -z
@@ -117,8 +120,6 @@ jobs:
         path: ~/.ccache
         key: ccache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
     - name: Test
-      env:
-        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: |
         set -x
         cd src
@@ -129,8 +130,6 @@ jobs:
       # suite red. The suite's own result is the pass/fail signal.
       if: always()
       continue-on-error: true
-      env:
-        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: ./scripts/collect-coverage
     # continue-on-error keeps a failed upload from gating the merge; the job
     # still concludes success. fail_ci_if_error makes the step itself go red
