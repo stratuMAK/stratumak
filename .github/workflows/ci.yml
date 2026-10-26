@@ -41,18 +41,13 @@ jobs:
       contents: read
       packages: read
     # Runs in the prebuilt CI image, like stmak; see there and ci-image for
-    # the capability list and the shell.
+    # why it is not realtime and for the shell.
     container:
       image: ${{ needs.ci-image.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-      options: >-
-        --shm-size=1g --cap-add=IPC_OWNER --cap-add=SETFCAP
-        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
-        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
-        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
-        --cap-add=DAC_OVERRIDE
+      options: --shm-size=1g --ulimit rtprio=0:0
     defaults:
       run:
         shell: bash
@@ -296,14 +291,16 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-      # Same capability list as package-gate, for the same reason: the Go
-      # tests start stmakd, which needs shm and the realtime capabilities.
-      options: >-
-        --shm-size=1g --cap-add=IPC_OWNER --cap-add=SETFCAP
-        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
-        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
-        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
-        --cap-add=DAC_OVERRIDE
+      # Deliberately NOT realtime, unlike package-gate: the container runs as
+      # root, and with CAP_SYS_RESOURCE rtapi's harden_rt() could raise
+      # RLIMIT_RTPRIO and switch to SCHED_FIFO with the HAL threads free to
+      # run on different CPUs. The suites have always run as the runner's
+      # unprivileged user, where that fails and rtapi falls back to POSIX
+      # non-realtime, which serialises the HAL threads under one lock.
+      # threads.0 checks exactly that ordering and failed in RT mode, as did
+      # abort/g64. Docker's default capabilities lack CAP_SYS_RESOURCE, and
+      # with a zero hard limit raising RLIMIT_RTPRIO needs exactly that.
+      options: --shm-size=1g --ulimit rtprio=0:0
     # On the runner the default shell is bash; in a container it is sh, which
     # has no PIPESTATUS for the build-log tee below.
     defaults:
