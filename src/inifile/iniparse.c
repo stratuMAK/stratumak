@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 
 #define INI_LINELEN 255
 #define INI_MAX_EXTEND_LINES 20
@@ -190,6 +192,50 @@ int ini_find_double(FILE *fp, const char *tag, const char *section, double *resu
         return -1;
     *result = tmp;
     return 0;
+}
+
+/* Same test as the Go parser's HasIncludes: a line whose content, after
+   leading whitespace, starts with "#INCLUDE". */
+static int has_include(FILE *fp)
+{
+    char buf[INI_LINELEN + 2];
+    int at_line_start = 1;
+
+    while (fgets(buf, sizeof(buf), fp) != NULL) {
+        if (at_line_start) {
+            const char *s = buf;
+            while (*s == ' ' || *s == '\t' || *s == '\r')
+                s++;
+            if (strncmp(s, "#INCLUDE", 8) == 0)
+                return 1;
+        }
+        /* a line longer than buf continues in the next fgets() */
+        at_line_start = strchr(buf, '\n') != NULL;
+    }
+    return 0;
+}
+
+FILE *ini_open(const char *file)
+{
+    char path[PATH_MAX];
+    FILE *fp;
+
+    if (ini_tilde_expansion(file, path, sizeof(path)) != 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return NULL;
+    if (has_include(fp)) {
+        fprintf(stderr, "iniparse: %s uses #INCLUDE, which this reader does not "
+                "resolve; the machine INI is read through stmakd\n", path);
+        fclose(fp);
+        errno = ENOTSUP;
+        return NULL;
+    }
+    rewind(fp);
+    return fp;
 }
 
 int ini_tilde_expansion(const char *file, char *path, size_t size)

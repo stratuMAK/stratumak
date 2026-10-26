@@ -502,7 +502,7 @@ int New(const cmod_env_t *env, const char *name,
         m->ini_file_path = dup;
     }
 
-    m->ini_file_ptr = fopen(m->ini_file_path, "r");
+    m->ini_file_ptr = ini_open(m->ini_file_path);
     if (m->ini_file_ptr == NULL) {
         ERR(m, m->init_dbg, "Unable to open INI file [%s]", m->ini_file_path);
         free(m->ini_file_path);

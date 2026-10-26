@@ -265,7 +265,6 @@ STMAK_PKG_FILES := \
     ../share/stratumak/stmak/pkg/stmak/stmak.go \
     ../share/stratumak/stmak/pkg/inifile/types.go \
     ../share/stratumak/stmak/pkg/inifile/parser.go \
-    ../share/stratumak/stmak/pkg/inifile/expand.go \
     ../share/stratumak/stmak/go.mod
 
 ../share/stratumak/stmak/pkg/%: stmak/pkg/%

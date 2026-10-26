@@ -33,11 +33,8 @@ public:
                                 ~IniFile(void) { Close(); }
 
     bool                        Open(const char *file) {
-                                    char path[PATH_MAX];
                                     if (fp && owned) { fclose(fp); fp = NULL; }
-                                    if (ini_tilde_expansion(file, path, sizeof(path)))
-                                        return false;
-                                    fp = fopen(path, "r");
+                                    fp = ini_open(file);
                                     if (fp) owned = true;
                                     return fp != NULL;
                                 }
