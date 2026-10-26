@@ -81,9 +81,6 @@ if dialogs:
     if ret == 'cancel': exit(42)
     elif ret == 'no': exit(0)
 
-# We want to work with the base INI file here, not the expanded version if #include is used
-filename = re.sub(r'\.expanded', '', filename)
-
 try:
     ini = linuxcnc.ini(filename)
 except:

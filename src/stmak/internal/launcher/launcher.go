@@ -211,23 +211,6 @@ func (l *Launcher) Run() (runErr error) {
 		l.logger.Warn("failed to register INI REST API", "error", err)
 	}
 
-	// If the INI file contains #INCLUDE directives, write a fully-expanded copy
-	// alongside the original (e.g. "foo.ini.expanded") and update the path used
-	// for all subsequent subprocess launches.  Subprocesses such as iocontrol,
-	// halcmd, and milltask use the C IniFile class which does not handle
-	// #INCLUDE, so they must receive the pre-expanded file.
-	effectiveIni, err := inifile.WriteExpanded(l.opts.IniFile)
-	if err != nil {
-		return fmt.Errorf("expanding INI file includes: %w", err)
-	}
-	if effectiveIni != l.opts.IniFile {
-		l.logger.Info("INI file expanded", "original", l.opts.IniFile, "expanded", effectiveIni)
-		l.opts.IniFile = effectiveIni
-		if err := l.setConfigEnv(); err != nil {
-			return err
-		}
-	}
-
 	// Change to the INI file's directory so that relative paths in the INI
 	// (e.g., sim.var, sim.tbl, position.txt) resolve correctly.
 	iniDir := filepath.Dir(l.opts.IniFile)
@@ -249,8 +232,8 @@ func (l *Launcher) Run() (runErr error) {
 		return fmt.Errorf("configuration error: %w", err)
 	}
 
-	// Pre-launch validation checks: run after INI parsing + include expansion
-	// + chdir, but before realtime init.
+	// Pre-launch validation checks: run after INI parsing + chdir, but before
+	// realtime init.
 
 	// 1. [EMC]VERSION check + update_ini.
 	if err := l.checkVersion(); err != nil {
@@ -408,8 +391,8 @@ func (l *Launcher) resolveRelativePath(path string) string {
 
 // setConfigEnv exports INI_FILE_NAME and CONFIG_DIR to the process environment
 // so that child processes (linuxcncsvr, iocontrol, task, etc.) can find the
-// configuration.  It is called both at initial startup and again after INI
-// include expansion (which may change the effective path).
+// configuration.  INI_FILE_NAME names the root file; #INCLUDEs are resolved
+// only by stmakd, so clients read the INI through the REST API.
 func (l *Launcher) setConfigEnv() error {
 	if l.opts.IniFile != "" {
 		if err := os.Setenv("INI_FILE_NAME", l.opts.IniFile); err != nil {
@@ -472,8 +455,8 @@ func (l *Launcher) logConfiguration() {
 	l.logger.Debug("INI configuration loaded", fields...)
 }
 
-// validateDependencies checks cross-section INI dependencies, after parsing and
-// include expansion but before any process is started.
+// validateDependencies checks cross-section INI dependencies, after parsing
+// but before any process is started.
 //
 // Rules:
 //   - At least one [HAL]HALFILE is required.

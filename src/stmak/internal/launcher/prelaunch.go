@@ -49,8 +49,7 @@ func (l *Launcher) checkVersion() error {
 
 	// update_ini rewrites the one file it is given and does not follow
 	// #INCLUDE: what it has to convert may live in an included file, and a
-	// half-converted config is worse than none.  l.ini.SourceFile() is the
-	// root file -- l.opts.IniFile is the .expanded copy by now.
+	// half-converted config is worse than none.
 	if inifile.HasIncludes(l.ini.SourceFile()) {
 		return fmt.Errorf("INI file [EMC]VERSION indicates update is needed, but update_ini can't convert a config that uses #INCLUDE; convert it by hand and set [EMC]VERSION = 1.1")
 	}

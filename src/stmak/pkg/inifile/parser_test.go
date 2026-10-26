@@ -940,3 +940,18 @@ HALFILE = x.hal
 		t.Errorf("literal [mill2:EMCIO] no longer addressable: %v", m["mill2:EMCIO"])
 	}
 }
+
+func TestHasIncludes(t *testing.T) {
+	dir := t.TempDir()
+	with := writeFile(t, dir, "with.ini", "[A]\n  #INCLUDE b.inc\n")
+	without := writeFile(t, dir, "without.ini", "[A]\n# INCLUDE is only a comment here\nK = #INCLUDE\n")
+	if !inifile.HasIncludes(with) {
+		t.Error("HasIncludes(with.ini) = false, want true")
+	}
+	if inifile.HasIncludes(without) {
+		t.Error("HasIncludes(without.ini) = true, want false")
+	}
+	if inifile.HasIncludes(filepath.Join(dir, "missing.ini")) {
+		t.Error("HasIncludes(missing.ini) = true, want false")
+	}
+}

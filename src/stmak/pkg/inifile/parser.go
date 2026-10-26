@@ -38,6 +38,24 @@ func Parse(filename string) (*IniFile, error) {
 	return ini, nil
 }
 
+// HasIncludes reports whether the file at filename contains at least one
+// line whose trimmed content starts with "#INCLUDE".
+func HasIncludes(filename string) bool {
+	f, err := os.Open(filename)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.HasPrefix(strings.TrimSpace(scanner.Text()), "#INCLUDE") {
+			return true
+		}
+	}
+	return false
+}
+
 // parseFile parses a single file and appends its content into ini.
 // visited tracks already-included files to detect simple import cycles.
 // current is the index in ini.Sections that keys before the file's first

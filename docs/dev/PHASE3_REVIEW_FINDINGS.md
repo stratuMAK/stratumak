@@ -69,12 +69,16 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
   (centralised in `getFloatOr`/`getIntOr` + ~11 direct `strconv` sites) and was judged not
   worth the risk for behaviour the `#`-strip already reproduces. **I-2 is closed.**
 
-### I-3 (parity, LOW — DOCUMENTED, not fixed)
+### I-3 (parity, LOW — FIXED)
 An `#INCLUDE`d file that *continues* a section without repeating its `[HEADER]` lands its
 keys in an anonymous section under stratuMAK's structural parse, whereas 2.9's textual include
 expansion (`handle_includes`, mirrored by stratuMAK's own `WriteExpanded`) would concatenate
 them into the current section. Niche (includes normally carry their own headers); the fix
 has its own reordering risk. Left as a known LOW divergence.
+- **FIXED (2026-10-26, 4ef8e52815).** `Parse` now resolves `#INCLUDE` textually in both
+  directions: an included file continues the current section, and the lines after the
+  directive continue the section the file ended in. The 33 shipped configs with `#INCLUDE`
+  parse identically before and after. `WriteExpanded` was removed with the `.expanded` copy.
 
 ---
 
