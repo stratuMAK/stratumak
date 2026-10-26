@@ -1,0 +1,23 @@
+component inpos_latch """Value of a signal at the rising edge of an in-position bit.
+
+`at_edge` holds `in` as it was in the cycle `inpos` went TRUE, `edges`
+counts the rising edges -- so a test can check where the joint command
+stood the moment motion reported in position, independent of how late
+the test gets to look.""";
+
+pin in  bit   inpos   "Motion in-position";
+pin in  float in      "Watched value (motor position command)";
+pin out float at_edge "in, latched at the latest rising edge of inpos";
+pin out s32   edges   "Number of rising edges seen";
+
+variable int was = 1;
+
+function _;
+license "GPL";
+;;
+
+if (inpos && !was) {
+    at_edge = in;
+    edges++;
+}
+was = inpos;

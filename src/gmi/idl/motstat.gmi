@@ -101,6 +101,7 @@ type AxisStatus {
     max_pos_limit: f64
     vel_limit: f64
     acc_limit: f64
+    jog_enable: i32    # axis.N.jog-enable: the jog wheel is enabled for this axis
 }
 
 type ProbeStatus {

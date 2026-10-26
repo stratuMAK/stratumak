@@ -15,14 +15,13 @@
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 import copy
-import sys, rs274.OpenGLTk, signal, hal
+import sys, rs274.OpenGLTk, signal
 import tkinter
 
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from math import *
 import glnav
-import hal
 
 class Collection(object):
     def __init__(self, parts):
@@ -188,7 +187,10 @@ class Track(Collection):
 
 class CoordsBase(object):
     def __init__(self, *args):
-        if args and isinstance(args[0], hal.component):
+        # the first argument may be the component (anything indexable by pin
+        # name, e.g. the WsComponent of the standalone models) that string
+        # coordinates are looked up in
+        if args and not isinstance(args[0], (int, float, str)):
            self.comp = args[0]
            args = args[1:]
         else:
@@ -1011,7 +1013,11 @@ class AsciiOBJ:
 
 old_plotclear = False
 
-def main(model, tool, work, size=10, hud=0, rotation_vectors=None, lat=0, lon=0):
+# plotclear: optional callable, the plot is cleared on its rising edge (e.g.
+# lambda: c["plotclear"] for a pin the model subscribes to).  There is no
+# HAL component of vismach's own any more: the models are standalone
+# processes fed over the WebSocket, not HAL components.
+def main(model, tool, work, size=10, hud=0, rotation_vectors=None, lat=0, lon=0, plotclear=None):
     app = tkinter.Tk()
 
     t = O(app, double=1, depth=1)
@@ -1021,10 +1027,6 @@ def main(model, tool, work, size=10, hud=0, rotation_vectors=None, lat=0, lon=0)
     t.set_latitudelimits(-180, 180)
     # set starting viewpoint if desired
     t.after(100, lambda: t.set_viewangle(lat, lon, forcerotate=1))
-
-    vcomp = hal.component("vismach")
-    vcomp.newpin("plotclear",hal.HAL_BIT,hal.HAL_IN)
-    vcomp.ready()
 
     #there's probably a better way of doing this
     global HUD
@@ -1052,10 +1054,11 @@ def main(model, tool, work, size=10, hud=0, rotation_vectors=None, lat=0, lon=0)
     def update():
         global old_plotclear
         t.tkRedraw()
-        new_plotclear = vcomp["plotclear"]
-        if new_plotclear and not old_plotclear:
-            t.plotclear()
-        old_plotclear=new_plotclear
+        if plotclear:
+            new_plotclear = bool(plotclear())
+            if new_plotclear and not old_plotclear:
+                t.plotclear()
+            old_plotclear = new_plotclear
         t.after(100, update)
     update()
 

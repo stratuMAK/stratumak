@@ -126,12 +126,6 @@ typedef struct {
 *                  LOCAL FUNCTION DECLARATIONS                         *
 ************************************************************************/
 
-static inline long long get_time_ns(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
-}
-
 static void hal_gpio_read(void *arg, long period);
 static void hal_gpio_write(void *arg, long period);
 static void hal_gpio_reset(void *arg, long period);
@@ -561,7 +555,7 @@ static void hal_gpio_write(void *arg, long period)
 #endif
     }
     // store the time for the reset function
-    inst->last_reset = get_time_ns();
+    inst->last_reset = inst->rtapi->get_time(inst->rtapi->ctx);
 }
 
 static void hal_gpio_reset(void *arg, long period)
@@ -580,7 +574,7 @@ static void hal_gpio_reset(void *arg, long period)
 	}
 	if (*gpio->reset_ns > period/4) *gpio->reset_ns = period/4;
 	deadline = inst->last_reset + *gpio->reset_ns;
-        while(get_time_ns() < deadline) {} // busy-wait!
+        while(inst->rtapi->get_time(inst->rtapi->ctx) < deadline) {} // busy-wait!
 #if LIBGPIOD_VER > 200
 	gpiod_line_request_set_values(gpio->out_chips[c].lines, gpio->out_chips[c].vals);
 #else
