@@ -700,7 +700,7 @@ int New(const cmod_env_t *env, const char *name,
     // parse current block
     if (!XML_Parse(state.xml.parser, buffer, len, done)) {
       CONF_ERR(m, "parse error at line %u: %s",
-        (unsigned int)XML_GetCurrentLineNumber(state.xml.parser),
+        (unsigned int)xml_current_line(state.xml.parser),
         XML_ErrorString(XML_GetErrorCode(state.xml.parser)));
       goto fail3;
     }

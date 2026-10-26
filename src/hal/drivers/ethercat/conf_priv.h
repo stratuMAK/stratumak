@@ -34,6 +34,17 @@
 /** @brief Size in bytes of the read buffer used when feeding data to expat. */
 #define BUFFSIZE 8192
 
+/**
+ * @brief Line number of the parser's current position. expat 2.9 deprecates
+ * XML_GetCurrentLineNumber for its 64-bit variant, and -Werror turns that
+ * into a build failure; older expat only has the original.
+ */
+#if XML_MAJOR_VERSION > 2 || (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 9)
+#define xml_current_line(parser) XML_GetCurrentLineNumber64(parser)
+#else
+#define xml_current_line(parser) XML_GetCurrentLineNumber(parser)
+#endif
+
 struct LCEC_CONF_XML_HANLDER;
 
 /** @brief Forward declaration of per-instance module state. */

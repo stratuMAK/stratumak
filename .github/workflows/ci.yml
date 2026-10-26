@@ -266,6 +266,11 @@ jobs:
         --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
         --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
         --cap-add=DAC_OVERRIDE
+    # On the runner the default shell is bash; in a container it is sh, which
+    # has no PIPESTATUS for the build-log tee below.
+    defaults:
+      run:
+        shell: bash
     steps:
     - uses: actions/checkout@v7
       with:
