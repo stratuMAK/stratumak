@@ -180,7 +180,7 @@ func TestSetState_EstopWhileEstoppedKeepsSequencerAlive(t *testing.T) {
 
 	mot := &recordMotion{}
 	io := &mockIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
 	task.SetIOStatusReader(io)
@@ -231,7 +231,7 @@ func TestMDI_InterpErrorAbortsMotionAndFaults(t *testing.T) {
 
 	mot := &recordMotion{}
 	io := &mockIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
 	task.SetIOStatusReader(io)
@@ -336,7 +336,7 @@ func TestFinishMDI_FailedDequeuedMDIFlushesQueue(t *testing.T) {
 
 	mot := &recordMotion{}
 	io := &mockIO{}
-	stat := &mockStatus{}
+	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
 	task.SetIOStatusReader(io)

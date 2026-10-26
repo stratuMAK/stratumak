@@ -1158,6 +1158,36 @@ static void check_for_faults(motmod_inst_t *inst)
     }
 }
 
+/* A mode switch is only made in position; one requested while a move or jog
+   is still running (or the jerk filter is still flushing) is dropped and has
+   to be requested again.  Task does so every poll while it waits, so a
+   refusal is the normal start of every MDI after a jog and not worth a
+   word.  A requester that gives up is: the refusal is remembered for a
+   grace period, renewed by every repeat of the request, and logged once if
+   the period runs out without the switch having gone through -- motion is
+   then left in the wrong mode and nobody asked again. */
+#define MODE_REFUSED_GRACE_SEC 0.25
+
+static void mode_switch_refused(motmod_inst_t *inst, const char *mode)
+{
+    int grace = (int)(MODE_REFUSED_GRACE_SEC / servo_period);
+
+    inst->internal->mode_refused_mode = mode;
+    inst->internal->mode_refused_cycles = grace > 0 ? grace : 1;
+}
+
+/* Runs once per servo cycle after the switch requests were tried. */
+static void mode_switch_refused_tick(motmod_inst_t *inst)
+{
+    if (inst->internal->mode_refused_cycles <= 0)
+        return;
+    if (--inst->internal->mode_refused_cycles == 0)
+        stmak_log_warnf(inst->log, inst->name,
+                        "switch to %s mode refused: not in position, "
+                        "and not requested again",
+                        inst->internal->mode_refused_mode);
+}
+
 static void set_operating_mode(motmod_inst_t *inst)
 {
     int joint_num;
@@ -1188,6 +1218,13 @@ static void set_operating_mode(motmod_inst_t *inst)
 
     axis_jog_abort_all(ai, 1);
 
+	/* Nothing moves while disabled: report in position.  The TELEOP and
+	   COORD cases clear the flag while a jog or move runs and the DISABLED
+	   case never recomputes it, so an ESTOP mid-jog left it FALSE and every
+	   mode switch requested before the next enable (a UI mode selector,
+	   task's SetMode in ESTOP) was refused for a jog the disable had
+	   already stopped. */
+	SET_MOTION_INPOS_FLAG(1);
 	SET_MOTION_ENABLE_FLAG(0);
 	/* don't clear the motion error flag, since that may signify why we
 	   just went into disabled state */
@@ -1274,9 +1311,11 @@ static void set_operating_mode(motmod_inst_t *inst)
             motmod_kinematicsForward(inst, positions, &inst->status->carte_pos_cmd, &inst->fflags, &inst->iflags);
             // entering teleop (INPOS), remove ext offsets
             axis_sync_teleop_tp_to_carte_pos(ai, -1, pcmd_p);
+	    inst->internal->mode_refused_cycles = 0;
 	} else {
 	    /* not in position-- don't honor mode change */
 	    inst->internal->teleoperating = 0;
+	    mode_switch_refused(inst, "teleop");
 	}
     } else {
 	if (GET_MOTION_INPOS_FLAG()) {
@@ -1314,9 +1353,11 @@ static void set_operating_mode(motmod_inst_t *inst)
 		SET_MOTION_COORD_FLAG(1);
 		SET_MOTION_TELEOP_FLAG(0);
 		SET_MOTION_ERROR_FLAG(0);
+		inst->internal->mode_refused_cycles = 0;
 	    } else {
 		/* not in position-- don't honor mode change */
 		inst->internal->coordinating = 0;
+		mode_switch_refused(inst, "coordinated");
 	    }
 	}
 
@@ -1334,12 +1375,16 @@ static void set_operating_mode(motmod_inst_t *inst)
 		SET_MOTION_COORD_FLAG(0);
 		SET_MOTION_TELEOP_FLAG(0);
 		SET_MOTION_ERROR_FLAG(0);
+		inst->internal->mode_refused_cycles = 0;
 	    } else {
 		/* not in position-- don't honor mode change */
 		inst->internal->coordinating = 1;
+		mode_switch_refused(inst, "free");
 	    }
 	}
     }
+    mode_switch_refused_tick(inst);
+
     /*! \todo FIXME - this code is temporary - eventually this function will be
        cleaned up and simplified, and 'motion_state' will become the master
        for this info, instead of having to gather it from several flags */
@@ -1585,6 +1630,7 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
                 inst->jerk_filter.sum[j] = pos * max_window;
             }
             inst->jerk_filter.filled = max_window;
+            inst->jerk_filter.still = max_window;
         }
     }
 }
@@ -1648,6 +1694,7 @@ static void jerk_filter_reanchor(motmod_inst_t *inst)
     }
     inst->jerk_filter.idx = 0;
     inst->jerk_filter.filled = ws;
+    inst->jerk_filter.still = ws;
 }
 
 static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
@@ -1661,10 +1708,14 @@ static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
     int idx = inst->jerk_filter.idx;
     int filled = inst->jerk_filter.filled;
     int count = (filled < ws) ? filled + 1 : ws;
+    int prev = (idx - 1 + ws) % ws;
+    int changed = (filled == 0);
     int j;
 
     for (j = 0; j < nj; j++) {
         double *jbuf = buf + j * ws;  /* row for this joint */
+        if (positions[j] != jbuf[prev])
+            changed = 1;
         /* subtract oldest value from running sum */
         sum[j] -= jbuf[idx];
         /* store new value */
@@ -1678,6 +1729,20 @@ static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
     inst->jerk_filter.idx = (idx + 1) % ws;
     if (inst->jerk_filter.filled < ws)
         inst->jerk_filter.filled++;
+    if (changed)
+        inst->jerk_filter.still = 0;
+    else if (inst->jerk_filter.still < ws)
+        inst->jerk_filter.still++;
+}
+
+/* True once the filter output has caught up with its input: the input has
+   been constant for a full window (or the filter is off).  The planner
+   reports done when its own output stops; the joints are still moving for
+   up to a window after that. */
+static inline int jerk_filter_flushed(motmod_inst_t *inst)
+{
+    int ws = inst->jerk_filter.window_size;
+    return ws <= 0 || inst->jerk_filter.still >= ws;
 }
 
 static void get_pos_cmds(motmod_inst_t *inst, long period)
@@ -1937,9 +2002,13 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    /* interpolate to get new position and velocity */
 	    joint->pos_cmd = cubicInterpolate(&(joint->cubic), 0, &(joint->vel_cmd), &(joint->acc_cmd), 0);
 	}
-	/* report motion status */
+	/* report motion status -- in position only once the jerk filter has
+	   flushed as well: task's motion barriers (M-codes, I/O, end of MDI,
+	   probe "finished without contact", mode switches) wait on INPOS, and
+	   the joints keep moving for up to a filter window after the planner
+	   is done (free mode holds free_tp.active the same way) */
 	SET_MOTION_INPOS_FLAG(0);
-	if (inst->tp_api->is_done(inst->tp_api->ctx)) {
+	if (inst->tp_api->is_done(inst->tp_api->ctx) && jerk_filter_flushed(inst)) {
 	    SET_MOTION_INPOS_FLAG(1);
 	}
 	break;
@@ -2001,6 +2070,15 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 
 
 	/* END OF OUTPUT KINS */
+
+	/* report motion status -- in position once no axis jog is running and
+	   the jerk filter has flushed.  Left alone, INPOS kept whatever value it
+	   had when teleop was entered, so a switch out of teleop (which waits on
+	   INPOS) went through mid-jog -- or, had it been FALSE, never */
+	SET_MOTION_INPOS_FLAG(0);
+	if (!axis_jog_is_active(ai) && jerk_filter_flushed(inst)) {
+	    SET_MOTION_INPOS_FLAG(1);
+	}
 
 	/* if overriding is true and the jog is complete, the limits should be re-enabled */
 	if ( ( inst->internal->overriding ) && ( !axis_jog_is_active(ai) ) ) {

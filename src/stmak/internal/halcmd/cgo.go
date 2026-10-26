@@ -897,12 +897,6 @@ static int hal_shim_list_threads(const char *pattern, char *buf, int buf_size) {
 // Go caller retries with a doubled capacity (up to showMaxCap).
 #define HAL_SHIM_MAX_ITEMS 1024
 
-// HAL_SHIM_MAX_TH_FNCTS is the maximum number of functions per thread stored
-// in hal_shim_thread_info_t.funct_names.  In practice LinuxCNC threads rarely
-// have more than a handful of functions; 32 is well above any real-world value.
-// Functions beyond this limit are silently truncated in the output.
-#define HAL_SHIM_MAX_TH_FNCTS 32
-
 typedef struct {
     char name[HAL_NAME_LEN + 1];
     int  comp_id;
@@ -954,9 +948,17 @@ typedef struct {
     long period;   // period in nanoseconds
     int  running;  // non-zero if threads are started
     int  fp;
+    // The thread's functions, in execution order, are names[first_funct ..
+    // first_funct + nfuncts - 1] of the name array passed alongside: one
+    // array shared by all threads, so a thread's function count has no fixed
+    // limit -- a real machine thread easily runs 50+ functions.
+    int  first_funct;
     int  nfuncts;
-    char funct_names[HAL_SHIM_MAX_TH_FNCTS][HAL_NAME_LEN + 1];
 } hal_shim_thread_info_t;
+
+// hal_shim_funct_name_t is one entry of the function name array that
+// hal_shim_show_threads fills next to the thread array.
+typedef char hal_shim_funct_name_t[HAL_NAME_LEN + 1];
 
 typedef struct {
     int shmem_avail;
@@ -1150,9 +1152,12 @@ static int hal_shim_show_functs(const char *pattern, hal_shim_funct_info_t *arr,
     return count;
 }
 
-// hal_shim_show_threads fills arr with up to max_items threads matching pattern.
-static int hal_shim_show_threads(const char *pattern, hal_shim_thread_info_t *arr, int max_items) {
-    void *next; int count = 0;
+// hal_shim_show_threads fills arr with up to max_items threads matching pattern,
+// and names with up to max_names function names, which the threads index into.
+// Returns -ENOSPC if either array is too small; the caller retries larger.
+static int hal_shim_show_threads(const char *pattern, hal_shim_thread_info_t *arr, int max_items,
+                                 hal_shim_funct_name_t *names, int max_names) {
+    void *next; int count = 0, nnames = 0;
     hal_thread_t      *tptr;
     hal_list_t        *list_root, *list_entry;
     hal_funct_entry_t *fentry;
@@ -1174,16 +1179,20 @@ static int hal_shim_show_threads(const char *pattern, hal_shim_thread_info_t *ar
             arr[count].period  = tptr->period;
             arr[count].running = hal_data->threads_running;
             arr[count].fp      = tptr->uses_fp;
+            arr[count].first_funct = nnames;
             arr[count].nfuncts = 0;
 
             list_root  = &(tptr->funct_list);
             list_entry = list_next(list_root);
-            while (list_entry != list_root &&
-                   arr[count].nfuncts < HAL_SHIM_MAX_TH_FNCTS) {
+            while (list_entry != list_root) {
+                if (nnames >= max_names) {
+                    rtapi_mutex_give(&(hal_data->mutex));
+                    return -ENOSPC;
+                }
                 fentry = (hal_funct_entry_t *)list_entry;
                 funct  = (hal_funct_t *)SHMPTR(fentry->funct_ptr);
-                snprintf(arr[count].funct_names[arr[count].nfuncts],
-                         HAL_NAME_LEN + 1, "%s", funct->name);
+                snprintf(names[nnames], sizeof(names[nnames]), "%s", funct->name);
+                nnames++;
                 arr[count].nfuncts++;
                 list_entry = list_next(list_entry);
             }
@@ -2254,9 +2263,12 @@ func halShowThreads(pattern string) ([]ThreadInfo, error) {
 		defer C.free(unsafe.Pointer(cPat))
 	}
 
+	// One capacity for both arrays: the threads and their functions together
+	// stay well inside showMaxCap on any real machine.
 	for cap := int(C.HAL_SHIM_MAX_ITEMS); cap <= showMaxCap; cap *= 2 {
 		arr := make([]C.hal_shim_thread_info_t, cap)
-		n := C.hal_shim_show_threads(cPat, &arr[0], C.int(cap))
+		names := make([]C.hal_shim_funct_name_t, cap)
+		n := C.hal_shim_show_threads(cPat, &arr[0], C.int(cap), &names[0], C.int(cap))
 		if n < 0 {
 			if int(n) == -int(C.ENOSPC) {
 				continue
@@ -2265,10 +2277,10 @@ func halShowThreads(pattern string) ([]ThreadInfo, error) {
 		}
 		result := make([]ThreadInfo, int(n))
 		for i := range result {
-			nf := int(arr[i].nfuncts)
+			first, nf := int(arr[i].first_funct), int(arr[i].nfuncts)
 			functs := make([]string, nf)
 			for j := 0; j < nf; j++ {
-				functs[j] = C.GoString(&arr[i].funct_names[j][0])
+				functs[j] = C.GoString(&names[first+j][0])
 			}
 			result[i] = ThreadInfo{
 				Name:    C.GoString(&arr[i].name[0]),

@@ -42,6 +42,7 @@ func newRichTestTask() (*Task, *richMockStatus) {
 		status: motstat.MotionStatus{
 			Enabled:      1,
 			Inpos:        1,
+			Coord:        1, // MDI/AUTO wait for coordinated mode
 			Paused:       0,
 			FeedScale:    1.0,
 			RapidScale:   0.5,

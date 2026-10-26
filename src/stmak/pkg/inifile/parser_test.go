@@ -913,6 +913,59 @@ COORDINATES = XYZ
 	}
 }
 
+// A key set above an #INCLUDE overrides the included file's value (the
+// pattern of the tuning and simulation INIs).  The template view has to
+// resolve it like Get, or a template guard and the [SECTION]KEY substitution
+// next to it would see different values.
+func TestAllSections_FirstValueWins(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "machine.ini", `
+[EMC]
+MACHINE = machine
+
+[JOINT_0]
+MIN_FERROR = 1.0
+FERROR = 3.0
+
+[HAL]
+HALFILE = machine.hal
+`)
+	f := writeFile(t, dir, "override.ini", `
+[EMC]
+MACHINE = override
+
+[JOINT_0]
+MIN_FERROR = 10.0
+
+#INCLUDE machine.ini
+
+[HAL]
+HALFILE = extra.hal
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	m := ini.AllSections()
+	for _, k := range []struct{ sec, key string }{
+		{"EMC", "MACHINE"},
+		{"JOINT_0", "MIN_FERROR"},
+		{"JOINT_0", "FERROR"},
+		{"HAL", "HALFILE"},
+	} {
+		if got, want := m[k.sec][k.key], ini.Get(k.sec, k.key); got != want {
+			t.Errorf("template view [%s]%s = %q, Get = %q", k.sec, k.key, got, want)
+		}
+	}
+	if m["EMC"]["MACHINE"] != "override" {
+		t.Errorf("[EMC]MACHINE = %q, want the override above the #INCLUDE", m["EMC"]["MACHINE"])
+	}
+	if m["JOINT_0"]["FERROR"] != "3.0" {
+		t.Errorf("[JOINT_0]FERROR = %q, want the included value", m["JOINT_0"]["FERROR"])
+	}
+}
+
 func TestWithNamespace_AllSectionsResolved(t *testing.T) {
 	dir := t.TempDir()
 	f := writeFile(t, dir, "nsall.ini", `

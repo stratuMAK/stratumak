@@ -1,0 +1,29 @@
+# The WebSocket sampler/streamer at their maximum of 20 pins.  The pin type
+# string is sent to the clients as the stream's "cfg:" header; at the maximum
+# it filled its array to the last byte with no terminator, and the header ran
+# on into the next field -- halsampler then failed on the 21st "type".
+loadrt streamer cfg=ffffffffffffffffffff depth=100
+loadrt sampler  cfg=ffffffffffffffffffff depth=100
+net p0 streamer.pin.0 => sampler.pin.0
+net p1 streamer.pin.1 => sampler.pin.1
+net p2 streamer.pin.2 => sampler.pin.2
+net p3 streamer.pin.3 => sampler.pin.3
+net p4 streamer.pin.4 => sampler.pin.4
+net p5 streamer.pin.5 => sampler.pin.5
+net p6 streamer.pin.6 => sampler.pin.6
+net p7 streamer.pin.7 => sampler.pin.7
+net p8 streamer.pin.8 => sampler.pin.8
+net p9 streamer.pin.9 => sampler.pin.9
+net p10 streamer.pin.10 => sampler.pin.10
+net p11 streamer.pin.11 => sampler.pin.11
+net p12 streamer.pin.12 => sampler.pin.12
+net p13 streamer.pin.13 => sampler.pin.13
+net p14 streamer.pin.14 => sampler.pin.14
+net p15 streamer.pin.15 => sampler.pin.15
+net p16 streamer.pin.16 => sampler.pin.16
+net p17 streamer.pin.17 => sampler.pin.17
+net p18 streamer.pin.18 => sampler.pin.18
+net p19 streamer.pin.19 => sampler.pin.19
+newthread fast 1000000
+addf streamer fast
+addf sampler fast

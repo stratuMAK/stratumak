@@ -70,6 +70,13 @@ func (t *Task) ensureMode(required TaskMode) error {
 		return err
 	}
 	if t.mode == required {
+		// Task mode alone does not say motion is still coordinated: a jog
+		// issued while in MDI/AUTO switches motion to teleop/free and leaves
+		// the task mode alone, and every MDI line after it would then fail
+		// with "need to be enabled, in coord mode".
+		if required == ModeMDI || required == ModeAuto {
+			return t.ensureCoordLocked()
+		}
 		return nil
 	}
 	// Save previous mode for transactional restore (only first switch in a tx).
@@ -90,24 +97,11 @@ func (t *Task) ensureMode(required TaskMode) error {
 		_ = t.motion.SetFree()
 		t.waitMotionFree()
 		t.mu.Lock()
-	case ModeMDI:
+	case ModeMDI, ModeAuto:
 		t.modeAbortLocked()
-		t.mode = ModeMDI
-		t.mu.Unlock()
-		_ = t.motion.SetCoord()
-		if t.interp != nil {
-			_ = t.interp.Synch()
+		if err := t.switchToCoordLocked(required); err != nil {
+			return err
 		}
-		t.mu.Lock()
-	case ModeAuto:
-		t.modeAbortLocked()
-		t.mode = ModeAuto
-		t.mu.Unlock()
-		_ = t.motion.SetCoord()
-		if t.interp != nil {
-			_ = t.interp.Synch()
-		}
-		t.mu.Lock()
 	default:
 		return fmt.Errorf("%w: unknown mode %d", ErrWrongMode, required)
 	}
@@ -139,22 +133,108 @@ func (t *Task) restoreModeTx() {
 			t.waitMotionFree()
 		}
 		t.mu.Lock()
-	case ModeMDI:
-		t.mode = ModeMDI
-		t.mu.Unlock()
-		_ = t.motion.SetCoord()
-		if t.interp != nil {
-			_ = t.interp.Synch()
+	case ModeMDI, ModeAuto:
+		if err := t.switchToCoordLocked(target); err != nil {
+			// Not fatal here: task stays in the mode the transaction ran
+			// in, and the next MDI/AUTO command re-enters coordinated mode
+			// or reports the failure to the operator.
+			t.logger.Warn("mode restore", "mode", target, "err", err)
 		}
-		t.mu.Lock()
-	case ModeAuto:
-		t.mode = ModeAuto
-		t.mu.Unlock()
-		_ = t.motion.SetCoord()
-		if t.interp != nil {
-			_ = t.interp.Synch()
+	}
+}
+
+// coordSwitchTimeout bounds how long a command waits for motion to enter
+// coordinated mode. Motion makes the switch only in position, so this covers
+// a jog still running out (plus the jerk-filter window) when an MDI arrives.
+var coordSwitchTimeout = 2 * time.Second
+
+// errNotCoord is returned when motion did not enter coordinated mode.
+var errNotCoord = fmt.Errorf("motion did not enter coordinated mode (axis still moving?)")
+
+// errCoordAborted is returned when an abort ended the wait for coordinated mode.
+var errCoordAborted = fmt.Errorf("mode switch aborted")
+
+// switchToCoordLocked commits task mode MDI/AUTO and puts motion into
+// coordinated mode, re-synching the idle interpreter to the machine position
+// (motion moved, or a jog ran, since it last looked). It is the one place a
+// switch to MDI/AUTO happens: SetMode, the transactional ensureMode and its
+// restore, and the re-entry after a jog in MDI/AUTO all go through it.
+//
+// When motion does not make the switch the task mode is rolled back: stat,
+// the halui mode pins and the jog rules must never claim MDI/AUTO while
+// motion is in teleop or free.
+// Must be called with t.mu held. Unlocks t.mu for I/O and re-locks it.
+func (t *Task) switchToCoordLocked(mode TaskMode) error {
+	prev := t.mode
+	t.mode = mode
+	// Synch only while the interpreter is idle — a re-assertion of the
+	// current mode during a run must not touch the producer-owned interp.
+	canSynch := t.interp != nil && !t.programBusy()
+	t.mu.Unlock()
+	err := t.enterCoord()
+	if canSynch {
+		t.canon.syncEndPointFromMachine()
+		_ = t.interp.Synch()
+	}
+	t.mu.Lock()
+	if err != nil {
+		t.mode = prev
+	}
+	return err
+}
+
+// enterCoord requests coordinated mode and, with motion enabled, waits until
+// motion has actually entered it. Motion drops a switch it cannot make yet
+// (not in position), so a fire-and-forget SetCoord can leave motion in teleop
+// or free while task believes it is in MDI/AUTO. While motion is disabled
+// (ESTOP/OFF — SetMode is accepted there) nothing moves to wait for; the
+// request is sent and the next MDI/AUTO command re-checks it. The same goes
+// for motion going off during the wait. An abort ends the wait at once: it
+// takes cmdMu next and must not queue behind the rest of the timeout.
+// Must be called with t.mu NOT held.
+func (t *Task) enterCoord() error {
+	abortSeq := t.abortSeq.Load()
+	_ = t.motion.SetCoord()
+	if t.status == nil {
+		return nil
+	}
+	return t.waitMotionCoord(abortSeq)
+}
+
+// ensureCoordLocked puts motion back into coordinated mode when task is
+// already in MDI/AUTO but motion is not (a jog in between).
+// Must be called with t.mu held. May temporarily unlock t.mu for I/O.
+func (t *Task) ensureCoordLocked() error {
+	if t.status == nil {
+		return nil
+	}
+	ms, err := t.status.GetStatus()
+	if err != nil || ms.Enabled == 0 || (ms.Coord != 0 && ms.Teleop == 0) {
+		return nil
+	}
+	return t.switchToCoordLocked(t.mode)
+}
+
+// waitMotionCoord waits until motion is in coordinated mode (up to
+// coordSwitchTimeout), re-sending SetCoord while it is not. It returns nil
+// as well when motion is, or goes, disabled (or its status is unreadable):
+// nothing moves to wait for. errCoordAborted ends the wait when an abort was
+// signalled after abortSeq was read, errNotCoord when the timeout runs out.
+func (t *Task) waitMotionCoord(abortSeq uint64) error {
+	deadline := time.Now().Add(coordSwitchTimeout)
+	for {
+		ms, err := t.status.GetStatus()
+		if err != nil || ms.Enabled == 0 || (ms.Coord != 0 && ms.Teleop == 0) {
+			return nil
 		}
-		t.mu.Lock()
+		if t.abortSeq.Load() != abortSeq {
+			return errCoordAborted
+		}
+		if time.Now().After(deadline) {
+			return errNotCoord
+		}
+		_ = t.motion.SetCoord()
+		time.Sleep(pollInterval)
 	}
 }
 
@@ -167,6 +247,9 @@ func (t *Task) waitMotionFree() {
 		if err == nil && ms.Coord == 0 && ms.Teleop == 0 {
 			return
 		}
+		// Retry sending SetFree (motion may have rejected due to !INPOS,
+		// e.g. a teleop jog still running out).
+		_ = t.motion.SetFree()
 		time.Sleep(pollInterval)
 	}
 }

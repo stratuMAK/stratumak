@@ -43,8 +43,15 @@ typedef hal_stream_val_t sample_val_t;
 typedef hal_stream_pin_t pin_ptr_t;
 
 // Per-connection state
+// active: 0 free, CONN_CLAIMING while on_new_conn fills the slot in, 1 live.
+// Connections run on their own goroutines with no lock around the callbacks,
+// so a slot is claimed with a compare-and-swap and published with a release
+// store; everything else -- the RT function included -- only counts slots at 1.
+#define CONN_CLAIMING 2
+
 typedef struct {
     int active;
+    uint32_t id;         // the stream server's conn_id this slot serves
     uint32_t read_pos;   // where this conn reads from in the ring
 } conn_state_t;
 
@@ -59,7 +66,7 @@ typedef struct {
 
     // Pin configuration
     int num_pins;
-    char pin_types[MAX_PINS];  // 'f', 'b', 'u', 's'
+    char pin_types[MAX_PINS + 1];  // 'f', 'b', 'u', 's'; NUL-terminated: it is the stream's cfg string
     pin_ptr_t pins[MAX_PINS];
 
     // Ring buffer (allocated at init)
@@ -96,26 +103,44 @@ static void sampler_destroy(cmod_t *self);
 // Stream server callbacks
 // ---------------------------------------------------------------------------
 
+// The stream server numbers connections for as long as it runs (1, 2, 3, ...),
+// so a conn_id is not a slot index: taking it as one refused every client from
+// the ninth connection on.  A new connection takes a free slot and keeps its id.
+static conn_state_t *find_conn(sampler_inst_t *inst, uint32_t conn_id) {
+    for (int i = 0; i < MAX_CONNS; i++) {
+        if (__atomic_load_n(&inst->conns[i].active, __ATOMIC_ACQUIRE) == 1 &&
+            inst->conns[i].id == conn_id)
+            return &inst->conns[i];
+    }
+    return NULL;
+}
+
 static int32_t on_new_conn(void *ctx, uint32_t conn_id) {
     sampler_priv_t *priv = (sampler_priv_t *)ctx;
     sampler_inst_t *inst = &priv->inst;
 
-    if (conn_id == 0 || conn_id > MAX_CONNS) return -1;
-    int idx = conn_id - 1;
+    if (conn_id == 0 || find_conn(inst, conn_id)) return -1;
 
-    if (inst->conns[idx].active) return -1;  // slot in use
-
-    inst->conns[idx].active = 1;
-    inst->conns[idx].read_pos = inst->write_pos;  // start from current
-    return 0;
+    for (int i = 0; i < MAX_CONNS; i++) {
+        conn_state_t *conn = &inst->conns[i];
+        int expected = 0;
+        if (!__atomic_compare_exchange_n(&conn->active, &expected, CONN_CLAIMING, 0,
+                                         __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+            continue;
+        conn->id = conn_id;
+        conn->read_pos = inst->write_pos;  // start from current
+        __atomic_store_n(&conn->active, 1, __ATOMIC_RELEASE);
+        return 0;
+    }
+    return -1;  // all slots in use
 }
 
 static void on_closed_conn(void *ctx, uint32_t conn_id) {
     sampler_priv_t *priv = (sampler_priv_t *)ctx;
     sampler_inst_t *inst = &priv->inst;
 
-    if (conn_id == 0 || conn_id > MAX_CONNS) return;
-    inst->conns[conn_id - 1].active = 0;
+    conn_state_t *conn = find_conn(inst, conn_id);
+    if (conn) __atomic_store_n(&conn->active, 0, __ATOMIC_RELEASE);
 }
 
 static int32_t on_poll_transmit(void *ctx, uint32_t conn_id,
@@ -123,11 +148,8 @@ static int32_t on_poll_transmit(void *ctx, uint32_t conn_id,
     sampler_priv_t *priv = (sampler_priv_t *)ctx;
     sampler_inst_t *inst = &priv->inst;
 
-    if (conn_id == 0 || conn_id > MAX_CONNS) return -1;
-    int idx = conn_id - 1;
-    conn_state_t *conn = &inst->conns[idx];
-
-    if (!conn->active) return -1;
+    conn_state_t *conn = find_conn(inst, conn_id);
+    if (!conn) return -1;
 
     // Calculate how many samples are available.  Pair the acquire barrier with
     // the RT sampler's release barrier: after observing write_pos we must see the
@@ -196,7 +218,7 @@ static void sample_funct(void *arg, long period) {
     // We report based on the slowest reader
     uint32_t max_lag = 0;
     for (int i = 0; i < MAX_CONNS; i++) {
-        if (inst->conns[i].active) {
+        if (__atomic_load_n(&inst->conns[i].active, __ATOMIC_ACQUIRE) == 1) {
             uint32_t lag = inst->write_pos - inst->conns[i].read_pos;
             if (lag > max_lag) max_lag = lag;
         }
@@ -287,6 +309,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->num_pins = num_pins;
     inst->depth = depth;
     memcpy(inst->pin_types, cfg_str, num_pins);
+    inst->pin_types[num_pins] = '\0';
 
     // Allocate ring buffer
     inst->ring = calloc(depth * num_pins, sizeof(sample_val_t));

@@ -47,14 +47,14 @@ static const lcec_pindesc_t slave_pins[] = {
   { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, halt), "%s.%s.%s.%ssrv-halt" },
   { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, velo_cmd), "%s.%s.%s.%ssrv-velo-cmd" },
 
-  { STMAK_HAL_U32, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, status), "%s.%s.%s.%ssrv-status" },
-  { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, torque_fb_pct), "%s.%s.%s.%ssrv-torque-fb-pct" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_class_ax5_chan_t, status), "%s.%s.%s.%ssrv-status" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_class_ax5_chan_t, torque_fb_pct), "%s.%s.%s.%ssrv-torque-fb-pct" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /** @brief HAL pin descriptors for the optional diagnostics word pin. */
 static const lcec_pindesc_t slave_diag_pins[] = {
-  { STMAK_HAL_U32, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, diag), "%s.%s.%s.%ssrv-diag" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_class_ax5_chan_t, diag), "%s.%s.%s.%ssrv-diag" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 

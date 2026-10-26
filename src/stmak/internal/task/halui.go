@@ -225,6 +225,11 @@ type halUI struct {
 	lastWrittenJogSpeed  float64
 	lastWrittenAjogSpeed float64
 
+	// A jog wheel enable raised while the switch to teleop was refused
+	// (program running, machine off, motion not in position) stays pending
+	// and is retried every poll; the refusal is logged once per episode.
+	wheelEnableDeferred bool
+
 	// --- axisui pins (merged) ---
 	// Notification control (input from HAL)
 	notificationsClear      *hal.Pin[bool]
@@ -307,6 +312,7 @@ type halUIValues struct {
 	ajogAnalog         [maxAxes + 1]float64
 	ajogIncrementPlus  [maxAxes + 1]bool
 	ajogIncrementMinus [maxAxes + 1]bool
+	ajogWheelEnable    [maxAxes]bool
 	axisNrSelect       [maxAxes]bool
 
 	foCounts int32
@@ -1084,6 +1090,7 @@ func (h *halUI) check(t *Task) {
 	h.checkSpindles(t)
 	h.checkJointJog(t)
 	h.checkAxisJog(t)
+	h.checkWheelEnable(t)
 	h.checkJointSelection(t)
 	h.checkAxisSelection(t)
 	h.checkHoming(t)
@@ -1508,13 +1515,14 @@ func (h *halUI) checkJointJog(t *Task) {
 		}
 		h.old.jjogIncrementMinus[i] = v
 
-		// UI jog (uses shared jog speed from task state, convert units/min to units/sec)
+		// UI jog (uses the shared jog speed from task state, already in units/sec --
+		// SetJogSpeed, the jog.speed pin and stat all carry units/sec)
 		// Joints 3,4,5 (A,B,C) are angular in trivkins; all others are linear.
 		var uiSpeed float64
 		if joint >= 3 && joint <= 5 {
-			uiSpeed = t.ajogSpeed / 60.0
+			uiSpeed = t.ajogSpeed
 		} else {
-			uiSpeed = t.jogSpeed / 60.0
+			uiSpeed = t.jogSpeed
 		}
 		v = pinGet(h.jjogMinusUI[i])
 		if v != h.old.jjogMinusUI[i] {
@@ -1604,13 +1612,14 @@ func (h *halUI) checkAxisJog(t *Task) {
 		}
 		h.old.ajogIncrementMinus[i] = v
 
-		// UI jog (uses shared jog speed from task state, convert units/min to units/sec)
+		// UI jog (uses the shared jog speed from task state, already in units/sec --
+		// SetJogSpeed, the jog.speed pin and stat all carry units/sec)
 		// Axes 3,4,5 (A,B,C) are angular; all others (X,Y,Z,U,V,W) are linear.
 		var uiSpeed float64
 		if axis >= 3 && axis <= 5 {
-			uiSpeed = t.ajogSpeed / 60.0
+			uiSpeed = t.ajogSpeed
 		} else {
-			uiSpeed = t.jogSpeed / 60.0
+			uiSpeed = t.jogSpeed
 		}
 		v = pinGet(h.ajogMinusUI[i])
 		if v != h.old.ajogMinusUI[i] {
@@ -1631,6 +1640,51 @@ func (h *halUI) checkAxisJog(t *Task) {
 			h.old.ajogPlusUI[i] = v
 		}
 	}
+}
+
+// checkWheelEnable watches the axis jog wheel enables (axis.N.jog-enable, a
+// motion pin read back through the motion status) and prepares motion for the
+// wheel on a rising edge. See Task.WheelJogEnabled.
+func (h *halUI) checkWheelEnable(t *Task) {
+	if t.status == nil {
+		return
+	}
+	ms, err := t.status.GetStatus()
+	if err != nil {
+		return
+	}
+	var rising [maxAxes]bool
+	raised := false
+	for i := 0; i < maxAxes && i < len(ms.Axes); i++ {
+		if h.axisMask&(1<<i) == 0 {
+			continue
+		}
+		v := ms.Axes[i].JogEnable != 0
+		if risingEdge(v, h.old.ajogWheelEnable[i]) {
+			rising[i] = true
+			raised = true
+		}
+		h.old.ajogWheelEnable[i] = v
+	}
+	if !raised {
+		return
+	}
+	if err := t.WheelJogEnabled(); err != nil {
+		// Keep the edge: an enable raised while an MDI is still running or
+		// the machine is off must take effect once the switch is possible,
+		// not only after the operator toggles the pendant switch again.
+		for i, r := range rising {
+			if r {
+				h.old.ajogWheelEnable[i] = false
+			}
+		}
+		if !h.wheelEnableDeferred {
+			h.wheelEnableDeferred = true
+			t.logger.Info("jog wheel enable deferred", "err", err)
+		}
+		return
+	}
+	h.wheelEnableDeferred = false
 }
 
 // joggingJoint reports whether joint j is being jogged via its own per-joint
