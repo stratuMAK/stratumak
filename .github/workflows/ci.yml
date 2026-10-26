@@ -33,9 +33,29 @@ permissions:
 jobs:
 
   rip-and-test:
+    needs: ci-image
     runs-on: ubuntu-24.04
     # Without a job timeout GitHub waits 360 minutes for a hung step.
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    # Runs in the prebuilt CI image, like stmak; see there and ci-image for
+    # the capability list and the shell.
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: >-
+        --shm-size=1g --cap-add=IPC_OWNER --cap-add=SETFCAP
+        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
+        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
+        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
+        --cap-add=DAC_OVERRIDE
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Dump GitHub context
       env:
@@ -45,13 +65,27 @@ jobs:
       with:
         submodules: true
         fetch-depth: 0
-    # Pin the Go toolchain: the apt go on the runner is older than go.mod
-    # requires, so without this every fresh run downloads a toolchain from
-    # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v7
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    - name: Install build deps
+      timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
+    # Same ccache setup as stmak, under its own key: COVERAGE=1 compiles with
+    # different flags, so the two jobs could never share an entry.
+    - name: Set up ccache
+      run: |
+        {
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=1G"
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+        echo /usr/lib/ccache >> "$GITHUB_PATH"
+    - name: Restore ccache
+      uses: actions/cache/restore@v6
       with:
-        go-version: '1.24.x'
-        cache: false
+        path: ~/.ccache
+        key: ccache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: ccache-rip-and-test-
     # COVERAGE=1 instruments this build so the suite below reports what it
     # reaches. It rides the run that was happening anyway rather than adding a
     # second one. The flag is a make variable with no default (see the block in
@@ -61,26 +95,33 @@ jobs:
     # rip-and-test-clang runs this same suite uninstrumented on every push to
     # main, so an uninstrumented full-suite run still exists, at no extra cost.
     #
-    # The dep install is its own step with a tight timeout: a stalled apt
-    # (see scripts/travis-install-build-deps.sh) should fail in minutes and
-    # say where, not eat the job budget inside "Build RIP & test".
-    - name: Install build deps
-      timeout-minutes: 15
-      run: |
-        set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
-        eatmydata sudo apt-get install -y lcov
-    - name: Build RIP & test
+    # GOCOVERDIR is set for the build too: instrumented Go tools such as
+    # modcompile already run during make, and their coverage counts.
+    - name: Build RIP
       env:
         GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: |
         set -x
+        ccache -z
         mkdir -p "$GOCOVERDIR"
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make COVERAGE=1 -O -j$((1+$(nproc))) default pycheck V=1
+        ccache -s
+    # Saved before the suite runs, so a red suite still warms the next build.
+    - name: Save ccache
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.ccache
+        key: ccache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
+    - name: Test
+      env:
+        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
+      run: |
+        set -x
+        cd src
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
     - name: Collect coverage

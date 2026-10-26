@@ -30,6 +30,7 @@ RUN cd /tmp/deps \
  && apt-get update \
  && eatmydata apt-get install -y --no-install-recommends \
         ccache clang lcov lintian cppcheck shellcheck \
+        curl gpg \
  && eatmydata apt-get build-dep -y . \
  && rm -rf /tmp/deps /var/lib/apt/lists/*
 
