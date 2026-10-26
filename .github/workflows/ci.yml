@@ -24,6 +24,8 @@ on:
 #     and boots a config. This is the job that catches install-layout rot:
 #     runtests exercises the RIP tree, where the layout differs.
 #   - package-*: releases/tags (feeds the release job) or manual dispatch.
+#   - ci-image: every run, ahead of the jobs that use the image; builds only
+#     when the image inputs changed or a new week started.
 
 permissions:
   contents: read #  to fetch code (actions/checkout)
@@ -32,6 +34,8 @@ jobs:
 
   rip-and-test:
     runs-on: ubuntu-24.04
+    # Without a job timeout GitHub waits 360 minutes for a hung step.
+    timeout-minutes: 90
     steps:
     - name: Dump GitHub context
       env:
@@ -57,14 +61,22 @@ jobs:
     #
     # rip-and-test-clang runs this same suite uninstrumented on every push to
     # main, so an uninstrumented full-suite run still exists, at no extra cost.
-    - name: Build RIP & test
-      env:
-        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
+    #
+    # The dep install is its own step with a tight timeout: a stalled apt
+    # (see scripts/travis-install-build-deps.sh) should fail in minutes and
+    # say where, not eat the job budget inside "Build RIP & test".
+    - name: Install build deps
+      timeout-minutes: 15
       run: |
         set -x
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
         eatmydata sudo apt-get install -y lcov
+    - name: Build RIP & test
+      env:
+        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
+      run: |
+        set -x
         mkdir -p "$GOCOVERDIR"
         cd src
         eatmydata ./autogen.sh
@@ -135,6 +147,7 @@ jobs:
   rip-and-test-clang:
     runs-on: ubuntu-24.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 90
     steps:
     - name: Dump GitHub context
       env:
@@ -159,12 +172,16 @@ jobs:
       with:
         go-version: '1.24.x'
         cache: false
-    - name: Clang build RIP & test
+    - name: Install build deps
+      timeout-minutes: 15
       run: |
         set -x
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
         sudo eatmydata apt-get install -y clang
+    - name: Clang build RIP & test
+      run: |
+        set -x
         cd src
         eatmydata ./autogen.sh
         CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
@@ -174,6 +191,45 @@ jobs:
         eatmydata make rt-effects-check
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
+
+  # Prebuilt CI image (.github/ci/Dockerfile): debian:trixie with the
+  # build-deps and CI tools baked in. The tag is derived from what the image is
+  # built from (the Dockerfile and debian/) plus the ISO week, so this job only
+  # builds when one of those changed or a new week started; every other run it
+  # finds the tag already on GHCR and finishes in seconds. Jobs that run in the
+  # image take its name from this job's output, so a PR that changes the
+  # build-deps runs against an image built from that PR.
+  #
+  # PRs from forks get a read-only token and cannot push; they work as long as
+  # the tag already exists, i.e. unless the fork touched debian/ or the image.
+  ci-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Compute image tag
+      id: tag
+      run: |
+        hash=$(git ls-files -s .github/ci debian | sha256sum | cut -c1-12)
+        echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/stratumak-ci:$(date -u +%G-w%V)-$hash" >> "$GITHUB_OUTPUT"
+    - name: Build and push the image unless it exists
+      timeout-minutes: 40
+      env:
+        IMAGE: ${{ steps.tag.outputs.image }}
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+          echo "$IMAGE already exists"
+          exit 0
+        fi
+        docker build -f .github/ci/Dockerfile -t "$IMAGE" debian
+        docker push "$IMAGE"
 
   # stmak gate: build + Go vet/tests + pinned lint (no NEW findings vs the
   # stmak merge base) + fmt. The make targets are the source of truth
@@ -186,51 +242,78 @@ jobs:
   # log for six path prefixes and could only ever cover what those prefixes
   # matched -- notably NOT the .comp-derived modules, which the compiler reports
   # against their generated objects/cmod/*.c path.
+  #
+  # This job is the trial for running the RIP jobs in the prebuilt CI image
+  # (see ci-image below): Go, Node and golangci-lint come from the image, the
+  # dep install is a near no-op, and C compiles go through ccache.
   stmak:
+    needs: ci-image
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Same capability list as package-gate, for the same reason: the Go
+      # tests start stmakd, which needs shm and the realtime capabilities.
+      options: >-
+        --shm-size=1g --cap-add=IPC_OWNER --cap-add=SETFCAP
+        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
+        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
+        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
+        --cap-add=DAC_OVERRIDE
     steps:
     - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
     - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
-    - uses: actions/setup-go@v7
+    # Picks up build-deps added since the image was built; otherwise a no-op.
+    - name: Install build deps
+      timeout-minutes: 15
+      run: eatmydata ./scripts/travis-install-build-deps.sh
+    # ccache: the C side of the build is the same from run to run, so most
+    # compiles are cache hits. Restored from the newest entry any earlier run
+    # saved, and saved even when a later step fails so a red run still warms
+    # the next one. COMPILERCHECK=content because a rebuilt image gives gcc a
+    # new mtime but not a new compiler.
+    - name: Set up ccache
+      run: |
+        {
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=1G"
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+        echo /usr/lib/ccache >> "$GITHUB_PATH"
+    - name: Restore ccache
+      uses: actions/cache/restore@v6
       with:
-        go-version: '1.24.x'
-        # go.sum is build-generated (not in the repo), so setup-go's automatic
-        # cache keying cannot work; the module cache is small enough to skip.
-        cache: false
-    - uses: actions/setup-node@v7
-      with:
-        node-version: '20'
-    # GOTOOLCHAIN=auto for this step only. setup-go v6 and later export
-    # GOTOOLCHAIN=local, which is what we want for the project itself -- the Go
-    # version is pinned above precisely so a build never pauses to fetch a
-    # toolchain -- but this step builds a lint tool, not the project, and
-    # golangci-lint's own module requires a newer Go than the one we pin. Under
-    # GOTOOLCHAIN=local, go install refuses instead of fetching what the tool
-    # needs, and the step fails with "requires go >= 1.25.0".
-    #
-    # Scoped to the step so the pinned toolchain still governs everything that
-    # compiles stratuMAK.
-    - name: Install golangci-lint (pinned — keep in sync with GOLANGCI_LINT_VERSION in src/stmak/Submakefile)
-      env:
-        GOTOOLCHAIN: auto
-      run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+        path: ~/.ccache
+        key: ccache-stmak-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: ccache-stmak-
     - name: Build RIP
       run: |
         set -x
-        sudo apt-get install -y eatmydata
-        eatmydata ./scripts/travis-install-build-deps.sh
+        ccache -z
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make -O -j$((1+$(nproc))) default V=1 2>&1 | tee ../build.log
         test "${PIPESTATUS[0]}" -eq 0
+        ccache -s
+    - name: Save ccache
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.ccache
+        key: ccache-stmak-${{ github.run_id }}-${{ github.run_attempt }}
     - name: Go tests + lint + fmt gate
       run: |
-        export PATH="$PATH:$HOME/go/bin"
         cd src
         make stmak-check STMAK_LINT_BASE=origin/main
     # Webapp gate: ESLint + cold vue-tsc type-check + vitest over the
@@ -270,6 +353,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch'
+    timeout-minutes: 60
     steps:
     - name: Dump GitHub context
       env:
@@ -287,10 +371,13 @@ jobs:
       with:
         go-version: '1.24.x'
         cache: false
+    - name: Install build deps
+      timeout-minutes: 15
+      run: |
+        sudo apt-get install -y eatmydata
+        eatmydata ./scripts/travis-install-build-deps.sh
     - name: Build HTML docmentation
       run: |
-        ./scripts/travis-install-build-deps.sh
-        sudo apt-get install -y eatmydata
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-build-documentation=html
