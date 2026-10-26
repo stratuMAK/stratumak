@@ -67,25 +67,37 @@ jobs:
     # Same ccache setup as stmak, under its own key: COVERAGE=1 compiles with
     # different flags, so the two jobs could never share an entry.
     #
+    # Go's build cache is kept as well. ccache cannot help with cgo: go build
+    # compiles the cgo C in a fresh random $WORK directory each time, so those
+    # compiles (about 400 of them) always miss. With GOCACHE restored, go build
+    # does not recompile them at all. That is safe here because this job runs
+    # no go test, whose cached results could not see a rebuilt stmakd; stmak,
+    # which does, keeps a cold GOCACHE.
+    #
     # GOCOVERDIR is set here for every later step, from $GITHUB_WORKSPACE:
     # in a container ${{ github.workspace }} still names the runner's path,
     # not the one the workspace is mounted at.
-    - name: Set up ccache and GOCOVERDIR
+    - name: Set up build caches and GOCOVERDIR
       run: |
         {
           echo "GOCOVERDIR=$GITHUB_WORKSPACE/coverage/gocov"
+          echo "GOCACHE=$HOME/.cache/go-build"
+          echo "GOMODCACHE=$HOME/go/pkg/mod"
           echo "CCACHE_DIR=$HOME/.ccache"
           echo "CCACHE_MAXSIZE=1G"
           echo "CCACHE_COMPILERCHECK=content"
           echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
         } >> "$GITHUB_ENV"
         echo /usr/lib/ccache >> "$GITHUB_PATH"
-    - name: Restore ccache
+    - name: Restore build caches
       uses: actions/cache/restore@v6
       with:
-        path: ~/.ccache
-        key: ccache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: ccache-rip-and-test-
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: build-cache-rip-and-test-
     # COVERAGE=1 instruments this build so the suite below reports what it
     # reaches. It rides the run that was happening anyway rather than adding a
     # second one. The flag is a make variable with no default (see the block in
@@ -108,12 +120,15 @@ jobs:
         eatmydata make COVERAGE=1 -O -j$((1+$(nproc))) default pycheck V=1
         ccache -s
     # Saved before the suite runs, so a red suite still warms the next build.
-    - name: Save ccache
+    - name: Save build caches
       if: always()
       uses: actions/cache/save@v6
       with:
-        path: ~/.ccache
-        key: ccache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ~/.ccache
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: build-cache-rip-and-test-${{ github.run_id }}-${{ github.run_attempt }}
     - name: Test
       run: |
         set -x

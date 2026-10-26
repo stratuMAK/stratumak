@@ -81,10 +81,15 @@ if command -v lcov >/dev/null 2>&1; then
 	# sources back while filtering, so those files are gone by the time it
 	# looks. They are on the exclude list below anyway -- the error is lcov
 	# objecting on its way to dropping them.
+	#
+	# --ignore-errors inconsistent: --remove re-runs the consistency checks
+	# the capture above already waived, and on hand-written C++ as well
+	# (saicanon.cc under gcc 14: a line counted as hit inside a function
+	# counted as not hit). Same disagreement about attribution, same verdict.
 	lcov --remove "$OUTDIR/c.raw.info" \
 		"$TOPDIR/tests/*" \
 		"$TOPDIR/src/objects/*" \
-		--ignore-errors unused,empty,source \
+		--ignore-errors unused,empty,source,inconsistent \
 		--output-file "$OUTDIR/c.info"
 	rm -f "$OUTDIR/c.raw.info"
 
