@@ -59,6 +59,11 @@ type job struct {
 	skipPick bool
 	swap     bool
 
+	// probe says the swap was planned because the station is PROBE_SWAP, not
+	// because the model says it is occupied (D32): finding it empty is then
+	// an answer, not a fault.
+	probe bool
+
 	// pickedSlot is the tray slot the job's own pick emptied, −1 until a tray
 	// pick succeeds. A tray-to-itself place excludes it (see placeToTray).
 	pickedSlot int
@@ -447,6 +452,13 @@ func (c *control) checkDest(j *job) error {
 	}
 	s := j.dest.proc
 	if !s.hasMaterial {
+		// D32: a station that may hold a part nobody told the model about is
+		// swapped at anyway. A re-seat (pick from it, place back) has just
+		// emptied it with its own pick and needs no probe.
+		if s.cfg.ProbeSwap && !(!j.skipPick && j.originID == j.destID) {
+			j.swap = true
+			j.probe = true
+		}
 		return nil
 	}
 	// A job from a process station to itself takes the occupant out on the way

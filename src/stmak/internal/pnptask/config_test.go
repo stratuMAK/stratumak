@@ -143,7 +143,8 @@ func mustLoad(t *testing.T, text string) *Config {
 }
 
 // TestLoadConfigPlaceOffset: Z_PLACE_OFFSET is read per tray and per process
-// station, in machine units like Z_PICK, and defaults to 0 (D31).
+// station, in machine units like Z_PICK, and defaults to 0 (D31); PROBE_SWAP
+// (D32) is off unless asked for.
 func TestLoadConfigPlaceOffset(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
@@ -154,6 +155,15 @@ func TestLoadConfigPlaceOffset(t *testing.T) {
 
 	text := strings.Replace(stationSections, "Z_PICK = 2.5\n", "Z_PICK = 2.5\nZ_PLACE_OFFSET = 1.5\n", 1)
 	text = strings.Replace(text, "Z_PICK = 5.0\n", "Z_PICK = 5.0\nZ_PLACE_OFFSET = -0.5\n", 1)
+	cfg = mustLoad(t, trajSection+pnptaskSection+text)
+	if cfg.Procs[0].ProbeSwap {
+		t.Error("PROBE_SWAP is on without the key, want off by default")
+	}
+	cfg = mustLoad(t, trajSection+pnptaskSection+strings.Replace(stationSections,
+		"RELEASE_SETTLE = 0.4\n", "RELEASE_SETTLE = 0.4\nPROBE_SWAP = 1\n", 1))
+	if !cfg.Procs[0].ProbeSwap {
+		t.Error("PROBE_SWAP = 1 did not switch the probing swap on")
+	}
 	cfg = mustLoad(t, trajSection+pnptaskSection+text)
 	if cfg.Trays[0].ZPlaceOffset != 1.5 || cfg.Procs[0].ZPlaceOffset != -0.5 {
 		t.Errorf("Z_PLACE_OFFSET = %g/%g, want 1.5/-0.5",

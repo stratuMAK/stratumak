@@ -205,6 +205,12 @@ type ProcStation struct {
 	// into it. 0 (the default) places at the pick height, as before.
 	ZPlaceOffset float64
 
+	// ProbeSwap is PROBE_SWAP (D32): a place here always swaps first, whatever
+	// has-material says, so a part the model does not know about is taken out
+	// rather than placed onto. An empty grip during that swap is not an error.
+	// Needs pickers=2.
+	ProbeSwap bool
+
 	// ReleaseSettle is how long to wait, after the fixture has confirmed it
 	// released, before lifting the part out of it. A chuck's jaws keep moving
 	// after its opened contact makes, and the lift starts into a fixture that
@@ -683,6 +689,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.Pos.Y = r.lengthReq(sec, "Y")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
 		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
+		s.ProbeSwap = r.boolean(sec, "PROBE_SWAP", false)
 		s.ReleaseSettle = r.duration(sec, "RELEASE_SETTLE", 0)
 		hasWaitX, hasWaitY := r.has(sec, "WAIT_X"), r.has(sec, "WAIT_Y")
 		if hasWaitX != hasWaitY {

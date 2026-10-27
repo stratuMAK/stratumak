@@ -111,3 +111,7 @@ func faultf(id errorID, format string, args ...any) *pnpFault {
 // gone, and latching an error on the way out would greet the next start with a
 // failure that never happened.
 var errStopping = fmt.Errorf("pnptask: control loop stopping")
+
+// errSwapEmpty is a probing swap's empty grip (D32): not a fault, so it never
+// leaves the place it is returned to.
+var errSwapEmpty = fmt.Errorf("pnptask: swap found the station empty")

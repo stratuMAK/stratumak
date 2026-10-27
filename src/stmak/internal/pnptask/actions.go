@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -485,6 +486,12 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 		if err := c.waitPickerOpen(pk); err != nil {
 			return err
 		}
+		// D32: a probing swap asked whether anything is there, and nothing is
+		// an answer. The place goes on; no record, so no swap obligation.
+		if swap && s.cfg.ProbeSwap {
+			c.m.logger.Info("pnptask: swap found the station empty", "station", s.cfg.ID, "picker", pk)
+			return errSwapEmpty
+		}
 		return faultf(errProcNoMaterial,
 			"station %d: the fixture is empty although has-material was set", s.cfg.ID)
 	}
@@ -614,13 +621,15 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	// ends at the station with the approaching picker's offset applied, and the
 	// remover is the one that goes in first. Asking afterwards would have driven
 	// the placer into the station and then moved over by the offset difference.
-	if s.hasMaterial {
+	if s.hasMaterial || j.probe {
 		rm, ok := c.m.world.freePicker()
 		if !ok {
 			return faultf(errNoFreePicker,
 				"station %d is occupied and no picker is free to take the part out", s.cfg.ID)
 		}
-		if err := c.swapOut(j, pk, rm, s, busy); err != nil {
+		// errSwapEmpty (D32): nothing came out, and the fixture was never
+		// asked to let go of anything -- the request below is its first.
+		if err := c.swapOut(j, pk, rm, s, busy); err != nil && !errors.Is(err, errSwapEmpty) {
 			return err
 		}
 		c.requestRelease(s, true)

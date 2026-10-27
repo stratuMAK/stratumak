@@ -295,6 +295,113 @@ func TestAltSwapSequenceConstraint(t *testing.T) {
 	}
 }
 
+// newProbeFixture is newAltFixture with station 20 a PROBE_SWAP station (D32)
+// and picker 1 already holding tray material, so the job's pick is skipped and
+// the only close command of the job is the swap's.
+func newProbeFixture(t *testing.T, occupied bool) *jobFixture {
+	t.Helper()
+	f := newAltFixture(t, func(w *world) {
+		w.procs[0].cfg.ProbeSwap = true
+		w.procs[0].setHasMaterial(occupied)
+		w.setHeld(1, 10, false, 0, true)
+	})
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") == occupied })
+	f.sim.resetReleaseRises()
+	return f
+}
+
+// TestProbeSwapFindsTheStationEmpty: the model says empty and so does the
+// fixture. The swap goes in, closes on nothing and the place goes on -- no
+// error, no record, and so no swap obligation for the next job.
+func TestProbeSwapFindsTheStationEmpty(t *testing.T) {
+	f := newProbeFixture(t, false)
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a probing swap at an empty station")
+
+	// Both pickers sit at offset 0 here, so the probe and the place are two
+	// strokes down to Z_PICK at the same point.
+	strokes := 0
+	for _, z := range zAtXY(f.mot.moveList(), 300, 200) {
+		if z == 5.0 {
+			strokes++
+		}
+	}
+	if strokes != 2 {
+		t.Errorf("%d strokes into the station, want 2: the probe and the place", strokes)
+	}
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station reports empty although the job placed into it")
+	}
+	if n := f.sim.releaseRiseCount(0); n != 1 {
+		t.Errorf("the fixture was opened %d times, want 1", n)
+	}
+	if f.bit("picker.0.holds") || f.bit("picker.1.holds") {
+		t.Errorf("a picker reports material after the job: holds %v/%v",
+			f.bit("picker.0.holds"), f.bit("picker.1.holds"))
+	}
+	w := f.stopped()
+	if w.held[0].present || w.held[1].present {
+		t.Errorf("held records after an empty probe = %+v, want none", w.held)
+	}
+}
+
+// TestProbeSwapTakesOutAnUnknownPart: the model says empty, the fixture is
+// not -- a part put there by hand. The probing swap takes it out like any
+// swap, and the record carries the obligation (§8).
+func TestProbeSwapTakesOutAnUnknownPart(t *testing.T) {
+	f := newProbeFixture(t, false)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a probing swap at a hand-loaded station")
+
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station reports empty although the job placed into it")
+	}
+	if !f.bit("picker.0.holds") || f.get("picker.0.origin-id") != 20 {
+		t.Errorf("picker 0 reports holds=%v origin-id=%v; want the part of station 20",
+			f.bit("picker.0.holds"), f.get("picker.0.origin-id"))
+	}
+	w := f.stopped()
+	if !w.held[0].present || w.held[0].station != 20 || !w.held[0].swap {
+		t.Errorf("swap record = %+v, want the material of station 20, marked as a swap", w.held[0])
+	}
+}
+
+// TestProbeSwapToleratesAVanishedPart: the model says occupied and the
+// fixture is empty. On a probing station that is the same answer as above,
+// not PROC_NO_MATERIAL.
+func TestProbeSwapToleratesAVanishedPart(t *testing.T) {
+	f := newProbeFixture(t, true)
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a probing swap at a station that lost its part")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station reports empty although the job placed into it")
+	}
+	w := f.stopped()
+	if w.held[0].present || w.held[1].present {
+		t.Errorf("held records = %+v, want none", w.held)
+	}
+}
+
+// TestSwapWithoutProbeStillFaultsOnAVanishedPart: the tolerance is the
+// probing station's alone; elsewhere an occupied model with an empty fixture
+// stays PROC_NO_MATERIAL.
+func TestSwapWithoutProbeStillFaultsOnAVanishedPart(t *testing.T) {
+	f := newAltFixture(t, func(w *world) {
+		w.procs[0].setHasMaterial(true)
+		w.setHeld(1, 10, false, 0, true)
+	})
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+
+	f.runJob(10, 20, 0)
+	f.requireError("a swap that found nothing", errProcNoMaterial)
+}
+
 // TestAltSwapNeedsAFreePicker: a swap needs a picker of its own, on top of the
 // one carrying the job's material (§8). A picker left loaded by a manual
 // intervention is what this guards against, and the job is refused before the
