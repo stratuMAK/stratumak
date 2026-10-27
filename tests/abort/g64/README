@@ -12,8 +12,8 @@ are performed at various times relative to program execution:
    stat buffer)
 
 3) G64 tolerance settings:  Do programmed tolerance settings produce
-   expected motion, as evidenced by samples taken during program
-   execution?
+   expected motion, as evidenced by the furthest X position reached
+   during program execution (measured in the servo thread with minmax)?
 
 The .ngc program is aborted before ever reaching a G64 programmed at
 the end.  This demonstrates a bug caused by motion and interp running

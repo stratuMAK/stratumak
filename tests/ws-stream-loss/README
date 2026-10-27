@@ -1,0 +1,12 @@
+The sampler stream never loses samples silently.
+
+The RT sampler does not wait for its readers: one that falls more than the
+ring's depth behind loses the oldest samples.  That cannot be prevented, only
+made visible, so every segment on the wire carries the index of its first
+sample, and halsampler reports each gap on stderr, numbers its -t output across
+the gap, and exits 1.
+
+Two samplers record their own sample numbers, so every output line can be
+checked against its number.  "lossy" (ring of two, 100 us thread) loses samples
+on every poll; the test checks that the numbers skip exactly what stderr
+reports.  "roomy" (ring of ten seconds) must lose nothing.

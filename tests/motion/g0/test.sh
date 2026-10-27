@@ -78,8 +78,16 @@ sleep 0.5   # let the sampler subscribe before motion starts
     echo shutdown
 ) | python3 ../../rsh2gmi.py
 
+# halsampler ends cleanly on SIGTERM, and exits non-zero if it lost samples
+# (it names the gap on stderr): result.halsamples would have a hole in it.
 kill $samplerpid 2>/dev/null
-wait $samplerpid 2>/dev/null
+rc=0
+wait $samplerpid 2>/dev/null || rc=$?
+samplerpid=""
+if [ $rc != 0 ]; then
+    echo "error: halsampler failed (exit $rc)"
+    exit 1
+fi
 echo finished capturing data
 
 exit 0

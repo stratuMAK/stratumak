@@ -1,0 +1,11 @@
+# Two samplers record their own sample numbers, so every line halsampler prints
+# says which sample it is.  "lossy" has a ring of two on a 100 us thread: the
+# stream bridge polls about once a millisecond, so it loses samples all the
+# time.  "roomy" holds ten seconds and must lose none.
+load sampler <lossy> depth=2 cfg=s
+load sampler <roomy> depth=100000 cfg=s
+newthread fast 100000
+addf lossy fast
+addf roomy fast
+net lossy-num lossy.sample-num => lossy.pin.0
+net roomy-num roomy.sample-num => roomy.pin.0

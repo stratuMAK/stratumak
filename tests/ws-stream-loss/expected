@@ -1,0 +1,8 @@
+lossy: exit 1
+lossy: samples match their numbers
+lossy: missing some
+lossy: stderr accounts for every missing sample
+roomy: exit 0
+roomy: samples match their numbers
+roomy: missing none
+roomy: stderr accounts for every missing sample

@@ -121,7 +121,16 @@ hal_run() {
                  "$(( ticks / 10 ))s (missed subscription?)" >&2
             kill "$_HAL_SAMPLER_PID" 2>/dev/null
         fi
-        wait "$_HAL_SAMPLER_PID" 2>/dev/null
+        # halsampler exits non-zero when it lost samples (and says so on
+        # stderr): the result would be a record with a hole in it.
+        local rc=0
+        wait "$_HAL_SAMPLER_PID" 2>/dev/null || rc=$?
+        _HAL_SAMPLER_PID=""
+        if [ "$rc" != 0 ]; then
+            echo "hal-stream-driver: halsampler failed (exit $rc)" >&2
+            halcmd stop
+            exit 1
+        fi
     fi
     halcmd stop
 }
