@@ -123,3 +123,72 @@ func Encode(typeChar byte, token string) (uint64, error) {
 	}
 	return 0, fmt.Errorf("halstream: unknown pin type %q", string(typeChar))
 }
+
+// SegmentHeaderSize is the width of the header leading each sampler segment:
+// the little-endian uint32 index of the segment's first sample, then its
+// sample count (hal_stream_common.h HAL_SAMPLER_SEGMENT_HDR).
+const SegmentHeaderSize = 8
+
+// Segment is one run of consecutive samples in a sampler message.
+type Segment struct {
+	First uint32 // index of the first sample, as counted by the RT sampler
+	Count int
+	Data  []byte // Count samples of sampleSize bytes each
+}
+
+// SplitSegments splits a sampler message into its segments. sampleSize is the
+// width of one sample, len(types)*ValueSize. The sampler sends one segment per
+// message, but the framing is self-delimiting and any number of whole segments
+// is accepted.
+func SplitSegments(msg []byte, sampleSize int) ([]Segment, error) {
+	if sampleSize <= 0 {
+		return nil, fmt.Errorf("halstream: sample size %d", sampleSize)
+	}
+	var segs []Segment
+	for len(msg) > 0 {
+		if len(msg) < SegmentHeaderSize {
+			return nil, fmt.Errorf("halstream: %d stray bytes after the last segment", len(msg))
+		}
+		first := binary.LittleEndian.Uint32(msg)
+		count := int(binary.LittleEndian.Uint32(msg[4:]))
+		size := count * sampleSize
+		if count <= 0 || size/sampleSize != count || len(msg)-SegmentHeaderSize < size {
+			return nil, fmt.Errorf("halstream: segment of %d samples does not fit the %d bytes left",
+				count, len(msg)-SegmentHeaderSize)
+		}
+		segs = append(segs, Segment{First: first, Count: count, Data: msg[SegmentHeaderSize : SegmentHeaderSize+size]})
+		msg = msg[SegmentHeaderSize+size:]
+	}
+	return segs, nil
+}
+
+// Sequence follows the sample indices of one sampler connection and turns the
+// gaps between segments into a count of lost samples.
+type Sequence struct {
+	started bool
+	next    uint32 // index the next segment should start at
+	tag     uint64 // samples since the connection's first one, losses included
+}
+
+// Advance takes the next segment's position and returns how many samples were
+// lost right before it and the tag of its first sample: the number of samples
+// the sampler took between the connection's first sample and this one. Tags
+// do not wrap, and they jump by exactly the samples lost, so a consumer that
+// prints them shows where a gap is.
+//
+// A segment that starts before the previous one ended is a protocol error: the
+// RT sampler only ever moves forward.
+func (q *Sequence) Advance(seg Segment) (lost uint32, tag uint64, err error) {
+	if q.started {
+		lost = seg.First - q.next
+		if lost >= 1<<31 {
+			return 0, 0, fmt.Errorf("halstream: segment at sample %d, before the expected %d", seg.First, q.next)
+		}
+		q.tag += uint64(lost)
+	}
+	q.started = true
+	tag = q.tag
+	q.tag += uint64(seg.Count)
+	q.next = seg.First + uint32(seg.Count)
+	return lost, tag, nil
+}

@@ -2,7 +2,10 @@
 // License: GPL Version 2
 package halstream
 
-import "testing"
+import (
+	"encoding/binary"
+	"testing"
+)
 
 func TestParseHeader(t *testing.T) {
 	types, ok := ParseHeader([]byte("cfg:uffb"))
@@ -121,5 +124,80 @@ func TestHTTPToWS(t *testing.T) {
 		if got := HTTPToWS(tc.in); got != tc.want {
 			t.Errorf("HTTPToWS(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func segment(first, count uint32, sampleSize int) []byte {
+	b := make([]byte, SegmentHeaderSize+int(count)*sampleSize)
+	binary.LittleEndian.PutUint32(b, first)
+	binary.LittleEndian.PutUint32(b[4:], count)
+	for i := SegmentHeaderSize; i < len(b); i++ {
+		b[i] = byte(i)
+	}
+	return b
+}
+
+func TestSplitSegments(t *testing.T) {
+	const size = 16
+	msg := append(segment(7, 2, size), segment(9, 1, size)...)
+	segs, err := SplitSegments(msg, size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segs) != 2 || segs[0].First != 7 || segs[0].Count != 2 || len(segs[0].Data) != 2*size ||
+		segs[1].First != 9 || segs[1].Count != 1 || len(segs[1].Data) != size {
+		t.Fatalf("segments = %+v", segs)
+	}
+
+	for name, bad := range map[string][]byte{
+		"stray bytes":   append(segment(1, 1, size), 0, 0, 0),
+		"truncated":     segment(1, 2, size)[:SegmentHeaderSize+size],
+		"empty segment": segment(1, 0, size),
+	} {
+		if _, err := SplitSegments(bad, size); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+func TestSequence(t *testing.T) {
+	var q Sequence
+	steps := []struct {
+		first     uint32
+		count     int
+		lost      uint32
+		tag       uint64
+		wantError bool
+	}{
+		{first: 1000, count: 5, lost: 0, tag: 0},    // starts wherever the sampler is
+		{first: 1005, count: 3, lost: 0, tag: 5},    // contiguous
+		{first: 1100, count: 2, lost: 92, tag: 100}, // a gap: the tag jumps by the loss
+		{first: 1102, count: 1, lost: 0, tag: 102},  //
+		{first: 1050, count: 1, wantError: true},    // backwards
+	}
+	for i, s := range steps {
+		lost, tag, err := q.Advance(Segment{First: s.first, Count: s.count})
+		if s.wantError {
+			if err == nil {
+				t.Errorf("step %d: no error for a segment going backwards", i)
+			}
+			continue
+		}
+		if err != nil || lost != s.lost || tag != s.tag {
+			t.Errorf("step %d: lost=%d tag=%d err=%v, want lost=%d tag=%d", i, lost, tag, err, s.lost, s.tag)
+		}
+	}
+}
+
+// The RT index is a uint32 and wraps after 2^32 samples (~50 days at 1 kHz);
+// that is not a loss, and tags keep counting up.
+func TestSequenceWraps(t *testing.T) {
+	var q Sequence
+	if _, _, err := q.Advance(Segment{First: 0xfffffffe, Count: 2}); err != nil {
+		t.Fatal(err)
+	}
+	lost, tag, err := q.Advance(Segment{First: 0, Count: 1})
+	if err != nil || lost != 0 || tag != 2 {
+		t.Errorf("across the wrap: lost=%d tag=%d err=%v, want 0, 2, nil", lost, tag, err)
 	}
 }
