@@ -557,7 +557,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if !ok {
 		return faultf(errTrayFull, "station %d has no free slot besides the one this job emptied", t.cfg.ID)
 	}
-	if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
+	if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()+t.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.openAndCheck(pk); err != nil {
@@ -649,7 +649,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	if err := c.waitReleased(s, true); err != nil {
 		return err
 	}
-	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get()); err != nil {
+	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get() + s.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {

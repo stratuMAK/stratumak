@@ -171,6 +171,9 @@ type TrayStation struct {
 	ID      uint32
 	ZPick   float64
 
+	// ZPlaceOffset is Z_PLACE_OFFSET: added to the place stroke only (D31).
+	ZPlaceOffset float64
+
 	// DefaultTrayDef is the TrayDef id the station's tray-id pin is seeded
 	// with, or 0 for none. A station that only ever holds one tray geometry
 	// has nothing to select at runtime, and without a seed its selector would
@@ -196,6 +199,11 @@ type ProcStation struct {
 	ID      uint32
 	Pos     pnproute.Point
 	ZPick   float64
+
+	// ZPlaceOffset is Z_PLACE_OFFSET: how much higher a place stops than a
+	// pick (D31), so a part is set down onto the fixture rather than pushed
+	// into it. 0 (the default) places at the pick height, as before.
+	ZPlaceOffset float64
 
 	// ReleaseSettle is how long to wait, after the fixture has confirmed it
 	// released, before lifting the part out of it. A chuck's jaws keep moving
@@ -636,6 +644,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s := TrayStation{Section: sec}
 		s.ID = r.stationID(sec, "ID")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
+		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
 		if r.has(sec, "DEFAULT_TRAYDEF") {
 			// stationID's checks are the right ones: the key carries a
 			// TRAYDEF id, and 0 is as reserved here as it is there.
@@ -673,6 +682,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.Pos.X = r.lengthReq(sec, "X")
 		s.Pos.Y = r.lengthReq(sec, "Y")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
+		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
 		s.ReleaseSettle = r.duration(sec, "RELEASE_SETTLE", 0)
 		hasWaitX, hasWaitY := r.has(sec, "WAIT_X"), r.has(sec, "WAIT_Y")
 		if hasWaitX != hasWaitY {

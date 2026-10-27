@@ -321,7 +321,7 @@ func (c *control) checkReach(j *job) error {
 	type endpoint struct {
 		station uint32
 		pt      pnproute.Point
-		z       float64 // the deepest Z commanded there
+		z       float64 // a stroke Z commanded there (pick, and place if it differs)
 	}
 	var eps []endpoint
 	add := func(s *station) {
@@ -334,11 +334,20 @@ func (c *control) checkReach(j *job) error {
 			z := t.cfg.ZPick + t.pins.zOffset.Get()
 			for i := range t.slots {
 				eps = append(eps, endpoint{s.id, t.slotPos(i), z})
+				if t.cfg.ZPlaceOffset != 0 {
+					eps = append(eps, endpoint{s.id, t.slotPos(i), z + t.cfg.ZPlaceOffset})
+				}
 			}
 			return
 		}
 		p := s.proc
-		eps = append(eps, endpoint{s.id, p.cfg.Pos, p.cfg.ZPick + p.pins.zOffset.Get()})
+		z := p.cfg.ZPick + p.pins.zOffset.Get()
+		eps = append(eps, endpoint{s.id, p.cfg.Pos, z})
+		// The place stops at its own height (D31), which a negative offset
+		// puts below the pick's.
+		if p.cfg.ZPlaceOffset != 0 {
+			eps = append(eps, endpoint{s.id, p.cfg.Pos, z + p.cfg.ZPlaceOffset})
+		}
 		if p.cfg.HasWait {
 			eps = append(eps, endpoint{s.id, p.cfg.Wait, j.height})
 		}

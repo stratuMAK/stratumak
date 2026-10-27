@@ -142,6 +142,25 @@ func mustLoad(t *testing.T, text string) *Config {
 	return cfg
 }
 
+// TestLoadConfigPlaceOffset: Z_PLACE_OFFSET is read per tray and per process
+// station, in machine units like Z_PICK, and defaults to 0 (D31).
+func TestLoadConfigPlaceOffset(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	if cfg.Trays[0].ZPlaceOffset != 0 || cfg.Procs[0].ZPlaceOffset != 0 {
+		t.Errorf("Z_PLACE_OFFSET without the key = %g/%g, want 0/0",
+			cfg.Trays[0].ZPlaceOffset, cfg.Procs[0].ZPlaceOffset)
+	}
+
+	text := strings.Replace(stationSections, "Z_PICK = 2.5\n", "Z_PICK = 2.5\nZ_PLACE_OFFSET = 1.5\n", 1)
+	text = strings.Replace(text, "Z_PICK = 5.0\n", "Z_PICK = 5.0\nZ_PLACE_OFFSET = -0.5\n", 1)
+	cfg = mustLoad(t, trajSection+pnptaskSection+text)
+	if cfg.Trays[0].ZPlaceOffset != 1.5 || cfg.Procs[0].ZPlaceOffset != -0.5 {
+		t.Errorf("Z_PLACE_OFFSET = %g/%g, want 1.5/-0.5",
+			cfg.Trays[0].ZPlaceOffset, cfg.Procs[0].ZPlaceOffset)
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)

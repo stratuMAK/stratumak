@@ -464,6 +464,49 @@ func TestJobProcToTray(t *testing.T) {
 	f.consistently("avail ignores the job step", func() bool { return f.bit("tray.10.avail") })
 }
 
+// TestJobPlaceOffset: Z_PLACE_OFFSET lifts the place stroke and nothing else
+// (D31). The pick at either kind of station keeps Z_PICK + z-offset, the place
+// stops the offset above it, on top of the live z-offset pin.
+func TestJobPlaceOffset(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		// The world copies its station configs at load, so the offsets go
+		// there rather than through tweak.
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.trays[0].cfg.ZPlaceOffset = 1.5
+			m.world.procs[0].cfg.ZPlaceOffset = 2.0
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.proc().zOffset.Set(0.25)
+
+	// tray -> proc: pick at the tray's own height, place 2 mm above the
+	// station's (5.0 + 0.25).
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc")
+	moves := f.mot.moveList()
+	if zs := zAtXY(moves, 120, 430); len(zs) < 2 || zs[len(zs)-2] != 2.5 {
+		t.Errorf("tray pick Z sequence = %v, want ... 2.5 then the move height", zs)
+	}
+	if zs := zAtXY(moves, 300, 200); len(zs) < 2 || zs[len(zs)-2] != 7.25 {
+		t.Errorf("proc place Z sequence = %v, want ... 7.25 then the move height", zs)
+	}
+
+	// proc -> tray: pick at the station's height, place 1.5 mm above the
+	// tray's -- into the slot the first job emptied.
+	f.runJob(20, 10, 1)
+	f.requireOK("proc -> tray")
+	moves = f.mot.moveList()
+	if zs := zAtXY(moves, 300, 200); len(zs) < 2 || zs[len(zs)-2] != 5.25 {
+		t.Errorf("proc pick Z sequence = %v, want ... 5.25 then the move height", zs)
+	}
+	if zs := zAtXY(moves, 120, 430); len(zs) < 2 || zs[len(zs)-2] != 4.0 {
+		t.Errorf("tray place Z sequence = %v, want ... 4 then the move height", zs)
+	}
+}
+
 // TestJobUsesTheHoldingPicker pins D20 on the single-picker engine: the place is
 // performed by the picker the world says holds the job's material, with that
 // picker's offsets — not by picker 0 by construction. Picker 1 is the only free
