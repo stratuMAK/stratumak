@@ -1483,6 +1483,85 @@ func TestJobWaitZoneAbortedByAutoEnable(t *testing.T) {
 	}
 }
 
+// TestJobBusyWaitAbortedByWaitAbort: wait-abort ends a wait at a taught wait
+// position the way auto-enable going low does (D33) -- WAIT_ABORTED, the
+// picker keeps its material -- but the machine stays in auto mode, so the
+// next job is taken at once.
+func TestJobBusyWaitAbortedByWaitAbort(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.setBit(f.proc().busy, true)
+
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.startJob.Set(true)
+	f.eventually("arrival at the wait position", func() bool {
+		return len(zAtXY(f.mot.moveList(), 250, 150)) > 0
+	})
+
+	f.setBit(f.m.pins.waitAbort, true)
+	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireError("wait-abort during the wait", errWaitAborted)
+	f.setBit(f.m.pins.waitAbort, false)
+
+	if !f.bit("picker.0.close") {
+		t.Error("the picker released its material when the wait was aborted")
+	}
+	if f.bit("proc.20.has-material") {
+		t.Error("the station reports material although the place never happened")
+	}
+
+	// Still in auto mode: after the reset the material goes on, its pick
+	// skipped, to the station that has cleared meanwhile.
+	f.clearError()
+	f.setBit(f.proc().busy, false)
+	f.runJob(10, 20, 0)
+	f.requireOK("the job after the abort")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the held material was not placed by the next job")
+	}
+}
+
+// TestJobWaitAbortIgnoredWithoutAWait: wait-abort only ends a wait. A job
+// that never has to wait runs to its end with the pin high.
+func TestJobWaitAbortIgnoredWithoutAWait(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.setBit(f.m.pins.waitAbort, true)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a job with wait-abort high and nothing to wait for")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds nothing after the place")
+	}
+}
+
+// TestJobWaitZoneAbortedByWaitAbort: the streamed approach (D29) ends the leg
+// in flight on wait-abort too, without going near the station.
+func TestJobWaitZoneAbortedByWaitAbort(t *testing.T) {
+	f := newWaitZoneFixture(t)
+	f.mot.setMoveCycles(40)
+	startCamPick(f)
+
+	f.eventually("the first leg to be dispatched", func() bool {
+		return atWaitZone(f.mot.moveList())
+	})
+	f.setBit(f.m.pins.waitAbort, true)
+	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireError("wait-abort during the streamed wait", errWaitAborted)
+
+	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
+		t.Error("the head drove into the station after the wait was aborted")
+	}
+	if !f.mot.called("Abort") {
+		t.Error("the leg in flight was not aborted when the wait was")
+	}
+}
+
 // waitZoneEdgeSections is waitZoneSections with the station 5 mm inside the
 // zone's drawn edge (x = 450): inside for the picker at no offset, and carried
 // out of even the clearance-grown zone (x = 440) by a 40 mm x-offset.

@@ -123,6 +123,7 @@ type inputs struct {
 	estop      bool
 	machineOn  bool
 	autoEnable bool
+	waitAbort  bool
 	home       bool
 	errorReset bool
 
@@ -475,6 +476,7 @@ func (c *control) sample() {
 	c.in.estop = p.estopOn.Get()
 	c.in.machineOn = p.machineOn.Get()
 	c.in.autoEnable = p.autoEnable.Get()
+	c.in.waitAbort = p.waitAbort.Get()
 	c.in.home = p.home.Get()
 	c.in.errorReset = p.errorReset.Get()
 	// start-job is read BEFORE the parameters it carries, and that order matters:

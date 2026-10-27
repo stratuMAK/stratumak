@@ -319,6 +319,7 @@ func (c *control) checkClearScene(s *procState) error {
 //
 // auto-enable going low aborts the wait (D15): the operator wants the machine to
 // hand over to manual, and a job parked over a station forever is not a handover.
+// wait-abort does the same in auto mode (D33).
 // The picker keeps holding its material for exactly that manual handling. On the
 // streamed approach the abort can land while the first leg is still running;
 // streamedApproach stops that leg on the way out — nothing else would, the
@@ -353,6 +354,12 @@ func (c *control) awaitClear(s *procState, atWait bool) (stopped bool, err error
 		if !c.in.autoEnable {
 			return stopped, faultf(errWaitAborted,
 				"station %d: the wait was aborted by auto-enable going low", s.cfg.ID)
+		}
+		// D33: the same end, asked for without leaving auto mode -- so the
+		// PLC can send the machine somewhere else (park) right after.
+		if c.in.waitAbort {
+			return stopped, faultf(errWaitAborted,
+				"station %d: the wait was aborted by wait-abort", s.cfg.ID)
 		}
 		if !c.tick() {
 			return stopped, errStopping
