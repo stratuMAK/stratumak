@@ -52,7 +52,6 @@ func (g *streamServerGoGen) generate() error {
 	for _, ss := range g.api.StreamServers {
 		g.emitStreamServerType(ss)
 		g.emitServeConn(ss)
-		g.emitHandleDataReceived(ss)
 	}
 
 	g.emitRegisterStreams()
@@ -117,22 +116,9 @@ func (g *streamServerGoGen) emitCallWrapper(ss ast.StreamServer, fn ast.StreamFu
 }
 
 func (g *streamServerGoGen) emitImports() {
-	// Check if any stream server uses poll_transmit (needs time package)
-	needsTime := false
-	for _, ss := range g.api.StreamServers {
-		for _, fn := range ss.Funcs {
-			if fn.Name == "poll_transmit" {
-				needsTime = true
-			}
-		}
-	}
-
 	g.printf("import (\n")
 	g.printf("\t\"sync\"\n")
 	g.printf("\t\"sync/atomic\"\n")
-	if needsTime {
-		g.printf("\t\"time\"\n")
-	}
 	g.printf("\t\"unsafe\"\n")
 	g.printf("\n")
 	g.printf("\t\"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver\"\n")
@@ -140,9 +126,6 @@ func (g *streamServerGoGen) emitImports() {
 	g.printf("var _ unsafe.Pointer\n")
 	g.printf("var _ sync.Mutex\n")
 	g.printf("var _ atomic.Uint32\n")
-	if needsTime {
-		g.printf("var _ time.Duration\n")
-	}
 	g.printf("\n")
 }
 
@@ -200,77 +183,20 @@ func (g *streamServerGoGen) emitServeConn(ss ast.StreamServer) {
 	g.printf("\t}\n")
 	g.printf("\n")
 
+	// The loops themselves are shared runtime (apiserver.PumpTransmit,
+	// apiserver.PumpReceive); only the call into the module is per stream.
 	if hasPollTransmit {
-		// Transmit loop: poll C for data, send to client
-		g.printf("\tbuf := make([]byte, 4096)\n")
-		g.printf("\tfor {\n")
-		g.printf("\t\tselect {\n")
-		g.printf("\t\tcase <-conn.Done():\n")
-		g.printf("\t\t\treturn\n")
-		g.printf("\t\tdefault:\n")
-		g.printf("\t\t}\n")
-		g.printf("\t\tn := C.%s_call_poll_transmit(s.cb, C.uint32_t(connID),\n", ss.Name)
-		g.printf("\t\t\tunsafe.Pointer(&buf[0]), C.int32_t(len(buf)))\n")
-		g.printf("\t\tif n < 0 {\n")
-		g.printf("\t\t\tbreak\n")
-		g.printf("\t\t}\n")
-		g.printf("\t\tif n == 0 {\n")
-		g.printf("\t\t\tselect {\n")
-		g.printf("\t\t\tcase <-conn.Done():\n")
-		g.printf("\t\t\t\treturn\n")
-		g.printf("\t\t\tcase <-time.After(time.Millisecond):\n")
-		g.printf("\t\t\t}\n")
-		g.printf("\t\t\tcontinue\n")
-		g.printf("\t\t}\n")
-		g.printf("\t\tif err := conn.WriteBinary(buf[:n]); err != nil {\n")
-		g.printf("\t\t\tbreak\n")
-		g.printf("\t\t}\n")
-		g.printf("\t}\n")
+		g.printf("\tapiserver.PumpTransmit(conn, func(buf []byte) int {\n")
+		g.printf("\t\treturn int(C.%s_call_poll_transmit(s.cb, C.uint32_t(connID),\n", ss.Name)
+		g.printf("\t\t\tunsafe.Pointer(&buf[0]), C.int32_t(len(buf))))\n")
+		g.printf("\t})\n")
 	} else if hasDataReceived {
-		// Receive loop: read from client, pass to C
-		g.printf("\tfor {\n")
-		g.printf("\t\tdata, err := conn.ReadBinary()\n")
-		g.printf("\t\tif err != nil {\n")
-		g.printf("\t\t\tbreak\n")
-		g.printf("\t\t}\n")
-		g.printf("\t\tif len(data) == 0 {\n")
-		g.printf("\t\t\tcontinue\n")
-		g.printf("\t\t}\n")
-		g.printf("\t\tret := C.%s_call_data_received(s.cb, C.uint32_t(connID),\n", ss.Name)
-		g.printf("\t\t\tunsafe.Pointer(&data[0]), C.int32_t(len(data)))\n")
-		g.printf("\t\tif ret < 0 {\n")
-		g.printf("\t\t\tbreak\n")
-		g.printf("\t\t}\n")
-		g.printf("\t}\n")
+		g.printf("\tapiserver.PumpReceive(conn, func(data []byte) int {\n")
+		g.printf("\t\treturn int(C.%s_call_data_received(s.cb, C.uint32_t(connID),\n", ss.Name)
+		g.printf("\t\t\tunsafe.Pointer(&data[0]), C.int32_t(len(data))))\n")
+		g.printf("\t})\n")
 	}
 
-	g.printf("}\n\n")
-}
-
-func (g *streamServerGoGen) emitHandleDataReceived(ss ast.StreamServer) {
-	typeName := streamGoTypeName(ss.Name)
-
-	// Check if this stream has data_received
-	hasDataReceived := false
-	for _, fn := range ss.Funcs {
-		if fn.Name == "data_received" {
-			hasDataReceived = true
-			break
-		}
-	}
-
-	if !hasDataReceived {
-		return
-	}
-
-	g.printf("// HandleData passes received data to the C callback for a connection.\n")
-	g.printf("func (s *%s) HandleData(connID uint32, data []byte) int {\n", typeName)
-	g.printf("\tif len(data) == 0 {\n")
-	g.printf("\t\treturn 0\n")
-	g.printf("\t}\n")
-	g.printf("\tret := C.%s_call_data_received(s.cb, C.uint32_t(connID),\n", ss.Name)
-	g.printf("\t\tunsafe.Pointer(&data[0]), C.int32_t(len(data)))\n")
-	g.printf("\treturn int(ret)\n")
 	g.printf("}\n\n")
 }
 
