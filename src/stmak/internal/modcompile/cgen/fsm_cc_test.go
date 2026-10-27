@@ -196,3 +196,100 @@ function _;
 		})
 	}
 }
+
+// An output pin is written once per run, by <fsm>_publish at its end, never
+// with the default first and the state's value after: a reader outside the
+// thread (a userspace task, halui) would see the default in between, as a
+// pulse low on a held output.  Checked on the preprocessed C, so the macro
+// redirection is what is tested, for a scalar pin and a pin array element.
+func TestFSMOutputPinsWrittenOnce(t *testing.T) {
+	gcc, err := exec.LookPath("gcc")
+	if err != nil {
+		t.Skip("no gcc")
+	}
+	const src = `component once "fsm output write test";
+pin in bit a;
+pin out bit o;
+pin out bit arr-#[2];
+pin out bit u;
+function _;
+fsm m {
+    inputs: a;
+    outputs: o, arr(1);
+    state IDLE { on (a) -> RUN { o = 1; } }
+    state RUN { output { o = 1; arr(1) = 1; } on (!a) -> IDLE; }
+};
+;;
+FUNCTION(_) { m(); u = o; arr(0) = 1; }
+`
+	pkg, err := comp.Parse("once.comp", src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	dir := t.TempDir()
+	cfile := filepath.Join(dir, "once.c")
+	var buf bytes.Buffer
+	if err := GenerateTo(&buf, pkg, cfile); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if err := os.WriteFile(cfile, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"-E", "-P"}
+	for _, inc := range fsmCCIncludes {
+		if _, err := os.Stat(inc); err != nil {
+			t.Skipf("no header directory %s", inc)
+		}
+		args = append(args, "-I"+inc)
+	}
+	out, err := exec.Command(gcc, append(args, cfile)...).Output()
+	if err != nil {
+		t.Fatalf("gcc -E: %v", err)
+	}
+	pp := string(out)
+	// The body of a function: from its definition -- the occurrence whose
+	// line opens a brace -- to its closing brace, or the end of its line
+	// for a one-liner.
+	body := func(name string) string {
+		for i := 0; ; {
+			j := strings.Index(pp[i:], name+"(inst_t *__comp_inst")
+			if j < 0 {
+				t.Fatalf("%s: no definition", name)
+			}
+			i += j
+			line := pp[i:]
+			if k := strings.IndexByte(line, '\n'); k >= 0 {
+				line = line[:k]
+			}
+			if strings.Contains(line, "{") {
+				if strings.HasSuffix(strings.TrimSpace(line), "}") {
+					return line
+				}
+				return pp[i : i+strings.Index(pp[i:], "\n}")]
+			}
+			i += len(name)
+		}
+	}
+	for _, w := range []struct{ store, what string }{
+		{"(*(__comp_inst->hal->o)) =", "o"},
+		{"(*(__comp_inst->hal->arr[1])) =", "arr(1)"},
+	} {
+		if n := strings.Count(pp, w.store); n != 1 {
+			t.Errorf("%s is stored %d times, want once (in m's publish)", w.what, n)
+		}
+		if !strings.Contains(body("__fsm_m_publish"), w.store) {
+			t.Errorf("%s is not stored by __fsm_m_publish", w.what)
+		}
+	}
+	run := body("m_run")
+	if strings.Count(run, "__fsm_m_publish(__comp_inst)") != 1 {
+		t.Errorf("m_run does not publish exactly once:\n%s", run)
+	}
+	// User code sees the pins: u reads o's pin, arr(0) is not an output.
+	fn := body("funct___body")
+	for _, want := range []string{"(*(__comp_inst->hal->o))", "(*(__comp_inst->hal->arr[0])) = 1"} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("user code does not use the pin %q:\n%s", want, fn)
+		}
+	}
+}

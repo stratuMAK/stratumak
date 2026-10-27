@@ -578,6 +578,14 @@ While reset is held, the outputs therefore show the initial state; user code tha
 calls `NAME_reset_outputs()` after the run.
 Each block runs as a function of its own: `return` ends the block, and a transition still completes.
 
+An output pin is written once per run, at its end, with the value the run decided.
+The machine's own code -- its blocks, conditions and run -- works on a copy of each output pin, and the run
+copies it to the pin after `output`. Written straight to the pin, the default from the start of the run would be
+visible to a reader outside the thread (a userspace task, halui, the REST API) until `output` set the pin again:
+a held output would read as a short pulse low, and a level that something takes edges from -- a machine-on,
+a program run -- would be a fresh edge. User code after `;;` and the other machines see the pins.
+Output variables are written directly; they have no readers outside the component.
+
 An internal `on` is a guard that holds the state up. A fault that must stop progress until it clears
 is written once, ahead of the transition it holds back:
 
@@ -630,7 +638,7 @@ Since the timer and the timeout are floating point, a function running an `fsm` 
 * `NAME_in(STATE)` - true while the machine is in `STATE`, e.g. `enable: (mode_in(RUNNING));` in another machine.
 * `NAME_STATE` - the number of each state, as an enum constant.
 * `NAME_state_name(n)` - the name of state number `n`, for messages.
-* `NAME_reset_outputs()` - sets every 'outputs' entry to its default, as a run does first.
+* `NAME_reset_outputs()` - sets every 'outputs' entry to its default, as a run does first, and writes the pins at once.
   For user code that must clear the outputs after the run, e.g. at machine off, without writing them one by one.
   State, timer, 'latched' and 'persistent' entries are not touched.
 

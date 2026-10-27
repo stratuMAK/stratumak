@@ -110,6 +110,24 @@ type fsmLowering struct {
 	pre, epi *fragBuf
 	// action maps each transition with an action block to its helper.
 	action map[*fsmTrans]string
+	// shadows are the output pins, each written through a shadow (below).
+	shadows []outShadow
+}
+
+// outShadow is an output pin, or one element of a pin array, and the hidden
+// variable that stands in for it while the fsm runs.
+//
+// A run sets every output to its default and then the current state's
+// output block sets it again.  Written straight to the pin, a reader outside
+// the thread -- a userspace task, halui, the REST API -- can see the default
+// in between: a held output reads as a short pulse low, and a level that
+// something takes edges from (a machine-on, a program run) is a fresh edge.
+// So the fsm's own code writes the shadow, and the run copies it to the pin
+// once, at its end: the pin only ever changes to the value the run decided.
+type outShadow struct {
+	ref    fsmRef
+	ctype  string // the HAL value type
+	shadow string // the hidden variable
 }
 
 // expr emits '(' user expression ')'.
@@ -177,6 +195,20 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	if f.StateVar == nil || f.StateIO {
 		hidden = append(hidden, ast.Variable{Pos: f.Pos, CType: "int", Name: stateVar})
 	}
+	// A shadow per output pin; variables are not shared, they need none.
+	syms := buildSymbols(comp)
+	for _, d := range f.Outputs {
+		s := syms[d.Name]
+		if s == nil || s.Kind != symPin {
+			continue
+		}
+		name := hid + "_o_" + d.Name
+		if d.Kind == refPinElem {
+			name = fmt.Sprintf("%s_%d", name, d.Index)
+		}
+		l.shadows = append(l.shadows, outShadow{ref: d.fsmRef, ctype: s.Type.CType(), shadow: name})
+		hidden = append(hidden, ast.Variable{Pos: f.Pos, CType: s.Type.CType(), Name: name})
+	}
 	comp.Variables = append(comp.Variables, hidden...)
 
 	// Prologue: what user code may name.
@@ -201,6 +233,7 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 	// user's helpers.
 	epi := l.epi
 	epi.gen("/* fsm %s (%s) */\n", n, f.Pos)
+	l.redirectOutputs()
 	epi.gen("static const char *%s_state_name(int s) {\n", n)
 	epi.gen("    switch (s) {\n")
 	for _, s := range f.States {
@@ -276,10 +309,17 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 			epi.gen(";\n")
 		}
 	}
-	// The outputs to their defaults: step 1 of a run, and <fsm>_reset_outputs().
-	epi.gen("static void %s(inst_t *__comp_inst, long period) {\n", f.resetOutputsName())
+	// The outputs to their defaults: step 1 of a run.  Through the shadows:
+	// the pins are written once, by publishOutputs.
+	epi.gen("static void %s_defaults(inst_t *__comp_inst, long period) STMAK_NONBLOCKING __attribute__((unused));\n", hid)
+	epi.gen("static void %s_defaults(inst_t *__comp_inst, long period) {\n", hid)
 	epi.gen("    (void)__comp_inst; (void)period;\n")
 	writeDefaults("    ", f.Outputs)
+	epi.gen("}\n\n")
+	// <fsm>_reset_outputs(): the defaults, published at once.
+	epi.gen("static void %s(inst_t *__comp_inst, long period) {\n", f.resetOutputsName())
+	epi.gen("    %s_defaults(__comp_inst, period);\n", hid)
+	epi.gen("    %s_publish(__comp_inst);\n", hid)
 	epi.gen("}\n\n")
 
 	epi.gen("static void %s_run(inst_t *__comp_inst, long period) {\n", n)
@@ -294,7 +334,7 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		epi.gen("    const int __rst = 0;\n")
 	}
 	// 1. Outputs to their defaults, every run.
-	epi.gen("    %s(__comp_inst, period);\n", f.resetOutputsName())
+	epi.gen("    %s_defaults(__comp_inst, period);\n", hid)
 
 	// publish writes an io state_var from the hidden state.
 	publish := func(indent string) {
@@ -406,7 +446,83 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 
 	// 7. Output of the current state, enabled or not.
 	helperSwitch("    ", "output", kinds[3].blk)
+
+	// 8. The outputs to their pins, once.
+	epi.gen("    %s_publish(__comp_inst);\n", hid)
 	epi.gen("}\n\n")
+	l.restoreOutputs()
+}
+
+// redirectOutputs points the macros of the output pins at their shadows for
+// the fsm's own code: its helpers, its blocks and its run.  restoreOutputs
+// puts them back, so user code and the other fsms see the pins.  A pin array
+// with some elements in the outputs goes through an accessor that picks the
+// shadow for those and the pin for the rest.
+//
+// <fsm>_publish, which copies the shadows to the pins, and the accessors
+// come first: the pin and variable names are macros, so they have to be
+// spelled while the pin macros are still the pins.
+func (l *fsmLowering) redirectOutputs() {
+	epi, hid := l.epi, l.f.hidden()
+	epi.gen("static void %s_publish(inst_t *__comp_inst) STMAK_NONBLOCKING __attribute__((unused));\n", hid)
+	epi.gen("static void %s_publish(inst_t *__comp_inst) {\n", hid)
+	epi.gen("    (void)__comp_inst;\n")
+	for _, o := range l.shadows {
+		epi.gen("    %s = %s;\n", o.ref.String(), o.shadow)
+	}
+	epi.gen("}\n\n")
+	if len(l.shadows) == 0 {
+		return
+	}
+	var arrays []string
+	elems := map[string][]outShadow{}
+	for _, o := range l.shadows {
+		if o.ref.Kind != refPinElem {
+			continue
+		}
+		if _, ok := elems[o.ref.Name]; !ok {
+			arrays = append(arrays, o.ref.Name)
+		}
+		elems[o.ref.Name] = append(elems[o.ref.Name], o)
+	}
+	for _, a := range arrays {
+		ctype := elems[a][0].ctype
+		epi.gen("static %s *%s_oref_%s(inst_t *__comp_inst, int __i) STMAK_NONBLOCKING __attribute__((unused));\n", ctype, hid, a)
+		epi.gen("static %s *%s_oref_%s(inst_t *__comp_inst, int __i) {\n", ctype, hid, a)
+		epi.gen("    switch (__i) {\n")
+		for _, o := range elems[a] {
+			epi.gen("    case %d: return &%s;\n", o.ref.Index, o.shadow)
+		}
+		epi.gen("    default: return &%s(__i);\n    }\n}\n", a)
+	}
+	done := map[string]bool{}
+	for _, o := range l.shadows {
+		if done[o.ref.Name] {
+			continue
+		}
+		done[o.ref.Name] = true
+		epi.gen("#pragma push_macro(\"%s\")\n#undef %s\n", o.ref.Name, o.ref.Name)
+		if o.ref.Kind == refPinElem {
+			epi.gen("#define %s(__i) (*%s_oref_%s(__comp_inst, (__i)))\n", o.ref.Name, hid, o.ref.Name)
+		} else {
+			epi.gen("#define %s %s\n", o.ref.Name, o.shadow)
+		}
+	}
+	epi.gen("\n")
+}
+
+func (l *fsmLowering) restoreOutputs() {
+	done := map[string]bool{}
+	for _, o := range l.shadows {
+		if done[o.ref.Name] {
+			continue
+		}
+		done[o.ref.Name] = true
+		l.epi.gen("#pragma pop_macro(\"%s\")\n", o.ref.Name)
+	}
+	if len(l.shadows) > 0 {
+		l.epi.gen("\n")
+	}
 }
 
 // lowerFSMs generates the code for every fsm block.
