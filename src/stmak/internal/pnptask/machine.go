@@ -124,6 +124,7 @@ type inputs struct {
 	machineOn  bool
 	autoEnable bool
 	waitAbort  bool
+	park       bool
 	home       bool
 	errorReset bool
 
@@ -221,6 +222,11 @@ type control struct {
 	// jogged (0 = not jogging), so a held pin does not re-issue JogCont every
 	// cycle and a released one aborts exactly once.
 	jogDir []int
+
+	// parked: the last motion this module commanded was a completed park
+	// (D34). Anything that moves the head again, or takes the machine off,
+	// clears it.
+	parked bool
 
 	// cmdPos is the position the module has commanded so far, tracked so a
 	// route's segments can be dispatched back to back without waiting for status
@@ -477,6 +483,7 @@ func (c *control) sample() {
 	c.in.machineOn = p.machineOn.Get()
 	c.in.autoEnable = p.autoEnable.Get()
 	c.in.waitAbort = p.waitAbort.Get()
+	c.in.park = p.park.Get()
 	c.in.home = p.home.Get()
 	c.in.errorReset = p.errorReset.Get()
 	// start-job is read BEFORE the parameters it carries, and that order matters:
@@ -548,6 +555,8 @@ func (c *control) sample() {
 	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn && !c.in.estop)
 	c.rise.home = c.rise.home ||
 		(c.in.home && !c.prev.home && !c.in.estop && !c.m.pins.busy.Get())
+	c.rise.park = c.rise.park ||
+		(c.in.park && !c.prev.park && !c.in.estop && !c.m.pins.busy.Get())
 	c.rise.errorReset = c.rise.errorReset ||
 		(c.in.errorReset && !c.prev.errorReset && c.m.pins.errorFlag.Get())
 	manualOK := !c.in.estop && !c.in.autoEnable
@@ -639,6 +648,7 @@ func (c *control) sample() {
 func (c *control) primeEdges() {
 	p := c.m.pins
 	c.in.home = p.home.Get()
+	c.in.park = p.park.Get()
 	c.in.errorReset = p.errorReset.Get()
 	for i := range p.pickers {
 		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
@@ -708,6 +718,9 @@ func (c *control) step() {
 		for i := range c.rise.pickerOpen {
 			c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 		}
+		if take(&c.rise.park) {
+			c.runParkRequest()
+		}
 		if c.jobRequest() {
 			// The job runs to completion inside this call, ticking this same
 			// loop: that is what makes an estop end it wherever it is (§6.5).
@@ -717,6 +730,9 @@ func (c *control) step() {
 	}
 	c.manualPickers()
 	c.jog()
+	if take(&c.rise.park) {
+		c.raise(faultf(errAutoDisabled, "park while auto-enable is low"))
+	}
 	if c.jobRequest() {
 		// §6.4: in manual mode a job request is refused, latched like any other
 		// error, and the handshake is completed so the PLC is not left waiting —
@@ -779,6 +795,8 @@ func (c *control) enterEstop() {
 	// is valid in estop, and its gate (a fault was latched) still held.
 	c.rise.machineOn = false
 	c.rise.home = false
+	c.rise.park = false
+	c.parked = false
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -837,6 +855,7 @@ func (c *control) enable() error {
 // under control instead of being cut loose mid-move. The picker outputs are
 // deliberately untouched (D14).
 func (c *control) disable(reason string) {
+	c.parked = false
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -884,6 +903,8 @@ func (c *control) motionLost() {
 	// clearing; error-reset survives for the same reason it survives there).
 	c.rise.machineOn = false
 	c.rise.home = false
+	c.rise.park = false
+	c.parked = false
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -957,6 +978,7 @@ func (c *control) publish() {
 	p := c.m.pins
 	p.machineIsOn.Set(c.enabled && !c.estopped)
 	p.homed.Set(c.allHomed())
+	p.parked.Set(c.parked && c.enabled && !c.estopped)
 	// Each tray publishes against its OWN step, not the job request pin: a
 	// sequencer varies the job step from leg to leg, and outputs that followed
 	// it would change meaning in the middle of a cascade.
@@ -1058,6 +1080,7 @@ func (c *control) runHoming() error {
 	if err := c.setMotionMode(motstat.MOTION_FREE); err != nil {
 		return err
 	}
+	c.parked = false
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1185,6 +1208,7 @@ func (c *control) jog() {
 			}
 			return
 		}
+		c.parked = false
 		if err := c.m.mc.JogCont(j.axis.Index, float64(dir)*vel, 1); err != nil {
 			c.raise(faultf(errMotionError, "jogging axis %c: %v", j.axis.Letter, err))
 			return

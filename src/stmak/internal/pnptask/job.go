@@ -128,6 +128,7 @@ func (c *control) runJobHandshake() {
 	}
 
 	c.m.pins.busy.Set(true)
+	c.parked = false
 	err := c.runJob()
 
 	// The diagnosis is published *before* the handshake completes: busy going low

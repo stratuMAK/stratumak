@@ -51,6 +51,8 @@ const (
 	// dispatched against a different one — and a PLANNING_FAILED would send the
 	// operator looking for a blocked route instead of a PLC sequencing bug.
 	errWaitSceneMismatch errorID = 25
+
+	errParkNotConfigured errorID = 26 // park requested, no [PNPTASK]PARK_X/Y/Z (D34)
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -82,6 +84,7 @@ var errorNames = map[errorID]string{
 	errPickerOpenFail:        "PICKER_OPEN_FAILED",
 	errUnreachable:           "TARGET_UNREACHABLE",
 	errWaitSceneMismatch:     "WAIT_SCENE_MISMATCH",
+	errParkNotConfigured:     "PARK_NOT_CONFIGURED",
 }
 
 func (id errorID) String() string {

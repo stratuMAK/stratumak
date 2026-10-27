@@ -81,6 +81,13 @@ type Config struct {
 	ReleaseTimeout float64
 	HomeTimeout    float64
 
+	// Park is [PNPTASK]PARK_X/PARK_Y, a machine position, and ParkZ its
+	// PARK_Z (D34): where the park request sends the head. HasPark says the
+	// three keys were given; they come together or not at all.
+	Park    pnproute.Point
+	ParkZ   float64
+	HasPark bool
+
 	// DeadzoneFiles are the resolved absolute paths of the DXF files, in INI
 	// line order — that order is what the deadzone-select pin indexes.
 	DeadzoneFiles []string
@@ -361,6 +368,16 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
 	cfg.ReleaseTimeout = r.duration(sec, "RELEASE_TIMEOUT", defaultReleaseTimeout)
 	cfg.HomeTimeout = r.duration(sec, "HOME_TIMEOUT", defaultHomeTimeout)
+	hasPX, hasPY, hasPZ := r.has(sec, "PARK_X"), r.has(sec, "PARK_Y"), r.has(sec, "PARK_Z")
+	if hasPX != hasPY || hasPX != hasPZ {
+		return nil, fmt.Errorf("[%s]: PARK_X, PARK_Y and PARK_Z must be given together", sec)
+	}
+	if hasPX {
+		cfg.HasPark = true
+		cfg.Park.X = r.lengthReq(sec, "PARK_X")
+		cfg.Park.Y = r.lengthReq(sec, "PARK_Y")
+		cfg.ParkZ = r.lengthReq(sec, "PARK_Z")
+	}
 	// [JOINT_n]HOME is otherwise motsetup's business; the X/Y values are read
 	// here too because the homed position is where the first job's route
 	// starts (see Config.Home). Absent keys default to 0, exactly as motmod

@@ -51,6 +51,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D31 | Place height (2026-10-27) | Every tray and process station takes an optional `Z_PLACE_OFFSET` (machine units, default 0): added to the **place** stroke only, on top of `Z_PICK` + `z-offset`. Positive is higher — the part is set down onto the fixture rather than pushed into it, the gripper's fingers clear of its seat. Pick and swap removal keep the pick height. Job accept checks the place height against the axis limits next to the pick height (D28). |
 | D32 | Probing swap (2026-10-27) | A process station with `PROBE_SWAP = 1` is swapped at on **every** place, whatever `has-material` says: the free picker goes in first and closes. A part there — one put in by hand, or left from before a model reset — comes out as an ordinary §8 swap (record, obligation). An empty grip is an answer, not `PROC_NO_MATERIAL`: the picker opens, `has-material` stays low, no record is written and the place goes on, so placing onto an occupant the model does not know about cannot happen. It also covers the inverse, the model occupied and the fixture empty. A re-seat (a job from the station to itself with its own pick) needs no probe. Requires `pickers=2`; with one picker the load fails. |
 | D33 | Wait abort (2026-10-27) | A `wait-abort` input ends a busy-station wait (D15, D29's streamed approach included) exactly as `auto-enable` going low does — `WAIT_ABORTED`, the leg in flight stopped, the picker keeping its material — but **without leaving auto mode**, so the PLC can reset the error and send the next request (a park, the same material elsewhere) at once. A level, held until the job has ended; it touches nothing but a wait, so a job that never has to wait runs to its end with it high. Amends D16: besides estop and machine-off, a wait is the one place a job can be ended on request. |
+| D34 | Park (2026-10-27) | `[PNPTASK]PARK_X/PARK_Y/PARK_Z` (together or not at all) name a **machine** position, and a `park` input sends the head there: rising edge, auto mode only (in manual mode it is `AUTO_DISABLED`, like a job), refused while an error is latched. Not a job — no material, no station — but planned like one: retract to `MOVE_HEIGHT`, a route around the dead zones of the current scene, a Z stroke to `PARK_Z`. `busy` is high for its duration; `parked` rises when it has arrived and drops at the next motion of any kind (job, jog, homing) and with the machine. Without the keys a request is `PARK_NOT_CONFIGURED` (26). The point is checked at load against **every** drawing, not just one as a station is (§5.1): a head parked to be out of the way must be out of the way whatever the other scene is about to move. |
 
 ---
 
@@ -302,6 +303,9 @@ PICK_SETTLE_TIME = 0.1
 RELEASE_TIME = 0.1
 RELEASE_TIMEOUT = 5.0         # wait for proc-station 'released'; 0 = forever
 HOME_TIMEOUT = 30.0
+PARK_X = 50.0                 # optional park position (D34), machine
+PARK_Y = 50.0                 #   coordinates, all three or none; usable in
+PARK_Z = 20.0                 #   every dead-zone drawing
 DEADZONE_FILE = zones_a.dxf   # repeated key (GetAll); line order = selector value 0,1,…
 DEADZONE_FILE = zones_b.dxf
 
@@ -392,6 +396,8 @@ normalized to HAL-conventional dashes.
 | `machine-is-on` | bit | out | motion enabled and not estopped |
 | `auto-enable` | bit | in | high = auto mode (jobs accepted); low = manual mode (§6.4) |
 | `wait-abort` | bit | in | level: ends a busy-station wait with `WAIT_ABORTED`, staying in auto mode (D33) |
+| `park` | bit | in | rising edge, auto mode: drive to `PARK_X/Y/Z` (D34) |
+| `parked` | bit | out | standing at the park position; drops at the next motion and with the machine (D34) |
 | `jog-<a>-pos`, `jog-<a>-neg` | bit | in | per axis `a` ∈ COORDINATES (`jog-x-pos`, …); jog while high, manual mode only |
 | `jog-speed` | float | in | jog velocity, clamped to the axis MAX_VELOCITY; latched at jog start |
 | `process-step` | u32 | in | latched at `start-job` edge |
@@ -936,6 +942,7 @@ fixture never confirmed letting go, so the part belongs to the fixture and
 | 23 | `PICKER_OPEN_FAILED` | close withdrawn on the pick side but `opened` never came back (§12) |
 | 24 | `TARGET_UNREACHABLE` | job accept: an endpoint − a candidate picker's offset is outside the axis limits (D28) |
 | 25 | `WAIT_SCENE_MISMATCH` | a `WAIT_DEADZONE` station cleared while `deadzone-select` named a drawing other than its `WAIT_CLEAR_DEADZONE` (D29) |
+| 26 | `PARK_NOT_CONFIGURED` | `park` requested without `[PNPTASK]PARK_X/Y/Z` (D34) |
 
 ### 7.6 As built — the model (2026-08-11)
 
