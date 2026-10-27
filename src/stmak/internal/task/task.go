@@ -492,6 +492,12 @@ type Task struct {
 	// callers keep it.
 	programUIDisable atomic.Bool
 
+	// machineUIDisable mirrors the halui machine.ui-disable pin, sampled once
+	// per halui tick. Like programUIDisable it refuses nothing inside the
+	// task: the emccmd provider turns away set_state without force, so UIs
+	// lose estop and machine power while halui and forced callers keep them.
+	machineUIDisable atomic.Bool
+
 	// motionDispatched is true once a motion segment has been sent since the
 	// last completed drain. waitMotionDone applies its servo-settle skip only
 	// when this is set — an empty barrier (back-to-back S/M-code drains with no
@@ -798,3 +804,10 @@ func (t *Task) setProgramUIDisabled(v bool) { t.programUIDisable.Store(v) }
 
 // programUIDisabled reports whether program flow is withheld from UIs.
 func (t *Task) programUIDisabled() bool { return t.programUIDisable.Load() }
+
+// setMachineUIDisabled records the halui machine.ui-disable pin state.
+func (t *Task) setMachineUIDisabled(v bool) { t.machineUIDisable.Store(v) }
+
+// machineUIDisabled reports whether estop and machine power are withheld
+// from UIs.
+func (t *Task) machineUIDisabled() bool { return t.machineUIDisable.Load() }

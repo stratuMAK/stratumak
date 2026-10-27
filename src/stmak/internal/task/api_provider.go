@@ -36,8 +36,11 @@ func (m *milltaskModule) ready() error {
 
 // --- EmccmdCallbacks implementation ---
 
-func (m *milltaskModule) SetState(state int32) (int32, error) {
+func (m *milltaskModule) SetState(state int32, force bool) (int32, error) {
 	if err := m.ready(); err != nil {
+		return rcsError, err
+	}
+	if err := m.machineUIGate(force); err != nil {
 		return rcsError, err
 	}
 	return rcFor(m.task.SetState(state))
@@ -78,6 +81,24 @@ func (m *milltaskModule) uiGate(force bool) error {
 	}
 	m.task.operatorError("Program control from the user interface is disabled")
 	return apiserver.NewFault(apiserver.FaultState, errProgramUIDisabled)
+}
+
+// errMachineUIDisabled refuses a set_state that came without force while the
+// halui machine.ui-disable pin is high.
+var errMachineUIDisabled = errors.New("estop and machine power are disabled for UIs (machine.ui-disable)")
+
+// machineUIGate turns away every set_state -- estop, estop reset, machine on
+// and off -- while the machine.ui-disable pin is high, unless the caller passed
+// force. Estop is refused too: the pin is for a milltask that is one part of a
+// larger machine, whose estop chain is wired in hardware, and an operator must
+// not take that part down from its screen by accident. As with uiGate, halui
+// and the task's own estop paths (aux estop, faults) do not come through here.
+func (m *milltaskModule) machineUIGate(force bool) error {
+	if force || !m.task.machineUIDisabled() {
+		return nil
+	}
+	m.task.operatorError("Estop and machine power from the user interface are disabled")
+	return apiserver.NewFault(apiserver.FaultState, errMachineUIDisabled)
 }
 
 // rcFor maps a task result onto the (rc, error) pair the emccmd contract wants.

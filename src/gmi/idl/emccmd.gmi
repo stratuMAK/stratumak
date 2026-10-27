@@ -59,13 +59,20 @@ enum SpindleCmd {
 # never set force; a caller that owns program flow (a PLC bridge, a script,
 # a test) does. Omitting it in a REST body means false. halui pins are not
 # affected: they do not come through this API.
+#
+# set_state takes the same flag for the halui pin <prefix>.machine.ui-disable:
+# while it is high every state change -- estop, estop reset, machine on and
+# off -- is refused unless force is true. It is meant for a milltask that is
+# one part of a machine network whose estop is wired in hardware: the
+# operator must not take the part down from its screen by accident.
 
 # ─── Functions ───
 
-# Set task state (STATE_ESTOP, STATE_ON, etc.)
+# Set task state (STATE_ESTOP, STATE_ON, etc.).
+# Gated by machine.ui-disable unless force (see "UI gate" above).
 @method "POST"
 @path "/state"
-func set_state(state: i32) -> i32
+func set_state(state: i32, force: bool) -> i32
 
 # Set task mode (MODE_MANUAL, MODE_MDI, MODE_AUTO)
 @method "POST"

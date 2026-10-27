@@ -524,7 +524,7 @@ static int updateStatus(void)
 
 static int sendTaskState(emcstat_task_state_t state)
 {
-  return emccmd->set_state(emccmd->ctx, (int32_t)state) < 0 ? -1 : 0;
+  return emccmd->set_state(emccmd->ctx, (int32_t)state, false) < 0 ? -1 : 0;
 }
 
 static int sendTaskMode(emcstat_task_mode_t mode)

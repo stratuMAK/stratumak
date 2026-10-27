@@ -152,6 +152,11 @@ Or see http://linuxcnc.org/docs/stable/html/man/man9/halui.9.html
 * 'halui.machine.is-on' (bit, out) - indicates machine on
 * 'halui.machine.off' (bit, in) - pin for requesting machine off
 * 'halui.machine.on' (bit, in) - pin for requesting machine on
+* 'halui.machine.ui-disable' (bit, in) - while TRUE, user interfaces lose E-stop and machine power: emccmd
+  refuses `set_state` (E-stop, E-stop reset, machine on and off) unless the caller passes `force`. Meant for a
+  milltask that is part of a machine network with a hardwired E-stop chain. The halui machine and estop pins,
+  forced callers and E-stops raised by the controller itself are not affected; AXIS greys out its E-stop and
+  machine power controls.
 
 === Max Velocity
 

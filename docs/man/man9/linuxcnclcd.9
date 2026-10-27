@@ -129,6 +129,8 @@ Toggle machine power.
 While the \fBhalui.program.ui\-disable\fR pin is high (see \fBhalui\fR(9)),
 \fBRun\fR, \fBPause\fR and \fBStep\fR are refused, and so is \fBStop\fR while
 a program is running or paused.
+While \fBhalui.machine.ui\-disable\fR is high, \fBEStop\fR and \fBPower\fR
+are refused, and so is \fBautostart\fR.
 
 .SH DISPLAY UNITS
 Positions are reported by the controller in millimetres regardless of

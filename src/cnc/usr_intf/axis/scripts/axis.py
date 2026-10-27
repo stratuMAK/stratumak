@@ -1109,6 +1109,8 @@ class LivePlotter:
         vupdate(vars.mdi_inhibit, self.stat.mdi_inhibit)
         # Program flow withheld from the UI (halui program.ui-disable pin).
         vupdate(vars.program_ui_disabled, self.stat.program_ui_disabled)
+        # Estop and machine power withheld from the UI (machine.ui-disable).
+        vupdate(vars.machine_ui_disabled, self.stat.machine_ui_disabled)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
         # The title names what the operator opened; for a filtered program
@@ -1222,6 +1224,13 @@ fire regardless, so every program-flow handler asks too. The controller
 refuses such a command anyway; asking here keeps a keypress from turning into
 an error message the operator can do nothing about."""
     return bool(vars.program_ui_disabled.get())
+
+def machine_power_locked():
+    """True while the halui machine.ui-disable pin withholds estop and power.
+
+The estop button reacts through a <Button-1> binding, which a disabled button
+still delivers, and F1/F2 fire regardless, so the handlers ask too."""
+    return bool(vars.machine_ui_disabled.get())
 
 def program_running():
     """True while an AUTO program is running or paused (not MDI, not idle)."""
@@ -2845,6 +2854,7 @@ class TclCommands(nf.TclCommands):
         o.set_view_p()
 
     def estop_clicked(event=None):
+        if machine_power_locked(): return
         s.poll()
         if s.task_state == STATE_ESTOP:
             c.state(STATE_ESTOP_RESET)
@@ -2852,6 +2862,7 @@ class TclCommands(nf.TclCommands):
             c.state(STATE_ESTOP)
 
     def onoff_clicked(event=None):
+        if machine_power_locked(): return
         s.poll()
         if s.task_state == STATE_ESTOP_RESET:
             c.state(STATE_ON)
@@ -3620,6 +3631,7 @@ vars = nf.Variables(root_window,
     ("program_inhibit", IntVar),
     ("mdi_inhibit", IntVar),
     ("program_ui_disabled", IntVar),
+    ("machine_ui_disabled", IntVar),
     ("has_editor", IntVar),
     ("has_ladder", IntVar),
     ("ja_rbutton", StringVar),
@@ -4926,6 +4938,7 @@ vars.kinematics_type.set(s.kinematics_type)
 vars.program_inhibit.set(0)
 vars.mdi_inhibit.set(0)
 vars.program_ui_disabled.set(0)
+vars.machine_ui_disabled.set(0)
 vars.max_queued_mdi_commands.set(int(inifile.find("TASK", "MDI_QUEUED_COMMANDS") or  10))
 
 def balance_ja():

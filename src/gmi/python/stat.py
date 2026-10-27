@@ -251,6 +251,7 @@ class Stat:
         "read_line",
         "queued_mdi_commands", "optional_stop", "block_delete",
         "program_inhibit", "mdi_inhibit", "program_ui_disabled",
+        "machine_ui_disabled",
         "task_paused", "g5x_index",
         # Motion
         "motion_mode", "enabled", "inpos", "paused", "feedrate",
@@ -352,6 +353,8 @@ class Stat:
             "mdi_inhibit": ("mdi_inhibit", False),
             # Program flow withheld from UIs (halui program.ui-disable pin).
             "program_ui_disabled": ("program_ui_disabled", False),
+            # Estop and machine power withheld from UIs (machine.ui-disable).
+            "machine_ui_disabled": ("machine_ui_disabled", False),
         }
         if name in _TASK_MAP:
             key, default = _TASK_MAP[name]
