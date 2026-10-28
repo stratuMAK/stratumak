@@ -5,9 +5,10 @@
 #
 # How far X got before the abort is measured in the servo thread by a minmax
 # component (motion-test.hal), held in reset outside each program run. This used
-# to be a streamed halsampler record filtered afterwards, and a client that fell
-# behind the sampler's ring lost a whole run's samples now and then, failing the
-# test with max X0.000.
+# to be a streamed halsampler record filtered by Z afterwards. Its "max X0.000,
+# 0 samples" failures on CI were not stream loss, as first assumed, but the
+# dropped MDI described in run_and_abort: the machine never reached the run's
+# Z level, so the filter found nothing.
 
 import gmi
 from gmi.constants import *
