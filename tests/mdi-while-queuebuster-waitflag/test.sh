@@ -4,12 +4,24 @@
 # `bash -x` with stderr captured, so grepping the test's own stderr would match
 # the traced grep-pattern text itself (false positive).  A real crash — Go panic
 # or C SIGSEGV — lands in server.log.
+#
+# Each run must also have executed its last MDI ("post 6" printed): a run
+# whose MDIs were refused or dropped crashes nothing, and passed without
+# testing the queue-buster at all.
+set -e
+. "$(dirname "$0")/../stmak-driver.sh"
 for i in $(seq 20); do
     stmakd -r test.ini >server.log 2>&1 &
-    SRV=$!
-    for j in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-    sleep 0.3
+    STMAK_SRV=$!
+    export STMAK_SRV
+    # Readiness from the status buffer: a `grep milltask` loop (no failure
+    # branch) plus a guessed sleep stood here.
+    stmak_wait_ready
     ./test-ui.py
-    kill $SRV 2>/dev/null; wait 2>/dev/null
+    kill $STMAK_SRV 2>/dev/null; wait 2>/dev/null || true
     if grep -qiE 'Segmentation fault|panic|SIGSEGV' server.log 2>/dev/null; then exit 1; fi
+    if ! grep -qx 'post 6' server.log; then
+        echo "*** run $i: the last MDI never ran (no \"post 6\" in server.log)" >&2
+        exit 1
+    fi
 done

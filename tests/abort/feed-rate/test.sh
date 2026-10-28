@@ -1,8 +1,8 @@
 #!/bin/bash
 rm -f sim.var
-stmakd -r test.ini >/tmp/stmak-feed-rate.log 2>&1 &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+. "$(dirname "$0")/../../stmak-driver.sh"
+stmak_start_server test.ini
+# Readiness from the status buffer: a `grep milltask` loop (no failure
+# branch) plus a guessed sleep stood here.
+stmak_wait_ready
 ./test-ui.py
