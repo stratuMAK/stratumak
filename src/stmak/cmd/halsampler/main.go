@@ -8,8 +8,13 @@
 // numbers jump by the count lost, a message goes to stderr at once, and the
 // exit status is 1.
 //
+// -R creates the given file once the stream is subscribed: the server sends
+// the header only after it has started this connection's read position, so
+// from then on no sample is missed. Test drivers wait for the file before
+// they start the HAL threads, instead of sleeping and hoping.
+//
 // Usage:
-//   halsampler [-n num_samples] [-t] [instance_name]
+//   halsampler [-n num_samples] [-t] [-R ready_file] [instance_name]
 //
 // Environment:
 //   STMAK_REST_URL — base URL of stmakd (default: http://127.0.0.1:5080)
@@ -38,10 +43,12 @@ func main() {
 	var (
 		numSamples int
 		showTag    bool
+		readyFile  string
 	)
 
 	flag.IntVar(&numSamples, "n", -1, "number of samples to capture (-1 = infinite)")
 	flag.BoolVar(&showTag, "t", false, "print sample number")
+	flag.StringVar(&readyFile, "R", "", "create this file once the stream is subscribed")
 	flag.Parse()
 
 	instance := "sampler"
@@ -89,6 +96,13 @@ func main() {
 	}
 	numPins := len(pinTypes)
 	sampleSize := numPins * halstream.ValueSize
+
+	if readyFile != "" {
+		if err := os.WriteFile(readyFile, nil, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "halsampler: ready file: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	// Every sample costs a dozen small writes; unbuffered, that is ~10k
 	// syscalls a second at a 1 kHz servo rate, enough to make this the slowest

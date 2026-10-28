@@ -65,6 +65,20 @@ to tag each line by printing the sample number in the first column.
 Numbers count the samples the sampler took since the first one printed, so
 they skip exactly the samples that were lost.
 .TP
+.BI "\-R " FILE
+creates
+.I FILE
+once the stream is subscribed.
+.B stmakd
+sends the stream header only after it has set this connection's read
+position, so every sample taken from then on reaches
+.BR halsampler .
+A script that starts
+.B halsampler
+in the background and then the HAL threads waits for
+.I FILE
+in between.
+.TP
 .B INSTANCE
 the
 .B sampler
