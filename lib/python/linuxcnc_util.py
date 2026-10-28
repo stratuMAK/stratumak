@@ -19,6 +19,8 @@ import sys
 import time
 import math
 
+import stmak_test
+
 
 class LinuxCNC_Exception(Exception):
     pass
@@ -51,36 +53,50 @@ class LinuxCNC:
             self.error = gmi.ErrorChannel()
 
 
+    def _wait(self, pred, desc, timeout, detail=None):
+        """Poll pred() until it holds, against a deadline that honours
+        STMAK_TEST_TIMEOUT_SCALE; raise LinuxCNC_Exception naming what was
+        awaited (and `detail`) when it expires."""
+        try:
+            return stmak_test.wait_until(pred, desc, timeout=timeout,
+                                         interval=0.02, detail=detail)
+        except stmak_test.Timeout as e:
+            raise LinuxCNC_Exception(str(e))
+
+    def _at_rest(self):
+        """Poll status; True when motion reports nothing moving: in position
+        (no jog, homing or free-planner move active) with an empty planner
+        queue. This is the controller's own answer. Two equal position polls
+        were used before, and a status stall of one poll interval on a loaded
+        machine made a moving axis look stopped."""
+        self.status.poll()
+        return self.status.inpos and self.status.queue == 0
+
+    def _pos(self):
+        return "position=%s inpos=%s queue=%s" % (
+            str(self.status.position), self.status.inpos, self.status.queue)
+
     def wait_for_linuxcnc_startup(self, timeout=10.0):
-
         """Poll the Status buffer waiting for it to look initialized,
-        rather than just allocated (all-zero).  Returns on success, throws
-        RuntimeError on failure."""
+        rather than just allocated (all-zero).  Returns on success, raises
+        LinuxCNC_Exception on timeout."""
 
-        start_time = time.time()
-        while time.time() - start_time < timeout:
+        def _ready():
             self.status.poll()
-            if (self.status.angular_units == 0.0) \
-                or (self.status.axis_mask == 0) \
-                or (self.status.cycle_time == 0.0) \
-                or (self.status.exec_state != EXEC_DONE) \
-                or (self.status.interp_state != INTERP_IDLE) \
-                or (self.status.inpos == False) \
-                or (self.status.linear_units == 0.0) \
-                or (self.status.max_acceleration == 0.0) \
-                or (self.status.max_velocity == 0.0) \
-                or (self.status.program_units == 0.0) \
-                or (self.status.rapidrate == 0.0) \
-                or (self.status.state != RCS_DONE) \
-                or (self.status.task_state != STATE_ESTOP):
-                time.sleep(0.1)
-            else:
-                # looks good
-                return
-
-        # timeout, throw an exception
-        raise RuntimeError
-
+            return not ((self.status.angular_units == 0.0)
+                or (self.status.axis_mask == 0)
+                or (self.status.cycle_time == 0.0)
+                or (self.status.exec_state != EXEC_DONE)
+                or (self.status.interp_state != INTERP_IDLE)
+                or (self.status.inpos == False)
+                or (self.status.linear_units == 0.0)
+                or (self.status.max_acceleration == 0.0)
+                or (self.status.max_velocity == 0.0)
+                or (self.status.program_units == 0.0)
+                or (self.status.rapidrate == 0.0)
+                or (self.status.state != RCS_DONE)
+                or (self.status.task_state != STATE_ESTOP))
+        self._wait(_ready, "the status buffer to look initialized", timeout)
 
     def all_joints_homed(self, joints):
         """Arguments:
@@ -107,43 +123,23 @@ class LinuxCNC:
             'timeout' is a float, the number of seconds to wait for
             homing before giving up.
 
-        Returns if all the specified joints homed before the timeout,
-        raises LinuxCNC_Exception if the timeout expired first."""
+        Returns once all the specified joints are homed and the machine is
+        at rest, raises LinuxCNC_Exception if the timeout expired first.
+        The `homed` flag flips a few servo cycles before the final move
+        converges on the home coordinate, so homed alone could hand a caller
+        an axis still creeping to its home value."""
 
-        start_time = time.time()
-        while (time.time() - start_time) < timeout:
-            if self.all_joints_homed(joints):
-                # The `homed` flag flips a few servo cycles before the
-                # trajectory finishes converging on the home coordinate: a
-                # caller that samples position the instant homing "completes"
-                # can catch an axis still creeping to its home value (seen as
-                # a jog_axis start_pos that later drifts to 0, tripping its
-                # "no other axis moved" check). Let the machine settle first.
-                self.wait_for_all_axes_to_stop(timeout=timeout)
-                return
-            time.sleep(0.1)
-
-        raise LinuxCNC_Exception("timeout waiting for homing to complete:\nstatus.homed:" + str(self.status.homed) + "\nstatus.position:" + str(self.status.position))
-
+        self._wait(lambda: self.all_joints_homed(joints) and self._at_rest(),
+                   "homing to complete", timeout,
+                   detail=lambda: "homed=%s %s" % (str(self.status.homed), self._pos()))
 
     def wait_for_all_axes_to_stop(self, timeout=10.0):
-        """Poll the Status buffer until every axis position is unchanged
-        across two consecutive polls, i.e. the machine has come to rest.
+        """Wait until motion reports the machine at rest (see _at_rest).
         Returns on success, raises LinuxCNC_Exception if the timeout expires
-        while some axis is still moving."""
+        while something is still moving."""
 
-        self.status.poll()
-        start_time = time.time()
-        prev_pos = self.status.position
-        while (time.time() - start_time) < timeout:
-            time.sleep(0.1)
-            self.status.poll()
-            new_pos = self.status.position
-            if all(a == b for a, b in zip(prev_pos, new_pos)):
-                return
-            prev_pos = new_pos
-        raise LinuxCNC_Exception("machine didn't settle within %.3f seconds; position still changing: %s" % (timeout, str(self.status.position)))
-
+        self._wait(self._at_rest, "the machine to come to rest", timeout,
+                   detail=self._pos)
 
     def wait_for_axis_to_stop(self, axis_letter, timeout=10.0):
         """Arguments:
@@ -153,26 +149,15 @@ class LinuxCNC:
             'timeout' is a float, the number of seconds to wait for the
             axis to stop before giving up.
 
-        Returns if the specified axis stops moving before the timeout
-        expires.  Raises LinuxCNC_Exception if the timeout expires before
-        the axis stops.
+        Returns once motion reports the machine at rest (see _at_rest): the
+        controller does not report stillness per axis, and nothing else may
+        be moving for the callers' checks anyway.  Raises LinuxCNC_Exception
+        if the timeout expires first.
         """
 
-        axis_letter = axis_letter.lower()
-        axis_index = 'xyzabcuvw'.index(axis_letter)
-        print("waiting for axis", axis_letter, "to stop")
-        self.status.poll()
-        start_time = time.time()
-        prev_pos = self.status.position[axis_index]
-        while (time.time() - start_time) < timeout:
-            time.sleep(0.1)
-            self.status.poll()
-            new_pos = self.status.position[axis_index]
-            if new_pos == prev_pos:
-                return
-            prev_pos = new_pos
-        raise LinuxCNC_Exception("axis %s didn't stop jogging!\n" % axis_letter + "axis %s is at %.3f %.3f seconds after reaching target (prev_pos=%.3f)\n" % (axis_letter, self.status.position[axis_index], timeout, prev_pos))
-
+        print("waiting for axis", axis_letter.lower(), "to stop")
+        self._wait(self._at_rest, "axis %s to stop" % axis_letter.lower(),
+                   timeout, detail=self._pos)
 
     def jog_axis(self, axis_letter, target, vel=5.0, timeout=10.0):
         """Arguments:
@@ -215,6 +200,7 @@ class LinuxCNC:
         self.command.jog(JOG_CONTINUOUS, 0, axis_index, vel)
 
         start = time.time()
+        timeout *= stmak_test.scale()
         while not done(self.status.position[axis_index]) and ((time.time() - start) < timeout):
             time.sleep(0.1)
             # stratuMAK dead-mans continuous jogs not refreshed within its jog
@@ -264,29 +250,19 @@ class LinuxCNC:
             'tolerance' is a float, how close to the target the axis
             has to be before we consider it there.
 
-        This function polls the LinuxCNC Status buffer and monitors the
-        position field, waiting for the specified axis to come to rest
-        at the specified target.  If this does not happen before the
-        timeout, the function raises LinuxCNC_Exception.
+        Waits until the machine is at rest (see _at_rest) with the specified
+        axis within `tolerance` of `target`.  If this does not happen before
+        the timeout, raises LinuxCNC_Exception.
         """
 
-        axis_letter = axis_letter.lower()
-        axis_index = 'xyzabcuvw'.index(axis_letter)
+        axis_index = 'xyzabcuvw'.index(axis_letter.lower())
 
-        self.status.poll()
-        start = time.time()
-
-        while ((time.time() - start) < timeout):
-            prev_pos = self.status.position[axis_index]
-            self.status.poll()
-            vel = self.status.position[axis_index] - prev_pos
-            error = math.fabs(self.status.position[axis_index] - target)
-            if (error < tolerance) and (vel == 0):
-                print("axis %s stopped at %.3f" % (axis_letter, target))
-                return
-            time.sleep(0.1)
-        raise LinuxCNC_Exception("timeout waiting for axis %s to stop at %.3f (pos=%.3f, vel=%.3f)" % (axis_letter, target, self.status.position[axis_index], vel))
-
+        def _there():
+            return (self._at_rest() and
+                    math.fabs(self.status.position[axis_index] - target) < tolerance)
+        self._wait(_there, "axis %s to stop at %.3f" % (axis_letter.lower(), target),
+                   timeout, detail=self._pos)
+        print("axis %s stopped at %.3f" % (axis_letter.lower(), target))
 
     def wait_for_interp_state(self, target_state, timeout=10.0):
         """
@@ -304,16 +280,11 @@ class LinuxCNC:
         LinuxCNC_Exception.
         """
 
-        start_time = time.time()
-        while (time.time() - start_time) < timeout:
+        def _reached():
             self.status.poll()
-            if self.status.interp_state == target_state:
-                return
-            time.sleep(0.001)
-
-        if self.status.interp_state != target_state:
-            raise LinuxCNC_Exception("interpreter state %d did not reach target state %d" % (self.state.interp_state, target_state))
-
+            return self.status.interp_state == target_state
+        self._wait(_reached, "interpreter state %d" % target_state, timeout,
+                   detail=lambda: "interp_state=%d" % self.status.interp_state)
 
     def wait_for_tool_in_spindle(self, expected_tool, timeout=10.0):
         """
@@ -329,12 +300,8 @@ class LinuxCNC:
         before the tool appears, it raises LinuxCNC_Exception.
         """
 
-        start_time = time.time()
-        while (time.time() - start_time) < timeout:
-            time.sleep(0.1)
+        def _loaded():
             self.status.poll()
-            if self.status.tool_in_spindle == expected_tool:
-                print("the Stat buffer's toolInSpindle reached the value of %d after %f seconds" % (expected_tool, time.time() - start_time))
-                return
-        raise LinuxCNC_Exception("the Stat buffer's toolInSpindle value is %d, expected %d" % (self.status.tool_in_spindle, expected_tool))
-
+            return self.status.tool_in_spindle == expected_tool
+        self._wait(_loaded, "tool %d in the spindle" % expected_tool, timeout,
+                   detail=lambda: "tool_in_spindle=%d" % self.status.tool_in_spindle)
