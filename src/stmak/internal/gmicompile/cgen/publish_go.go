@@ -277,7 +277,7 @@ func (g *publishGoGen) emitWatchFunc(fn ast.Func) {
 	g.printf("\t\t\t}\n")
 	g.printf("\t\t\td.mu.Unlock()\n")
 	g.printf("\t\t\tif len(out) == 0 {\n")
-	g.printf("\t\t\t\treturn []byte(\"[]\"), nil\n")
+	g.printf("\t\t\t\treturn nil, nil // no new events: nothing to send (Events watch)\n")
 	g.printf("\t\t\t}\n")
 	g.printf("\t\t\treturn json.Marshal(out)\n")
 	g.printf("\t\t}, nil\n")

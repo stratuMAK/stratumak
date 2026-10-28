@@ -732,3 +732,91 @@ func TestWatchTrackSubRefusesAfterUnregister(t *testing.T) {
 		t.Error("the refused subscription's context was not cancelled")
 	}
 }
+
+// subscribeEcho subscribes to test/default/<fn> and returns the connection.
+func subscribeEcho(t *testing.T, ctx context.Context, reg *WatchRegistry, fn string) *websocket.Conn {
+	t.Helper()
+	srv := httptest.NewServer(NewWatchHandler(reg))
+	t.Cleanup(srv.Close)
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
+	sub, _ := json.Marshal(wsSubscribe{Action: "subscribe", API: "test", Instance: "default", Func: fn, RateMS: 20})
+	if err := conn.Write(ctx, websocket.MessageText, sub); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
+	return conn
+}
+
+// An Events watch (a drain: every result is a new batch) must deliver a batch
+// that reads exactly like the one before it. The error channel lost the
+// operator messages of every second identical program run this way: the
+// second batch was suppressed as "unchanged".
+func TestWatchEventsSendsIdenticalBatches(t *testing.T) {
+	var polls atomic.Int32
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{
+		APIName:  "test",
+		Instance: "default",
+		Watches: []WatchFuncMeta{{
+			Name:        "get_events",
+			DefaultRate: 20 * time.Millisecond,
+			Events:      true,
+			Watch: func() (json.RawMessage, error) {
+				// Batches on polls 1, 3 and 5, all the same; nothing between.
+				if n := polls.Add(1); n <= 5 && n%2 == 1 {
+					return json.RawMessage(`["same"]`), nil
+				}
+				return nil, nil
+			},
+		}},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := subscribeEcho(t, ctx, reg, "get_events")
+	for i := 0; i < 3; i++ {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("batch %d of 3 never arrived: %v", i+1, err)
+		}
+		var u wsUpdate
+		if err := json.Unmarshal(data, &u); err != nil || string(u.Data) != `["same"]` {
+			t.Fatalf("batch %d: got %s (err %v)", i+1, data, err)
+		}
+	}
+}
+
+// A state watch still sends a value only when it changes.
+func TestWatchStateSuppressesUnchanged(t *testing.T) {
+	var polls atomic.Int32
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{
+		APIName:  "test",
+		Instance: "default",
+		Watches: []WatchFuncMeta{{
+			Name:        "get_state",
+			DefaultRate: 20 * time.Millisecond,
+			Watch: func() (json.RawMessage, error) {
+				if polls.Add(1) < 10 {
+					return json.RawMessage(`{"v":1}`), nil
+				}
+				return json.RawMessage(`{"v":2}`), nil
+			},
+		}},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := subscribeEcho(t, ctx, reg, "get_state")
+	for i, want := range []string{`{"v":1}`, `{"v":2}`} {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("update %d: %v", i, err)
+		}
+		var u wsUpdate
+		if err := json.Unmarshal(data, &u); err != nil || string(u.Data) != want {
+			t.Fatalf("update %d: got %s, want data %s", i, data, want)
+		}
+	}
+}
