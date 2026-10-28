@@ -494,7 +494,7 @@ func (m *milltaskModule) Stop() {
 		// Joints left enabled into that window are joints motion still polices
 		// while their feedback has stopped arriving, which is a shutdown that
 		// ends in "joint N following error" for no reason anyone can act on.
-		_ = m.task.motion.Abort()
+		_ = m.task.abortMotion()
 		_ = m.task.motion.Disable()
 	}
 	m.logger.Info("milltask stopping")

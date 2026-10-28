@@ -279,6 +279,9 @@ func (t *Task) sequencerLoop() {
 					// registers the probe move, declaring the probe complete before
 					// it runs (R1).
 					t.motionDispatched.Store(true)
+					if err := t.waitTPAbortDone(); err != nil {
+						return // aborted — aborter owns the terminal state
+					}
 					if err := t.waitForQueueSpace(); err != nil {
 						return // aborted — aborter owns the terminal state
 					}
@@ -495,6 +498,41 @@ func (t *Task) waitForCompletion(cmd QueuedCmd) error {
 		return t.waitSpindleOriented(timeout)
 	}
 	return nil
+}
+
+// abortMotion aborts motion and marks the TP abort pending, so the next motion
+// command waits for the abort to run out instead of being refused (see
+// tpAbortPending). Every motion abort goes through here.
+func (t *Task) abortMotion() error {
+	t.tpAbortPending.Store(true)
+	return t.motion.Abort()
+}
+
+// waitTPAbortDone blocks while a TP abort is pending, until the TP has cleared
+// its queue. The aborting flag and the queue are reset together (tpClear /
+// tpHandleAbort), and nothing new reaches the TP before this returns, so an
+// empty queue means the abort is over. Returns context.Canceled on abort.
+func (t *Task) waitTPAbortDone() error {
+	if !t.tpAbortPending.Load() {
+		return nil
+	}
+	if t.status == nil {
+		t.tpAbortPending.Store(false)
+		return nil
+	}
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		if qd, err := t.status.GetQueueDepth(); err == nil && qd == 0 {
+			t.tpAbortPending.Store(false)
+			return nil
+		}
+		select {
+		case <-t.seqAbort:
+			return context.Canceled
+		case <-ticker.C:
+		}
+	}
 }
 
 // waitForQueueSpace polls motion queue depth and blocks until it drops below
@@ -787,7 +825,7 @@ func (t *Task) seqFaultExit() {
 	// the hardware stop so it queues on cmdMu as early as possible.
 	go t.recoverSeqFault()
 
-	if err := t.motion.Abort(); err != nil {
+	if err := t.abortMotion(); err != nil {
 		t.logger.Error("seqFaultExit: motion abort failed", "err", err)
 	}
 	if err := t.io.IoAbort(emcAbortTaskExecError); err != nil {

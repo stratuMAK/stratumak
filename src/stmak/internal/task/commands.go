@@ -298,7 +298,7 @@ func (t *Task) signalAbort() {
 	// operator asked for everything in progress to stop, and a filter can run
 	// for minutes.
 	t.cancelFiltering()
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 }
 
 // This file implements the 27 emccmd GMI methods.
@@ -384,7 +384,7 @@ type shutdownOpts struct {
 func (t *Task) stopSignals(o shutdownOpts) {
 	t.AbortSequencer()
 	t.mcodeAbort()
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 	if o.disable {
 		_ = t.motion.Disable()
 	}
@@ -608,7 +608,7 @@ func (t *Task) setState(state int32) error {
 		// are cleared — including when estop was entered from a non-ON state,
 		// whose light teardown did no IoAbort at all. The reason (5) is the
 		// argument a configured ON_ABORT_COMMAND sees.
-		_ = t.motion.Abort()
+		_ = t.abortMotion()
 		_ = t.io.IoAbort(emcAbortTaskStateEstopReset)
 		_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 		if t.interp != nil {
@@ -1680,7 +1680,7 @@ func (t *Task) executeMDI(command string) error {
 // MDI caller already holding cmdMu can call it.
 func (t *Task) faultProgram(reason int32, msg string) {
 	t.operatorError(msg)
-	_ = t.motion.Abort() // stop what is already moving
+	_ = t.abortMotion() // stop what is already moving
 	// Run the interpreter's on_abort so it reset()s and clears the
 	// toolchange/probe/input/mdi_interrupt flags that an interrupted remapped
 	// procedure may have left set — otherwise the next tool change can fail with
@@ -1794,7 +1794,7 @@ func (t *Task) faultMDI(msg string) {
 	// failed remapped M6. The AUTO readahead path (faultProgram alone)
 	// deliberately does no IoAbort/spindle stop, to match 2.9 which only
 	// clears the interp list and runs on_abort there.
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.flushMDIQueue()
 	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
@@ -2646,7 +2646,7 @@ func (t *Task) abortMachineLocked(full bool) {
 	// External calls (no mutex held — won't block stat reads).
 	t.AbortSequencer()
 	t.mcodeAbort()
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 	if full {
 		_ = t.io.IoAbort(emcAbortTaskAbort)
 		_ = t.motion.SpindleOff(-1) // all-spindles broadcast

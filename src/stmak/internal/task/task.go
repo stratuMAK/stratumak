@@ -505,6 +505,14 @@ type Task struct {
 	// ≥50 ms settle floor. Cleared when a drain observes the queue empty.
 	motionDispatched atomic.Bool
 
+	// tpAbortPending is set by abortMotion and cleared by the sequencer once
+	// the TP has finished the abort. An aborted TP decelerates along the path
+	// before it clears its queue, and until then it refuses every new segment
+	// ("TP is aborting"): a motion command sent in that window — an MDI right
+	// after an abort — was dropped. The sequencer holds motion until the abort
+	// has run out instead (waitTPAbortDone).
+	tpAbortPending atomic.Bool
+
 	// MDI queue — commands queued while interpreter is busy
 	mdiQueue     []string
 	maxMDIQueued int
