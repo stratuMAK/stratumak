@@ -30,17 +30,18 @@ for i, z in enumerate((1.0, 2.0, 3.0)):
     c.mode(MODE_AUTO)
     c.program_open('test.ngc')
     c.auto(AUTO_RUN, 0)
-    # At 1 in/s^2 the axis reaches 4 in/s at X8: past X10 it runs at full speed.
+    # The planner accelerates at half the 1 in/s^2 limit along the path: past
+    # X10 the axis runs at ~3.2 in/s, and stopping from there takes over 6 s.
     stmak_test.wait_stat(s, lambda st: st.actual_position[0] >= 10.0,
-                         "run %d: X at full speed (past X10)" % i,
+                         "run %d: X past X10" % i,
                          detail=lambda st: "actual_position=%r" % (st.actual_position[:3],))
 
     c.abort()
     c.wait_complete()
     c.mode(MODE_MDI)
     c.mdi('G0 Z%.1f' % z)
-    # The rig must have hit the window it exists for: at 1 in/s^2 the stop
-    # from 4 in/s takes 4 s, so the MDI is queued while the machine still
+    # The rig must have hit the window it exists for: the stop takes over
+    # 6 s (see above), so the MDI is queued while the machine still
     # moves. If it ever was not, this run proved nothing — say so.
     s.poll()
     x_sent = s.actual_position[0]

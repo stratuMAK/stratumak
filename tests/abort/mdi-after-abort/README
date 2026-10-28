@@ -8,6 +8,8 @@ the move was dropped with only an operator message. abort/g64 failed on CI
 this way ("G64 redo": its MDI to the next Z level was dropped, the run started
 from where the previous abort had left the machine).
 
-The axes accelerate at 1 in/s^2, so stopping from 4 in/s takes 4 s: the MDI
-always lands inside the deceleration, and the test checks that it did. It
+The axes are limited to 1 in/s^2, of which the planner uses half along a
+path (the rest is kept for blends). Aborted past X10 at ~3.2 in/s, the stop
+takes over 6 s: the MDI always lands inside the deceleration, and the test
+checks that it did. It
 then requires the move to arrive and no "TP is aborting" message.
