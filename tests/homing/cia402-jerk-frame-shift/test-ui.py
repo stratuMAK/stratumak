@@ -26,7 +26,6 @@ import stmak_test
 from gmi.constants import *
 
 import subprocess
-import time
 import sys
 
 c = stmak_test.Command()
@@ -62,34 +61,23 @@ errors.clear()  # discard anything stale from bring-up
 # Command drive-internal homing of joint 0.
 c.home(0)
 
-deadline = time.monotonic() + 15.0 * stmak_test.scale()
-peak_move = 0.0
-homed = False
-while time.monotonic() < deadline:
-    s.poll()
-    peak_move = max(peak_move, abs(s.joint_actual_position[0] - start_pos))
-    drain_errors()
-
-    if s.task_state != STATE_ON:
-        print("FAIL: machine left STATE_ON during homing (task_state=%d)" % s.task_state)
-        if errors:
-            print("  operator errors: %r" % errors)
-        sys.exit(1)
-
-    if s.homed[0]:
-        homed = True
-        break
-    time.sleep(0.02)
-
-if not homed:
-    print("FAIL: joint 0 did not home within the deadline (task_state=%d)" % s.task_state)
+# Homed, or the machine switched off trying (THE REGRESSION: it must never
+# leave STATE_ON while homing; f-errored is checked from the servo-thread
+# record below).
+stmak_test.wait_stat(s, lambda st: st.homed[0] or st.task_state != STATE_ON,
+                     "joint 0 to home", timeout=15.0)
+drain_errors()
+if s.task_state != STATE_ON:
+    print("FAIL: machine left STATE_ON during homing (task_state=%d)" % s.task_state)
     if errors:
         print("  operator errors: %r" % errors)
     sys.exit(1)
 
-# The excursion (if any) develops while the filter drains after the drive is
-# back in CSP; give it time to play out fully, plus any late fault.
-time.sleep(0.3)
+# Then at rest: in free mode in-position waits for the joint's planner and the
+# jerk filter behind it, so whatever the homing sequence moves has played out
+# (a fixed 0.3 s stood here).
+stmak_test.wait_stat(s, lambda st: st.inpos, "joint 0 to come to rest after homing")
+
 s.poll()
 drain_errors()
 
@@ -98,7 +86,20 @@ drain_errors()
 out = subprocess.check_output(["halcmd", "getp", "watch.0.max-abs"])
 excursion = float(out.split()[-1])
 
+
+def getp(pin):
+    return float(subprocess.check_output(["halcmd", "getp", pin]).split()[-1])
+
+
+# How far the drive travelled, and whether a following error was ever latched,
+# from the servo-thread records (cia402-sim.hal).
+peak_move = max(getp("seek.0.max") - start_pos, start_pos - getp("seek.0.min"))
+ferr_latched = getp("ferrmax.0.max") > 0.5
+
 ok = True
+if ferr_latched:
+    print("FAIL: joint 0 latched a following error during homing")
+    ok = False
 if s.task_state != STATE_ON:
     print("FAIL: machine switched off after homing (task_state=%d)" % s.task_state)
     ok = False

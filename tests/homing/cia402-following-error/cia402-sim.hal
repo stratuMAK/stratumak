@@ -28,3 +28,17 @@ net j0-home-err   simdrv.0.homing-error     => homemod.0.homing-error
 net estop-loop      iocontrol.user-enable-out iocontrol.emc-enable-in
 net tool-prep-loop  iocontrol.tool-prepare    iocontrol.tool-prepared
 net tool-change-loop iocontrol.tool-change    iocontrol.tool-changed
+
+# Servo-thread records for the test: how far the drive feedback travelled
+# (the seek lasts ~200 ms, too short to catch by polling status) and whether
+# the joint ever latched a following error (f-errored as a float, so minmax
+# keeps 1 once it was ever TRUE).
+load minmax <seek.0>
+load conv_bit_float <ferr.0>
+load minmax <ferrmax.0>
+addf seek.0    servo-thread
+addf ferr.0    servo-thread
+addf ferrmax.0 servo-thread
+net j0-pos-fb => seek.0.in
+net j0-ferr   joint.0.f-errored => ferr.0.in
+net j0-ferr-f ferr.0.out        => ferrmax.0.in
