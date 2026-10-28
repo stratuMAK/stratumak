@@ -113,12 +113,16 @@ func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
 			"move target (%v, %v, %v) is not finite — check the z-offset and picker offset inputs",
 			to.X, to.Y, to.Z)
 	}
-	if err := c.checkTargetInLimits(to); err != nil {
-		return err
-	}
 	vel, acc, moved := c.moveLimits(c.cmdPos, to, velReq, accReq)
 	if !moved {
+		// Nothing to dispatch -- typically a route's first waypoint, where
+		// the head already stands -- and so nothing to check: a head that
+		// homing or a jog left just outside a limit must not be refused the
+		// move that takes it away.
 		return nil
+	}
+	if err := c.checkMoveInLimits(c.cmdPos, to); err != nil {
+		return err
 	}
 	if vel <= 0 || acc <= 0 {
 		return faultf(errMotionError,
@@ -147,6 +151,28 @@ func isFinite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 // checkReach asks the same question for every endpoint and every picker at
 // job accept (D28); this per-dispatch check remains the backstop for what can
 // still drift afterwards — the offsets and z-offsets are live inputs.
+// checkMoveInLimits is checkTargetInLimits for a move from where the head is:
+// a target outside a limit is accepted on an axis where the head already
+// stands at least as far outside it, so a move that holds that axis or brings
+// it back in is not refused -- the way a jog back inside a soft limit is
+// allowed. Anything that goes further out is.
+func (c *control) checkMoveInLimits(from, to motctl.Pose) error {
+	vals := [3]float64{to.X, to.Y, to.Z}
+	starts := [3]float64{from.X, from.Y, from.Z}
+	for i, letter := range [3]string{"X", "Y", "Z"} {
+		min, max := c.m.limits.AxisMinPos[i], c.m.limits.AxisMaxPos[i]
+		v, s := vals[i], starts[i]
+		below := v < min-moveFuzz && v < s-moveFuzz
+		above := v > max+moveFuzz && v > s+moveFuzz
+		if below || above {
+			return faultf(errMotionError,
+				"move target %s = %.3f mm is outside the axis limits [%.3f, %.3f] — check the station coordinates against the picker x/y-offset params and the z-offset inputs",
+				letter, v, min, max)
+		}
+	}
+	return nil
+}
+
 func (c *control) checkTargetInLimits(to motctl.Pose) error {
 	vals := [3]float64{to.X, to.Y, to.Z}
 	for i, letter := range [3]string{"X", "Y", "Z"} {

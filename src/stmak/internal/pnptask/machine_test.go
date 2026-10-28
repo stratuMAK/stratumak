@@ -1233,6 +1233,47 @@ func TestCheckTargetInLimits(t *testing.T) {
 	}
 }
 
+// TestCheckMoveInLimits: a head left just outside a limit (homing to the drive
+// origin, a jog) is not refused the move away from there. A target outside a
+// limit passes only on an axis where the head already stands at least as far
+// out -- holding that axis or coming back in -- and is refused as soon as it
+// goes further out, or leaves the limits from inside.
+func TestCheckMoveInLimits(t *testing.T) {
+	limits := &motsetup.Result{}
+	limits.AxisMinPos = [motsetup.MaxAxes]float64{0, -10, 0}
+	limits.AxisMaxPos = [motsetup.MaxAxes]float64{600, 500, 80}
+	c := &control{m: &pnptaskModule{limits: limits}}
+
+	out := motctl.Pose{X: 300, Y: -10.06, Z: 30} // 0.06 below Y's minimum
+	for _, tc := range []struct {
+		to   motctl.Pose
+		what string
+	}{
+		{motctl.Pose{X: 300, Y: 100, Z: 30}, "back inside"},
+		{motctl.Pose{X: 300, Y: -10.06, Z: 80}, "Y held, a Z stroke"},
+		{motctl.Pose{X: 500, Y: -10.06, Z: 30}, "Y held, X travel"},
+		{motctl.Pose{X: 300, Y: -10.03, Z: 30}, "Y partly back"},
+	} {
+		if err := c.checkMoveInLimits(out, tc.to); err != nil {
+			t.Errorf("%s: refused: %v", tc.what, err)
+		}
+	}
+	for _, tc := range []struct {
+		from, to motctl.Pose
+		what     string
+	}{
+		{out, motctl.Pose{X: 300, Y: -11, Z: 30}, "further out"},
+		{out, motctl.Pose{X: 300, Y: -10.06, Z: 90}, "Y held, Z out"},
+		{motctl.Pose{X: 300, Y: 100, Z: 30}, motctl.Pose{X: 300, Y: -10.06, Z: 30}, "from inside to outside"},
+	} {
+		err := c.checkMoveInLimits(tc.from, tc.to)
+		var pf *pnpFault
+		if !errors.As(err, &pf) || pf.id != errMotionError {
+			t.Errorf("%s: fault = %v, want MOTION_ERROR", tc.what, err)
+		}
+	}
+}
+
 // TestModuleStopDisablesMotion pins what a shutdown owes the drives. park()
 // runs when the control loop leaves and before Stop() returns (run defers the
 // done close, so shutdown's join cannot beat it), and it aborts and disables

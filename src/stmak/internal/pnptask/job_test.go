@@ -507,6 +507,28 @@ func TestJobPlaceOffset(t *testing.T) {
 	}
 }
 
+// TestJobStartsJustOutsideALimit: homing to the drive origin can leave the
+// head a few hundredths outside an axis limit that sits at home. The route's
+// first waypoint is where the head stands; checked as a target, it refused
+// every job from there with MOTION_ERROR (on the machine, 2026-10-28). The
+// move away from it is a move back inside and runs.
+func TestJobStartsJustOutsideALimit(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{})
+	// The limits are pushed at start; the machine parks at Y 100, 0.05 below
+	// this minimum.  Set before the first job reads them.
+	f.m.limits.AxisMinPos[1] = 100.05
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a job starting 0.05 mm outside the Y limit")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds nothing after the place")
+	}
+}
+
 // TestJobUsesTheHoldingPicker pins D20 on the single-picker engine: the place is
 // performed by the picker the world says holds the job's material, with that
 // picker's offsets — not by picker 0 by construction. Picker 1 is the only free
