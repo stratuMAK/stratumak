@@ -5,10 +5,14 @@
 load [KINS]KINEMATICS
 load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
 
+load inpos_motion <moved.0>
+
 addf motion-command-handler servo-thread
 addf motion-controller servo-thread
+addf moved.0 servo-thread
 
-net j0-cmd   joint.0.motor-pos-cmd => joint.0.motor-pos-fb
+net j0-cmd   joint.0.motor-pos-cmd => joint.0.motor-pos-fb moved.0.pos
+net inpos    motion.in-position => moved.0.inpos
 
 # estop + tool-change loopbacks (as in core_sim.hal) so milltask can enable.
 net estop-loop      iocontrol.user-enable-out iocontrol.emc-enable-in
