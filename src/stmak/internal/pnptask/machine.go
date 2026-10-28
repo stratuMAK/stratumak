@@ -768,6 +768,7 @@ func (c *control) updateMachine() error {
 		// cycled. A level that is still high from before the estop is not a
 		// request to start moving again — the operator has to ask.
 		c.estopped = false
+		c.leaveEstop()
 		c.m.logger.Info("pnptask: estop cleared, machine-on must be cycled to enable")
 	}
 
@@ -820,15 +821,21 @@ func (c *control) enterEstop() {
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
 	c.m.pins.machineIsOn.Set(false)
-	// D14: estop is the one event that drops held material. Everywhere else
-	// the close outputs keep their state so a part stays gripped.
-	for i := range c.m.pins.pickers {
-		c.m.pins.pickers[i].close.Set(false)
-	}
 	// The fixture release requests go low with it: a request an aborted action
 	// left standing would hold a station's clamp open indefinitely (D19).
 	for i := range c.m.pins.procs {
 		c.m.pins.procs[i].release.Set(false)
+	}
+	if c.m.cfg.EstopKeepsGrip {
+		// D39: the close outputs and the held records stand; the grip is
+		// checked against the feedback when the estop clears (leaveEstop).
+		c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers kept")
+		return
+	}
+	// D14: estop is the one event that drops held material. Everywhere else
+	// the close outputs keep their state so a part stays gripped.
+	for i := range c.m.pins.pickers {
+		c.m.pins.pickers[i].close.Set(false)
 	}
 	// The close outputs just went low, so whatever was gripped is on the table:
 	// the held-material records (D20) describe a world that no longer exists and
@@ -838,6 +845,29 @@ func (c *control) enterEstop() {
 	// record it judges is gone, so no clearing site owes it a manual zero.
 	c.m.world.clearAllHeld()
 	c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers released")
+}
+
+// leaveEstop schedules the grip check of D39: with ESTOP_KEEPS_GRIP the held
+// records outlived the estop, but the air behind the grippers may not have —
+// a part can have slipped out meanwhile. The check is the one a restored
+// record gets after a restart (verifyRestoredHeld): closed on nothing clears
+// the record with a warning, still opened waits for the gripper, anything
+// else confirms it. After the pick settle time, so the feedback has settled
+// on the returning air.
+func (c *control) leaveEstop() {
+	if !c.m.cfg.EstopKeepsGrip {
+		return
+	}
+	pending := false
+	for n := range c.m.world.held {
+		if c.m.world.held[n].present {
+			c.m.world.restoredHeld[n] = true
+			pending = true
+		}
+	}
+	if pending {
+		c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
+	}
 }
 
 // enable brings the machine up: Enable(), then wait for a published status that

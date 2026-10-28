@@ -473,6 +473,9 @@ Z_PICK = 2.5
 	if cfg.AutoHome {
 		t.Error("AUTOHOME defaults on; it must be opt-in")
 	}
+	if cfg.EstopKeepsGrip {
+		t.Error("ESTOP_KEEPS_GRIP defaults on; estop releases the pickers unless asked (D14, D39)")
+	}
 	if cfg.BlendTolerance != 0 || cfg.MoveVel != 0 || cfg.MoveAcc != 0 || cfg.ZVel != 0 || cfg.ZAcc != 0 {
 		t.Errorf("optional limits default non-zero: %+v", cfg)
 	}
@@ -1221,5 +1224,17 @@ MOVE_HEIGHT = 20.0
 				t.Errorf("error = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// ESTOP_KEEPS_GRIP (D39) is read as a boolean, and anything else is refused.
+func TestLoadConfigEstopKeepsGrip(t *testing.T) {
+	setupPaths(t)
+	base := trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nDEADZONE_FILE = zones_a.dxf\nESTOP_KEEPS_GRIP = %s\n\n[PNPTASK_TRAY_0]\nID = 10\nZ_PICK = 2.5\n"
+	if cfg := mustLoad(t, strings.ReplaceAll(base, "%s", "1")); !cfg.EstopKeepsGrip {
+		t.Error("ESTOP_KEEPS_GRIP = 1 not taken")
+	}
+	if _, err := loadTestConfig(t, strings.ReplaceAll(base, "%s", "maybe"), "pnp.task"); err == nil {
+		t.Error("ESTOP_KEEPS_GRIP = maybe accepted")
 	}
 }

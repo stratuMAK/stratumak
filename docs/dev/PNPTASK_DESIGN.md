@@ -56,6 +56,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D36 | Fixture order at a process station (2026-10-28) | **Pick**: down to the pick height, the fixture **releases first** (`release` := 1, wait `released`), `RELEASE_SETTLE`, then the picker closes on a free part, then up; the fixture clamps again after the lift (not on a swap: the placer comes next). A picker closing on a part the fixture still clamps forces any position mismatch through the portal; closing on a free part it centres it. **Place**: the fixture opens during the approach (unchanged), down to the place height, the picker opens, `RELEASE_TIME`, then the fixture **clamps before the lift** (`release` := 0, wait `released` low), then up: a part left loose in an open fixture tips over as the picker leaves it. A grip that fails after the release leaves the error path to withdraw it (D19), which clamps the part where it stands. A probing swap (D32) that finds the station empty finds the fixture already open and places straight away. For every process station. |
 | D37 | Near height (2026-10-28) | A tray or process station may set `NEAR_HEIGHT` (absolute Z, above its strokes, not above `MOVE_HEIGHT`; checked at load): the height the head travels at while it **stays at that station** -- between the remover and the placer of a swap, between candidate slots of a tray and from pick to place of a tray-to-itself job. Across jobs a `stay-near` input, read when the job is taken, says the next job starts where this one ends: the job then ends at its destination's `NEAR_HEIGHT` instead of `MOVE_HEIGHT`, and the next job's first travel to that station stays at it. pnptask cannot know that itself, and a head left low is in the way of what moves under it (a tray lifted into it), so only the PLC that knows the next job may ask. Anything else -- another station, a park -- goes up to `MOVE_HEIGHT` first; the low position is only believed with the head still at exactly that Z, and a jog, a homing or the machine going off forget it. |
 | D38 | Low move on a tray (2026-10-28) | A tray station may set `LOW_MOVE_MAX` (mm, default 0 = off). A `stay-near` place (D37) on it then does not lift at all: the head stays down at the place height, both grippers open, and the next job's pick on that tray, if its target (slot minus the picking picker's offset) is within `LOW_MOVE_MAX` of where the head stands, is reached by an XY shift at that height and the normal stroke -- no lift, no travel. With the picker spacing close to a multiple of the tray pitch the next raw part is often right under the other picker (0.37 mm on the coating machine). Further away it lifts to the tray's `NEAR_HEIGHT` as before. During the shift one gripper's open jaws are still around the part just set down: `LOW_MOVE_MAX` has to stay inside their clearance. The low position is only believed while the commanded pose is still exactly the one the place left. |
+| D39 | Estop keeps the grip (2026-10-29) | `[PNPTASK]ESTOP_KEEPS_GRIP` (default 0). Set, estop aborts and disables motion as ever but leaves the picker `close` outputs and the held records alone instead of releasing them (D14). For grippers on bistable valves fed from an air supply the estop cuts: there the release never reaches the jaws -- no air to shift the valve, or no fieldbus to carry the pulse -- so the part stays gripped and D14 would only have lost its record. When the estop clears, every held record is checked against the feedback after the pick settle time, as a restored one is after a restart: fully closed clears it with a warning, still opened waits for the gripper, otherwise it stands. |
 
 ---
 
@@ -310,6 +311,8 @@ HOME_TIMEOUT = 30.0
 PARK_X = 50.0                 # optional park position (D34), machine
 PARK_Y = 50.0                 #   coordinates, all three or none; usable in
 PARK_Z = 20.0                 #   every dead-zone drawing
+ESTOP_KEEPS_GRIP = 0          # optional: estop leaves the pickers and their
+                              #   held records alone (D39); default 0 = D14
 DEADZONE_FILE = zones_a.dxf   # repeated key (GetAll); line order = selector value 0,1,…
 DEADZONE_FILE = zones_b.dxf
 
@@ -666,7 +669,9 @@ Ported ordering from `internal/task/commands.go` `SetState` (minus emcio):
 
 - `estop-on` high (any time): `Abort()`, `Disable()`, `machine-is-on` := 0;
   active job → error `ESTOP`; all picker `close` outputs := 0 (D14 — held
-  material is released, this is the intended safe state).
+  material is released, this is the intended safe state), unless
+  `ESTOP_KEEPS_GRIP` (D39): then they and the held records stand, and the
+  grip is checked against the feedback when the estop clears.
 - `machine-on` rising while `estop-on` low: `Enable()`, wait
   `MotionStatus.Enabled` (with the sequencer.go comm-failure watchdog
   pattern), `machine-is-on` := 1.

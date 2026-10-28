@@ -88,6 +88,14 @@ type Config struct {
 	ParkZ   float64
 	HasPark bool
 
+	// EstopKeepsGrip is [PNPTASK]ESTOP_KEEPS_GRIP (D39): estop leaves the
+	// picker close outputs and the held records alone instead of releasing
+	// them (D14). For grippers on bistable valves fed from an air supply the
+	// estop cuts: there the release never reaches the jaws, so the part stays
+	// gripped and only the record would be lost. The grip is checked against
+	// the feedback once the estop clears.
+	EstopKeepsGrip bool
+
 	// DeadzoneFiles are the resolved absolute paths of the DXF files, in INI
 	// line order — that order is what the deadzone-select pin indexes.
 	DeadzoneFiles []string
@@ -382,6 +390,7 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
 	cfg.ReleaseTimeout = r.duration(sec, "RELEASE_TIMEOUT", defaultReleaseTimeout)
 	cfg.HomeTimeout = r.duration(sec, "HOME_TIMEOUT", defaultHomeTimeout)
+	cfg.EstopKeepsGrip = r.boolean(sec, "ESTOP_KEEPS_GRIP", false)
 	hasPX, hasPY, hasPZ := r.has(sec, "PARK_X"), r.has(sec, "PARK_Y"), r.has(sec, "PARK_Z")
 	if hasPX != hasPY || hasPX != hasPZ {
 		return nil, fmt.Errorf("[%s]: PARK_X, PARK_Y and PARK_Z must be given together", sec)

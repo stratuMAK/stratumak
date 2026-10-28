@@ -655,7 +655,8 @@ type world struct {
 	// restored record's grip through it (see world.restore). restoredHeld
 	// marks the records that came from storage — the only ones the one-shot
 	// grip validation (verifyRestoredHeld) may judge, because only they had
-	// their close output re-driven from the record.
+	// their close output re-driven from the record -- and, with
+	// ESTOP_KEEPS_GRIP, the records an estop left standing (D39).
 	held         []heldMaterial
 	heldDirty    bool
 	pickerClose  []*hal.Pin[bool]
