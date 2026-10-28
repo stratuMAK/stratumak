@@ -8,6 +8,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
@@ -147,6 +149,16 @@ func highLow(v bool) string {
 // belongs: the offset is a correction (a height sensor, a tray shim) applied
 // to the approach that is about to happen, not latched with the job.
 func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z float64) error {
+	// D38: down at this tray from the last job's place, and the target is
+	// within LOW_MOVE_MAX: shift there at this height, no lift.
+	if shifted, err := c.lowShift(pk, st, target); err != nil {
+		return err
+	} else if shifted {
+		if err := c.zStroke(z); err != nil {
+			return err
+		}
+		return c.dwell(c.m.pins.posSettleTime.Get())
+	}
 	j.travel = c.travelZ(j, st)
 	if err := c.retract(j.travel); err != nil {
 		return err
@@ -593,6 +605,13 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
 		return err
 	}
+	// D38: the next job picks on this tray; with LOW_MOVE_MAX it may start
+	// right here, so the head is not lifted at all.
+	if j.stayNear && t.cfg.LowMoveMax > 0 {
+		c.lowAt = j.destID
+		c.lowPos = c.cmdPos
+		return nil
+	}
 	return c.up(j, j.dest, j.stayNear)
 }
 
@@ -726,6 +745,9 @@ func (c *control) swapOut(j *job, holder, pk int, s *procState, busy bool) error
 // station, a park, a jog -- has taken the head up or forgotten it (nearAt).
 func (c *control) travelZ(j *job, st *station) float64 {
 	near, ok := st.near()
+	if ok && c.isLowAt(st) {
+		return near // down at it: up to its near height, not further
+	}
 	if ok && c.nearAt == st.id && math.Abs(c.cmdPos.Z-near) < moveFuzz {
 		return near
 	}
@@ -743,4 +765,53 @@ func (c *control) up(j *job, st *station, stay bool) error {
 		return nil
 	}
 	return c.zStroke(j.height)
+}
+
+// ---------------------------------------------------------------------------
+// Low move (D38)
+// ---------------------------------------------------------------------------
+
+// isLowAt: the head is still where a stay-near place on tray st left it.
+func (c *control) isLowAt(st *station) bool {
+	return c.lowAt != 0 && c.lowAt == st.id && poseNear(c.cmdPos, c.lowPos)
+}
+
+func poseNear(a, b motctl.Pose) bool {
+	return math.Abs(a.X-b.X) < moveFuzz && math.Abs(a.Y-b.Y) < moveFuzz && math.Abs(a.Z-b.Z) < moveFuzz
+}
+
+// lowShift moves picker pk onto target at the current height if the head is
+// down at tray st (isLowAt) and the target is within its LOW_MOVE_MAX:
+// both grippers are down in the tray, open -- one around the part it has
+// just set down, the other over the next one -- so the shift has to stay
+// inside the jaws' clearance, which is what LOW_MOVE_MAX says. Reports
+// whether it did; false leaves the head as it is for the normal approach.
+func (c *control) lowShift(pk int, st *station, target pnproute.Point) (bool, error) {
+	if !st.isTray() || st.tray.cfg.LowMoveMax <= 0 || !c.isLowAt(st) {
+		return false, nil
+	}
+	off := c.pickerOffset(pk)
+	to := c.cmdPos
+	to.X, to.Y = target.X-off.X, target.Y-off.Y
+	if math.Hypot(to.X-c.cmdPos.X, to.Y-c.cmdPos.Y) > st.tray.cfg.LowMoveMax {
+		// too far: the normal approach, up to the tray's near height first
+		// (travelZ still sees the head down at it)
+		return false, nil
+	}
+	c.lowAt = 0
+	c.m.logger.Debug("pnptask: low move on the tray", "station", st.id, "picker", pk,
+		"dx", to.X-c.cmdPos.X, "dy", to.Y-c.cmdPos.Y)
+	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
+		return false, err
+	}
+	if err := c.waitMotionDone(); err != nil {
+		return false, err
+	}
+	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+		return false, faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+	}
+	if err := c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc); err != nil {
+		return false, err
+	}
+	return true, c.waitMotionDone()
 }

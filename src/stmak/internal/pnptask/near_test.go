@@ -148,3 +148,60 @@ func TestNearHeightWithoutStay(t *testing.T) {
 		t.Errorf("the job ended at Z %g, want the movement height 30", z)
 	}
 }
+
+// lowFixture: tray 10 with NEAR_HEIGHT 10 and LOW_MOVE_MAX as given, a part
+// in station 20 to bring back to it.
+func lowFixture(t *testing.T, lowMax float64) *jobFixture {
+	t.Helper()
+	f := newJobFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			c := &m.world.trays[0].cfg
+			c.NearHeight, c.HasNear, c.LowMoveMax = 10, true, lowMax
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	return f
+}
+
+// TestLowMove: a stay-near place on a LOW_MOVE_MAX tray leaves the head down
+// at the place height, and the next job's pick within the window starts from
+// there -- no lift, no travel at height (D38).
+func TestLowMove(t *testing.T) {
+	f := lowFixture(t, 1.5)
+	f.runJobNear(20, 10, 7, true) // placed into slot 0, (120, 430)
+	f.requireOK("proc -> tray with stay-near")
+	moves := f.mot.moveList()
+	if last := moves[len(moves)-1].pos; last.Z != 2.5 {
+		t.Fatalf("the job ended at Z %g, want down at the place height 2.5", last.Z)
+	}
+
+	f.runJobNear(10, 20, 7, false) // the same part picked again: 0 mm away
+	f.requireOK("tray -> proc from down at the tray")
+	moves = f.mot.moveList()
+	if len(moves) == 0 || moves[0].pos.Z != 15 || moves[0].pos.X != 120 || moves[0].pos.Y != 430 {
+		t.Errorf("first move %+v, want the lift out of the slot after the pick (120, 430, 15): no lift before it", moves[0])
+	}
+}
+
+// TestLowMoveOutsideTheWindow: a target further than LOW_MOVE_MAX lifts to
+// the tray's NEAR_HEIGHT and travels as before.
+func TestLowMoveOutsideTheWindow(t *testing.T) {
+	f := lowFixture(t, 1.5)
+	f.m.pins.trays[0].step.Set(0)
+	f.runJobNear(20, 10, 7, true)
+	f.requireOK("proc -> tray with stay-near")
+	// A step-0 part to pick, one slot (10 mm) along: outside the window.
+	f.m.world.trays[0].slots[1] = 0
+	time.Sleep(levelHold)
+
+	f.runJobNear(10, 20, 0, false)
+	f.requireOK("tray -> proc, the target 10 mm away")
+	moves := f.mot.moveList()
+	if len(moves) == 0 || moves[0].pos.Z != 10 {
+		t.Errorf("first move %+v, want the lift to NEAR_HEIGHT 10", moves[0])
+	}
+}

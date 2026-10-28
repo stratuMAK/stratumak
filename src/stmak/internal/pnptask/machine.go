@@ -235,6 +235,12 @@ type control struct {
 	// the head may have been moved by hand meanwhile.
 	nearAt uint32
 
+	// lowAt/lowPos: a stay-near place on a LOW_MOVE_MAX tray left the head
+	// down at its stroke height there (D38). Only believed while the
+	// commanded position is still exactly lowPos.
+	lowAt  uint32
+	lowPos motctl.Pose
+
 	// cmdPos is the position the module has commanded so far, tracked so a
 	// route's segments can be dispatched back to back without waiting for status
 	// (see seedCmdPos). motionDispatched says whether anything has been commanded
@@ -806,6 +812,7 @@ func (c *control) enterEstop() {
 	c.rise.park = false
 	c.parked = false
 	c.nearAt = 0
+	c.lowAt = 0
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -866,6 +873,7 @@ func (c *control) enable() error {
 func (c *control) disable(reason string) {
 	c.parked = false
 	c.nearAt = 0
+	c.lowAt = 0
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -916,6 +924,7 @@ func (c *control) motionLost() {
 	c.rise.park = false
 	c.parked = false
 	c.nearAt = 0
+	c.lowAt = 0
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -1093,6 +1102,7 @@ func (c *control) runHoming() error {
 	}
 	c.parked = false
 	c.nearAt = 0
+	c.lowAt = 0
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1222,6 +1232,7 @@ func (c *control) jog() {
 		}
 		c.parked = false
 		c.nearAt = 0
+		c.lowAt = 0
 		if err := c.m.mc.JogCont(j.axis.Index, float64(dir)*vel, 1); err != nil {
 			c.raise(faultf(errMotionError, "jogging axis %c: %v", j.axis.Letter, err))
 			return

@@ -186,6 +186,11 @@ type TrayStation struct {
 	NearHeight float64
 	HasNear    bool
 
+	// LowMoveMax is LOW_MOVE_MAX (D38): the largest XY distance the head is
+	// moved down at the stroke height, without lifting, from one job's place
+	// to the next job's pick on this tray. 0 (the default) is off.
+	LowMoveMax float64
+
 	// DefaultTrayDef is the TrayDef id the station's tray-id pin is seeded
 	// with, or 0 for none. A station that only ever holds one tray geometry
 	// has nothing to select at runtime, and without a seed its selector would
@@ -697,6 +702,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
 			return err
 		}
+		s.LowMoveMax = r.lengthNonNeg(sec, "LOW_MOVE_MAX", 0)
 		if r.has(sec, "DEFAULT_TRAYDEF") {
 			// stationID's checks are the right ones: the key carries a
 			// TRAYDEF id, and 0 is as reserved here as it is there.
