@@ -271,8 +271,9 @@ static void put_value(FILE *f, int type, uint64_t v) {
     case STMAK_HAL_BIT:   put_u8(f, (unsigned)v); break;
     case STMAK_HAL_FLOAT: put_le(f, v, 8); break;
     case STMAK_HAL_S32: {
-        int32_t s = (int32_t)(uint32_t)v;
-        put_varint(f, (uint32_t)((uint32_t)s << 1) ^ (uint32_t)(s >> 31));
+        // zigzag, unsigned only: the sign bit becomes an all-ones mask
+        uint32_t u = (uint32_t)v;
+        put_varint(f, (u << 1) ^ (0u - (u >> 31)));
         break;
     }
     case STMAK_HAL_U32:   put_varint(f, v); break;
