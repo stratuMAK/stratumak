@@ -1,0 +1,12 @@
+# How far X gets in each program run, measured in the servo thread. The test
+# holds x-max-reset high outside a run and reads x-max after the abort.
+
+load minmax <max_x>
+
+addf max_x                servo-thread
+
+net Xpos => max_x.in
+net x-max-reset => max_x.reset
+net x-max <= max_x.max
+
+sets x-max-reset 1
