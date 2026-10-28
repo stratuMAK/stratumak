@@ -14,3 +14,5 @@ trace.txt
 vel.txt
 # binary change logs written by tests/siglog
 *.siglog
+# halsampler -R readiness flag (tests/hal-stream-driver.sh)
+.halsampler-ready
