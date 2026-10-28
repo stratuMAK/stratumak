@@ -121,7 +121,7 @@ typedef struct {
                           stmak_hal_funct_t funct,
                           void *arg, int uses_fp, int reentrant, int comp_id);
 
-    // Signal enumeration (appended; see CMOD_ABI_VERSION).  Not RT-safe.
+    // Signal enumeration (CMOD_ABI_VERSION 4).  Not RT-safe.
     //
     // signal_foreach calls cb once per signal, in HAL's name order, with the
     // HAL mutex held: cb must not call back into this API.  A non-zero return
