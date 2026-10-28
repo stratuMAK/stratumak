@@ -18,7 +18,7 @@ setp siggen.0.offset -50
 load ddt <ddt.in-accel,ddt.in-vel,ddt.out-accel,ddt.out-vel>
 
 
-load filestream sample_cfg=ffffff outfile=out.txt depth=2000 samples=4000 tag
+load filestream sample_cfg=ffffff outfile=out.txt depth=4096 samples=4000 tag
 
 
 # We use the cosine signal as the input so that the velocity and

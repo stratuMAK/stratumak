@@ -19,3 +19,4 @@ rm -rf db vel.txt
 . ../stmak-driver.sh
 stmak_start_server blend.ini
 ./test.py
+stmak_check_filestream

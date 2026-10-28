@@ -8,3 +8,4 @@ rm -f trace.txt
 stmak_start_server tapping-cycle.ini
 stmak_wait_ready
 ./test-ui.py
+stmak_check_filestream

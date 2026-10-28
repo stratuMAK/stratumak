@@ -2,7 +2,7 @@
 newthread millisecond 1000000
 
 load multiclick <multiclick.0,multiclick.1>
-load filestream stream_cfg=bb sample_cfg=bbbbbbbbbsbbbbbbbbbs infile=input-signals outfile=out.txt depth=100 samples=105
+load filestream stream_cfg=bb sample_cfg=bbbbbbbbbsbbbbbbbbbs infile=input-signals outfile=out.txt depth=128 samples=105
 
 
 net in0 filestream.stream.0 => multiclick.0.in filestream.sample.0

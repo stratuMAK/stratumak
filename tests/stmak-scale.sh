@@ -73,3 +73,24 @@ stmak_bind_failure() {
          "every later test that starts one fails the same way." >&2
     return 0
 }
+
+# stmak_check_filestream [comp]: fail the test when a filestream instance lost
+# samples. A capture that dropped samples (overruns: tags skip) or a replay
+# that ran dry before the end of its input (starved: a stale value replayed) is
+# not the run a golden file or a trace check describes, and a diff of it fails
+# for the wrong reason — or a trace check passes on a run with holes. Call it
+# while the server still runs; size depth= to hold the whole run.
+stmak_check_filestream() {
+    local comp="${1:-filestream}" pin n lost=""
+    for pin in overruns starved; do
+        n=$(halcmd getp "$comp.$pin" 2>/dev/null | awk '{print $NF}')
+        if [ -n "$n" ] && [ "$n" != 0 ]; then
+            lost="$lost $pin=$n"
+        fi
+    done
+    if [ -n "$lost" ]; then
+        echo "*** $comp lost samples:$lost (depth= too small for its I/O thread" \
+             "to keep up)" >&2
+        exit 1
+    fi
+}
