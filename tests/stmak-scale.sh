@@ -83,7 +83,9 @@ stmak_bind_failure() {
 stmak_check_filestream() {
     local comp="${1:-filestream}" pin n lost=""
     for pin in overruns starved; do
-        n=$(halcmd getp "$comp.$pin" 2>/dev/null | awk '{print $NF}')
+        # A pin the instance lacks (starved on a capture-only one) reads as
+        # empty -- also under a caller's set -e -o pipefail.
+        n=$( (halcmd getp "$comp.$pin" 2>/dev/null || true) | awk '{print $NF}')
         if [ -n "$n" ] && [ "$n" != 0 ]; then
             lost="$lost $pin=$n"
         fi

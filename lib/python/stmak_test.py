@@ -277,8 +277,12 @@ _PIN_INTERVAL = 0.05
 
 
 def getp(pin):
-    """Read a HAL pin/signal value. Returns bool for TRUE/FALSE, else float."""
-    out = subprocess.check_output(["halcmd", "gets", pin])
+    """Read a HAL signal value, or a pin's/parameter's when no signal has that
+    name. Returns bool for TRUE/FALSE, else float. (It read signals only, so
+    wait_pin on a pin such as motion.in-position failed outright.)"""
+    r = subprocess.run(["halcmd", "gets", pin], capture_output=True)
+    out = r.stdout if r.returncode == 0 else \
+        subprocess.check_output(["halcmd", "getp", pin])
     v = out.decode().strip().split()[-1]
     if v in ("TRUE", "FALSE"):
         return v == "TRUE"

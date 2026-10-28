@@ -18,7 +18,6 @@ import gmi
 import stmak_test
 from gmi.constants import *
 
-import subprocess
 import sys
 
 c = stmak_test.Command()
@@ -74,14 +73,11 @@ s.poll()
 drain_errors(errors)
 
 
-def getp(pin):
-    return float(subprocess.check_output(["halcmd", "getp", pin]).split()[-1])
-
 
 # How far the drive travelled, and whether a following error was ever latched,
 # from the servo-thread records (cia402-sim.hal).
-peak_move = max(getp("seek.0.max") - start_pos, start_pos - getp("seek.0.min"))
-ferr_latched = getp("ferrmax.0.max") > 0.5
+peak_move = max(stmak_test.getp("seek.0.max") - start_pos, start_pos - stmak_test.getp("seek.0.min"))
+ferr_latched = stmak_test.getp("ferrmax.0.max") > 0.5
 
 ok = True
 if ferr_latched:

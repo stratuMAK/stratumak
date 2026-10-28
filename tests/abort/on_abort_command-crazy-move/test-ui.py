@@ -11,13 +11,7 @@ import gmi
 from gmi.constants import *
 import stmak_test
 
-import subprocess
 import sys
-
-
-def getp(pin):
-    """A HAL pin's value (stmak_test.getp reads signals)."""
-    return float(subprocess.check_output(["halcmd", "getp", pin]).split()[-1])
 
 
 #
@@ -118,8 +112,8 @@ stmak_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE
 TOL_MM = 0.01
 fail = False
 for axis, pos in (("X", px), ("Y", py)):
-    lo = getp("%smm.min" % axis.lower())
-    hi = getp("%smm.max" % axis.lower())
+    lo = stmak_test.getp("%smm.min" % axis.lower())
+    hi = stmak_test.getp("%smm.max" % axis.lower())
     moved = max(abs(hi - pos), abs(pos - lo))
     sys.stderr.write("%s: paused at %.4f mm, range after the abort %.4f..%.4f\n"
                      % (axis, pos, lo, hi))

@@ -87,14 +87,11 @@ out = subprocess.check_output(["halcmd", "getp", "watch.0.max-abs"])
 excursion = float(out.split()[-1])
 
 
-def getp(pin):
-    return float(subprocess.check_output(["halcmd", "getp", pin]).split()[-1])
-
 
 # How far the drive travelled, and whether a following error was ever latched,
 # from the servo-thread records (cia402-sim.hal).
-peak_move = max(getp("seek.0.max") - start_pos, start_pos - getp("seek.0.min"))
-ferr_latched = getp("ferrmax.0.max") > 0.5
+peak_move = max(stmak_test.getp("seek.0.max") - start_pos, start_pos - stmak_test.getp("seek.0.min"))
+ferr_latched = stmak_test.getp("ferrmax.0.max") > 0.5
 
 ok = True
 if ferr_latched:
