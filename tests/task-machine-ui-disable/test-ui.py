@@ -33,10 +33,13 @@ def lock(value):
         detail=lambda st: "machine_ui_disabled=%s" % st.machine_ui_disabled)
 
 
-def pulse(pin):
-    """halui machine and estop pins act on the rising edge."""
+def pulse(pin, effect):
+    """halui machine and estop pins act on the rising edge: raise the pin,
+    wait for its effect (effect() waits and fails the test), then drop it.
+    Held for a fixed 0.1 s, the pulse could fall between two ticks of
+    halui's monitor."""
     subprocess.run(["halcmd", "setp", pin, "1"], check=True)
-    time.sleep(0.1 * stmak_test.scale())
+    effect()
     subprocess.run(["halcmd", "setp", pin, "0"], check=True)
 
 
@@ -91,8 +94,8 @@ stmak_test.wait_stat(s, lambda st: st.optional_stop, "unforced optional stop")
 c.set_optional_stop(False)
 print("ok: program flow is not affected")
 
-pulse("halui.machine.off")
-state_is(OFF, "halui machine.off")
+pulse("halui.machine.off",
+      lambda: state_is(OFF, "halui machine.off"))
 print("ok: halui machine.off")
 
 # --- machine off: on is refused ---------------------------------------------
@@ -102,8 +105,8 @@ c.state(STATE_ON, force=True)
 state_is((STATE_ON,), "the forced machine on")
 print("ok: forced machine on")
 
-pulse("halui.estop.activate")
-state_is((STATE_ESTOP,), "halui estop.activate")
+pulse("halui.estop.activate",
+      lambda: state_is((STATE_ESTOP,), "halui estop.activate"))
 print("ok: halui estop.activate")
 
 # --- estop: reset is refused ------------------------------------------------
@@ -113,16 +116,16 @@ c.state(STATE_ESTOP_RESET, force=True)
 state_is(OFF, "the forced estop reset")
 print("ok: forced estop reset")
 
-pulse("halui.machine.on")
-state_is((STATE_ON,), "halui machine.on")
+pulse("halui.machine.on",
+      lambda: state_is((STATE_ON,), "halui machine.on"))
 print("ok: halui machine.on")
 
 c.state(STATE_ESTOP, force=True)
 state_is((STATE_ESTOP,), "the forced estop")
 print("ok: forced estop")
 
-pulse("halui.estop.reset")
-state_is(OFF, "halui estop.reset")
+pulse("halui.estop.reset",
+      lambda: state_is(OFF, "halui estop.reset"))
 print("ok: halui estop.reset")
 
 # --- pin low again ----------------------------------------------------------
