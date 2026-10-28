@@ -53,6 +53,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D33 | Wait abort (2026-10-27) | A `wait-abort` input ends a busy-station wait (D15, D29's streamed approach included) exactly as `auto-enable` going low does — `WAIT_ABORTED`, the leg in flight stopped, the picker keeping its material — but **without leaving auto mode**, so the PLC can reset the error and send the next request (a park, the same material elsewhere) at once. A level, held until the job has ended; it touches nothing but a wait, so a job that never has to wait runs to its end with it high. Amends D16: besides estop and machine-off, a wait is the one place a job can be ended on request. |
 | D34 | Park (2026-10-27) | `[PNPTASK]PARK_X/PARK_Y/PARK_Z` (together or not at all) name a **machine** position, and a `park` input sends the head there: rising edge, auto mode only (in manual mode it is `AUTO_DISABLED`, like a job), refused while an error is latched. Not a job — no material, no station — but planned like one: retract to `MOVE_HEIGHT`, a route around the dead zones of the current scene, a Z stroke to `PARK_Z`. `busy` is high for its duration; `parked` rises when it has arrived and drops at the next motion of any kind (job, jog, homing) and with the machine. Without the keys a request is `PARK_NOT_CONFIGURED` (26). The point is checked at load against **every** drawing, not just one as a station is (§5.1): a head parked to be out of the way must be out of the way whatever the other scene is about to move. |
 | D35 | Moves from just outside a limit (2026-10-28) | The per-dispatch limit check (D28's backstop) skips a segment that does not move -- a route's first waypoint is where the head already stands -- and accepts a target outside an axis limit on an axis where the head already stands at least as far outside: holding that axis or coming back in, the way a jog back inside a soft limit is allowed. Further out, or out from inside, stays `MOTION_ERROR`. Before it, a head that homing to the drive origin left a few hundredths outside a limit at home was refused every move. Job accept still checks every station endpoint strictly. |
+| D36 | Fixture order at a process station (2026-10-28) | **Pick**: down to the pick height, the fixture **releases first** (`release` := 1, wait `released`), `RELEASE_SETTLE`, then the picker closes on a free part, then up; the fixture clamps again after the lift (not on a swap: the placer comes next). A picker closing on a part the fixture still clamps forces any position mismatch through the portal; closing on a free part it centres it. **Place**: the fixture opens during the approach (unchanged), down to the place height, the picker opens, `RELEASE_TIME`, then the fixture **clamps before the lift** (`release` := 0, wait `released` low), then up: a part left loose in an open fixture tips over as the picker leaves it. A grip that fails after the release leaves the error path to withdraw it (D19), which clamps the part where it stands. A probing swap (D32) that finds the station empty finds the fixture already open and places straight away. For every process station. |
 
 ---
 
@@ -882,14 +883,14 @@ high → slot physically empty: `close` := 0, wait `opened` (pick-settle
 timeout), Z up, next candidate per §7.1 probing; success → `missing` := 0,
 Z up.
 
-**pick from proc** — validate `has-material`; busy gating (see above);
-retract; route XY to station; Z down; pos-settle; `close` := 1; pick-settle;
-`opened` high → error `PICKER_CLOSE_FAILED`; `closed` high → material
-vanished, error `PROC_NO_MATERIAL`; `release` := 1, wait `released` high
-(RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`); `has-material` := 0;
-**RELEASE_SETTLE** (the fixture's jaws are still moving — lifting on the
-contact alone drags the part through a chuck that has not finished opening);
-Z up; `release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+**pick from proc** (D36) — validate `has-material`; busy gating (see
+above); retract; route XY to station; Z down; pos-settle; `release` := 1,
+wait `released` high (RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`);
+**RELEASE_SETTLE** (the fixture's jaws are still moving after the contact);
+`close` := 1; pick-settle; `opened` high → error `PICKER_CLOSE_FAILED`;
+`closed` high → material vanished, error `PROC_NO_MATERIAL`;
+`has-material` := 0; Z up; `release` := 0, wait `released` low
+(RELEASE_TIMEOUT, D19).
 
 **place to tray** — validate free slot; retract; route XY to free slot;
 Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
@@ -898,12 +899,13 @@ confirmation — the physical commit point, since an open picker cannot take
 the part back; an abort during the dwell must find a world that already says
 where the part is); release-time dwell; Z up.
 
-**place to proc** — validate `!has-material` (single-picker mode; §8 for
-alternating); busy gating (see above); `release` := 1; route XY to station;
-wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle; `close` := 0;
-pick-settle; `opened` low → error `PLACE_FAILED`; **`has-material` := 1**
-(records at the `opened` confirmation, as above); release-time dwell; Z up;
-`release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+**place to proc** (D36) — validate `!has-material` (single-picker mode; §8
+for alternating); busy gating (see above); `release` := 1; route XY to
+station; wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle;
+`close` := 0; pick-settle; `opened` low → error `PLACE_FAILED`;
+**`has-material` := 1** (records at the `opened` confirmation, as above);
+release-time dwell; `release` := 0, wait `released` low (RELEASE_TIMEOUT,
+D19); Z up.
 
 **Release cleanup (phase 4/5 review):** no error path may leave a station's
 `release` request standing — every proc action withdraws it on the way out of

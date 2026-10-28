@@ -482,6 +482,20 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
 		return err
 	}
+	// D36: the fixture lets go first, the picker closes after. A picker
+	// closing on a part the fixture still clamps forces any position mismatch
+	// through the portal; closing on a free part, it centres it instead.
+	// RELEASE_SETTLE covers the jaws still moving after the opened contact.
+	//
+	// The fixture is open from here on with nothing holding the part: any
+	// failure below leaves the caller to withdraw the release (D19), which
+	// clamps the part again where it stands.
+	if err := c.setRelease(s, true); err != nil {
+		return err
+	}
+	if err := c.dwell(s.pins.releaseSettle.Get()); err != nil {
+		return err
+	}
 	grip, err := c.closeAndCheck(pk)
 	if err != nil {
 		return err
@@ -494,7 +508,8 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 			return err
 		}
 		// D32: a probing swap asked whether anything is there, and nothing is
-		// an answer. The place goes on; no record, so no swap obligation.
+		// an answer. The place goes on, the fixture already open; no record,
+		// so no swap obligation.
 		if swap && s.cfg.ProbeSwap {
 			c.m.logger.Info("pnptask: swap found the station empty", "station", s.cfg.ID, "picker", pk)
 			return errSwapEmpty
@@ -503,16 +518,6 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 			"station %d: the fixture is empty although has-material was set", s.cfg.ID)
 	}
 
-	if err := c.setRelease(s, true); err != nil {
-		// The picker is closed around a part the fixture never confirmed
-		// releasing: the part belongs to the fixture, so the picker lets go
-		// (best effort — no feedback wait on an error path) and has-material
-		// stays true. Leaving the picker clamped while the world called it
-		// free would send the next job's retract tearing the part out of a
-		// closed fixture.
-		c.m.pins.pickers[pk].close.Set(false)
-		return err
-	}
 	// The material is in the picker and out of the fixture's hands: both records
 	// move together, before the lift, so an abort during the retract leaves a
 	// world that says where the part is. has-material drops even on the swap
@@ -525,16 +530,6 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	// step the model never tracked — unknown, and exempt from the skipPick
 	// step check.
 	c.m.world.setHeld(pk, s.cfg.ID, swap, j.step, !swap)
-	// The fixture said it released; its jaws have not finished moving. Lifting
-	// on the contact alone drags the part out of a chuck that is still closing
-	// on it -- the place paths have waited here since they were written
-	// (release-time, after the gripper opens), and the removal never did.
-	//
-	// After the records move, like placeToTray's: an abort landing in the dwell
-	// has to find a world that already says where the part is.
-	if err := c.dwell(s.pins.releaseSettle.Get()); err != nil {
-		return err
-	}
 	if err := c.zStroke(j.height); err != nil {
 		return err
 	}
@@ -682,11 +677,13 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
 		return err
 	}
-	if err := c.zStroke(j.height); err != nil {
+	// D36: the fixture clamps before the picker lifts away: a part left
+	// standing loose in an open fixture tips over as the picker leaves it.
+	// Confirmed (D19), then up.
+	if err := c.setRelease(s, false); err != nil {
 		return err
 	}
-	// Clamp again and confirm it (D19) — the station now holds the part.
-	return c.setRelease(s, false)
+	return c.zStroke(j.height)
 }
 
 // ---------------------------------------------------------------------------

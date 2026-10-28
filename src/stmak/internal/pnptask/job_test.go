@@ -1781,14 +1781,11 @@ func TestPickFromProcReleaseFailureKeepsWorldTruthful(t *testing.T) {
 	}
 }
 
-// TestRemoveFromProcSettlesBeforeLift: a fixture's jaws keep moving after its
-// released contact makes, so the lift out of it waits RELEASE_SETTLE first.
-// Without the dwell the retract starts into a chuck that is open on the wire
-// and not yet clear of the part, and drags the part up through it.
-//
-// The place paths have waited here since they were written (release-time, after
-// the gripper opens); the removal never did.
-func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
+// TestRemoveFromProcReleasesBeforeGrip pins D36's pick: the fixture lets go
+// first and the picker closes after RELEASE_SETTLE, on a free part. A picker
+// closing on a part the fixture still clamps forces any position mismatch
+// through the portal.
+func TestRemoveFromProcReleasesBeforeGrip(t *testing.T) {
 	f := newJobFixtureOpts(t, fixtureOpts{
 		prep: func(_ *testing.T, m *pnptaskModule) {
 			m.pins.trays[0].trayID.Set(1)
@@ -1797,7 +1794,7 @@ func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
 	})
 	f.homed()
 	f.mot.setPos(100, 100, 60)
-	// A wide dwell, so the lift cannot slip through it unnoticed.
+	// A wide dwell, so a close cannot slip through it unnoticed.
 	f.proc().releaseSettle.Set(100 * pollInterval.Seconds())
 
 	// Started by hand rather than with runJob, which waits the job out: what
@@ -1809,23 +1806,48 @@ func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
 	f.m.pins.processStep.Set(0)
 	f.m.pins.startJob.Set(true)
 
-	// has-material drops the moment the fixture confirms it released, which is
-	// where the dwell begins.
-	f.eventually("the fixture confirmed it released", func() bool {
-		return !f.bit("proc.20.has-material")
+	f.eventually("the fixture is asked to let go", func() bool { return f.bit("proc.20.release") })
+	f.consistently("the picker stays open while the fixture lets go and settles", func() bool {
+		return !f.bit("picker.0.close") && f.bit("proc.20.has-material")
 	})
-	moves := len(f.mot.moveList())
-	f.consistently("no lift while the fixture is still letting go", func() bool {
-		return len(f.mot.moveList()) == moves
-	})
-
-	// And it is a dwell, not a deadlock: the lift out of the station follows,
-	// and the job runs on to the tray.
-	f.eventually("the lift follows the dwell", func() bool {
-		return len(f.mot.moveList()) > moves
-	})
+	// And it is a dwell, not a deadlock: the grip follows, and the job runs on
+	// to the tray.
+	f.eventually("the picker closes after the settle", func() bool { return f.bit("picker.0.close") })
 	f.eventually("the job finishes", func() bool { return !f.bit("busy") })
-	f.requireOK("a removal that waited for the fixture")
+	f.requireOK("a removal that let go first")
+	if f.bit("proc.20.has-material") || f.bit("proc.20.release") {
+		t.Errorf("after the removal has-material=%v release=%v, want both low",
+			f.bit("proc.20.has-material"), f.bit("proc.20.release"))
+	}
+}
+
+// TestPlaceToProcClampsBeforeLift pins D36's place: the fixture clamps the
+// part before the picker lifts away from it -- a part left loose in an open
+// fixture tips over as the picker leaves.
+func TestPlaceToProcClampsBeforeLift(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	// A wide release-time dwell, so the order is visible.
+	f.m.pins.releaseTime.Set(30 * pollInterval.Seconds())
+
+	f.m.pins.startJob.Set(false)
+	time.Sleep(levelHold)
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+
+	f.eventually("the part is placed", func() bool { return f.bit("proc.20.has-material") })
+	// The fixture is slow to report itself clamped: the lift has to wait for it.
+	f.sim.set(func(s *machineSim) { s.fixtureStuck = true })
+	moves := len(f.mot.moveList())
+	f.eventually("the fixture is told to clamp", func() bool { return !f.bit("proc.20.release") })
+	f.consistently("no lift until it has", func() bool { return len(f.mot.moveList()) == moves })
+	f.sim.set(func(s *machineSim) { s.fixtureStuck = false })
+	f.eventually("clamped: then the lift", func() bool { return len(f.mot.moveList()) > moves })
+	f.eventually("the job finishes", func() bool { return !f.bit("busy") })
+	f.requireOK("a place that clamped first")
 }
 
 // TestEstopDuringPlaceDwellKeepsRecords: the records commit the moment "opened"
