@@ -40,18 +40,44 @@ net arm-hold    => holdgate.in0
 net feed-inh  feedgate.out => motion.feed-inhibit
 net spin-inh  spingate.out => spindle.0.inhibit
 net feed-hold holdgate.out => motion.feed-hold
+
+# The pause phase: a task command cannot be timed from here, so instead Z is
+# held where the latch fires until the task reports the pause.  The adaptive
+# feed (M52 P1 in tap.ngc) does that -- unlike the overrides and inhibits it is
+# not suspended by TAP_ACTIVE.  However late the task acts, its pause arrives
+# with Z standing in the tap, and once it has, motion must carry the tap on.
+load and2 <stallgate>
+load and2 <stall>
+load not <notpaused>
+load mux2 <afmux>
+addf notpaused servo-thread
+addf stallgate servo-thread
+addf stall servo-thread
+addf afmux servo-thread
+net arm-stall => stallgate.in0
+net latched    => stallgate.in1
+net paused halui.program.is-paused => notpaused.in
+net stallgate stallgate.out => stall.in0
+net not-paused notpaused.out => stall.in1
+net stalled stall.out => afmux.sel
+setp afmux.in0 1.0
+setp afmux.in1 0.0
+net adaptive-feed afmux.out => motion.adaptive-feed
 sets latch-reset 0
 sets arm-feed 0
 sets arm-spindle 0
 sets arm-hold 0
+sets arm-stall 0
 
-# Every servo cycle: phase mark, Z, spindle speed, both inhibits, feed hold.
-load filestream sample_cfg=sffbbb outfile=trace.txt depth=32768 samples=0
+# Every servo cycle: phase mark, Z, spindle speed, both inhibits, feed hold,
+# the task's paused report.
+load filestream sample_cfg=sffbbbb outfile=trace.txt depth=32768 samples=0
 net phase                               => filestream.sample.0
 net zpos                                => filestream.sample.1
 net speed-out <= spindle.0.speed-out    => filestream.sample.2
 net feed-inh                            => filestream.sample.3
 net spin-inh                            => filestream.sample.4
 net feed-hold                           => filestream.sample.5
+net paused                              => filestream.sample.6
 addf filestream.read servo-thread
 sets phase 0
