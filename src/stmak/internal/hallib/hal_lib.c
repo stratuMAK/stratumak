@@ -3582,7 +3582,9 @@ static void free_sig_struct(hal_sig_t * sig)
 	/* check for another pin linked to the signal */
 	pin = halpr_find_pin_by_sig(sig, pin);
     }
-    /* clear contents of struct */
+    /* clear contents of struct.  The value slot itself (shmalloc_up) is never
+       freed: cmods hold on to it via stmak_hal_t.signal_foreach and keep
+       reading it from RT after the signal is gone (siglog). */
     sig->data_ptr = 0;
     sig->type = 0;
     sig->readers = 0;
