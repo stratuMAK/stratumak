@@ -45,15 +45,14 @@ extern "C" {
 // between them.  Bump it in any change that a module compiled against the
 // previous header would not survive -- a field added to or moved within
 // cmod_env_t or a sub-API struct, a changed callback signature, a changed
-// lifetime guarantee.  Purely additive changes at the END of a structure that
-// old modules never read are the one thing that does not need a bump -- but
-// note that this exemption turns on who allocates the structure, not on where
-// the field goes.  cmod_env_t and the sub-APIs are allocated by the launcher
-// and read by the module, so appending to them is safe.  cmod_t is the other
-// way round: the module allocates it in New() and the launcher reads it, so a
-// module built against an older header hands over a shorter allocation and any
-// new field, however placed, is a read past its end.  Appending to cmod_t is
-// therefore NOT exempt and does need a bump.
+// lifetime guarantee.  Appending to the END of a launcher-allocated structure
+// (cmod_env_t, the sub-APIs) keeps old modules working on a new launcher, but
+// that is only half of it: a new module that reads the appended field, loaded
+// by an older launcher, reads past the end of the shorter allocation -- and
+// an older stmakd beside newer cmods is exactly the case the stamp exists for
+// (below).  So appending needs a bump too, as soon as any module reads the new
+// field.  cmod_t is the other way round: the module allocates it in New() and
+// the launcher reads it, so any new field, however placed, needs a bump.
 //
 // Why it exists: a locally rebuilt stmakd can be older than the cmods
 // installed beside it (see docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.4).
@@ -61,7 +60,7 @@ extern "C" {
 // undefined behaviour with nothing to detect it at load time -- the symbols
 // all resolve, and the module reads the wrong offsets.  The launcher reads
 // this symbol before it calls New() and refuses a module that disagrees.
-#define CMOD_ABI_VERSION 3
+#define CMOD_ABI_VERSION 4
 
 // Every module carries the stamp automatically, by including this header:
 // the definition is emitted into each translation unit rather than left for a

@@ -87,6 +87,10 @@ typedef volatile unsigned     stmak_hal_port_t;
 // Maximum HAL name length (matches HAL_NAME_LEN in hal.h).
 #define STMAK_HAL_NAME_LEN 127
 
+// Callback for stmak_hal_t.signal_foreach.  `type` is a stmak_hal_type_t.
+typedef int (*stmak_hal_signal_cb_t)(void *user, const char *name, int type,
+                                     volatile void *data);
+
 // ---------------------------------------------------------------------------
 // stmak_hal_t — HAL callback table.
 // ---------------------------------------------------------------------------
@@ -116,6 +120,22 @@ typedef struct {
     int   (*export_funct)(void *ctx, const char *name,
                           stmak_hal_funct_t funct,
                           void *arg, int uses_fp, int reentrant, int comp_id);
+
+    // Signal enumeration (CMOD_ABI_VERSION 4).  Not RT-safe.
+    //
+    // signal_foreach calls cb once per signal, in HAL's name order, with the
+    // HAL mutex held: cb must not call back into this API.  A non-zero return
+    // from cb stops the walk.  Returns the number of signals visited, or a
+    // negative errno.  `data` is the signal's value slot, which HAL never
+    // frees: it stays readable (from RT too) for the life of the HAL
+    // instance, even after the signal is deleted -- it then just stops
+    // changing.
+    //
+    // struct_generation returns a counter that HAL bumps on every structural
+    // change (signals, links, components); compare two readings to learn that
+    // something changed, then look again.
+    int      (*signal_foreach)(void *ctx, stmak_hal_signal_cb_t cb, void *user);
+    unsigned (*struct_generation)(void *ctx);
 } stmak_hal_t;
 
 // ---------------------------------------------------------------------------

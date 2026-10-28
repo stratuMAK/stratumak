@@ -1,0 +1,15 @@
+# Proof test for the siglog cmod: filestream replays a sequence of mixed-type
+# samples onto sig.* signals, siglog records their changes.  The replay is held
+# off (filestream.enable) until siglog.active, so the first logged cycle is the
+# all-zero snapshot and every replayed sample lands in a known cycle.
+load filestream stream_cfg=fbus infile=in.txt
+load siglog file=out.siglog include=sig.*,nomatch.* exclude=sig.skip
+newthread fast 1000000
+net sig.f filestream.stream.0
+net sig.b filestream.stream.1
+net sig.u filestream.stream.2
+net sig.s filestream.stream.3
+newsig sig.skip float
+net log-active siglog.active => filestream.enable
+addf filestream.write fast
+addf siglog.sample fast

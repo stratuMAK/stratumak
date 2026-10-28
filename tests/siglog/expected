@@ -1,0 +1,29 @@
+version   1
+period    1000000 ns
+include   sig.*,nomatch.*
+exclude   sig.skip
+signals   4
+  bit   sig.b
+  float sig.f
+  s32   sig.s
+  u32   sig.u
+0 sig.b 0
+0 sig.f 0.0
+0 sig.s 0
+0 sig.u 0
+1 sig.b 1
+1 sig.f 1.5
+1 sig.s -5
+1 sig.u 100
+2 sig.s -6
+3 sig.b 0
+4 sig.b 1
+4 sig.f -3.5
+4 sig.s 2147483647
+4 sig.u 4294967295
+5 sig.b 0
+5 sig.f -0.0
+5 sig.s -2147483648
+5 sig.u 0
+0
+include pattern 'nomatch.*' matches no signal

@@ -24,6 +24,7 @@ package launcher
 #include <stdint.h>
 #include "stmak_env.h"
 #include "hal.h"
+#include "hal_priv.h"
 #include "rtapi.h"
 
 // --- API registry callbacks (forward-declared, implemented in Go via //export) ---
@@ -135,6 +136,26 @@ static int stmak_hal_export_funct_cb(void *ctx, const char *name,
     return hal_export_funct(name, funct, arg, uses_fp, reentrant, comp_id);
 }
 
+static int stmak_hal_signal_foreach_cb(void *ctx, stmak_hal_signal_cb_t cb,
+                                      void *user) {
+    int n = 0;
+    hal_sig_t *sig;
+
+    if (hal_data == 0) return -EINVAL;
+    rtapi_mutex_get(&(hal_data->mutex));
+    for (sig = hal_data->sig_list_ptr; sig != 0; sig = sig->next_ptr) {
+        n++;
+        if (cb(user, sig->name, (int)sig->type, sig->data_ptr)) break;
+    }
+    rtapi_mutex_give(&(hal_data->mutex));
+    return n;
+}
+
+static unsigned stmak_hal_struct_generation_cb(void *ctx) {
+    if (hal_data == 0) return 0;
+    return *(volatile unsigned int *)&hal_data->struct_generation;
+}
+
 // --- Pass-through RTAPI callbacks ---
 
 static void *stmak_rtapi_calloc_cb(void *ctx, size_t size) {
@@ -223,6 +244,8 @@ static void stmak_hal_init_struct(stmak_hal_t *hal) {
     hal->pin_alias    = stmak_hal_pin_alias_cb;
     hal->param_alias  = stmak_hal_param_alias_cb;
     hal->export_funct = stmak_hal_export_funct_cb;
+    hal->signal_foreach    = stmak_hal_signal_foreach_cb;
+    hal->struct_generation = stmak_hal_struct_generation_cb;
 }
 
 static void stmak_rtapi_init_struct(stmak_rtapi_t *rtapi) {
