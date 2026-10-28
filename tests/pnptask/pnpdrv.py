@@ -362,7 +362,8 @@ class Machine:
         self.set("origin-id", origin)
         self.set("dest-id", dest)
         self.set("process-step", step)
-        self.set("deadzone-select", deadzone)
+        if deadzone is not None:   # None: a HAL signal drives the pin
+            self.set("deadzone-select", deadzone)
         self.set("start-job", True)
 
     def await_job(self, timeout=None):
