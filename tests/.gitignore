@@ -12,3 +12,5 @@ trace.txt
 # servo-thread velocity captures written by tests/pnptask-blend and
 # tests/trajectory-planner/decel-rate
 vel.txt
+# binary change logs written by tests/siglog
+*.siglog
