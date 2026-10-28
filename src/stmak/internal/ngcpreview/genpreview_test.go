@@ -10,6 +10,7 @@ package ngcpreview
 
 import (
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,35 @@ func writeProg(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// Nothing trips in the preview, so #5061..#5069 must read the probe's target
+// in the active work coordinates, as in LinuxCNC's gcodemodule -- not 0. A
+// subroutine that moves relative to the probed point (vac-pod-pick: G53 G38.2,
+// then G1 Z[#5063 + ...]) otherwise previews a move to about Z0 and trips the
+// soft limits.
+func TestGenPreviewProbeResultIsTheTarget(t *testing.T) {
+	dir := t.TempDir()
+	p := writeProg(t, dir, "probe.ngc",
+		"g21\ng10 l2 p1 x10 z-100\ng54\ng53 g38.2 z-50 f50\n"+
+			"g1 x[#5061 + 1] z[#5063 + 1]\nm2\n")
+	m := newTestPreview(t, dir)
+	res, err := m.GenPreview(p, "", "g21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Error != "" {
+		t.Fatalf("unexpected error: %q", res.Error)
+	}
+	if len(res.Segments) == 0 {
+		t.Fatal("no segments")
+	}
+	// G53 Z-50 with G54 Z-100 is work Z50; X stays at machine 0, work X-10.
+	// Segment ends are in inches.
+	end := res.Segments[len(res.Segments)-1].End
+	if gx, gz := end.X*25.4, end.Z*25.4; math.Abs(gx-(-9)) > 1e-6 || math.Abs(gz-51) > 1e-6 {
+		t.Fatalf("move after probe ends at X%.4f Z%.4f (mm), want X-9 Z51", gx, gz)
+	}
 }
 
 // N-2: EXECUTE_FINISH (tool change, probe, M66) is success-with-flag, not a
