@@ -3,7 +3,7 @@
 import gmi
 from gmi.constants import *
 import stmak_test
-import math, time, sys
+import math, sys
 
 # stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
@@ -11,27 +11,25 @@ c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
-# Wait for the interpreter/task to settle (gmi.Stat lacks some classic startup
-# fields like max_acceleration/program_units/cycle_time, so poll the essentials).
-start = time.time()
-while time.time() - start < 10.0:
-    s.poll()
-    if s.interp_state == INTERP_IDLE and s.exec_state == EXEC_DONE:
-        break
-    time.sleep(0.1)
-
+# test.sh waited for readiness (stmak_wait_ready).
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 c.home(0); c.home(1); c.home(2)
 c.wait_complete()
-time.sleep(0.4)
+# wait_complete does not wait for homing; the homed flags and rest do.
+stmak_test.wait_stat(s, lambda st: all(st.homed[:3]) and st.inpos,
+                     "X, Y and Z homed and at rest")
 c.mode(MODE_MDI)
+stmak_test.wait_stat(s, lambda st: st.task_mode == MODE_MDI, "MDI mode")
 c.mdi('g0 x0.1 y0.2 z0.3')
 c.mdi('g41.1 d0.1')
 c.mdi('g40')
 c.mdi('g0 x0.9  ; surprise motion on Y and Z, to 0!!')
-c.wait_complete()
-time.sleep(0.4)
+# Every queued MDI executed and the machine at rest (in-position also waits
+# for the joints' interpolators), so the position read next is final; a
+# wait_complete plus 0.4 s stood here.
+stmak_test.drain_mdi(s)
+stmak_test.wait_stat(s, lambda st: st.inpos and st.queue == 0, "the moves to finish")
 s.poll()
 print("position: {}".format(s.position))
 # The unit-less MDI runs in the machine's units (G20 on this inch config,
