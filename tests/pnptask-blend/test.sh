@@ -14,6 +14,7 @@ set -e
 # Tray contents and station occupancy survive a restart by design (D6), so
 # without wiping them each run starts from what the last one left and the same
 # release point runs a different job.
+set -e
 rm -rf db vel.txt
 
 . ../stmak-driver.sh
