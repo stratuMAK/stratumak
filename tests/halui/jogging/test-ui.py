@@ -15,7 +15,7 @@ import time
 import sys
 import os
 
-timeout = 10.0
+timeout = 10.0 * stmak_test.scale()
 
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w')
 program_start = time.time()
@@ -155,20 +155,22 @@ def wait_for_pin_value(pin_name, target_value, timeout=None):
 
 
 def wait_for_joint_to_stop(joint_number):
-    pos_pin = 'joint-%d-position' % joint_number
-    vel_pin = 'joint-%d-velocity' % joint_number
-    start_time = time.time()
-    prev_pos = h[pos_pin]
-    while (time.time() - start_time) < timeout:
-        time.sleep(0.1)
-        new_pos = h[pos_pin]
-        if new_pos == prev_pos and h[vel_pin] == 0.0:
-            log("joint %d stopped jogging" % joint_number)
-            return
-        prev_pos = new_pos
-    log("Error: joint didn't stop jogging!")
-    log("joint %d is at %.3f %.3f seconds after reaching target (prev_pos=%.3f, val=%.3f)" % (joint_number, h[pos_pin], timeout, prev_pos, h[vel_pin]))
-    sys.exit(1)
+    # The controller's own answer: joint.N.in-position is TRUE once the
+    # joint's free planner (and any filter behind it) has stopped. Two equal
+    # position reads 0.1 s apart, with the velocity read by a separate halcmd
+    # call, stood here.
+    try:
+        stmak_test.wait_until(
+            lambda: _getp_bit("joint.%d.in-position" % joint_number) and
+                    h['joint-%d-velocity' % joint_number] == 0.0,
+            "joint %d to stop" % joint_number, timeout=10.0,
+            detail=lambda: "position %.4f velocity %.4f" % (
+                h['joint-%d-position' % joint_number],
+                h['joint-%d-velocity' % joint_number]))
+    except stmak_test.Timeout as err:
+        log("Error: %s" % err)
+        sys.exit(1)
+    log("joint %d stopped jogging" % joint_number)
 
 
 def jog_joint(joint_number, target):
@@ -344,8 +346,10 @@ if h[name1 + '-velocity'] != 0:
     print("%s was deselected but did not stop (start_vel=%.3f, end_vel=%.3f)" % (name1, start_velocity1, h[name1 + '-velocity']))
     sys.exit(1)
 
-if h[name2 + '-velocity'] >= 0:
-    print("%s was selected but did not move (start_vel=%.3f, end_vel=%.3f)" % (name2, start_velocity2, h[name2 + '-velocity']))
+# Position, not velocity: a jog that already reached its soft limit has
+# moved but stands still.
+if h[name2 + '-position'] >= start_position2:
+    print("%s was selected but did not move (start=%.3f, now=%.3f)" % (name2, start_position2, h[name2 + '-position']))
     sys.exit(1)
 
 print("%s was deselected and stopped, %s was selected and jogged" % (name1, name2))
