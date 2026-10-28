@@ -21,15 +21,8 @@ trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 # readiness predicate for this test — its wait_for_startup() polls interp idle +
 # STATE_ESTOP — so the old trailing `sleep 0.5` is redundant and is dropped rather
 # than replaced.
-ready=""
-for i in $(seq 100); do
-    if halcmd show comp 2>/dev/null | grep -q milltask; then
-        ready=1
-        break
-    fi
-    kill -0 $SRV 2>/dev/null || break
-    sleep 0.1
-done
-[ -n "$ready" ] || { echo "*** milltask never loaded within 10s" >&2; exit 1; }
+. "$(dirname "$0")/../../stmak-scale.sh"
+stmak_wait_until --pid $SRV 10 "milltask to load" \
+    'halcmd show comp 2>/dev/null | grep -q milltask'
 
 ./test-ui.py

@@ -94,3 +94,28 @@ stmak_check_filestream() {
         exit 1
     fi
 }
+
+# stmak_wait_until [--pid PID] <seconds> <description> <shell-condition>
+#
+# Polls <shell-condition> (eval'd, so pipes are fine) every 0.1 s until it
+# succeeds. Fails the test, naming <description>, when the scaled deadline
+# expires — or at once, when --pid PID is given and that process (the server
+# the condition depends on) has exited. The one shape for the readiness and
+# "wait for X" loops that used to be written out per test, each with its own
+# unscaled bound and some with no failure branch at all.
+stmak_wait_until() {
+    local pid=""
+    if [ "$1" = --pid ]; then pid="$2"; shift 2; fi
+    local secs="$1" desc="$2" cond="$3" i
+    for i in $(seq "$(stmak_scale $((secs * 10)))"); do
+        eval "$cond" && return 0
+        if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+            stmak_bind_failure
+            echo "*** the server exited while waiting for $desc; see $PWD/server.log" >&2
+            exit 1
+        fi
+        sleep 0.1
+    done
+    echo "*** timed out after $(stmak_scale "$secs")s waiting for $desc" >&2
+    exit 1
+}

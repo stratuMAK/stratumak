@@ -25,16 +25,9 @@ stmakd -r -f nt.hal --serve >server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
-ready=""
-for i in $(seq 100); do
-    if halcmd show comp 2>/dev/null | grep -qw scale; then
-        ready=1
-        break
-    fi
-    kill -0 $SRV 2>/dev/null || break
-    sleep 0.1
-done
-[ -n "$ready" ] || { echo "*** components never loaded within 10s; see $PWD/server.log" >&2; exit 1; }
+. "$(dirname "$0")/../stmak-scale.sh"
+stmak_wait_until --pid $SRV 10 "the components to load" \
+    'halcmd show comp 2>/dev/null | grep -qw scale'
 
 # (1) Add a thread at runtime with no cpu argument (issue #265).
 if ! halcmd newthread runtime_thread 1000000; then
