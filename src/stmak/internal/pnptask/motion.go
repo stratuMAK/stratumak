@@ -385,11 +385,11 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	}
 	waypoints := route.Waypoints
 	if splitTail {
-		waypoints = c.withTriangleTail(waypoints, j.height)
+		waypoints = c.withTriangleTail(waypoints, j.travel)
 	}
 	for _, wp := range waypoints {
 		to := c.cmdPos
-		to.X, to.Y, to.Z = wp.X, wp.Y, j.height
+		to.X, to.Y, to.Z = wp.X, wp.Y, j.travel
 		// The first waypoint is where the picker already is, so its line drops
 		// itself in moveLimits; a Z still off the movement height is corrected by
 		// it rather than left for the next leg to trip over.

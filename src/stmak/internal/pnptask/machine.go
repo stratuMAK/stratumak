@@ -137,6 +137,7 @@ type inputs struct {
 	destID         uint32
 	deadzoneSelect uint32
 	startJob       bool
+	stayNear       bool
 
 	pickerOpen  []bool
 	pickerClose []bool
@@ -227,6 +228,12 @@ type control struct {
 	// (D34). Anything that moves the head again, or takes the machine off,
 	// clears it.
 	parked bool
+
+	// nearAt: the station the head was last lifted to the NEAR_HEIGHT of
+	// (D37), 0 for none. Only believed with the head still at that height
+	// (travelZ); a jog, a homing or the machine going off forget it, since
+	// the head may have been moved by hand meanwhile.
+	nearAt uint32
 
 	// cmdPos is the position the module has commanded so far, tracked so a
 	// route's segments can be dispatched back to back without waiting for status
@@ -494,6 +501,7 @@ func (c *control) sample() {
 	// parameter reads that follow it, so the job is never latched with the
 	// parameters of the previous one.
 	c.in.startJob = p.startJob.Get()
+	c.in.stayNear = p.stayNear.Get()
 	c.in.processStep = p.processStep.Get()
 	c.in.originID = p.originID.Get()
 	c.in.destID = p.destID.Get()
@@ -797,6 +805,7 @@ func (c *control) enterEstop() {
 	c.rise.home = false
 	c.rise.park = false
 	c.parked = false
+	c.nearAt = 0
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -856,6 +865,7 @@ func (c *control) enable() error {
 // deliberately untouched (D14).
 func (c *control) disable(reason string) {
 	c.parked = false
+	c.nearAt = 0
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -905,6 +915,7 @@ func (c *control) motionLost() {
 	c.rise.home = false
 	c.rise.park = false
 	c.parked = false
+	c.nearAt = 0
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -1081,6 +1092,7 @@ func (c *control) runHoming() error {
 		return err
 	}
 	c.parked = false
+	c.nearAt = 0
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1209,6 +1221,7 @@ func (c *control) jog() {
 			return
 		}
 		c.parked = false
+		c.nearAt = 0
 		if err := c.m.mc.JogCont(j.axis.Index, float64(dir)*vel, 1); err != nil {
 			c.raise(faultf(errMotionError, "jogging axis %c: %v", j.axis.Letter, err))
 			return

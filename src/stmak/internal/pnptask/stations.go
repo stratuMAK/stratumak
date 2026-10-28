@@ -595,6 +595,14 @@ type station struct {
 
 func (s *station) isTray() bool { return s.tray != nil }
 
+// near is the station's NEAR_HEIGHT (D37), if it has one.
+func (s *station) near() (float64, bool) {
+	if s.isTray() {
+		return s.tray.cfg.NearHeight, s.tray.cfg.HasNear
+	}
+	return s.proc.cfg.NearHeight, s.proc.cfg.HasNear
+}
+
 // heldMaterial is one picker's held-material record (D20). Roles are not fixed:
 // the free picker performs the next pick, the picker holding the job's material
 // performs the place, so "which picker" is a question the engine has to ask

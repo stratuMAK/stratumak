@@ -41,6 +41,15 @@ type job struct {
 	dest   *station
 	height float64
 
+	// travel is the Z the next travel leg runs at: height, or a station's
+	// NEAR_HEIGHT while the head stays at it (D37). Set by the sequences
+	// before they travel.
+	travel float64
+
+	// stayNear is the stay-near input as the job was taken (D37): the next
+	// job starts where this one ends, so it ends at the dest's NEAR_HEIGHT.
+	stayNear bool
+
 	// originBusy is a pick-from-proc origin's busy state as sampled at job start
 	// (§7.4, R1). The dest's is sampled later, once the pick leg is done.
 	originBusy bool
@@ -208,6 +217,7 @@ func (c *control) latchJob() *job {
 		destID:     c.in.destID,
 		deadzone:   c.in.deadzoneSelect,
 		pickedSlot: -1,
+		stayNear:   c.in.stayNear,
 	}
 }
 
@@ -243,6 +253,7 @@ func (c *control) validateJob(j *job) error {
 		return err
 	}
 	j.height = c.moveHeight(j.originID, j.destID)
+	j.travel = j.height
 
 	// §8.1: a retained record is a manual intervention in progress — the part
 	// is out of the picker in an operator's hands, and the next manual close

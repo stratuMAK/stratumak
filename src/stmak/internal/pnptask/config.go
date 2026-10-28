@@ -181,6 +181,11 @@ type TrayStation struct {
 	// ZPlaceOffset is Z_PLACE_OFFSET: added to the place stroke only (D31).
 	ZPlaceOffset float64
 
+	// NearHeight is NEAR_HEIGHT (D37): the Z the head may travel at while it
+	// stays at this station. HasNear says it was given.
+	NearHeight float64
+	HasNear    bool
+
 	// DefaultTrayDef is the TrayDef id the station's tray-id pin is seeded
 	// with, or 0 for none. A station that only ever holds one tray geometry
 	// has nothing to select at runtime, and without a seed its selector would
@@ -211,6 +216,10 @@ type ProcStation struct {
 	// pick (D31), so a part is set down onto the fixture rather than pushed
 	// into it. 0 (the default) places at the pick height, as before.
 	ZPlaceOffset float64
+
+	// NearHeight is NEAR_HEIGHT, as on a tray station (D37).
+	NearHeight float64
+	HasNear    bool
 
 	// ProbeSwap is PROBE_SWAP (D32): a place here always swaps first, whatever
 	// has-material says, so a part the model does not know about is taken out
@@ -648,6 +657,21 @@ const gridMinPitch = 0.1
 // one namespace across both kinds: origin-id and dest-id name a station without
 // saying which kind it is, so a duplicate would make the action selection of
 // §7.4 ambiguous.
+// checkNear refuses a NEAR_HEIGHT (D37) that is not between the station's
+// strokes and the movement height: below a stroke it would travel through
+// what the station holds, above MOVE_HEIGHT it would be no reduction.
+func checkNear(sec string, has bool, near, zPick, zPlaceOffset, moveHeight float64) error {
+	if !has {
+		return nil
+	}
+	low := zPick + math.Max(0, zPlaceOffset)
+	if near <= low || near > moveHeight {
+		return fmt.Errorf("[%s]NEAR_HEIGHT = %g: must be above the station's strokes (%g) and not above MOVE_HEIGHT (%g)",
+			sec, near, low, moveHeight)
+	}
+	return nil
+}
+
 func loadStations(r *iniReader, cfg *Config) error {
 	seen := make(map[uint32]string)
 
@@ -668,6 +692,11 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.ID = r.stationID(sec, "ID")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
 		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
+		s.HasNear = r.has(sec, "NEAR_HEIGHT")
+		s.NearHeight = r.length(sec, "NEAR_HEIGHT", 0)
+		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
+			return err
+		}
 		if r.has(sec, "DEFAULT_TRAYDEF") {
 			// stationID's checks are the right ones: the key carries a
 			// TRAYDEF id, and 0 is as reserved here as it is there.
@@ -706,6 +735,11 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.Pos.Y = r.lengthReq(sec, "Y")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
 		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
+		s.HasNear = r.has(sec, "NEAR_HEIGHT")
+		s.NearHeight = r.length(sec, "NEAR_HEIGHT", 0)
+		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
+			return err
+		}
 		s.ProbeSwap = r.boolean(sec, "PROBE_SWAP", false)
 		s.ReleaseSettle = r.duration(sec, "RELEASE_SETTLE", 0)
 		hasWaitX, hasWaitY := r.has(sec, "WAIT_X"), r.has(sec, "WAIT_Y")

@@ -43,6 +43,7 @@ type pinSet struct {
 	// so the PLC sees the handshake complete. An external clear mid-job is
 	// ignored (D16).
 	startJob *hal.Pin[bool]
+	stayNear *hal.Pin[bool] // in:  the next job starts where this one ends: end at NEAR_HEIGHT (D37)
 	busy     *hal.Pin[bool]
 
 	// planTime is the slowest route plan of the current (or last) job, in
@@ -240,6 +241,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.destID = mkPin[uint32](b, "dest-id", hal.In)
 	p.deadzoneSelect = mkPin[uint32](b, "deadzone-select", hal.In)
 	p.startJob = mkPin[bool](b, "start-job", hal.IO)
+	p.stayNear = mkPin[bool](b, "stay-near", hal.In)
 	p.busy = mkPin[bool](b, "busy", hal.Out)
 	p.planTime = mkPin[float64](b, "plan-time", hal.Out)
 	p.waitStops = mkPin[uint32](b, "wait-stops", hal.Out)

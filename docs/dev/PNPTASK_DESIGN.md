@@ -54,6 +54,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D34 | Park (2026-10-27) | `[PNPTASK]PARK_X/PARK_Y/PARK_Z` (together or not at all) name a **machine** position, and a `park` input sends the head there: rising edge, auto mode only (in manual mode it is `AUTO_DISABLED`, like a job), refused while an error is latched. Not a job — no material, no station — but planned like one: retract to `MOVE_HEIGHT`, a route around the dead zones of the current scene, a Z stroke to `PARK_Z`. `busy` is high for its duration; `parked` rises when it has arrived and drops at the next motion of any kind (job, jog, homing) and with the machine. Without the keys a request is `PARK_NOT_CONFIGURED` (26). The point is checked at load against **every** drawing, not just one as a station is (§5.1): a head parked to be out of the way must be out of the way whatever the other scene is about to move. |
 | D35 | Moves from just outside a limit (2026-10-28) | The per-dispatch limit check (D28's backstop) skips a segment that does not move -- a route's first waypoint is where the head already stands -- and accepts a target outside an axis limit on an axis where the head already stands at least as far outside: holding that axis or coming back in, the way a jog back inside a soft limit is allowed. Further out, or out from inside, stays `MOTION_ERROR`. Before it, a head that homing to the drive origin left a few hundredths outside a limit at home was refused every move. Job accept still checks every station endpoint strictly. |
 | D36 | Fixture order at a process station (2026-10-28) | **Pick**: down to the pick height, the fixture **releases first** (`release` := 1, wait `released`), `RELEASE_SETTLE`, then the picker closes on a free part, then up; the fixture clamps again after the lift (not on a swap: the placer comes next). A picker closing on a part the fixture still clamps forces any position mismatch through the portal; closing on a free part it centres it. **Place**: the fixture opens during the approach (unchanged), down to the place height, the picker opens, `RELEASE_TIME`, then the fixture **clamps before the lift** (`release` := 0, wait `released` low), then up: a part left loose in an open fixture tips over as the picker leaves it. A grip that fails after the release leaves the error path to withdraw it (D19), which clamps the part where it stands. A probing swap (D32) that finds the station empty finds the fixture already open and places straight away. For every process station. |
+| D37 | Near height (2026-10-28) | A tray or process station may set `NEAR_HEIGHT` (absolute Z, above its strokes, not above `MOVE_HEIGHT`; checked at load): the height the head travels at while it **stays at that station** -- between the remover and the placer of a swap, between candidate slots of a tray and from pick to place of a tray-to-itself job. Across jobs a `stay-near` input, read when the job is taken, says the next job starts where this one ends: the job then ends at its destination's `NEAR_HEIGHT` instead of `MOVE_HEIGHT`, and the next job's first travel to that station stays at it. pnptask cannot know that itself, and a head left low is in the way of what moves under it (a tray lifted into it), so only the PLC that knows the next job may ask. Anything else -- another station, a park -- goes up to `MOVE_HEIGHT` first; the low position is only believed with the head still at exactly that Z, and a jog, a homing or the machine going off forget it. |
 
 ---
 
@@ -336,6 +337,8 @@ ID = 10                       # station id — unique across trays and procs
 Z_PICK = 2.5                  # base pick Z (D10); z-offset pin adds to this
 Z_PLACE_OFFSET = 2.0          # optional: the place stops this much higher
                               #   than the pick (D31); default 0
+NEAR_HEIGHT = 20.0            # optional: travel height while staying at this
+                              #   station (D37); default: MOVE_HEIGHT
 DEFAULT_TRAYDEF = 1           # optional: seeds the tray-id pin, for a station
                               #   that only ever holds this one geometry
 DEFAULT_STEP = 0              # optional: seeds the step pin — the process step
@@ -398,6 +401,7 @@ normalized to HAL-conventional dashes.
 | `machine-is-on` | bit | out | motion enabled and not estopped |
 | `auto-enable` | bit | in | high = auto mode (jobs accepted); low = manual mode (§6.4) |
 | `wait-abort` | bit | in | level: ends a busy-station wait with `WAIT_ABORTED`, staying in auto mode (D33) |
+| `stay-near` | bit | in | read with `start-job`: the next job starts at this one's destination -- end at its `NEAR_HEIGHT` (D37) |
 | `park` | bit | in | rising edge, auto mode: drive to `PARK_X/Y/Z` (D34) |
 | `parked` | bit | out | standing at the park position; drops at the next motion and with the machine (D34) |
 | `jog-<a>-pos`, `jog-<a>-neg` | bit | in | per axis `a` ∈ COORDINATES (`jog-x-pos`, …); jog while high, manual mode only |

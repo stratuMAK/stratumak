@@ -5,6 +5,7 @@ package pnptask
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
@@ -145,8 +146,9 @@ func highLow(v bool) string {
 // z is evaluated by the caller at the call, which is where the z-offset pin
 // belongs: the offset is a correction (a height sensor, a tray shim) applied
 // to the approach that is about to happen, not latched with the job.
-func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) error {
-	if err := c.retract(j.height); err != nil {
+func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z float64) error {
+	j.travel = c.travelZ(j, st)
+	if err := c.retract(j.travel); err != nil {
 		return err
 	}
 	if err := c.travel(j, pk, target); err != nil {
@@ -206,7 +208,8 @@ func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) err
 // whose process is still running, which is what raising it before the gate
 // did (pre-merge review 2026-09-08).
 func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear func()) error {
-	if err := c.retract(j.height); err != nil {
+	j.travel = c.travelZ(j, c.m.world.station(s.cfg.ID))
+	if err := c.retract(j.travel); err != nil {
 		return err
 	}
 	if s.cfg.HasWaitZone {
@@ -402,7 +405,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		}
 		from = next
 
-		if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
+		if err := c.approach(j, pk, j.origin, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
 			return err
 		}
 		grip, err := c.closeAndCheck(pk)
@@ -416,7 +419,8 @@ func (c *control) pickFromTray(j *job, pk int) error {
 			c.m.world.setHeld(pk, j.origin.id, false, j.step, true)
 			c.m.logger.Debug("pnptask: picked from tray",
 				"station", t.cfg.ID, "slot", slot, "picker", pk)
-			return c.zStroke(j.height)
+			// A tray-to-itself job places on this same tray next (D37).
+			return c.up(j, j.origin, j.destID == j.originID)
 		}
 
 		// Nothing there. Correct the model, open up, lift, and go on.
@@ -426,7 +430,8 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		if err := c.waitPickerOpen(pk); err != nil {
 			return err
 		}
-		if err := c.zStroke(j.height); err != nil {
+		// The next candidate is on this same tray (D37).
+		if err := c.up(j, j.origin, !t.probedEmpty); err != nil {
 			return err
 		}
 		if t.probedEmpty {
@@ -530,7 +535,8 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	// step the model never tracked — unknown, and exempt from the skipPick
 	// step check.
 	c.m.world.setHeld(pk, s.cfg.ID, swap, j.step, !swap)
-	if err := c.zStroke(j.height); err != nil {
+	// On a swap the placer goes in next, at this same station (D37).
+	if err := c.up(j, c.m.world.station(s.cfg.ID), swap); err != nil {
 		return err
 	}
 	if swap {
@@ -566,7 +572,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if !ok {
 		return faultf(errTrayFull, "station %d has no free slot besides the one this job emptied", t.cfg.ID)
 	}
-	if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()+t.cfg.ZPlaceOffset); err != nil {
+	if err := c.approach(j, pk, j.dest, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()+t.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.openAndCheck(pk); err != nil {
@@ -587,7 +593,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
 		return err
 	}
-	return c.zStroke(j.height)
+	return c.up(j, j.dest, j.stayNear)
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +648,8 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		// offset to its own. Sending it back through the gate would ask for a
 		// wait point derived from a route that starts inside the very zone the
 		// wait point is supposed to keep it out of.
-		if err := c.retract(j.height); err != nil {
+		j.travel = c.travelZ(j, j.dest)
+		if err := c.retract(j.travel); err != nil {
 			return err
 		}
 		if err := c.travel(j, pk, s.cfg.Pos); err != nil {
@@ -683,7 +690,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	if err := c.setRelease(s, false); err != nil {
 		return err
 	}
-	return c.zStroke(j.height)
+	return c.up(j, j.dest, j.stayNear)
 }
 
 // ---------------------------------------------------------------------------
@@ -707,4 +714,33 @@ func (c *control) swapOut(j *job, holder, pk int, s *procState, busy bool) error
 	// This removal's approach carries the busy gating for the whole job's
 	// business at this station: it is the first thing that goes in.
 	return c.removeFromProc(j, pk, s, true, busy)
+}
+
+// ---------------------------------------------------------------------------
+// Near height (D37)
+// ---------------------------------------------------------------------------
+
+// travelZ is the height a travel to station st runs at: its NEAR_HEIGHT if
+// the head was lifted to exactly that at this station and is still there,
+// the job's movement height otherwise. Anything else in between -- another
+// station, a park, a jog -- has taken the head up or forgotten it (nearAt).
+func (c *control) travelZ(j *job, st *station) float64 {
+	near, ok := st.near()
+	if ok && c.nearAt == st.id && math.Abs(c.cmdPos.Z-near) < moveFuzz {
+		return near
+	}
+	return j.height
+}
+
+// up lifts out of a stroke at station st: to its NEAR_HEIGHT when the next
+// move stays at st and it has one, to the movement height otherwise.
+func (c *control) up(j *job, st *station, stay bool) error {
+	if near, ok := st.near(); stay && ok {
+		if err := c.zStroke(near); err != nil {
+			return err
+		}
+		c.nearAt = st.id
+		return nil
+	}
+	return c.zStroke(j.height)
 }

@@ -58,7 +58,7 @@ func (c *control) runPark() error {
 	}
 	// The legs are planned for picker 0 with its offset added back, so the
 	// machine itself -- not a pick point -- ends up on PARK_X/PARK_Y.
-	j := &job{height: cfg.MoveHeight, pickedSlot: -1}
+	j := &job{height: cfg.MoveHeight, travel: cfg.MoveHeight, pickedSlot: -1}
 	off := c.pickerOffset(0)
 	if err := c.retract(j.height); err != nil {
 		return err
