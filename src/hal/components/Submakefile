@@ -529,6 +529,15 @@ modules: ../cmod/streamer.so
 TARGETS += ../cmod/filestream.so
 modules: ../cmod/filestream.so
 
+# siglog — lifetime change history of HAL signals to a binary file
+# (decoder: scripts/siglog-decode)
+../cmod/siglog.so: hal/components/siglog.c
+	$(ECHO) "Compiling cmod $(notdir $@)"
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lpthread
+TARGETS += ../cmod/siglog.so
+modules: ../cmod/siglog.so
+
 # latency — RT scheduling-latency / jitter measurement.  RT capture + non-RT
 # drainer thread building a server-side histogram, exposed via the latency
 # GMI REST/WS API.

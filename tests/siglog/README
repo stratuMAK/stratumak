@@ -1,0 +1,7 @@
+Proof/regression test for the siglog cmod (lifetime change history of HAL
+signals).  filestream replays mixed-type samples onto sig.* signals; siglog
+logs them with include=/exclude= filtering, and siglog-decode prints the
+header and the changes.  Exercises: the snapshot at the first RT call (signals
+netted after `load`), the all-signals first frame, change detection per type
+(including float -0.0 compared by bits), filtering and its no-match warning,
+and the END record written on unload.
