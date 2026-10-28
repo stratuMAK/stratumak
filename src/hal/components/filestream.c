@@ -19,6 +19,13 @@
 //     exhausted, then raises the `done` pin (so tests can wait on it instead of
 //     sleeping).
 //
+// Losses are never silent.  The replay ring is filled before the component
+// is ready, so the first clocked cycle already replays the first line; a
+// cycle that finds it empty before the input has ended counts in `starved`.
+// Capture tags count every clocked cycle, so a sample dropped on overrun
+// leaves a gap in the tags (and counts in `overruns`) instead of a file that
+// reads as one continuous run.
+//
 // The capture text format is byte-identical to the halsampler client, and the
 // replay input format matches the halstreamer client (whitespace-separated
 // fields, '#' comment lines and blank lines skipped), so existing golden files
@@ -46,6 +53,7 @@
 #define DEFAULT_DEPTH   1000
 #define LINEBUF         512
 #define IO_POLL_US      200   // I/O thread poll interval
+#define REP_END_UNKNOWN UINT32_MAX
 
 // ---------------------------------------------------------------------------
 // Per-instance state
@@ -54,10 +62,10 @@
 typedef struct {
     // shared
     volatile unsigned *enable;
-    volatile int32_t  *sample_num;   // captured-sample counter (halsampler tag)
+    volatile int32_t  *sample_num;   // clocked-cycle counter (capture tag)
     volatile unsigned *done;         // run complete (replay drained / N captured)
     int depth;
-    int max_samples;                 // stop capturing after N (0 = unbounded)
+    int max_samples;                 // stop capturing after N cycles (0 = unbounded)
 
     // --- replay side (file -> stream pins) ---
     int  n_stream;
@@ -66,9 +74,15 @@ typedef struct {
     hal_stream_val_t *replay;        // replay[depth * n_stream]
     volatile uint32_t rep_wpos;      // written by I/O thread
     uint32_t rep_rpos;               // read by write_funct (RT) only
-    volatile int infile_eof;         // set by I/O thread after last line
+    // Number of input lines, once the end of the file is known (REP_END_UNKNOWN
+    // until then). Set before the last line is published, so write_funct can
+    // tell the end of the data from an I/O thread that fell behind.
+    volatile uint32_t rep_end;
+    hal_stream_val_t next[HAL_STREAM_MAX_PINS]; // I/O thread's lookahead line
+    int have_next;
     volatile int32_t *stream_num;    // replayed-sample counter
-    volatile int32_t *underruns;     // replay ring empty but not EOF
+    volatile int32_t *underruns;     // clocked with the replay ring empty
+    volatile int32_t *starved;       // ... before the end of the input: a loss
     FILE *infp;
 
     // --- capture side (sample pins -> file) ---
@@ -108,18 +122,17 @@ static void write_funct(void *arg, long period) {
     if (!*(m->enable) || *(m->done)) return;
 
     if (m->rep_rpos == m->rep_wpos) {
-        // Ring empty while clocked.  Distinguish startup latency from a genuine
-        // underrun: if the I/O thread has not yet written its first sample
-        // (rep_wpos == 0) and we are not at EOF, replay has not been primed, so
-        // this is not an underrun — hold the initial pin values and wait.
-        if (m->rep_wpos == 0 && !m->infile_eof)
-            return;
-        // A genuine mid-stream underrun (matching the classic streamer, which
-        // counts an underrun whenever it is clocked with no data).  The stream
-        // pins hold their previous value.  When there is no capture side to
-        // bound the run, replay-drained-at-EOF is also the run's `done`.
+        // Ring empty while clocked: an underrun, as the classic streamer counts
+        // it.  The stream pins hold their previous value.  Past the end of the
+        // input that is just the data running out (and, with no capture side
+        // to bound the run, its `done`); before it, the I/O thread fell behind
+        // and this cycle replayed a stale value — a loss, counted in `starved`.
         (*(m->underruns))++;
-        if (m->infile_eof && m->n_sample == 0) *(m->done) = 1;
+        if (m->rep_rpos >= m->rep_end) {
+            if (m->n_sample == 0) *(m->done) = 1;
+        } else {
+            (*(m->starved))++;
+        }
         return;
     }
 
@@ -149,23 +162,25 @@ static void read_funct(void *arg, long period) {
         return;
     }
 
+    // 0-based tag, matching halsampler -t (a per-connection counter from 0).
+    // It counts every clocked cycle, a dropped one included, so a drop shows
+    // as a gap in the tags.
+    int32_t seq = *(m->sample_num);
+    (*(m->sample_num))++;
+
     uint32_t used = m->cap_wpos - m->cap_rpos;
     if (used >= (uint32_t)m->depth) {
         (*(m->overruns))++;   // I/O thread fell behind; drop this sample
-        return;
+    } else {
+        uint32_t idx = m->cap_wpos % m->depth;
+        hal_stream_val_t *dst = &m->capture[idx * m->n_sample];
+        for (int n = 0; n < m->n_sample; n++)
+            hal_stream_capture(&dst[n], m->sample_types[n], m->sample_pins[n]);
+        m->cap_seq[idx] = seq;
+
+        __sync_synchronize(); // publish sample before advancing the write index
+        m->cap_wpos = m->cap_wpos + 1;
     }
-
-    uint32_t idx = m->cap_wpos % m->depth;
-    hal_stream_val_t *dst = &m->capture[idx * m->n_sample];
-    for (int n = 0; n < m->n_sample; n++)
-        hal_stream_capture(&dst[n], m->sample_types[n], m->sample_pins[n]);
-
-    // 0-based tag, matching halsampler -t (a per-connection counter from 0).
-    m->cap_seq[idx] = *(m->sample_num);
-    (*(m->sample_num))++;
-
-    __sync_synchronize();     // publish sample before advancing the write index
-    m->cap_wpos = m->cap_wpos + 1;
 
     if (m->max_samples > 0 && *(m->sample_num) >= m->max_samples)
         *(m->done) = 1;
@@ -226,6 +241,32 @@ static void write_capture_sample(filestream_inst_t *m,
     fputc('\n', m->outfp);
 }
 
+// Top the replay ring up from the input file.  Reads one line ahead: when the
+// line about to be published is the last one, rep_end is set before it is, so
+// write_funct never sees the ring empty without knowing whether the input has
+// ended.  Called once from New (priming) and then from the I/O thread.
+static void fill_replay(filestream_inst_t *m) {
+    if (!m->infp || m->rep_end != REP_END_UNKNOWN) return;
+    if (!m->have_next) {
+        if (!read_replay_line(m, m->next)) {   // empty input
+            m->rep_end = m->rep_wpos;
+            return;
+        }
+        m->have_next = 1;
+    }
+    while (m->rep_wpos - m->rep_rpos < (uint32_t)m->depth) {
+        uint32_t idx = m->rep_wpos % m->depth;
+        memcpy(&m->replay[idx * m->n_stream], m->next,
+               m->n_stream * sizeof(hal_stream_val_t));
+        m->have_next = read_replay_line(m, m->next);
+        if (!m->have_next)
+            m->rep_end = m->rep_wpos + 1;   // this was the last line
+        __sync_synchronize();   // publish sample (and rep_end) before the index
+        m->rep_wpos = m->rep_wpos + 1;
+        if (!m->have_next) return;
+    }
+}
+
 // Drain everything currently in the capture ring to the output file.
 static void drain_capture(filestream_inst_t *m) {
     if (!m->outfp) return;
@@ -242,27 +283,9 @@ static void drain_capture(filestream_inst_t *m) {
 static void *io_thread(void *arg) {
     filestream_priv_t *priv = (filestream_priv_t *)arg;
     filestream_inst_t *m = &priv->inst;
-    hal_stream_val_t pending[HAL_STREAM_MAX_PINS];
-    int have_pending = 0;
 
     while (!m->io_stop) {
-        // Fill the replay ring from the input file (if any).
-        if (m->infp && !m->infile_eof) {
-            for (;;) {
-                uint32_t used = m->rep_wpos - m->rep_rpos;
-                if (used >= (uint32_t)m->depth) break;        // ring full
-                if (!have_pending) {
-                    if (!read_replay_line(m, pending)) { m->infile_eof = 1; break; }
-                    have_pending = 1;
-                }
-                uint32_t idx = m->rep_wpos % m->depth;
-                memcpy(&m->replay[idx * m->n_stream], pending,
-                       m->n_stream * sizeof(hal_stream_val_t));
-                have_pending = 0;
-                __sync_synchronize();   // publish sample before advancing index
-                m->rep_wpos = m->rep_wpos + 1;
-            }
-        }
+        fill_replay(m);
         // Drain the capture ring to the output file (if any).
         drain_capture(m);
         usleep(IO_POLL_US);
@@ -427,7 +450,8 @@ int New(const cmod_env_t *env, const char *name,
     if (m->n_stream) {
         PIN(m->stream_num, "stream-num", STMAK_HAL_S32, STMAK_HAL_IO);
         PIN(m->underruns,  "underruns",  STMAK_HAL_S32, STMAK_HAL_IO);
-        *(m->stream_num) = 0; *(m->underruns) = 0;
+        PIN(m->starved,    "starved",    STMAK_HAL_S32, STMAK_HAL_IO);
+        *(m->stream_num) = 0; *(m->underruns) = 0; *(m->starved) = 0;
         for (int n = 0; n < m->n_stream; n++) {
             int t = STMAK_HAL_FLOAT;
             switch (m->stream_types[n]) {
@@ -475,6 +499,12 @@ int New(const cmod_env_t *env, const char *name,
                                         usefp_r, 0, priv->comp_id);
         if (retval < 0) { stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "export .read failed"); goto fail; }
     }
+
+    // Prime the replay ring before the component is ready, so no clocked
+    // cycle can run ahead of the input (a slow first fill used to let the
+    // capture side record the pins' initial values instead).
+    m->rep_end = REP_END_UNKNOWN;
+    fill_replay(m);
 
     // Start the non-RT I/O thread.
     if (pthread_create(&m->io_tid, NULL, io_thread, priv) != 0) {
