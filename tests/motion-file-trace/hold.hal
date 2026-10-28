@@ -1,0 +1,27 @@
+# Hold every segment at its start until the test has read the status for it:
+# the adaptive feed (M52 P1 in main.ngc) is 0 while motion.segment-id differs
+# from the id the test acknowledged last (signal ack).  So each segment is
+# the executing one for as long as the test needs, however slowly it polls.
+load conv_s32_float <segf>
+load sum2 <segdiff>
+load abs <segabs>
+load comp <segnew>
+load mux2 <segmux>
+addf segf servo-thread
+addf segdiff servo-thread
+addf segabs servo-thread
+addf segnew servo-thread
+addf segmux servo-thread
+
+net seg motion.segment-id => segf.in
+net segf segf.out => segdiff.in0
+net ack => segdiff.in1
+setp segdiff.gain1 -1
+net segdiff segdiff.out => segabs.in
+net segabs segabs.out => segnew.in1
+setp segnew.in0 0.5
+net held segnew.out => segmux.sel
+setp segmux.in0 1.0
+setp segmux.in1 0.0
+net adaptive-feed segmux.out => motion.adaptive-feed
+sets ack 0
