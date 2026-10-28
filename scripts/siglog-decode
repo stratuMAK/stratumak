@@ -10,6 +10,10 @@ Output formats:
         cycle * period, so it is monotonic even if the thread jittered
   info  the header only: period, start time, patterns, signal list
 
+In CSV, gaps show up as marker rows in the signal column: "#lost" (value =
+dropped cycles, starting at that cycle) and "#truncated" (no END record, the
+file was not closed cleanly).
+
 Times in text/csv are seconds since the first logged cycle, derived from the
 TIME records (one per second of run time), so they follow the real clock
 rather than assuming a perfect period.
@@ -177,10 +181,14 @@ def write_rows(h, evs, wanted, out, csv):
             else:
                 out.write("%d %s %s %s\n" % (cycle, t, name, fmt_value(typ, v)))
         elif kind == "loss":
-            if not csv:
+            if csv:
+                out.write("%d,,#lost,%d\n" % (ev[1], ev[2]))
+            else:
                 out.write("# lost %d cycle(s) from cycle %d\n" % (ev[2], ev[1]))
         elif kind == "truncated":
-            if not csv:
+            if csv:
+                out.write("%d,,#truncated,\n" % ev[1])
+            else:
                 out.write("# end of file without END record (not closed cleanly)\n")
 
 

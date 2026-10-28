@@ -7,9 +7,12 @@
 // scripts/siglog-decode turns the file into text, CSV or VCD.
 //
 // Usage:
-//   load siglog file=machine.siglog [include=glob,...] [exclude=glob,...] [depth=N]
+//   load siglog file=siglog-%Y%m%d-%H%M%S.bin [include=glob,...] [exclude=glob,...] [depth=N]
 //   addf siglog.sample servo-thread        # once, LAST in the thread
 //
+//   file=     output file; strftime conversions (%Y, %H, ... ; %% for a
+//             literal %) are expanded with the local time at load, so every
+//             run gets its own file.  A name without them is overwritten.
 //   include=  comma-separated fnmatch globs; when given, only matching signals
 //             are logged (default: all)
 //   exclude=  comma-separated globs removed from that set afterwards
@@ -33,7 +36,9 @@
 //     ring; a frame that does not fit is dropped whole, counted, and the
 //     next cycle logs every signal again (a full snapshot), so the file stays
 //     consistent after a loss.  The first logged cycle is a full snapshot too.
-//   - A non-RT I/O thread encodes the frames and writes the file.
+//   - A non-RT I/O thread encodes the frames and writes the file.  A write
+//     error (disk full) is logged once and ends logging for good: .active
+//     drops and the file keeps what was written before, without END.
 //   - Everything RT touches (instance, table, shadow, ring) comes from
 //     rtapi calloc, which locks and pre-faults it: rtapi uses no
 //     MCL_FUTURE, so plain heap memory could page-fault in the servo thread.
@@ -77,7 +82,8 @@
 
 #define DEFAULT_DEPTH   65536
 #define MAX_PATTERNS    64
-#define IO_POLL_US      1000
+#define IO_POLL_US      1000           // poll bounds; the actual interval
+#define IO_POLL_MAX_US  10000          // follows the ring's capacity
 #define FLUSH_NS        1000000000LL   // fflush + signal-set check interval
 #define TIME_NS         1000000000LL   // TIME record interval
 
@@ -107,7 +113,7 @@ typedef struct {
     volatile void *data;
 } sl_sig_t;
 
-enum { PHASE_WAIT = 0, PHASE_SNAPSHOT, PHASE_RUN };
+enum { PHASE_WAIT = 0, PHASE_SNAPSHOT, PHASE_RUN, PHASE_FAILED };
 
 typedef struct {
     cmod_env_t env;
@@ -150,6 +156,7 @@ typedef struct {
 
     // I/O thread state
     uint64_t file_cycle;                   // cycle cursor of the file
+    useconds_t poll_us;
     unsigned gen;                          // last struct_generation seen
     uint64_t set_fp;                       // fingerprint of the full signal set
     int set_warned;
@@ -180,6 +187,7 @@ static void sample_funct(void *arg, long period) STMAK_NONBLOCKING {
     uint64_t cycle = m->cycle++;
 
     if (m->phase != PHASE_RUN) {
+        *(m->active) = 0;
         if (m->phase == PHASE_WAIT) {
             m->period = period;
             __sync_synchronize();
@@ -239,7 +247,9 @@ static void sample_funct(void *arg, long period) STMAK_NONBLOCKING {
 // Encoding helpers (I/O thread)
 // ---------------------------------------------------------------------------
 
-static void put_u8(FILE *f, unsigned v) { fputc((int)(v & 0xFF), f); }
+// Only the I/O thread (and Destroy, after joining it) touches the FILE, so
+// the stdio lock buys nothing; it would be taken once per byte.
+static void put_u8(FILE *f, unsigned v) { fputc_unlocked((int)(v & 0xFF), f); }
 
 static void put_le(FILE *f, uint64_t v, int bytes) {
     for (int i = 0; i < bytes; i++) put_u8(f, (unsigned)(v >> (8 * i)));
@@ -253,7 +263,7 @@ static void put_varint(FILE *f, uint64_t v) {
 static void put_str(FILE *f, const char *s) {
     size_t len = strlen(s);
     put_varint(f, len);
-    fwrite(s, 1, len, f);
+    fwrite_unlocked(s, 1, len, f);
 }
 
 static void put_value(FILE *f, int type, uint64_t v) {
@@ -276,6 +286,17 @@ static uint64_t dcycle(siglog_t *m, uint64_t cycle) {
     return d;
 }
 
+// Flush and check for a write error; on one, log it and stop logging.
+// Returns 0 while the file is healthy.
+static int flush_checked(siglog_t *m) {
+    if (fflush(m->fp) == 0 && !ferror(m->fp)) return 0;
+    int err = errno;
+    m->phase = PHASE_FAILED;
+    stmak_logf(m->env.log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+               "write error (%s); logging stopped", strerror(err ? err : EIO));
+    return -1;
+}
+
 static int64_t clock_ns(clockid_t id) {
     struct timespec ts;
     clock_gettime(id, &ts);
@@ -294,13 +315,16 @@ typedef struct {
     int count_only;
     int oom;
     sl_sig_t *tab;            // selected signals (plain heap, copied later)
-    int ntab;
+    int ntab, cap;
 } select_ctx_t;
 
-// FNV-1a over name + type of every signal, so a changed set is noticed.
-static uint64_t fp_add(uint64_t h, const char *name, int type) {
+// FNV-1a over name, type and value slot of every signal, so a changed set is
+// noticed -- including a signal deleted and created again under its name.
+static uint64_t fp_add(uint64_t h, const char *name, int type,
+                       volatile void *data) {
     for (const char *p = name; *p; p++) { h ^= (uint8_t)*p; h *= 0x100000001b3ULL; }
     h ^= (uint64_t)type; h *= 0x100000001b3ULL;
+    h ^= (uint64_t)(uintptr_t)data; h *= 0x100000001b3ULL;
     return h;
 }
 
@@ -309,7 +333,7 @@ static int select_cb(void *user, const char *name, int type, volatile void *data
     siglog_t *m = c->m;
     int hit = 0;
 
-    c->fp = fp_add(c->fp, name, type);
+    c->fp = fp_add(c->fp, name, type, data);
     if (c->count_only || type == STMAK_HAL_PORT) return 0;
     c->total++;
 
@@ -321,9 +345,13 @@ static int select_cb(void *user, const char *name, int type, volatile void *data
         if (fnmatch(m->exc_pat[i], name, 0) == 0) { c->exc_hits[i]++; hit = 0; }
     if (!hit) return 0;
 
-    sl_sig_t *grown = realloc(c->tab, (size_t)(c->ntab + 1) * sizeof(*grown));
-    if (!grown) { c->oom = 1; return 1; }
-    c->tab = grown;
+    if (c->ntab == c->cap) {  // doubling: the walk holds the HAL mutex
+        int cap = c->cap ? 2 * c->cap : 64;
+        sl_sig_t *grown = realloc(c->tab, (size_t)cap * sizeof(*grown));
+        if (!grown) { c->oom = 1; return 1; }
+        c->tab = grown;
+        c->cap = cap;
+    }
     sl_sig_t *s = &c->tab[c->ntab++];
     snprintf(s->name, sizeof(s->name), "%s", name);
     s->type = type;
@@ -353,7 +381,8 @@ static int snapshot(siglog_t *m) {
     int rc = hal->signal_foreach(hal->ctx, select_cb, &c);
     if (rc < 0 || c.oom) {
         stmak_logf(m->env.log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
-                   "cannot enumerate signals (%d); not logging", rc);
+                   c.oom ? "out of memory for the signal table; not logging"
+                         : "cannot enumerate signals; not logging");
         free(c.tab);
         return -1;
     }
@@ -395,8 +424,15 @@ static int snapshot(siglog_t *m) {
     m->time_due = 0;          // TIME in the first frame
     m->resync = 1;            // and every signal
 
+    // Poll often enough to drain a quarter of the ring when every signal
+    // changes every cycle, but no more often than that.
+    uint64_t poll = (uint64_t)period * (size / ((uint64_t)m->nsig + 3)) / 4 / 1000;
+    if (poll < IO_POLL_US) poll = IO_POLL_US;
+    if (poll > IO_POLL_MAX_US) poll = IO_POLL_MAX_US;
+    m->poll_us = (useconds_t)poll;
+
     FILE *f = m->fp;
-    fwrite(FILE_MAGIC, 1, 8, f);
+    fwrite_unlocked(FILE_MAGIC, 1, 8, f);
     put_le(f, FILE_VERSION, 4);
     put_le(f, (uint64_t)period, 4);
     put_le(f, (uint64_t)clock_ns(CLOCK_REALTIME), 8);
@@ -408,12 +444,12 @@ static int snapshot(siglog_t *m) {
         put_u8(f, (unsigned)m->sigs[n].type);
         put_str(f, m->sigs[n].name);
     }
-    fflush(f);
+    if (flush_checked(m) != 0) return -1;
 
     *(m->signals) = m->nsig;
     stmak_logf(m->env.log, m->name, STMAK_LOG_INFO,
-               "logging %d of %d signals, period %ld ns, ring %u entries",
-               m->nsig, c.total, period, size);
+               "logging %d of %d signals, period %ld ns, ring %u entries, poll %u us",
+               m->nsig, c.total, period, size, (unsigned)m->poll_us);
 
     __sync_synchronize();     // publish the table before PHASE_RUN
     m->phase = PHASE_RUN;
@@ -429,8 +465,9 @@ static void check_signal_set(siglog_t *m) {
     if (signal_set_fp(m) == m->set_fp) return;
     m->set_warned = 1;
     stmak_logf(m->env.log, m->name, STMAK_LOG_WARN | STMAK_LOG_OPER,
-               "HAL signals were added or deleted after logging started: "
-               "new signals are not recorded, deleted ones keep their last value");
+               "HAL signals were added, deleted or re-created after logging "
+               "started: new signals are not recorded, deleted ones keep their "
+               "last value");
 }
 
 // ---------------------------------------------------------------------------
@@ -492,12 +529,12 @@ static void *io_thread(void *arg) {
             drain(m);
             int64_t now = clock_ns(CLOCK_MONOTONIC);
             if (now >= next_flush) {
-                fflush(m->fp);
+                if (flush_checked(m) != 0) break;
                 check_signal_set(m);
                 next_flush = now + FLUSH_NS;
             }
         }
-        usleep(IO_POLL_US);
+        usleep(m->poll_us);
     }
     return NULL;
 }
@@ -519,8 +556,11 @@ static void siglog_destroy(cmod_t *self) {
             drain(m);
             put_u8(m->fp, REC_END);
             put_varint(m->fp, dcycle(m, m->cycle ? m->cycle - 1 : 0));
+            flush_checked(m);
         }
-        fclose(m->fp);
+        if (fclose(m->fp) != 0 && m->phase != PHASE_FAILED)
+            stmak_logf(m->env.log, m->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                       "closing the file failed: %s", strerror(errno));
     }
     if (m->comp_id > 0)
         m->env.hal->exit(m->env.hal->ctx, m->comp_id);
@@ -598,28 +638,42 @@ int New(const cmod_env_t *env, const char *name,
     if (!m->include || !m->exclude) { retval = -ENOMEM; goto fail_early; }
     if ((retval = split_patterns(include, m->inc_pat, &m->n_inc)) != 0 ||
         (retval = split_patterns(exclude, m->exc_pat, &m->n_exc)) != 0) {
-        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
-                   "too many patterns (max %d per list)", MAX_PATTERNS);
+        if (retval == -E2BIG)
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                       "too many patterns (max %d per list)", MAX_PATTERNS);
         goto fail_early;
+    }
+
+    // strftime conversions in file= give every run its own file.
+    char fname[4096];
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    if (strftime(fname, sizeof(fname), file, &tm) == 0) {
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
+                   "file '%s': name too long after expansion", file);
+        retval = -ENAMETOOLONG; goto fail_early;
     }
 
     // file= is a write target: a relative name resolves under the config
     // directory only (stmak_path.h).  Opened now so a bad path fails the load.
     const char *err = NULL;
-    const char *path = env->path->resolve(env->path->ctx, file,
+    const char *path = env->path->resolve(env->path->ctx, fname,
                                           STMAK_PATH_WRITE, &err);
     if (!path) {
         stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "file '%s': %s",
-                   file, err ? err : "cannot be resolved");
+                   fname, err ? err : "cannot be resolved");
         retval = -ENOENT; goto fail_early;
     }
     m->fp = fopen(path, "wb");
     if (!m->fp) {
         stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
-                   "cannot open file '%s': %s", file, strerror(errno));
+                   "cannot open file '%s': %s", fname, strerror(errno));
         retval = -ENOENT; goto fail_early;
     }
     setvbuf(m->fp, NULL, _IOFBF, 1 << 16);
+    m->poll_us = IO_POLL_US;
+    stmak_logf(env->log, name, STMAK_LOG_INFO, "writing to %s", path);
 
     m->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
                                 STMAK_HAL_COMP_REALTIME);
