@@ -1,0 +1,13 @@
+A motion command sent right after an abort must run, not be dropped.
+
+An abort lets the trajectory planner decelerate along the path before it
+clears its queue, and while it does it refuses new segments ("TP is
+aborting"). A client that aborts and at once sends the next MDI move used to
+lose that move: the sequencer dispatched it into the decelerating planner and
+the move was dropped with only an operator message. abort/g64 failed on CI
+this way ("G64 redo": its MDI to the next Z level was dropped, the run started
+from where the previous abort had left the machine).
+
+The axes accelerate at 1 in/s^2, so stopping from 4 in/s takes 4 s: the MDI
+always lands inside the deceleration, and the test checks that it did. It
+then requires the move to arrive and no "TP is aborting" message.

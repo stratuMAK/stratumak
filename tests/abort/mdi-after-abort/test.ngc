@@ -1,0 +1,4 @@
+%
+; One long move at full speed, aborted part-way by test-ui.py.
+G1 X30 F240
+%

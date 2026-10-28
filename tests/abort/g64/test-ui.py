@@ -12,9 +12,7 @@
 import gmi
 from gmi.constants import *
 import stmak_test
-import time, sys, os
-
-SETTLE = 0.4
+import sys, os
 
 # stratuMAK: HAL joint positions are millimetres (mm-everywhere convention);
 # the program and the expectations are inch.
@@ -62,11 +60,21 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     c.mode(MODE_MDI)
     c.mdi('F1200 G0X0Y0Z%.1f' % z_lev)
     c.wait_complete()
+    # Every run starts from X0 Y0 at its own Z level. Checked, not assumed:
+    # this MDI follows the previous run's abort, and when the planner dropped
+    # it ("TP is aborting") the run started where that abort had left the
+    # machine — already past Y1.0, so it was aborted at once and reported a
+    # wrong max X (CI, "G64 redo").
+    stmak_test.wait_stat(
+        s, lambda st: all(abs(a - b) < 1e-6 for a, b in
+                          zip(st.actual_position[:3], (0.0, 0.0, z_lev))),
+        "%s: the machine at X0 Y0 Z%.1f" % (msg, z_lev),
+        detail=lambda st: "actual_position=%r" % (st.actual_position[:3],))
     for cmd in init_cmds:
         print("Running command '%s'" % cmd)
         c.mdi(cmd)
         c.wait_complete()
-    time.sleep(SETTLE)
+    stmak_test.drain_mdi(s)
     res += check_status('%s post-command' % msg, expected_mode, expected_p, expected_q)
 
     print("Running program 'test.ngc'")
@@ -74,7 +82,7 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     stmak_test.setp('x-max-reset', False)
     c.mode(MODE_AUTO)
     c.program_open("test.ngc")
-    c.auto(AUTO_RUN, 1)
+    c.auto(AUTO_RUN, 0)
 
     # No wait_complete() here. stratuMAK's WaitComplete settles on the interpreter
     # going idle, so after AUTO_RUN it does not return until the PROGRAM ends —
@@ -104,7 +112,10 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     res += check_status('%s pre-abort' % msg, expected_mode, expected_p, expected_q)
     c.abort()
     c.wait_complete()
-    time.sleep(SETTLE)
+    # The planner decelerates along the path after an abort: wait for it to
+    # stop, so max X is final when it is read.
+    stmak_test.wait_stat(s, lambda st: st.inpos and st.queue == 0,
+                         "%s: the machine to stop after the abort" % msg)
 
     res += check_status('%s post-abort' % msg, expected_mode, expected_p, expected_q)
     res += check_max_x(z_lev, expected_max_x)
@@ -130,7 +141,7 @@ c.home(0)
 c.home(1)
 c.home(2)
 c.wait_complete()
-time.sleep(SETTLE)
+stmak_test.wait_stat(s, lambda st: all(st.homed[:3]), "X, Y and Z homed")
 
 res = 0
 res += run_and_abort('G61',          0.0, 5.0, 610, None, None, 'G61')
