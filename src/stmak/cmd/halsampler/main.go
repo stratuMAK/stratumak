@@ -146,8 +146,10 @@ func main() {
 			}
 			for k := 0; k < seg.Count && numSamples != 0; k++ {
 				sample := seg.Data[k*sampleSize:]
+				// Write errors on out are sticky and surface at the Flush
+				// after this message.
 				if showTag {
-					fmt.Fprintf(out, "%d ", tag+uint64(k))
+					_, _ = fmt.Fprintf(out, "%d ", tag+uint64(k))
 				}
 				for i := 0; i < numPins; i++ {
 					val, err := halstream.Decode(pinTypes[i], halstream.ReadRaw(sample, i))
@@ -158,18 +160,18 @@ func main() {
 					}
 					switch v := val.(type) {
 					case float64:
-						fmt.Fprintf(out, "%f ", v)
+						_, _ = fmt.Fprintf(out, "%f ", v)
 					case bool:
 						if v {
-							out.WriteString("1 ")
+							_, _ = out.WriteString("1 ")
 						} else {
-							out.WriteString("0 ")
+							_, _ = out.WriteString("0 ")
 						}
 					default:
-						fmt.Fprintf(out, "%d ", v)
+						_, _ = fmt.Fprintf(out, "%d ", v)
 					}
 				}
-				out.WriteByte('\n')
+				_ = out.WriteByte('\n')
 				if numSamples > 0 {
 					numSamples--
 				}
