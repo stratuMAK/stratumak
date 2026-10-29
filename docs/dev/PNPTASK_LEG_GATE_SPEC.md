@@ -1,6 +1,6 @@
 # pnptask: the scene gate per leg (D45) and the end of the derived wait point (D46)
 
-Status: **spec, not built** (2026-10-29, branch `pnp-simplify`). The config side
+Status: **built on branch `pnp-simplify` (2026-10-29, d125d46371) as D45/D46; not yet run on the machine.** The config side
 of the coating machine is specified in CoatV2conf
 `docs/PNP_SIMPLIFY_SPEC.md` on the branch of the same name.
 
