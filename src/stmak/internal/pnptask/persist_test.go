@@ -270,7 +270,7 @@ func TestGeometrylessResetKeepsRecord(t *testing.T) {
 		}),
 	})
 	second.pulse(second.m.pins.trays[0].setEmpty)
-	time.Sleep(levelHold)
+	second.sampled()
 	// tray-id arrives late: the pending record is adopted, not the reset.
 	second.m.pins.trays[0].trayID.Set(1)
 	second.eventually("record adopted despite the early reset", func() bool {
@@ -527,10 +527,10 @@ func TestRestoredHeldPartGone(t *testing.T) {
 		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
 			m.pins.pickSettleTime.Set(pickSettleBudget.Seconds())
 		}),
+		// One miss pre-armed, so the close command the restore issued during
+		// startControl is judged as "gripped nothing".
+		sim: func(s *machineSim) { s.missesLeft = 1 },
 	})
-	// One miss pre-armed via the constructor hook, so the close command the
-	// restore issued during startControl is judged as "gripped nothing".
-	newMachineSimOpts(second, func(s *machineSim) { s.missesLeft = 1 })
 
 	second.eventually("phantom record cleared and picker opened", func() bool {
 		return !second.bit("picker.0.close")
