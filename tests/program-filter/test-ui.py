@@ -23,14 +23,13 @@ Runs the real thing: server, filter subprocess, interpreter. What it pins:
 
 import os
 import sys
-import time
 
 import gmi
 from gmi.constants import *
 from gmi.ngcpreview import NgcpreviewClient
 import stmak_test
 
-POLL = 0.05
+GATE = os.path.abspath("filter.gate")
 
 s = gmi.Stat()
 c = stmak_test.Command()
@@ -52,53 +51,54 @@ def fail(name, detail):
     print("FAIL", name, detail)
 
 
-def wait_filter_done(timeout=60):
-    deadline = time.time() + timeout * stmak_test.scale()
-    saw_filtering = False
-    saw_progress = False
-    while time.time() < deadline:
-        s.poll()
-        if s.filtering:
-            saw_filtering = True
-            if s.filter_progress:
-                saw_progress = True
-        elif saw_filtering:
-            return saw_filtering, saw_progress
-        time.sleep(POLL)
-    return saw_filtering, saw_progress
+def filter_state(st):
+    return "filtering=%r progress=%r file=%r" % (st.filtering, st.filter_progress, st.file)
+
+
+def wait(pred, desc):
+    """True once pred holds; False (and the failure is reported by the
+    caller) if it never does."""
+    try:
+        stmak_test.wait_stat(s, pred, desc, detail=filter_state)
+        return True
+    except stmak_test.Timeout as err:
+        print(err, file=sys.stderr)
+        return False
 
 
 # --- converting a source file -----------------------------------------------
 
+if os.path.exists(GATE):
+    os.remove(GATE)
 source = os.path.abspath("shape.tst")
-start = time.time()
 c.program_open(source)
-elapsed = time.time() - start
-saw_filtering, saw_progress = wait_filter_done()
 
-# Non-blocking means program_open returned while the conversion was still
-# running. The wall-clock bound alone would flake on a loaded runner — the
-# REST round-trip sits in the numerator while the converter's ~1.2s floor
-# (fixture sleeps, which do NOT scale with STMAK_TEST_TIMEOUT_SCALE) sits in
-# the denominator — so a slow-but-correct open is rescued by the direct
-# observation: stat.filtering was seen true after program_open had returned.
-# An inline (blocking) open fails both arms: it takes at least the converter's
-# runtime AND completes with filtering already false.
-if elapsed < 1.0 or saw_filtering:
+# filter.sh holds at 50 % until GATE exists, and only this script creates
+# it, after program_open has returned.  So the conversion seen running here
+# proves the open did not wait for it: an inline open would have returned
+# only after the converter gave up waiting, with the conversion over.
+running = wait(lambda st: st.filtering and st.filter_progress == 50,
+               "the conversion to be running, held at 50 %")
+if running:
     ok("program-open-does-not-block")
 else:
     fail("program-open-does-not-block",
-         "program_open took %.2fs and the conversion was never seen running; it ran inline" % elapsed)
-if saw_filtering:
+         "the conversion was not running once program_open returned; it ran inline")
+if running:
     ok("conversion-visible-in-status")
 else:
     fail("conversion-visible-in-status",
          "stat.filtering was never true; no client could show that a conversion is running")
-if saw_progress:
+if running:
     ok("conversion-reports-progress")
 else:
     fail("conversion-reports-progress",
          "the converter's FILTER_PROGRESS never reached stat.filter_progress")
+
+open(GATE, "w").close()
+wait(lambda st: not st.filtering and st.file.endswith(".ngc"),
+     "the released conversion to finish")
+os.remove(GATE)
 
 s.poll()
 if s.source_file == source:
@@ -152,21 +152,28 @@ while e.poll():
 c.program_open(os.path.abspath("broken.bad"))
 
 # badfilter.sh fails in milliseconds, so the transient stat.filtering edge can
-# fall between two 20 Hz polls — waiting on that edge would burn the whole
-# timeout on a coin flip. The converter's diagnosis arriving on the error
-# channel IS the completion signal of a failed conversion, so wait on that.
+# fall between two polls.  The converter's diagnosis arriving on the error
+# channel is the completion signal of a failed conversion; filtering false
+# after it is a state that holds.
 diag = ""
-deadline = time.time() + 15 * stmak_test.scale()
-while time.time() < deadline:
-    msg = e.poll()
-    if msg is None:
-        time.sleep(POLL)
-        continue
-    if "bad magic number" in str(msg):
-        diag = str(msg)
-        break
 
-s.poll()
+
+def diagnosed():
+    global diag
+    msg = e.poll()
+    while msg is not None:
+        if "bad magic number" in str(msg):
+            diag = str(msg)
+        msg = e.poll()
+    return diag
+
+
+try:
+    stmak_test.wait_until(diagnosed, "the converter's diagnosis on the error channel")
+except stmak_test.Timeout as err:
+    print(err, file=sys.stderr)
+wait(lambda st: not st.filtering, "the failed conversion to be over")
+
 # "Keeps the loaded program" means more than the stat string still spelling
 # the old path: the FILE has to still exist and be servable — a failed
 # conversion that deleted it would leave get_file 404ing and a re-run
@@ -209,7 +216,7 @@ else:
 
 c.program_open(os.path.abspath("plain.ngc"))
 c.wait_complete()
-s.poll()
+wait(lambda st: st.file == os.path.abspath("plain.ngc"), "plain.ngc to be the loaded program")
 if s.file == s.source_file == os.path.abspath("plain.ngc") and not s.filtering:
     ok("unfiltered-program-unaffected")
 else:

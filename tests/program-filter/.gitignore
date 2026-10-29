@@ -2,3 +2,4 @@ db/
 server.log
 sim.var
 __pycache__/
+filter.gate
