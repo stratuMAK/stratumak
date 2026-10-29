@@ -591,7 +591,12 @@ func TestJobMoveLimits(t *testing.T) {
 
 	prev := toMotctlPose(start)
 	var sawTravel, sawZ, sawDiagonal bool
-	for _, m := range f.mot.moveList() {
+	// The travel move just before the current one: the last segment of a leg
+	// has to end in an exact stop, or the planner runs it at half MOVE_ACC.
+	var lastTravel *moveCall
+	moves := f.mot.moveList()
+	for k := range moves {
+		m := &moves[k]
 		d := [3]float64{
 			math.Abs(m.pos.X - prev.X),
 			math.Abs(m.pos.Y - prev.Y),
@@ -606,12 +611,21 @@ func TestJobMoveLimits(t *testing.T) {
 
 		velCeil, accCeil := moveVel, moveAcc
 		what := "travel"
-		switch m.termCond {
-		case tpTermCondParabolic:
-			sawTravel = true
-		case tpTermCondStop:
+		// A Z stroke moves Z alone and stops exactly. A Z-only move under the
+		// blend is the travel height being corrected at the start of a leg.
+		isZ := d[0] == 0 && d[1] == 0 && m.termCond == tpTermCondStop
+		switch {
+		case isZ:
 			sawZ = true
 			velCeil, accCeil, what = zVel, zAcc, "Z stroke"
+			if lastTravel != nil && lastTravel.termCond != tpTermCondStop {
+				t.Errorf("the leg's last segment to %+v ends parabolic (%d), want an exact stop: the planner would halve its acceleration",
+					lastTravel.pos, lastTravel.termCond)
+			}
+			lastTravel = nil
+		case m.termCond == tpTermCondParabolic || m.termCond == tpTermCondStop:
+			sawTravel = true
+			lastTravel = m
 		default:
 			t.Errorf("move dispatched under termination condition %d", m.termCond)
 			continue
@@ -641,7 +655,7 @@ func TestJobMoveLimits(t *testing.T) {
 		// ceiling on the path: both axes cap at 500, so any diagonal has a path
 		// speed above it. Under the old path-feed reading this was the value
 		// that got clamped, and X gave up speed at every corner.
-		if m.termCond == tpTermCondParabolic && d[0] > 0 && d[1] > 0 {
+		if !isZ && d[0] > 0 && d[1] > 0 {
 			sawDiagonal = true
 			if m.vel <= moveVel {
 				t.Errorf("diagonal travel to %+v commanded at path vel %g, want more than MOVE_VEL = %g",

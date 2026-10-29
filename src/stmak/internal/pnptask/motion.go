@@ -387,7 +387,20 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	if splitTail {
 		waypoints = c.withTriangleTail(waypoints, j.travel)
 	}
-	for _, wp := range waypoints {
+	for i, wp := range waypoints {
+		// The last segment of a leg ends at a standstill, so it is queued as
+		// an exact stop. Left parabolic it would run at HALF of MOVE_ACC for
+		// its whole length: the planner halves a parabolic segment's
+		// acceleration (tc.c, tcGetOverallMaxAccel) to leave room for a blend
+		// into the next one, even when nothing ever follows. The corner into
+		// it still blends -- the planner decides a join by the term cond of
+		// the segment BEFORE it, which stays parabolic. A leading leg (D29)
+		// keeps its parabolic end: the leg queued behind it blends in there.
+		if i == len(waypoints)-1 && !splitTail {
+			if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+				return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+			}
+		}
 		to := c.cmdPos
 		to.X, to.Y, to.Z = wp.X, wp.Y, j.travel
 		// The first waypoint is where the picker already is, so its line drops
