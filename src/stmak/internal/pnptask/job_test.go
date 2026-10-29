@@ -1096,53 +1096,6 @@ func TestPlaceToProcRaisesReleaseOnlyWhenClear(t *testing.T) {
 	}
 }
 
-// TestPlaceToProcWaitZoneRaisesReleaseOnlyWhenClear is the same rule on the
-// streamed approach (D29): the busy wait lives inside the first leg, and the
-// release is raised the moment the station clears — before the second leg is
-// queued, so the fixture still opens while the head drives in.
-func TestPlaceToProcWaitZoneRaisesReleaseOnlyWhenClear(t *testing.T) {
-	f := newJobFixtureOpts(t, fixtureOpts{
-		ini:   waitZoneSections,
-		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
-	})
-	f.homed()
-	f.mot.setPos(100, 100, 60)
-	f.selectTray(1)
-	f.fillTray(0)
-	f.m.pins.deadzoneSelect.Set(1)
-	f.setBit(f.m.pins.procs[1].busy, true)
-
-	f.m.pins.originID.Set(10)
-	f.m.pins.destID.Set(21)
-	f.m.pins.processStep.Set(0)
-	f.mot.resetCalls()
-	f.m.pins.startJob.Set(true)
-
-	// The approach starts from whichever tray slot the pick used, so the wait
-	// point is not a fixed coordinate here; what is checked is that the pick is
-	// done, the station has not been entered, and the fixture has not been
-	// asked to open.
-	f.eventually("the pick to complete", func() bool { return f.bit("picker.0.close") })
-	f.consistently("release withheld while the station is busy", func() bool {
-		return f.bit("busy") && !f.bit("proc.21.release") &&
-			len(zAtXY(f.mot.moveList(), procCamX, procCamY)) == 0
-	})
-
-	f.m.pins.deadzoneSelect.Set(0)
-	f.setBit(f.m.pins.procs[1].busy, false)
-	f.eventually("release raised once the station cleared", func() bool { return f.bit("proc.21.release") })
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireOK("streamed place into a wait-zone station")
-
-	if !f.bit("proc.21.has-material") {
-		t.Error("the station holds no material after the place")
-	}
-	if n := f.sim.releaseRiseCount(1); n != 1 {
-		t.Errorf("the fixture was asked to open %d times, want once", n)
-	}
-}
-
 // TestPickOpensAStandingClose: a picker the engine counts free is opened before
 // it is sent down onto material, whatever left its close output standing. On
 // already-shut jaws the grip check reads "closed" — an empty verdict on a
@@ -1204,314 +1157,162 @@ func TestJobBusyWaitAbortedByAutoEnable(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// The dead-zone-derived wait position (D29)
+// The scene gate (D45)
 // ---------------------------------------------------------------------------
 
-// waitZoneSections adds a process station that sits inside a dead zone of one
-// drawing and is clear in another — the camera-in-a-sphere shape the derived
-// wait position exists for. Station 21 is at (500, 100), the centre of the
-// 100x100 zone zones.dxf draws at (450,50)..(550,150); zones_open.dxf has no
-// zone at all.
-const waitZoneSections = `
+// The gate fixture's two drawings: drawing 0 (zones_open.dxf) has no zone,
+// drawing 1 (zones.dxf) has the 100x100 zone at (450,50)..(550,150) -- so that
+// zone is the movable region, a sphere that is open in scene 0 and shut in
+// scene 1. Station 21 sits inside it, station 22 beyond it, at the same y as
+// the machine's start (100, 100): a leg to either runs straight through the
+// zone in scene 0.
+const sceneSections = `
 [PNPTASK_PROC_1]
 ID = 21
 X = 500.0
 Y = 100.0
 Z_PICK = 5.0
-WAIT_DEADZONE = 1
-WAIT_CLEAR_DEADZONE = 0
+
+[PNPTASK_PROC_2]
+ID = 22
+X = 580.0
+Y = 100.0
+Z_PICK = 5.0
 `
 
-// newWaitZoneFixture is a job fixture whose station 21 holds material and whose
-// scene is the blocked one, ready for a pick-from-proc that has to wait its way
-// in. The machine parks at (100, 100), so the route in runs straight along
-// y = 100: the zone's offset edge (CLEARANCE = 10) is at x = 440, and pulling
-// back by BLEND_TOLERANCE = 2 puts the wait point at (438, 100).
-func newWaitZoneFixture(t *testing.T) *jobFixture {
+// newSceneFixture is a job fixture on the gate drawings, scene 0 (open),
+// stations 21 and 22 holding material, the machine at (100, 100).
+func newSceneFixture(t *testing.T) *jobFixture {
 	t.Helper()
 	f := newJobFixtureOpts(t, fixtureOpts{
-		ini:   waitZoneSections,
+		ini:   sceneSections,
 		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
 		prep: func(_ *testing.T, m *pnptaskModule) {
 			m.world.procs[1].setHasMaterial(true)
+			m.world.procs[2].setHasMaterial(true)
 		},
 	})
 	f.homed()
 	f.mot.setPos(100, 100, 60)
 	f.selectTray(1)
-	// Blocked scene, station working: the state a job arrives into.
-	f.m.pins.deadzoneSelect.Set(1)
-	f.setBit(f.m.pins.procs[1].busy, true)
+	f.m.pins.deadzoneSelect.Set(0)
 	return f
 }
 
-// The derived wait point is not a taught number, so what the cases assert is
-// the rule that produced it: on the y = 100 run in, it has to sit outside the
-// zone's drawn left edge (x = 450) by CLEARANCE plus BLEND_TOLERANCE, and no
-// further back than that — stopping as late as it safely can is the whole
-// point. The millimetre of slack absorbs the offset construction, which
-// circumscribes the corner arcs and so pushes the flat faces a hair past the
-// clearance.
-const (
-	waitZoneY    = 100.0
-	waitZoneMaxX = 450.0 - 10.0 - 2.0 // zone edge − CLEARANCE − BLEND_TOLERANCE
-	waitZoneMinX = waitZoneMaxX - 1.0
-	procCamX     = 500.0 // station 21 itself
-	procCamY     = 100.0
-)
-
-// atWaitZone reports whether any commanded move stops in that band.
-func atWaitZone(moves []moveCall) bool {
-	for _, m := range moves {
-		if math.Abs(m.pos.Y-waitZoneY) < 1e-6 && m.pos.X >= waitZoneMinX && m.pos.X <= waitZoneMaxX {
-			return true
-		}
-	}
-	return false
-}
-
-// startCamPick commands the job that picks station 21's material into the tray.
-func startCamPick(f *jobFixture) {
-	f.m.pins.originID.Set(21)
-	f.m.pins.destID.Set(10)
+// startJobTo commands a job without waiting for it -- runJob's first half,
+// for the cases that act while the job runs.
+func startJobTo(f *jobFixture, origin, dest uint32) {
+	f.m.pins.startJob.Set(false)
+	f.sampled()
+	f.m.pins.originID.Set(origin)
+	f.m.pins.destID.Set(dest)
 	f.m.pins.processStep.Set(0)
 	f.mot.resetCalls()
 	f.m.pins.startJob.Set(true)
 }
 
-// TestJobWaitZoneStopsWhenTheStationStaysBusy is the outcome the wait position
-// exists for: the station never clears while the approach runs, so the queue
-// runs dry at the derived wait point and the head stands there — never inside
-// the zone — until it does.
-func TestJobWaitZoneStopsWhenTheStationStaysBusy(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	startCamPick(f)
+// jobDone reports whether the job startJobTo commanded has ended.
+func (f *jobFixture) jobDone() bool { return !f.bit("start-job") && !f.bit("busy") }
 
-	f.eventually("arrival at the derived wait position", func() bool {
-		return atWaitZone(f.mot.moveList())
-	})
-	f.consistently("holding at the derived wait position", func() bool {
-		return f.bit("busy") && len(zAtXY(f.mot.moveList(), procCamX, procCamY)) == 0
-	})
-
-	// Clearing the station means releasing the scene too: the last leg is
-	// planned in the drawing WAIT_CLEAR_DEADZONE names.
-	f.m.pins.deadzoneSelect.Set(0)
-	f.setBit(f.m.pins.procs[1].busy, false)
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+// awaitJob is runJob's second half: the handshake completed, busy down.
+func (f *jobFixture) awaitJob() {
+	f.t.Helper()
+	f.eventually("the job to end", f.jobDone)
 	f.m.pins.startJob.Set(false)
-	f.requireOK("wait-zone gated job")
-
-	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) == 0 {
-		t.Error("the job never reached the station after it cleared")
-	}
-	// The head really stopped: that is what the counter is for.
-	if got := f.get("wait-stops"); got != 1 {
-		t.Errorf("wait-stops = %v, want 1", got)
-	}
 }
 
-// TestJobWaitZoneDoesNotStopWhenTheStationClearsInTime is the point of the
-// whole design: with the first leg still in flight when busy drops, the second
-// is queued behind it and the head never comes to a stop. The counter says so.
-func TestJobWaitZoneDoesNotStopWhenTheStationClearsInTime(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	// Keep every dispatched move in flight until the station has cleared while
-	// the first leg is still running — the marginal case on the machine, made
-	// deterministic here.
-	f.mot.hold()
-	startCamPick(f)
-
-	f.eventually("the first leg to be dispatched", func() bool {
-		return atWaitZone(f.mot.moveList())
-	})
-	f.m.pins.deadzoneSelect.Set(0)
-	f.setBit(f.m.pins.procs[1].busy, false)
-
-	f.eventually("the leg into the station", func() bool {
-		return len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0
-	})
-	// Queued while the approach was still moving, so nothing stopped.
-	if got := f.get("wait-stops"); got != 0 {
-		t.Errorf("wait-stops = %v, want 0 — the approach should not have stopped", got)
-	}
-	f.mot.release()
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireOK("streamed wait-zone job")
-}
-
-// TestJobWaitZoneDrivesStraightInWhenTheStationIsClear: a station that is not
-// busy has nothing to wait for, so it is approached in one continuous leg —
-// which is the outcome the two legs exist to produce anyway. No stop, no split,
-// nothing counted.
-func TestJobWaitZoneDrivesStraightInWhenTheStationIsClear(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	// The enclosure is open and the station is done before the job is commanded.
-	f.m.pins.deadzoneSelect.Set(0)
-	f.setBit(f.m.pins.procs[1].busy, false)
-	startCamPick(f)
-
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireOK("a wait-zone job whose station was never busy")
-
-	moves := f.mot.moveList()
-	if atWaitZone(moves) {
-		t.Error("the approach stopped short of the zone although the station was clear")
-	}
-	if len(zAtXY(moves, procCamX, procCamY)) == 0 {
-		t.Error("the job never reached the station")
-	}
-	if got := f.get("wait-stops"); got != 0 {
-		t.Errorf("wait-stops = %v, want 0", got)
-	}
-}
-
-// TestJobWaitZoneRefusesAWrongSceneWhenClear: the scene check does not depend on
-// having waited. A station that reports done while deadzone-select still names
-// the drawing it is enclosed in is the same PLC sequencing bug whether or not
-// the job had to stop for it, and saying so beats the PLANNING_FAILED that
-// planning against the blocked drawing would otherwise produce.
-func TestJobWaitZoneRefusesAWrongSceneWhenClear(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	// Never busy, but the selector still says the enclosure is shut.
-	f.setBit(f.m.pins.procs[1].busy, false)
-	startCamPick(f)
-
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireError("a clear station in the blocked scene", errWaitSceneMismatch)
-
-	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
-		t.Error("the head drove into the station although the scene was still blocked")
-	}
-}
-
-// TestJobWaitZoneStartingAtTheStation: the second job at the same station. The
-// one before it left the head standing at the station, which is inside the zone
-// the wait point would be derived from — there is no boundary crossing to be
-// had from in there. Since the station is not busy the approach never asks for
-// one, and the job runs.
-func TestJobWaitZoneStartingAtTheStation(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	f.m.pins.deadzoneSelect.Set(0)
-	f.setBit(f.m.pins.procs[1].busy, false)
-	// Where the previous job's place left it: at the station, at travel height.
-	f.mot.setPos(procCamX, procCamY, 60)
-	startCamPick(f)
-
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireOK("a job that starts with the head already at the station")
-}
-
-// TestJobWaitZoneLeavesAnUnstartedTailForLegTwo: the first leg of a streamed
-// approach ends with the braking distance as a segment of its own, so the leg
-// queued behind it joins one the machine has not started driving (D29).
-//
-// Geometry only — what the tail is FOR is a velocity profile through a segment
-// boundary, which needs a servo-rate instrument and belongs on the machine.
-// What can be pinned here is that the split is the right size, that it lies on
-// the leg so the driven path is unchanged, and that the param turns it off.
-func TestJobWaitZoneLeavesAnUnstartedTailForLegTwo(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	startCamPick(f) // the station never clears, so this is all leg 1
-	f.eventually("the approach to reach the wait position", func() bool {
-		return atWaitZone(f.mot.moveList())
-	})
-	f.consistently("still waiting at the wait position", func() bool { return f.bit("busy") })
-
-	legs := travelMoves(f.mot.moveList())
-	if len(legs) < 2 {
-		t.Fatalf("leg 1 was dispatched as %d segment(s); it has to end with a tail of its own", len(legs))
-	}
-	last, prev := legs[len(legs)-1], legs[len(legs)-2]
-	tail := math.Hypot(last.pos.X-prev.pos.X, last.pos.Y-prev.pos.Y)
-
-	// The derived length: v^2/(a/2), the distance whose triangle velocity is
-	// the speed the segment runs at. See withTriangleTail.
-	want := 2 * last.vel * last.vel / last.acc
-	if math.Abs(tail-want) > 0.5 {
-		t.Errorf("tail is %.3f mm, want the braking distance %.3f mm (vel %.1f, acc %.1f)",
-			tail, want, last.vel, last.acc)
-	}
-	if len(legs) >= 3 {
-		a, b, c := legs[len(legs)-3], prev, last
-		cross := (b.pos.X-a.pos.X)*(c.pos.Y-a.pos.Y) - (b.pos.Y-a.pos.Y)*(c.pos.X-a.pos.X)
-		if math.Abs(cross) > 1e-3 {
-			t.Errorf("the split moved the path off the leg: cross product %g", cross)
-		}
-	}
-
-	f.m.pins.deadzoneSelect.Set(0)
-	f.setBit(f.m.pins.procs[1].busy, false)
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireOK("the job with a split leg")
-}
-
-// travelMoves is the moves commanded at the fixture's movement height — the XY
-// travel, without the Z strokes on either side of it.
-func travelMoves(moves []moveCall) []moveCall {
-	var out []moveCall
+// inZone reports whether the commanded path -- from the start (100, 100)
+// through every move -- touches the movable zone, crossing it included.
+func inZone(moves []moveCall) bool {
+	zone := pnproute.Polygon{{X: 450, Y: 50}, {X: 550, Y: 50}, {X: 550, Y: 150}, {X: 450, Y: 150}}
+	path := []pnproute.Point{{X: 100, Y: 100}}
 	for _, m := range moves {
-		if math.Abs(m.pos.Z-30.0) < 1e-6 { // MOVE_HEIGHT in the fixture INI
-			out = append(out, m)
+		path = append(path, pnproute.Point{X: m.pos.X, Y: m.pos.Y})
+	}
+	return pnproute.PathTouches(path, zone)
+}
+
+// TestSceneGateHoldsALegThatTouchesTheRegion: with scene-hold up, a leg into
+// the region waits standing -- nothing commanded towards it, scene-busy low --
+// and goes once the hold drops, with scene-busy up while it runs and down when
+// the job is over.
+func TestSceneGateHoldsALegThatTouchesTheRegion(t *testing.T) {
+	f := newSceneFixture(t)
+	f.mot.setMoveCycles(20)
+	f.setBit(f.m.pins.sceneHold, true)
+
+	startJobTo(f, 21, 10)
+	f.eventually("the job to start", func() bool { return f.bit("busy") })
+	f.consistently("the leg into the region held", func() bool {
+		return f.bit("busy") && !f.bit("scene-busy") && !inZone(f.mot.moveList())
+	})
+
+	f.setBit(f.m.pins.sceneHold, false)
+	f.eventually("scene-busy while the leg runs", func() bool { return f.bit("scene-busy") })
+	f.awaitJob()
+	f.requireOK("the job once the hold dropped")
+	if f.bit("scene-busy") {
+		t.Error("scene-busy still up after the job")
+	}
+}
+
+// TestSceneGateLeavesOtherLegsAlone: a job whose legs keep away from the region
+// runs with scene-hold up the whole time, and never raises scene-busy.
+func TestSceneGateLeavesOtherLegsAlone(t *testing.T) {
+	f := newSceneFixture(t)
+	f.fillTray(0)
+	f.setBit(f.m.pins.sceneHold, true)
+
+	startJobTo(f, 10, 20)
+	for !f.jobDone() {
+		if f.bit("scene-busy") {
+			t.Fatal("scene-busy raised by a job that never comes near the region")
 		}
+		time.Sleep(pollInterval)
 	}
-	return out
+	f.requireOK("a job clear of the region, scene-hold up")
 }
 
-// TestJobWaitZoneRefusesAWrongScene: the wait point was derived from a route
-// planned in WAIT_CLEAR_DEADZONE, so the leg that finishes the approach has to
-// be planned in it too. A station that reports done before its scene is
-// released is a PLC sequencing bug and gets said so, rather than surfacing as
-// whatever planning against the wrong drawing happens to do.
-func TestJobWaitZoneRefusesAWrongScene(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	startCamPick(f)
+// TestSceneGateWaitAbort: a wait at the gate ends like a station wait (D33):
+// WAIT_ABORTED, nothing driven into the region, scene-busy low.
+func TestSceneGateWaitAbort(t *testing.T) {
+	f := newSceneFixture(t)
+	f.setBit(f.m.pins.sceneHold, true)
 
-	f.eventually("arrival at the derived wait position", func() bool {
-		return atWaitZone(f.mot.moveList())
-	})
-	// busy drops, the selector still says the sphere is shut.
-	f.setBit(f.m.pins.procs[1].busy, false)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireError("the station cleared in the wrong scene", errWaitSceneMismatch)
-
-	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
-		t.Error("the head drove into the station although the scene was still blocked")
+	startJobTo(f, 21, 10)
+	f.eventually("the job to start", func() bool { return f.bit("busy") })
+	f.consistently("the leg held", func() bool { return f.bit("busy") && !f.bit("scene-busy") })
+	f.setBit(f.m.pins.waitAbort, true)
+	f.awaitJob()
+	f.setBit(f.m.pins.waitAbort, false)
+	f.requireError("a gate wait given up", errWaitAborted)
+	if inZone(f.mot.moveList()) || f.bit("scene-busy") {
+		t.Errorf("after the abort: moves into the region %v, scene-busy %v",
+			inZone(f.mot.moveList()), f.bit("scene-busy"))
 	}
 }
 
-// TestJobWaitZoneAbortedByAutoEnable: D15's handover, now landing while the
-// first leg may still be running. The job ends with WAIT_ABORTED, the head
-// never enters the zone — and the leg in flight is aborted, because nothing
-// else stops it: the job-failure path does not touch motion, and a head still
-// driving to the wait point in manual mode refuses the operator's first jog.
-func TestJobWaitZoneAbortedByAutoEnable(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	f.mot.hold()
-	startCamPick(f)
+// TestSceneGateReplansAfterTheWait: the scene changes while a leg waits at the
+// gate. The leg is planned again once the lock is taken -- in scene 1 the zone
+// is drawn, so the route runs around it instead of through it -- and a route
+// that no longer touches the region does not keep scene-busy up.
+func TestSceneGateReplansAfterTheWait(t *testing.T) {
+	f := newSceneFixture(t)
+	f.mot.setMoveCycles(20)
+	f.setBit(f.m.pins.sceneHold, true)
 
-	f.eventually("the first leg to be dispatched", func() bool {
-		return atWaitZone(f.mot.moveList())
+	startJobTo(f, 22, 10)
+	f.eventually("the job to start", func() bool { return f.bit("busy") })
+	f.consistently("the leg through the region held", func() bool {
+		return f.bit("busy") && !inZone(f.mot.moveList())
 	})
-	f.setBit(f.m.pins.autoEnable, false)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireError("auto-enable dropped during the streamed wait", errWaitAborted)
 
-	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
-		t.Error("the head drove into the station after the wait was aborted")
-	}
-	if !f.mot.called("Abort") {
-		t.Error("the leg in flight was not aborted when the wait was")
-	}
-	if f.bit("machine-is-on") != true {
-		t.Error("the abort took the machine off; only estop and machine-off may")
+	f.m.pins.deadzoneSelect.Set(1)
+	f.setBit(f.m.pins.sceneHold, false)
+	f.awaitJob()
+	f.requireOK("the job after the scene changed")
+	if inZone(f.mot.moveList()) {
+		t.Error("the leg was not planned again: it went through the zone scene 1 draws")
 	}
 }
 
@@ -1568,79 +1369,6 @@ func TestJobWaitAbortIgnoredWithoutAWait(t *testing.T) {
 	f.requireOK("a job with wait-abort high and nothing to wait for")
 	if !f.bit("proc.20.has-material") {
 		t.Error("the station holds nothing after the place")
-	}
-}
-
-// TestJobWaitZoneAbortedByWaitAbort: the streamed approach (D29) ends the leg
-// in flight on wait-abort too, without going near the station.
-func TestJobWaitZoneAbortedByWaitAbort(t *testing.T) {
-	f := newWaitZoneFixture(t)
-	f.mot.setMoveCycles(40)
-	startCamPick(f)
-
-	f.eventually("the first leg to be dispatched", func() bool {
-		return atWaitZone(f.mot.moveList())
-	})
-	f.setBit(f.m.pins.waitAbort, true)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireError("wait-abort during the streamed wait", errWaitAborted)
-
-	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
-		t.Error("the head drove into the station after the wait was aborted")
-	}
-	if !f.mot.called("Abort") {
-		t.Error("the leg in flight was not aborted when the wait was")
-	}
-}
-
-// waitZoneEdgeSections is waitZoneSections with the station 5 mm inside the
-// zone's drawn edge (x = 450): inside for the picker at no offset, and carried
-// out of even the clearance-grown zone (x = 440) by a 40 mm x-offset.
-const waitZoneEdgeSections = `
-[PNPTASK_PROC_1]
-ID = 21
-X = 455.0
-Y = 100.0
-Z_PICK = 5.0
-WAIT_DEADZONE = 1
-WAIT_CLEAR_DEADZONE = 0
-`
-
-// TestJobWaitZoneOffsetChangedSinceValidation: the picker offsets are live
-// params, so an offset set after the containment was validated can carry the
-// station's machine point out of its zone — there is then no boundary to
-// derive a wait point from. That is refused, and the fault names the offset
-// rather than claiming the head is already inside the zone.
-func TestJobWaitZoneOffsetChangedSinceValidation(t *testing.T) {
-	logs := &logCapture{}
-	f := newJobFixtureOpts(t, fixtureOpts{
-		ini:   waitZoneEdgeSections,
-		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
-		prep: func(_ *testing.T, m *pnptaskModule) {
-			m.world.procs[1].setHasMaterial(true)
-			m.logger = slog.New(slog.NewTextHandler(logs, nil))
-		},
-	})
-	f.homed()
-	f.mot.setPos(100, 100, 60)
-	f.selectTray(1)
-	f.m.pins.deadzoneSelect.Set(1)
-	f.setBit(f.m.pins.procs[1].busy, true)
-	// Taught after start, as halcmd setp would.
-	f.m.pins.pickers[0].xOffset.Set(40)
-
-	startCamPick(f)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
-	f.m.pins.startJob.Set(false)
-	f.requireError("an offset that moved the station out of its zone", errPlanningFailed)
-
-	if len(travelMoves(f.mot.moveList())) > 0 {
-		t.Error("the approach was dispatched although it had no wait point")
-	}
-	if got := logs.String(); !strings.Contains(got, "offsets changed since the wait zone was validated") ||
-		strings.Contains(got, "already inside") {
-		t.Errorf("the fault does not name the offset as the cause:\n%s", got)
 	}
 }
 

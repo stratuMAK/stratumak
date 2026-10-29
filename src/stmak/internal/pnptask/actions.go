@@ -241,26 +241,15 @@ func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z
 // swap that is the picker taking the occupant out, not the one carrying the
 // job's material — see placeToProc.
 //
-// There are three shapes of wait, and which one applies is per station:
+// There are two shapes of wait, and which one applies is per station:
 //
-//   - WAIT_DEADZONE (D29): two legs. The first runs to the derived wait point
-//     and is left running while busy is polled; the second is queued into the
-//     trajectory planner the instant it clears, so the two blend and the head
-//     does not stop. If it never clears in time the queue simply runs dry at
-//     the wait point, which is the stop this is trying to avoid and the thing
-//     wait-stops counts.
 //   - WAIT_X/WAIT_Y (D15): one leg to a fixed park spot, wait there, then the
-//     leg in. Right where the gate cannot flip mid-approach — an M-code gate on
-//     a cut that takes minutes — and committing to the park spot costs nothing.
-//   - neither: wait where it stands, at movement height.
+//     leg in — where travel can be overlapped with the station's process.
+//   - neither: wait where it stands, at movement height, then the leg in.
 //
-// A station that is not busy is driven to in one continuous leg whatever its
-// wait configuration, which for a WAIT_DEADZONE station is already the outcome
-// the two legs exist to produce — there is nothing to wait for, so there is
-// nothing to split for. Splitting anyway would also break the two cases where
-// the approach legitimately BEGINS inside the nominated zone: the second job at
-// the same station, and the placer after a swap. What the scene check below
-// preserves is the diagnosis, which is the part worth having.
+// Either way the head waits standing, between legs. (D29's derived wait point,
+// a leg left running while the station was polled, is gone with D46; a scene
+// that changes while the head waits is the scene gate's business, D45.)
 //
 // onClear, if given, runs the moment the station is known to be clear — at
 // once for a station that is not busy, otherwise the instant busy drops and
@@ -275,25 +264,13 @@ func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear f
 	if err := c.retract(j.travel); err != nil {
 		return err
 	}
-	if s.cfg.HasWaitZone {
-		if busy {
-			return c.streamedApproach(j, pk, s, onClear)
-		}
-		if err := c.checkClearScene(s); err != nil {
-			return err
-		}
-		if onClear != nil {
-			onClear()
-		}
-		return c.travel(j, pk, s.cfg.Pos)
-	}
 	if busy {
 		if s.cfg.HasWait {
 			if err := c.travel(j, pk, s.cfg.Wait); err != nil {
 				return err
 			}
 		}
-		if _, err := c.awaitClear(s, s.cfg.HasWait); err != nil {
+		if err := c.awaitClear(s, s.cfg.HasWait); err != nil {
 			return err
 		}
 	}
@@ -303,138 +280,47 @@ func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear f
 	return c.travel(j, pk, s.cfg.Pos)
 }
 
-// streamedApproach is the two-leg approach of D29.
-//
-// Leg 1 is planned against the scene of the moment, like every other leg —
-// the derived wait point only says where to stop, not how to get there, and
-// planning the drive to it normally is what guarantees it stays out of every
-// zone the current drawing has, not just the nominated one.
-//
-// Leg 2 is dispatched without draining in between. Three outcomes follow from
-// the trajectory planner with no arithmetic here: queued before the braking
-// ramp begins, the two legs blend and nothing slows down; queued during the
-// ramp, the planner re-accelerates and the head dips rather than stops; never
-// queued, the queue runs dry exactly at the wait point.
-//
-// A failure while leg 1 is in flight stops it (pre-merge review 2026-09-08).
-// This is the one place a job can fail with motion still queued: every other
-// leg drains before anything can go wrong after it. Ending the job without an
-// abort left the head driving on to the wait point in manual mode — and the
-// operator's first jog was then refused by motion (TELEOP is not entered
-// while not in position), timing out into a MOTION_ERROR the latched
-// WAIT_ABORTED hid. Only the failures of this function's own making are
-// stopped here; an estop, a machine-off or the self-disable watchdog have
-// already aborted and disabled the machine themselves (see abortLeg).
-func (c *control) streamedApproach(j *job, pk int, s *procState, onClear func()) (err error) {
-	wp, err := c.waitPoint(j, pk, s)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			c.abortLeg()
-		}
-	}()
-	if err := c.dispatchLeadingLeg(j, pk, wp); err != nil {
-		return err
-	}
-	stopped, err := c.awaitClear(s, true)
-	if err != nil {
-		return err
-	}
-	if err := c.checkClearScene(s); err != nil {
-		return err
-	}
-	if onClear != nil {
-		onClear()
-	}
-	if stopped {
-		// The queue ran dry before the station cleared: the head really stopped
-		// at the wait point. Counted rather than assumed — see pins.go.
-		c.m.pins.waitStops.Set(c.m.pins.waitStops.Get() + 1)
-		c.m.logger.Info("pnptask: the approach stopped at the wait position",
-			"station", s.cfg.ID, "picker", pk)
-	}
-	if err := c.dispatchTravel(j, pk, s.cfg.Pos); err != nil {
-		return err
-	}
-	return c.waitMotionDone()
-}
-
-// checkClearScene refuses to drive into a WAIT_DEADZONE station that reads
-// clear while deadzone-select still names the drawing it is enclosed in.
-//
-// The station lives inside a zone of one drawing and is reachable in another,
-// and WAIT_CLEAR_DEADZONE says which. A station reporting done in any other
-// scene is a PLC sequencing bug — it said it was finished before the enclosure
-// it sits in was released — and it gets its own id rather than surfacing as
-// whatever planning against the wrong drawing happens to do, which for the
-// blocked drawing is a PLANNING_FAILED that sends the operator looking for an
-// obstructed route.
-func (c *control) checkClearScene(s *procState) error {
-	if c.in.deadzoneSelect == s.cfg.WaitClearDeadzone {
-		return nil
-	}
-	return faultf(errWaitSceneMismatch,
-		"station %d is clear with deadzone-select %d, but it is only reachable in dead-zone file %d (WAIT_CLEAR_DEADZONE)",
-		s.cfg.ID, c.in.deadzoneSelect, s.cfg.WaitClearDeadzone)
-}
-
-// awaitClear holds until a process station's busy input goes low, and reports
-// whether the machine came to a standstill before it did.
+// awaitClear holds, standing, until a process station's busy input goes low.
 //
 // auto-enable going low aborts the wait (D15): the operator wants the machine to
 // hand over to manual, and a job parked over a station forever is not a handover.
-// wait-abort does the same in auto mode (D33).
-// The picker keeps holding its material for exactly that manual handling. On the
-// streamed approach the abort can land while the first leg is still running;
-// streamedApproach stops that leg on the way out — nothing else would, the
-// job-failure path does not touch motion (only estop, machine-off and shutdown
-// abort it).
-//
-// stopped is what the streamed approach measures itself by: the wait normally
-// begins with a leg still running, and whether the queue ran dry before the
-// station cleared is the difference between a continuous drive in and a dead
-// stop at the wait point. The other two shapes of wait always begin at a
-// standstill and ignore it.
-//
-// The drain is only believed once the status has had time to catch up with what
-// was dispatched before the wait. Motion status is published by the servo
-// thread, so the first cycles here still describe the machine standing still —
-// the same stale-inpos race waitMotionDone skips past — and reading them would
-// report a stop at the wait point on every single approach. Only cycles whose
-// status read succeeded count, so a burst of comm errors lengthens the settle
-// rather than shortening it.
-func (c *control) awaitClear(s *procState, atWait bool) (stopped bool, err error) {
+// wait-abort does the same in auto mode (D33). The picker keeps holding its
+// material for exactly that manual handling.
+func (c *control) awaitClear(s *procState, atWait bool) error {
 	c.m.logger.Info("pnptask: waiting for a busy station",
 		"station", s.cfg.ID, "at_wait_position", atWait)
-	settled := 0
-	for {
-		if settled >= dispatchSettleTicks && c.motionDrained() {
-			stopped = true
-		}
-		if !c.in.procBusy[s.idx] {
+	return c.waitStanding(func() bool { return !c.in.procBusy[s.idx] },
+		fmt.Sprintf("station %d", s.cfg.ID), func() {
 			c.m.logger.Info("pnptask: station cleared", "station", s.cfg.ID)
-			return stopped, nil
+		})
+}
+
+// waitStanding is a wait between legs, standing: it returns once done reports
+// true, or fails with WAIT_ABORTED when auto-enable drops (D15) or wait-abort
+// is raised (D33) -- the station gate's wait and the scene gate's (D45) end
+// the same way. what names the wait in the error; cleared, if given, runs once
+// done is seen.
+func (c *control) waitStanding(done func() bool, what string, cleared func()) error {
+	for {
+		if done() {
+			if cleared != nil {
+				cleared()
+			}
+			return nil
 		}
 		if !c.in.autoEnable {
-			return stopped, faultf(errWaitAborted,
-				"station %d: the wait was aborted by auto-enable going low", s.cfg.ID)
+			return faultf(errWaitAborted, "%s: the wait was aborted by auto-enable going low", what)
 		}
 		// D33: the same end, asked for without leaving auto mode -- so the
 		// PLC can send the machine somewhere else (park) right after.
 		if c.in.waitAbort {
-			return stopped, faultf(errWaitAborted,
-				"station %d: the wait was aborted by wait-abort", s.cfg.ID)
+			return faultf(errWaitAborted, "%s: the wait was aborted by wait-abort", what)
 		}
 		if !c.tick() {
-			return stopped, errStopping
+			return errStopping
 		}
 		if err := c.abortCheck(); err != nil {
-			return stopped, err
-		}
-		if c.commErrors == 0 {
-			settled++
+			return err
 		}
 	}
 }

@@ -270,117 +270,58 @@ func TestBoxOverlapsSegment(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
-// EntryPoint: where a route has to stop to stay out of a zone
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// PathTouches / Same: the scene gate's geometry (pnptask D45)
+// ---------------------------------------------------------------------------
 
-func TestEntryPoint(t *testing.T) {
+func TestPathTouches(t *testing.T) {
 	// A 40x40 square with its left edge at x = 100.
 	zone := Polygon{{100, 0}, {140, 0}, {140, 40}, {100, 40}}
-
 	tests := []struct {
-		name    string
-		path    []Point
-		setback float64
-		want    Point
-		wantOK  bool
+		name string
+		path []Point
+		want bool
 	}{
-		{
-			name:    "straight run into the left edge",
-			path:    []Point{{0, 20}, {200, 20}},
-			setback: 5,
-			want:    Point{95, 20},
-			wantOK:  true,
-		},
-		{
-			name:    "no setback stops on the boundary",
-			path:    []Point{{0, 20}, {200, 20}},
-			setback: 0,
-			want:    Point{100, 20},
-			wantOK:  true,
-		},
-		{
-			// The corner is inside the zone's span, so the straight line from
-			// the start would enter through the bottom edge — the bent route
-			// enters through the left one, further along.
-			name:    "bent route: the crossing is on the second leg",
-			path:    []Point{{0, 0}, {0, 20}, {200, 20}},
-			setback: 5,
-			want:    Point{95, 20},
-			wantOK:  true,
-		},
-		{
-			// The setback runs back past the corner and has to keep spending
-			// itself on the leg before it.
-			name:    "setback walks back around a corner",
-			path:    []Point{{90, 0}, {90, 20}, {200, 20}},
-			setback: 15,
-			want:    Point{90, 15},
-			wantOK:  true,
-		},
-		{
-			name:    "setback longer than the whole path clamps to the start",
-			path:    []Point{{95, 20}, {200, 20}},
-			setback: 50,
-			want:    Point{95, 20},
-			wantOK:  true,
-		},
-		{
-			name:    "route that misses the zone",
-			path:    []Point{{0, 60}, {200, 60}},
-			setback: 5,
-			wantOK:  false,
-		},
-		{
-			name:    "route starting inside the zone",
-			path:    []Point{{120, 20}, {200, 20}},
-			setback: 5,
-			wantOK:  false,
-		},
-		{
-			name:    "a single point is not a path",
-			path:    []Point{{0, 20}},
-			setback: 5,
-			wantOK:  false,
-		},
+		{"clear, beside it", []Point{{0, 0}, {90, 0}, {90, 40}}, false},
+		{"clear, past a corner", []Point{{90, -10}, {150, -10}}, false},
+		{"crosses it", []Point{{0, 20}, {200, 20}}, true},
+		{"ends inside", []Point{{0, 20}, {120, 20}}, true},
+		{"starts inside", []Point{{120, 20}, {0, 20}}, true},
+		{"standing inside", []Point{{120, 20}}, true},
+		{"standing outside", []Point{{0, 20}}, false},
+		{"runs along an edge", []Point{{100, -10}, {100, 50}}, true},
+		{"ends on an edge", []Point{{0, 20}, {100, 20}}, true},
+		{"cuts a corner through vertices only", []Point{{90, -10}, {150, 50}}, true},
+		{"empty path", nil, false},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := EntryPoint(tt.path, zone, tt.setback)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v (point %v)", ok, tt.wantOK, got)
-			}
-			if !ok {
-				return
-			}
-			if math.Abs(got.X-tt.want.X) > 1e-6 || math.Abs(got.Y-tt.want.Y) > 1e-6 {
-				t.Fatalf("got (%.6f, %.6f), want (%.6f, %.6f)", got.X, got.Y, tt.want.X, tt.want.Y)
+			if got := PathTouches(tt.path, zone); got != tt.want {
+				t.Errorf("PathTouches = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-// The wait point has to be outside the zone the route was split against, by the
-// setback, whichever direction the route arrives from — that margin is what the
-// trajectory planner's corner blending is allowed to eat.
-func TestEntryPointKeepsTheSetbackFromTheZone(t *testing.T) {
-	zone := discretizeCircle(Point{0, 0}, 50, 96)
-	const setback float64 = 3
-	for deg := 0; deg < 360; deg += 7 {
-		th := float64(deg) * math.Pi / 180
-		start := Point{200 * math.Cos(th), 200 * math.Sin(th)}
-		got, ok := EntryPoint([]Point{start, {0, 0}}, zone, setback)
-		if !ok {
-			t.Fatalf("deg %d: no entry found on a route through the centre", deg)
-		}
-		if pointInPolygon(got, zone) {
-			t.Fatalf("deg %d: wait point (%.3f, %.3f) is inside the zone", deg, got.X, got.Y)
-		}
-		// The polygon circumscribes the circle, so the boundary sits at or
-		// outside r; the wait point must clear it by the setback.
-		if d := got.dist(Point{0, 0}); d < 50+setback-1e-6 {
-			t.Fatalf("deg %d: wait point is %.6f from the centre, want at least %.6f", deg, d, 50+setback)
-		}
+func TestPolygonSame(t *testing.T) {
+	sq := Polygon{{0, 0}, {10, 0}, {10, 10}, {0, 10}}
+	tests := []struct {
+		name string
+		q    Polygon
+		want bool
+	}{
+		{"identical", Polygon{{0, 0}, {10, 0}, {10, 10}, {0, 10}}, true},
+		{"other start vertex", Polygon{{10, 10}, {0, 10}, {0, 0}, {10, 0}}, true},
+		{"other direction", Polygon{{0, 0}, {0, 10}, {10, 10}, {10, 0}}, true},
+		{"within eps", Polygon{{0, 0}, {10, 0}, {10, 10.0000001}, {0, 10}}, true},
+		{"one vertex moved", Polygon{{0, 0}, {10, 0}, {10, 12}, {0, 10}}, false},
+		{"other vertex count", Polygon{{0, 0}, {10, 0}, {10, 10}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sq.Same(tt.q, 1e-6); got != tt.want {
+				t.Errorf("Same = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

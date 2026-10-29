@@ -323,48 +323,8 @@ MOVE_HEIGHT = 15.0
 	}
 }
 
-// TestLoadConfigWaitDeadzone checks the D29 keys parse into the pair of
-// drawing indices, and that a station with neither kind of wait key reads as
-// having neither.
-func TestLoadConfigWaitDeadzone(t *testing.T) {
-	setupPaths(t)
-	cfg := mustLoad(t, trajSection+pnptaskSection+`
-[PNPTASK_TRAY_0]
-ID = 10
-Z_PICK = 2.5
-
-[PNPTASK_PROC_CAM]
-ID = 20
-X = 300.0
-Y = 200.0
-Z_PICK = 5.0
-WAIT_DEADZONE = 0
-WAIT_CLEAR_DEADZONE = 1
-
-[PNPTASK_PROC_PLAIN]
-ID = 21
-X = 310.0
-Y = 200.0
-Z_PICK = 5.0
-`)
-	if len(cfg.Procs) != 2 {
-		t.Fatalf("procs = %+v, want two", cfg.Procs)
-	}
-	cam := cfg.Procs[0]
-	// Index 0 is both a legal drawing index and the value this machine uses,
-	// so the presence flag has to carry the answer, not the value.
-	if !cam.HasWaitZone || cam.WaitDeadzone != 0 || cam.WaitClearDeadzone != 1 || cam.HasWait {
-		t.Errorf("cam = %+v, want HasWaitZone with 0/1 and no taught wait", cam)
-	}
-	if plain := cfg.Procs[1]; plain.HasWaitZone || plain.HasWait {
-		t.Errorf("plain = %+v, want neither kind of wait position", plain)
-	}
-}
-
-// TestBlendToleranceZeroWithoutWaitZone: the default BLEND_TOLERANCE of 0 stays
-// legal for a machine with no WAIT_DEADZONE station — only the derived wait
-// point needs the pull-back.
-func TestBlendToleranceZeroWithoutWaitZone(t *testing.T) {
+// TestBlendToleranceZero: the default BLEND_TOLERANCE of 0 is legal.
+func TestBlendToleranceZero(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 0", 1)+stationSections)
 	if cfg.BlendTolerance != 0 {
@@ -1137,69 +1097,30 @@ WAIT_X = 4.0
 `,
 		want: "WAIT_X and WAIT_Y must be given together",
 	}, {
-		name: "half a dead-zone wait position",
+		// D46: the derived wait position is gone, and a config still naming
+		// it is refused rather than silently waiting somewhere else.
+		name: "dead-zone wait position (D46)",
 		ini: trajSection + pnptaskSection + `
 [PNPTASK_PROC_0]
 ID = 20
 X = 1.0
 Y = 2.0
 Z_PICK = 3.0
-WAIT_DEADZONE = 0
-`,
-		want: "WAIT_DEADZONE and WAIT_CLEAR_DEADZONE must be given together",
-	}, {
-		name: "both kinds of wait position",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_X = 4.0
-WAIT_Y = 5.0
-WAIT_DEADZONE = 0
-WAIT_CLEAR_DEADZONE = 1
-`,
-		want: "alternatives, not both",
-	}, {
-		name: "the same drawing blocked and clear",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_DEADZONE = 1
-WAIT_CLEAR_DEADZONE = 1
-`,
-		want: "must name a different drawing",
-	}, {
-		name: "negative dead-zone wait index",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_DEADZONE = -1
-WAIT_CLEAR_DEADZONE = 1
-`,
-		want: "cannot be negative",
-	}, {
-		// The derived wait point is the zone boundary pulled back by the
-		// blend tolerance (D29); at 0 it would sit exactly on the boundary,
-		// where the planner cannot say whether it is inside.
-		name: "dead-zone wait position without a blend tolerance",
-		ini: trajSection + strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 0", 1) + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 300.0
-Y = 200.0
-Z_PICK = 5.0
 WAIT_DEADZONE = 1
 WAIT_CLEAR_DEADZONE = 0
 `,
-		want: "[PNPTASK_PROC_0]: WAIT_DEADZONE needs [PNPTASK]BLEND_TOLERANCE > 0",
+		want: "WAIT_DEADZONE / WAIT_CLEAR_DEADZONE are no longer supported (D46)",
+	}, {
+		name: "half a dead-zone wait position (D46)",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 1.0
+Y = 2.0
+Z_PICK = 3.0
+WAIT_CLEAR_DEADZONE = 0
+`,
+		want: "no longer supported (D46)",
 	}, {
 		name: "route to unknown station",
 		ini: trajSection + pnptaskSection + stationSections + `

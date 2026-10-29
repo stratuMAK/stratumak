@@ -124,6 +124,7 @@ type inputs struct {
 	machineOn  bool
 	autoEnable bool
 	waitAbort  bool
+	sceneHold  bool
 	park       bool
 	home       bool
 	errorReset bool
@@ -512,6 +513,7 @@ func (c *control) sample() {
 	c.in.machineOn = p.machineOn.Get()
 	c.in.autoEnable = p.autoEnable.Get()
 	c.in.waitAbort = p.waitAbort.Get()
+	c.in.sceneHold = p.sceneHold.Get()
 	c.in.park = p.park.Get()
 	c.in.home = p.home.Get()
 	c.in.errorReset = p.errorReset.Get()
@@ -545,13 +547,10 @@ func (c *control) sample() {
 		c.in.procSetHasMaterial[i] = p.procs[i].setHasMaterial.Get()
 		c.in.procSetEmpty[i] = p.procs[i].setEmpty.Get()
 	}
-	// deadzone-select is read last for the same reason start-job is read
-	// first: it gates two triggers, and it has to be sampled after both. A
-	// WAIT_DEADZONE station is released by the PLC selecting the clear drawing
-	// and *then* dropping busy, so a sample that read the selector before the
-	// station pins could pair the old drawing with the new busy and refuse a
-	// correctly sequenced release as WAIT_SCENE_MISMATCH (checkClearScene).
-	// Reading it here keeps it after start-job as well.
+	// deadzone-select is read last: a PLC that changes the scene and then
+	// releases a station (drops busy) or starts a job must never be seen with
+	// the new trigger and the old drawing -- the leg planned right after would
+	// be planned around obstacles that are no longer the ones there.
 	c.in.deadzoneSelect = p.deadzoneSelect.Get()
 	for i := range p.jog {
 		c.in.jogPos[i] = p.jog[i].pos.Get()

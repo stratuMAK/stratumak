@@ -3,8 +3,8 @@
 # queue, and does a blended segment really get half of it?
 #
 # The answer sizes the tail a task streaming segments ahead of the planner has
-# to leave at the end of a leg (pnptask's withTriangleTail), so it is measured
-# here rather than assumed. A deceleration ramp is tens of milliseconds, so it is sampled
+# to leave at the end of a leg (pnptask's withTriangleTail did, until D46
+# removed the streamed approach), so it is measured here rather than assumed. A deceleration ramp is tens of milliseconds, so it is sampled
 # by filestream in the servo thread; nothing slower can see its shape.
 set -e
 rm -f vel.txt sim.var sim.var.bak

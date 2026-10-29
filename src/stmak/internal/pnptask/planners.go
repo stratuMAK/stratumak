@@ -19,6 +19,9 @@ import (
 type plannerSet struct {
 	files    []string // absolute paths, parallel to planners
 	planners []*pnproute.Planner
+	// movable is the region a scene change can move something through (D45):
+	// every drawn zone that is not drawn identically in every drawing.
+	movable []pnproute.Polygon
 }
 
 // at returns the planner the deadzone-select pin names. The selector is a PLC
@@ -58,7 +61,63 @@ func newPlanners(cfg *Config) (*plannerSet, error) {
 	if err := s.checkPositions(cfg); err != nil {
 		return nil, err
 	}
+	s.movable = movableRegion(s.planners)
 	return s, nil
+}
+
+// zoneSameEps is how close two drawn vertices have to be to be the same
+// vertex, in mm: the drawings are typed coordinates, so one outline drawn in
+// two files matches exactly; the tolerance only absorbs the unit scaling.
+const zoneSameEps = 1e-6
+
+// movableRegion is D45's movable region: the drawn zones that are not drawn
+// identically in every drawing. A zone present in all of them is something
+// that never moves; one that is not is where a fixture stands in some scene
+// and not in another, so it is where a scene change sweeps. The drawn zones,
+// not the offset ones -- the question is physical, as for deadzone.N.free
+// (D28) -- and every drawing's own copy of a moving zone is kept: no union is
+// needed to ask whether a path touches any of them. One drawing: empty.
+func movableRegion(planners []*pnproute.Planner) []pnproute.Polygon {
+	if len(planners) < 2 {
+		return nil
+	}
+	var region []pnproute.Polygon
+	for i, pl := range planners {
+		for _, z := range pl.Zones() {
+			static := true
+			for j, other := range planners {
+				if j == i {
+					continue
+				}
+				found := false
+				for _, w := range other.Zones() {
+					if z.Same(w, zoneSameEps) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					static = false
+					break
+				}
+			}
+			if !static {
+				region = append(region, z)
+			}
+		}
+	}
+	return region
+}
+
+// touchesMovable reports whether a path -- a leg's route from where the head
+// stands, both ends included -- touches the movable region (D45).
+func (s *plannerSet) touchesMovable(path []pnproute.Point) bool {
+	for _, z := range s.movable {
+		if pnproute.PathTouches(path, z) {
+			return true
+		}
+	}
+	return false
 }
 
 // machineToMMFactor is what a machine-unit length is multiplied by to become
@@ -180,11 +239,6 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 				return err
 			}
 		}
-		if p.HasWaitZone {
-			if err := s.checkWaitZone(p); err != nil {
-				return err
-			}
-		}
 	}
 
 	for _, d := range cfg.TrayDefs {
@@ -202,116 +256,6 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 				if err := check(what, d.SlotPos(col, row)); err != nil {
 					return err
 				}
-			}
-		}
-	}
-	return nil
-}
-
-// checkWaitZone validates a station's dead-zone-derived wait position (D29) and
-// resolves which zone it names.
-//
-// The wait point is not taught, so there is nothing here to check the way
-// WAIT_X/WAIT_Y is checked: what is validated instead is that the geometry the
-// wait point will be *derived* from exists and means what the configuration
-// says it means.
-//
-// The containment test is the load-time form of "the planned route must cross
-// the nominated zone". A station inside the zone cannot be approached from
-// outside without crossing its boundary, so containment makes the crossing an
-// invariant rather than something a job discovers by not stopping — which is
-// the worst possible way to find out. Exactly one zone must contain it: zero
-// leaves nothing to derive a wait point from, and more than one leaves it
-// ambiguous which boundary the job should stop at.
-//
-// It is asked in the frame and against the geometry the run-time crossing
-// uses (pre-merge review 2026-09-08): the station's MACHINE point — the
-// station minus the picker's offset, which is what a route ends at (D28) —
-// against the planner's OFFSET zone, the one waitPoint intersects the
-// reference route with. Checking the taught point against the drawn polygon
-// answered a different question: a station 15 mm inside the drawing with a
-// 40 mm offset picker passed here and had no crossing at job time, while one
-// in the clearance band outside the drawing was refused although its crossing
-// exists. The picker offsets are HAL params that do not exist yet when the
-// planners are built, so the load-time check runs with no offset; startControl
-// re-asks it for every picker's offset as set by then (checkWaitZoneOffsets),
-// and an offset changed by setp after that is diagnosed at leg time.
-func (s *plannerSet) checkWaitZone(p *ProcStation) error {
-	n := uint32(len(s.planners))
-	if p.WaitDeadzone >= n {
-		return fmt.Errorf("[%s]WAIT_DEADZONE = %d: only %d dead-zone file(s) are configured",
-			p.Section, p.WaitDeadzone, n)
-	}
-	if p.WaitClearDeadzone >= n {
-		return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d: only %d dead-zone file(s) are configured",
-			p.Section, p.WaitClearDeadzone, n)
-	}
-	idx, err := s.waitZoneFor(p, pnproute.Point{}, "the station")
-	if err != nil {
-		return err
-	}
-	p.WaitZoneIdx = idx
-	return nil
-}
-
-// waitZoneFor is checkWaitZone's geometric half for one picker offset: which
-// offset zone of the blocked drawing contains the station's machine point, and
-// whether that point is a legal goal in the clear drawing. who names the point
-// in the errors ("the station", "the station for picker 1 (offset ...)").
-func (s *plannerSet) waitZoneFor(p *ProcStation, off pnproute.Point, who string) (int, error) {
-	pt := pnproute.Point{X: p.Pos.X - off.X, Y: p.Pos.Y - off.Y}
-	blocked := s.planners[p.WaitDeadzone]
-	zones := blocked.OffsetZones()
-	found := -1
-	for i, zone := range zones {
-		if !zone.Contains(pt) {
-			continue
-		}
-		if found >= 0 {
-			return 0, fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is inside two overlapping zones (%d and %d, grown by CLEARANCE) — which boundary the job waits at would be arbitrary",
-				p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], who, pt.X, pt.Y, found, i)
-		}
-		found = i
-	}
-	if found < 0 {
-		return 0, fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is inside none of that drawing's %d dead zone(s) (grown by CLEARANCE) — a route to it would never cross one, so there would be no point to wait at",
-			p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], who, pt.X, pt.Y, len(zones))
-	}
-
-	// The reference route the wait point is derived from is planned in the
-	// clear drawing, so the station has to be a legal goal there. This is
-	// stricter than checkPositions' "usable in at least one drawing" and it is
-	// the drawing that has to be the one: WAIT_CLEAR_DEADZONE names the machine
-	// as it is once the station opens up, and a station still blocked there is
-	// a station no job could ever drive into.
-	if err := s.planners[p.WaitClearDeadzone].CheckPoint(pt); err != nil {
-		return 0, fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is not reachable in the drawing that is supposed to clear it: %w",
-			p.Section, p.WaitClearDeadzone, s.files[p.WaitClearDeadzone], who, pt.X, pt.Y, err)
-	}
-	return found, nil
-}
-
-// checkWaitZoneOffsets re-asks checkWaitZone's containment for every picker's
-// offset — the params exist by now, and the HAL file's setp lines have run.
-// Every picker has to find the station in the zone that was resolved at load:
-// a job may send either picker in (D20), and an offset that carries the
-// station's machine point out of its zone, or into a different one, is a
-// station that fails PLANNING_FAILED at every approach.
-func (s *plannerSet) checkWaitZoneOffsets(cfg *Config, offsets []pnproute.Point) error {
-	for i := range cfg.Procs {
-		p := &cfg.Procs[i]
-		if !p.HasWaitZone {
-			continue
-		}
-		for pk, off := range offsets {
-			who := fmt.Sprintf("the station for picker %d (offset (%g, %g))", pk, off.X, off.Y)
-			idx, err := s.waitZoneFor(p, off, who)
-			if err != nil {
-				return err
-			}
-			if idx != p.WaitZoneIdx {
-				return fmt.Errorf("[%s]WAIT_DEADZONE = %d (%s): %s at machine (%.3f, %.3f) is inside zone %d, but the station itself is inside zone %d — the offset moves the pick point across a zone boundary",
-					p.Section, p.WaitDeadzone, s.files[p.WaitDeadzone], who, p.Pos.X-off.X, p.Pos.Y-off.Y, idx, p.WaitZoneIdx)
 			}
 		}
 	}

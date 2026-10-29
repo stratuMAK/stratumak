@@ -266,25 +266,6 @@ type ProcStation struct {
 	// waits where it stands, at movement height.
 	Wait    pnproute.Point
 	HasWait bool
-
-	// The dead-zone-derived wait position (D29), the alternative to a taught
-	// Wait: instead of a fixed park spot, the job drives on until the last
-	// point at which it could still stop clear of the zone the station sits
-	// in, and only stops there if the station is still busy when it arrives.
-	//
-	// WaitDeadzone is the DEADZONE_FILE index whose zone supplies that
-	// boundary — the machine as it is while the station is blocked.
-	// WaitClearDeadzone is the index that applies once it clears: the station
-	// is a legal goal only there, so that is the scene the reference route is
-	// planned in, and the scene deadzone-select must name when the last leg is
-	// dispatched.
-	//
-	// WaitZoneIdx is which of that drawing's zones the station sits inside,
-	// resolved once at load by checkPositions rather than searched per job.
-	WaitDeadzone      uint32
-	WaitClearDeadzone uint32
-	WaitZoneIdx       int
-	HasWaitZone       bool
 }
 
 // RouteOverride is one [PNPTASK_ROUTE_x] section: a movement height that
@@ -773,38 +754,12 @@ func loadStations(r *iniReader, cfg *Config) error {
 			s.Wait.X = r.lengthReq(sec, "WAIT_X")
 			s.Wait.Y = r.lengthReq(sec, "WAIT_Y")
 		}
-		hasZone, hasClear := r.has(sec, "WAIT_DEADZONE"), r.has(sec, "WAIT_CLEAR_DEADZONE")
-		if hasZone != hasClear {
-			return fmt.Errorf("[%s]: WAIT_DEADZONE and WAIT_CLEAR_DEADZONE must be given together", sec)
-		}
-		if hasZone {
-			// Refused rather than letting one win: the two describe different
-			// approaches to the same station, and a machine that silently
-			// picked the taught park spot would look like it was working.
-			if hasWaitX {
-				return fmt.Errorf("[%s]: WAIT_DEADZONE and WAIT_X/WAIT_Y are alternatives, not both", sec)
-			}
-			blocked := r.integer(sec, "WAIT_DEADZONE", -1)
-			clear := r.integer(sec, "WAIT_CLEAR_DEADZONE", -1)
-			if blocked < 0 || clear < 0 {
-				return fmt.Errorf("[%s]: WAIT_DEADZONE and WAIT_CLEAR_DEADZONE are DEADZONE_FILE indices and cannot be negative", sec)
-			}
-			if blocked == clear {
-				return fmt.Errorf("[%s]WAIT_CLEAR_DEADZONE = %d: must name a different drawing than WAIT_DEADZONE — the station is blocked in one and reachable in the other", sec, clear)
-			}
-			// The derived wait point is the zone boundary pulled back by
-			// BLEND_TOLERANCE (D29). At 0 it would sit exactly ON the offset
-			// zone's edge, where the planner's containment test is undefined
-			// — the leg to it is then refused or not by rounding — and the
-			// pull-back is what keeps the TP's inward blend out of the zone
-			// in the first place; with no tolerance the TP blends without
-			// limit, so there is no setback that makes the point safe.
-			if cfg.BlendTolerance <= 0 {
-				return fmt.Errorf("[%s]: WAIT_DEADZONE needs [PNPTASK]BLEND_TOLERANCE > 0 (it is %g) — the derived wait point is the zone boundary pulled back by it, and a point exactly on the boundary is neither inside nor outside", sec, cfg.BlendTolerance)
-			}
-			s.HasWaitZone = true
-			s.WaitDeadzone = uint32(blocked)
-			s.WaitClearDeadzone = uint32(clear)
+		// D46: the dead-zone-derived wait position (D29) is gone. Refused
+		// rather than ignored: a config that still names it expects the head
+		// to drive on and stop at a zone boundary, and would instead see it
+		// wait where it stands.
+		if r.has(sec, "WAIT_DEADZONE") || r.has(sec, "WAIT_CLEAR_DEADZONE") {
+			return fmt.Errorf("[%s]: WAIT_DEADZONE / WAIT_CLEAR_DEADZONE are no longer supported (D46) — remove them; a busy station without WAIT_X/WAIT_Y is waited for where the head stands, and the scene gate (D45) keeps legs out of a changing scene", sec)
 		}
 		if err := r.err; err != nil {
 			return err

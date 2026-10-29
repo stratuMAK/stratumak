@@ -475,102 +475,60 @@ func checkConvex(poly Polygon) error {
 // Where a route meets a zone
 // ---------------------------------------------------------------------------
 
-// EntryPoint returns the point on path measured back by setback from where path
-// first enters poly.
+// PathTouches reports whether a polyline touches a polygon: a vertex inside
+// it, or a segment meeting one of its edges, grazing included. It is the
+// conservative question -- "could the head on this path be anywhere near the
+// polygon" -- so a path that runs along an edge counts.
 //
-// It answers one question: driving this polyline, where is the last place the
-// machine can stop without any part of the move reaching into poly? The caller
-// splits its motion there — everything before that point is committed, and
-// everything after it waits until the zone is free to enter.
-//
-// poly is expected to be convex, as every dead zone in this package is (see
-// [NewPlanner]), so the first boundary crossing along the path is the entry:
-// there is no re-entry to look past.
-//
-// The setback is what the trajectory planner's corner blending can cut off. Two
-// legs meeting at a corner are rounded *inward* by up to the blend tolerance, so
-// a split taken exactly on the boundary could still clip inside it; pulling the
-// split back by that tolerance keeps the blended path out. Pass the blend
-// tolerance and give poly the clearance already applied — [Planner.OffsetZones]
-// returns exactly that — and what remains between the blended corner and the
-// real obstacle is the full clearance.
-//
-// ok is false when path never enters poly and when it starts inside it: both
-// mean there is no crossing to split at, and neither is a value the caller can
-// safely invent. A setback that runs back past path[0] clamps to path[0] —
-// the machine is already within the setback of the boundary, so it stops where
-// it stands.
-func EntryPoint(path []Point, poly Polygon, setback float64) (Point, bool) {
-	if len(path) < 2 || len(poly) < 3 {
-		return Point{}, false
+// A path of one point is a head standing still: it touches when that point is
+// inside.
+func PathTouches(path []Point, poly Polygon) bool {
+	if len(path) == 0 || len(poly) < 3 {
+		return false
 	}
-	if pointInPolygon(path[0], poly) {
-		return Point{}, false
-	}
-	seg, t, ok := firstCrossing(path, poly)
-	if !ok {
-		return Point{}, false
-	}
-	a, b := path[seg], path[seg+1]
-	pos := Point{a.X + (b.X-a.X)*t, a.Y + (b.Y-a.Y)*t}
-	if setback <= 0 {
-		return pos, true
-	}
-	// Walk back along the polyline, vertex by vertex, spending the setback.
-	for rem := setback; ; seg-- {
-		d := pos.dist(path[seg])
-		if d >= rem {
-			return pos.add(unit(path[seg].sub(pos)).scale(rem)), true
-		}
-		rem -= d
-		pos = path[seg]
-		if seg == 0 {
-			return path[0], true
+	for _, p := range path {
+		if pointInPolygon(p, poly) {
+			return true
 		}
 	}
-}
-
-// firstCrossing locates where path first meets poly: the index of the segment
-// and the parameter along it. A segment that ends inside poly without any edge
-// intersection being found is taken as crossing at its end — the arithmetic
-// disagreeing with the containment test is a grazing case, and ending the leg
-// early is the safe way to resolve it.
-func firstCrossing(path []Point, poly Polygon) (seg int, t float64, ok bool) {
 	n := len(poly)
 	for i := 0; i+1 < len(path); i++ {
 		a, b := path[i], path[i+1]
-		best := math.Inf(1)
 		for j := 0; j < n; j++ {
-			c, d := poly[j], poly[(j+1)%n]
-			if u, hit := segCrossParam(a, b, c, d); hit && u < best {
-				best = u
+			if segIntersect(a, b, poly[j], poly[(j+1)%n]) {
+				return true
 			}
 		}
-		if !math.IsInf(best, 1) {
-			return i, best, true
-		}
-		if pointInPolygon(b, poly) {
-			return i, 1, true
-		}
 	}
-	return 0, 0, false
+	return false
 }
 
-// segCrossParam returns the parameter along ab at which it meets cd, if it does.
-// Parallel segments report no hit: a route running along an edge never crosses
-// it, and the containment test in firstCrossing catches the case where it ends
-// up inside anyway.
-func segCrossParam(a, b, c, d Point) (float64, bool) {
-	r, s := b.sub(a), d.sub(c)
-	den := r.X*s.Y - r.Y*s.X
-	if math.Abs(den) < 1e-12 {
-		return 0, false
+// Same reports whether q is the same ring as p, whatever vertex it starts at
+// and whichever way it runs: the same outline drawn twice. Vertices compare
+// within eps.
+func (p Polygon) Same(q Polygon, eps float64) bool {
+	n := len(p)
+	if n != len(q) {
+		return false
 	}
-	ac := c.sub(a)
-	t := (ac.X*s.Y - ac.Y*s.X) / den
-	u := (ac.X*r.Y - ac.Y*r.X) / den
-	if t < 0 || t > 1 || u < 0 || u > 1 {
-		return 0, false
+	if n == 0 {
+		return true
 	}
-	return t, true
+	near := func(a, b Point) bool {
+		return math.Abs(a.X-b.X) <= eps && math.Abs(a.Y-b.Y) <= eps
+	}
+	for start := 0; start < n; start++ {
+		if !near(p[0], q[start]) {
+			continue
+		}
+		fwd, back := true, true
+		for i := 0; i < n && (fwd || back); i++ {
+			fwd = fwd && near(p[i], q[(start+i)%n])
+			back = back && near(p[i], q[(start-i+n)%n])
+		}
+		if fwd || back {
+			return true
+		}
+	}
+	return false
 }
