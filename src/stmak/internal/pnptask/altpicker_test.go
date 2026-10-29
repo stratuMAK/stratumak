@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -369,37 +370,59 @@ func TestProbeSwapTakesOutAnUnknownPart(t *testing.T) {
 	}
 }
 
-// TestProbeSwapToleratesAVanishedPart: the model says occupied and the
-// fixture is empty. On a probing station that is the same answer as above,
-// not PROC_NO_MATERIAL.
-func TestProbeSwapToleratesAVanishedPart(t *testing.T) {
-	f := newProbeFixture(t, true)
-	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+// TestSwapKeepsAPartTheModelKnows (D43): the model says occupied and the
+// closed sensor says the jaws met -- the machine's failure was a closed sensor
+// firing on a gripped part. The model wins on a probing station and a plain
+// one alike: the picker stays closed, the part is taken out as an ordinary
+// swap with its record and obligation, and the place goes on.
+func TestSwapKeepsAPartTheModelKnows(t *testing.T) {
+	for _, probe := range []bool{true, false} {
+		t.Run(fmt.Sprintf("probe=%v", probe), func(t *testing.T) {
+			f := newAltFixture(t, func(w *world) {
+				w.procs[0].cfg.ProbeSwap = probe
+				w.procs[0].setHasMaterial(true)
+				w.setHeld(1, 10, false, 0, true)
+			})
+			f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+			f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
 
-	f.runJob(10, 20, 0)
-	f.requireOK("a probing swap at a station that lost its part")
-	if !f.bit("proc.20.has-material") {
-		t.Error("the station reports empty although the job placed into it")
-	}
-	w := f.stopped()
-	if w.held[0].present || w.held[1].present {
-		t.Errorf("held records = %+v, want none", w.held)
+			f.runJob(10, 20, 0)
+			f.requireOK("a swap whose grip read empty over a known part")
+			if !f.bit("proc.20.has-material") {
+				t.Error("the station reports empty although the job placed into it")
+			}
+			if !f.bit("picker.0.close") {
+				t.Error("the swap picker was opened on the empty reading")
+			}
+			if !f.bit("picker.0.holds") || f.get("picker.0.origin-id") != 20 {
+				t.Errorf("picker 0 reports holds=%v origin-id=%v; want the part of station 20",
+					f.bit("picker.0.holds"), f.get("picker.0.origin-id"))
+			}
+			w := f.stopped()
+			if !w.held[0].present || w.held[0].station != 20 || !w.held[0].swap {
+				t.Errorf("swap record = %+v, want the material of station 20, marked as a swap", w.held[0])
+			}
+		})
 	}
 }
 
-// TestSwapWithoutProbeStillFaultsOnAVanishedPart: the tolerance is the
-// probing station's alone; elsewhere an occupied model with an empty fixture
-// stays PROC_NO_MATERIAL.
-func TestSwapWithoutProbeStillFaultsOnAVanishedPart(t *testing.T) {
-	f := newAltFixture(t, func(w *world) {
-		w.procs[0].setHasMaterial(true)
-		w.setHeld(1, 10, false, 0, true)
-	})
+// TestRemoveKeepsAPartTheModelKnows (D43): the same reading on a plain
+// removal -- a job from the station to the tray -- carries the part on
+// instead of faulting PROC_NO_MATERIAL.
+func TestRemoveKeepsAPartTheModelKnows(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) { w.procs[0].setHasMaterial(true) })
+	f.selectTray(1)
 	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
 	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
 
-	f.runJob(10, 20, 0)
-	f.requireError("a swap that found nothing", errProcNoMaterial)
+	f.runJob(20, 10, 0)
+	f.requireOK("a removal whose grip read empty over a known part")
+	if f.bit("proc.20.has-material") {
+		t.Error("the station still reports material after the removal")
+	}
+	if got := f.get("tray.10.count"); got != 1 {
+		t.Errorf("tray count after the place = %v, want 1", got)
+	}
 }
 
 // TestAltSwapNeedsAFreePicker: a swap needs a picker of its own, on top of the

@@ -518,10 +518,22 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	if err != nil {
 		return err
 	}
+	if grip == gripEmpty && s.hasMaterial {
+		// D43: the model says a part is there, and the closed sensor says the
+		// jaws met. The model wins: the picker stays closed and the part is
+		// taken as gripped. A closed sensor that fires on a gripped part is
+		// the failure this guards against -- opening the picker on that
+		// verdict dropped the part back into the fixture, and the swap's place
+		// went down onto it. Trusting the model when the fixture really is
+		// empty costs a part that is not there travelling on, for an
+		// inspection further down to reject; the other way round cost a crash.
+		c.m.logger.Warn("pnptask: picker reports fully closed on a station the model says is occupied, kept as gripped -- check the closed sensor",
+			"station", s.cfg.ID, "picker", pk)
+		grip = gripHolding
+	}
 	if grip == gripEmpty {
-		// has-material said there was a part and there is not. Correcting the
-		// flag is the point: the next job must not be sent for it again.
-		s.setHasMaterial(false)
+		// Only reachable on a probing swap: every other removal is validated
+		// on has-material, and D43 takes an empty grip over a set one as held.
 		if err := c.waitPickerOpen(pk); err != nil {
 			return err
 		}
