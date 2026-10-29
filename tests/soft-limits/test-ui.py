@@ -166,6 +166,29 @@ def jog_until(axis, vel, pred, desc):
     wait_rest("the jog to stop after %s" % desc)
 
 
+def jog_once(axis, dist, desc):
+    """One incremental jog of `dist` mm, then wait for the machine to stand.
+
+    For the checks that a jog is STOPPED: jog_until re-sends its continuous
+    jog on every poll, and each re-sent jog past a tripped limit runs a few
+    cycles before the backstop sees it heading out -- so how far the axis
+    got depended on how many polls fit in before the test saw it at rest.
+    An incremental jog is sent once and needs no refreshing (the task's
+    watchdog is for continuous jogs only); where it ends is decided in the
+    servo thread alone.
+    """
+    start = joint_pos(axis)
+    c.jog(JOG_INCREMENT, 0, axis, 25.0, dist)
+    # Moved and at rest: the jog has started and ended.  A jog that is
+    # refused outright never moves; that fails the wait, naming the axis.
+    # 1e-4: even the jog the backstop stops at once creeps ~2 um first.
+    if not wait_for(lambda: at_rest() and abs(joint_pos(axis) - start) > 1e-4, desc):
+        fail("timed out waiting for %s to move and stop; joint %d at %.3f mm"
+             % (desc, axis, joint_pos(axis)))
+    sys.stderr.write("%s: joint %d went from %.4f to %.4f mm\n"
+                     % (desc, axis, start, joint_pos(axis)))
+
+
 def limit_is(j, value):
     """Wait until motion applies a joint's max limit (milltask.inihal.N)."""
     def _applied():
@@ -358,10 +381,7 @@ check(wait_for(lambda: any("soft limit" in m for m in collect_errors(0.1)),
 # second attempt, heading away from validity but well inside the axis limits.
 wait_rest("the machine to settle after the trip")
 before = joint_pos()
-c.jog(JOG_CONTINUOUS, 0, X, 25.0)
-time.sleep(1.0)
-c.jog(JOG_STOP, 0, X)
-wait_rest("the stopped jog to settle")
+jog_once(X, 25.0, "the jog past the tripped limit")
 check(joint_pos() - before < 1.0,
       "a jog is stopped by the RT backstop when the trip is joint-frame",
       "moved %.3f mm past a tripped joint limit" % (joint_pos() - before))
@@ -395,10 +415,9 @@ y_before = joint_pos(Y)
 Y_TIGHT = y_before + 12.7
 setp("milltask.inihal.1.max_limit", Y_TIGHT)
 limit_is(Y, Y_TIGHT)
-# Until Y stands still past the first 5 mm: stopped by the backstop near its
-# joint limit, or -- without it -- at the axis limit 254 mm out.
-jog_until(Y, 25.0, lambda: at_rest() and joint_pos(Y) > y_before + 5.0,
-          "Y to be stopped")
+# One 25 mm jog: stopped by the backstop near its joint limit, or -- without
+# it -- run out to its end, twice the limit away.
+jog_once(Y, 25.0, "the Y jog toward its tightened limit")
 y_after = joint_pos(Y)
 check(y_before + 5.0 < y_after < Y_TIGHT + 1.0,
       "a joint-frame trip on Y is stopped while X sits outside its axis limits",
