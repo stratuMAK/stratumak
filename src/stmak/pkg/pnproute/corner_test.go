@@ -180,3 +180,69 @@ func TestCornerRadiusKeepsStraightRoutes(t *testing.T) {
 		t.Errorf("straight route bent into %d waypoints: %v", len(r.Waypoints), r.Waypoints)
 	}
 }
+
+// circleOf recovers a corner circle's centre and radius from its polygon.
+func circleOf(o obstacle) (Point, float64) {
+	var c Point
+	for _, v := range o.edge {
+		c = c.add(v)
+	}
+	c = c.scale(1 / float64(len(o.edge)))
+	return c, c.dist(o.edge[0]) * math.Cos(math.Pi/float64(len(o.edge)))
+}
+
+// Each corner gets the largest circle that leaves the room around it as it
+// is: none reaches another zone's offset, none crosses the eroded outer
+// limit, no two of different zones overlap -- and a corner with room gets the
+// full radius.
+func TestCornerRadiusSizedPerCorner(t *testing.T) {
+	const clearance, radius = 5.0, 100.0
+	// Two zones 50 mm apart, so 40 mm of free gap between their offsets; wide
+	// enough that a full circle at an outer corner stays on its own side.
+	s := cornerScene(rect(100, 100, 400, 300), rect(450, 100, 750, 300))
+	p := mustPlanner(t, s, clearance, WithCornerRadius(radius))
+	full := 0
+	for i, sh := range p.shapers {
+		c, r := circleOf(sh)
+		if r < clearance {
+			t.Errorf("circle %d radius %.2f below the clearance", i, r)
+		}
+		if r > radius-0.5 {
+			full++
+		}
+		if distToRing(c, p.boundary) < r-1e-6 || !pointInPolygon(c, p.boundary) {
+			t.Errorf("circle %d (%.1f) crosses the eroded limit", i, r)
+		}
+		for j := range p.shapers {
+			if j <= i {
+				continue
+			}
+			cj, rj := circleOf(p.shapers[j])
+			sameZone := (c.X < 425) == (cj.X < 425)
+			if !sameZone && c.dist(cj) < r+rj-1e-3 {
+				t.Errorf("circles %d and %d of different zones overlap", i, j)
+			}
+		}
+		for _, o := range p.obstacles {
+			if pointInPolygon(c, o.edge) {
+				continue // its own zone: the centre sits inside it
+			}
+			if distToRing(c, o.edge) < r-1e-3 {
+				t.Errorf("circle %d (%.1f) reaches into another zone's offset", i, r)
+			}
+		}
+	}
+	if full < 4 {
+		t.Errorf("%d corners got the full radius, want the 4 outer ones", full)
+	}
+	// The gap stays open: a route straight down it.
+	r := mustPlan(t, p, Point{425, 50}, Point{425, 350})
+	if len(r.Waypoints) != 2 {
+		t.Errorf("route down the gap bent: %v", r.Waypoints)
+	}
+	// And a route around through the gap still turns no tighter than with
+	// the plain offset.
+	if r := mustPlan(t, p, Point{300, 50}, Point{600, 350}); r.MinClear < clearance-1e-6 {
+		t.Errorf("route through the gap comes %.3f from a zone", r.MinClear)
+	}
+}

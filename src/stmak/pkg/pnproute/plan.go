@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 )
 
 // Defaults for the planner's numeric knobs. They are exported so a caller can
@@ -65,25 +66,33 @@ func WithOffsetArcStep(rad float64) Option {
 	return func(o *plannerOptions) { o.offsetArcStep = rad }
 }
 
-// WithCornerRadius sets the radius a route turns on around a dead zone's corner
-// (default 0: the clearance, the corner arc of the offset zone itself). Larger
-// radii let the trajectory planner take the turn faster -- sqrt(a * r) instead
-// of sqrt(a * clearance) -- at the cost of passing a corner wider.
+// WithCornerRadius sets the largest radius a route turns on around a dead
+// zone's corner (default 0: the clearance, the corner arc of the offset zone
+// itself). Larger radii let the trajectory planner take the turn faster --
+// sqrt(a * r) instead of sqrt(a * clearance) -- at the cost of passing a
+// corner wider.
 //
-// Every polygon corner gets a circle of this radius, centred radius-clearance
-// inward from the corner on its bisector, so it passes the corner at exactly
-// the clearance. The circles are SHAPERS, not dead zones: they steer the
-// visibility graph and nothing else. Safety stays with the offset zones, which
-// are unchanged, so a route is never closer to a zone than without them; a
-// point inside a circle is still a legal start or goal (the circle is ignored
-// for that query); and Zones/OffsetZones/CheckPoint do not see them. Kept apart
-// from the zones -- not merged into one convex hull -- so the bulge stays at the
-// corner: a hull would lift the whole edge between two corners. Corners within
-// the clearance of the outer limit get none: no route passes there.
+// Every polygon corner gets a circle, centred radius-clearance inward from the
+// corner on its bisector, so it passes the corner at exactly the clearance and
+// a route turning there turns on that radius. Each corner's radius is sized
+// once, here: the largest up to this one that stays inside the eroded outer
+// limit and clear of every other zone's offset, and -- placing the tightest
+// corners first -- clear of the circles of other zones. So a circle never
+// closes a passage a route could use without it. Corners within the clearance
+// of the outer limit, or buried in another zone, get none.
 //
-// Where the circles leave no route -- a passage narrower than a corner circle
-// lets through -- the route is planned without them, as if no radius were set:
-// a corner radius can make a route wider, never impossible.
+// The circles are SHAPERS, not dead zones: they steer the visibility graph
+// and nothing else. Safety stays with the offset zones, which are unchanged,
+// so a route is never closer to a zone than without them; a point inside a
+// circle is still a legal start or goal (the circle is ignored for that query,
+// which makes such a route enter the circle with a kink -- the larger the
+// radius, the more stations end up inside one); a straight start-goal line
+// ignores them; and Zones/OffsetZones/CheckPoint do not see them. Kept apart
+// from the zones -- not merged into one convex hull -- so the bulge stays at
+// the corner: a hull would lift the whole edge between two corners.
+//
+// Where the circles still leave no route the plain one is planned: a radius
+// can widen a route, never make it impossible.
 func WithCornerRadius(r float64) Option {
 	return func(o *plannerOptions) { o.cornerRadius = r }
 }
@@ -183,6 +192,7 @@ func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error) {
 	}
 
 	p.obstacles = make([]obstacle, len(s.Deadzones))
+	var corners []corner
 	for i, dz := range s.Deadzones {
 		poly := dedupeRing(dz.Poly)
 		if err := checkConvex(poly); err != nil {
@@ -208,9 +218,10 @@ func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error) {
 			bounds: boundsOf(edge),
 		}
 		if dz.Kind != ShapeCircle && o.cornerRadius > clearance {
-			p.shapers = append(p.shapers, cornerShapers(poly, outer, clearance, o)...)
+			corners = append(corners, zoneCorners(i, poly, outer, clearance)...)
 		}
 	}
+	p.shapers = p.sizeCorners(corners)
 
 	p.buildGraph()
 	if len(p.shapers) > 0 {
@@ -225,28 +236,142 @@ func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error) {
 	return p, nil
 }
 
-// cornerShapers returns the corner-radius circles of one polygon zone.
-func cornerShapers(poly, outer Polygon, clearance float64, o plannerOptions) []obstacle {
+// corner is a polygon zone's corner that may get a corner-radius circle: the
+// circle's centre runs along bis, (radius - clearance) inward from at.
+type corner struct {
+	zone    int
+	at, bis Point
+}
+
+// zoneCorners lists the corners of one polygon zone that may get a circle.
+// Corners within the clearance of the outer limit get none: no route passes
+// between them and the limit.
+func zoneCorners(zone int, poly, outer Polygon, clearance float64) []corner {
 	p := ensureCCW(poly)
 	n := len(p)
-	segs := int(2*math.Pi/o.offsetArcStep) + 1
-	var out []obstacle
+	var out []corner
 	for i := 0; i < n; i++ {
 		prev, cur, next := p[(i-1+n)%n], p[i], p[(i+1)%n]
-		dist := math.Inf(1)
-		for k := range outer {
-			dist = math.Min(dist, pointSegDistance(cur, outer[k], outer[(k+1)%len(outer)]))
-		}
-		if dist < clearance+1e-9 {
-			continue // against the outer limit: nothing passes there
+		if distToRing(cur, outer) < clearance+1e-9 {
+			continue
 		}
 		dIn, dOut := unit(cur.sub(prev)), unit(next.sub(cur))
 		bis := unit(Point{-dIn.Y, dIn.X}.add(Point{-dOut.Y, dOut.X})) // inward (CCW)
-		center := cur.add(bis.scale(o.cornerRadius - clearance))
-		edge := discretizeCircle(center, o.cornerRadius, segs)
-		out = append(out, obstacle{edge: edge, core: erodeConvex(edge, o.coreErode), bounds: boundsOf(edge)})
+		out = append(out, corner{zone: zone, at: cur, bis: bis})
 	}
 	return out
+}
+
+// sizeCorners gives every corner the largest circle up to the corner radius
+// that leaves the room around it as it is: inside the eroded outer limit, clear
+// of every OTHER zone's offset, and clear of the circles of other zones -- so
+// a circle never closes a passage that a route could use without it. A corner
+// buried in another zone's offset gets none. Sized here once, at build time;
+// where the circles still leave no route, Plan falls back to the plain one.
+func (p *Planner) sizeCorners(cs []corner) []obstacle {
+	c := p.clearance
+	rmax := p.opt.cornerRadius
+	centre := func(k corner, r float64) Point { return k.at.add(k.bis.scale(r - c)) }
+	fits := func(k corner, r float64) bool {
+		ctr := centre(k, r)
+		if !pointInPolygon(ctr, p.boundary) || distToRing(ctr, p.boundary) < r {
+			return false
+		}
+		for j, o := range p.obstacles {
+			if j == k.zone {
+				continue
+			}
+			if pointInPolygon(ctr, o.edge) || distToRing(ctr, o.edge) < r {
+				return false
+			}
+		}
+		return true
+	}
+	radius := make([]float64, len(cs))
+	for i, k := range cs {
+		buried := false
+		for j, o := range p.obstacles {
+			if j != k.zone && pointInPolygon(k.at, o.edge) {
+				buried = true
+				break
+			}
+		}
+		if buried || !fits(k, c) {
+			continue // radius 0: no circle
+		}
+		lo, hi := c, rmax
+		if fits(k, hi) {
+			lo = hi
+		} else {
+			for it := 0; it < 30; it++ {
+				mid := (lo + hi) / 2
+				if fits(k, mid) {
+					lo = mid
+				} else {
+					hi = mid
+				}
+			}
+		}
+		radius[i] = lo
+	}
+	// Circles of two zones must not meet either, or together they could close
+	// a gap neither closes alone.  The most constrained corners are placed
+	// first and keep what they have; every later circle grows only as far as
+	// it stays clear of the circles of other zones already placed.  So a
+	// corner with room gives way to a tight one, not the other way round.
+	order := make([]int, len(cs))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return radius[order[a]] < radius[order[b]] })
+	clearOf := func(i int, r float64, placed []int) bool {
+		for _, j := range placed {
+			if cs[j].zone != cs[i].zone && centre(cs[i], r).dist(centre(cs[j], radius[j])) < r+radius[j] {
+				return false
+			}
+		}
+		return true
+	}
+	var placed []int
+	for _, i := range order {
+		if radius[i] <= c {
+			continue
+		}
+		if !clearOf(i, radius[i], placed) {
+			lo, hi := c, radius[i]
+			for it := 0; it < 30; it++ {
+				mid := (lo + hi) / 2
+				if clearOf(i, mid, placed) {
+					lo = mid
+				} else {
+					hi = mid
+				}
+			}
+			radius[i] = lo
+		}
+		if radius[i] > c+1e-6 {
+			placed = append(placed, i)
+		}
+	}
+	segs := int(2*math.Pi/p.opt.offsetArcStep) + 1
+	var out []obstacle
+	for i, k := range cs {
+		if radius[i] <= c+1e-6 {
+			continue
+		}
+		edge := discretizeCircle(centre(k, radius[i]), radius[i], segs)
+		out = append(out, obstacle{edge: edge, core: erodeConvex(edge, p.opt.coreErode), bounds: boundsOf(edge)})
+	}
+	return out
+}
+
+// distToRing is the distance from pt to the nearest edge of ring.
+func distToRing(pt Point, ring Polygon) float64 {
+	d := math.Inf(1)
+	for i := range ring {
+		d = math.Min(d, pointSegDistance(pt, ring[i], ring[(i+1)%len(ring)]))
+	}
+	return d
 }
 
 // usableBoundary verifies the eroded outer limit is still a real region: a
