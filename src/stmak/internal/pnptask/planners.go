@@ -49,7 +49,7 @@ func newPlanners(cfg *Config) (*plannerSet, error) {
 			return nil, fmt.Errorf("dead-zone file %d (%s): %w", i, path, err)
 		}
 		scaleScene(scene, machineToMMFactor(cfg.LinearUnits))
-		pl, err := pnproute.NewPlanner(scene, cfg.Clearance)
+		pl, err := pnproute.NewPlanner(scene, cfg.Clearance, pnproute.WithCornerRadius(cfg.CornerRadius))
 		if err != nil {
 			return nil, fmt.Errorf("dead-zone file %d (%s): %w", i, path, err)
 		}

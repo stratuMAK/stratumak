@@ -38,6 +38,7 @@ type plannerOptions struct {
 	segSamples    int
 	coreErode     float64
 	offsetArcStep float64
+	cornerRadius  float64
 }
 
 // WithSegmentSamples sets how many interior points along a segment are tested
@@ -62,6 +63,29 @@ func WithCoreErode(v float64) Option {
 // a coarse step eats into the clearance: keep it well below 0.5 rad.
 func WithOffsetArcStep(rad float64) Option {
 	return func(o *plannerOptions) { o.offsetArcStep = rad }
+}
+
+// WithCornerRadius sets the radius a route turns on around a dead zone's corner
+// (default 0: the clearance, the corner arc of the offset zone itself). Larger
+// radii let the trajectory planner take the turn faster -- sqrt(a * r) instead
+// of sqrt(a * clearance) -- at the cost of passing a corner wider.
+//
+// Every polygon corner gets a circle of this radius, centred radius-clearance
+// inward from the corner on its bisector, so it passes the corner at exactly
+// the clearance. The circles are SHAPERS, not dead zones: they steer the
+// visibility graph and nothing else. Safety stays with the offset zones, which
+// are unchanged, so a route is never closer to a zone than without them; a
+// point inside a circle is still a legal start or goal (the circle is ignored
+// for that query); and Zones/OffsetZones/CheckPoint do not see them. Kept apart
+// from the zones -- not merged into one convex hull -- so the bulge stays at the
+// corner: a hull would lift the whole edge between two corners. Corners within
+// the clearance of the outer limit get none: no route passes there.
+//
+// Where the circles leave no route -- a passage narrower than a corner circle
+// lets through -- the route is planned without them, as if no radius were set:
+// a corner radius can make a route wider, never impossible.
+func WithCornerRadius(r float64) Option {
+	return func(o *plannerOptions) { o.cornerRadius = r }
 }
 
 // Route is a planned path between two points. [Planner.Plan] fills only what
@@ -104,6 +128,8 @@ type Planner struct {
 
 	boundary  Polygon // outer limit eroded by clearance
 	obstacles []obstacle
+	shapers   []obstacle // corner-radius circles, see WithCornerRadius
+	tight     *Planner   // the same scene without them, for where they block
 	nodes     []Point // static graph nodes (usable offset-obstacle vertices)
 	adj       [][]arc // visibility adjacency over nodes
 }
@@ -135,6 +161,9 @@ func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error) {
 	}
 	if o.offsetArcStep <= 0 {
 		return nil, fmt.Errorf("pnproute: offset arc step must be positive, got %v", o.offsetArcStep)
+	}
+	if o.cornerRadius < 0 || math.IsNaN(o.cornerRadius) {
+		return nil, fmt.Errorf("pnproute: corner radius %v is not a valid distance", o.cornerRadius)
 	}
 
 	p := &Planner{scene: s, clearance: clearance, opt: o}
@@ -178,10 +207,46 @@ func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error) {
 			core:   erodeConvex(edge, o.coreErode),
 			bounds: boundsOf(edge),
 		}
+		if dz.Kind != ShapeCircle && o.cornerRadius > clearance {
+			p.shapers = append(p.shapers, cornerShapers(poly, outer, clearance, o)...)
+		}
 	}
 
 	p.buildGraph()
+	if len(p.shapers) > 0 {
+		to := o
+		to.cornerRadius = 0
+		tight, err := NewPlanner(s, clearance, func(x *plannerOptions) { *x = to })
+		if err != nil {
+			return nil, err
+		}
+		p.tight = tight
+	}
 	return p, nil
+}
+
+// cornerShapers returns the corner-radius circles of one polygon zone.
+func cornerShapers(poly, outer Polygon, clearance float64, o plannerOptions) []obstacle {
+	p := ensureCCW(poly)
+	n := len(p)
+	segs := int(2*math.Pi/o.offsetArcStep) + 1
+	var out []obstacle
+	for i := 0; i < n; i++ {
+		prev, cur, next := p[(i-1+n)%n], p[i], p[(i+1)%n]
+		dist := math.Inf(1)
+		for k := range outer {
+			dist = math.Min(dist, pointSegDistance(cur, outer[k], outer[(k+1)%len(outer)]))
+		}
+		if dist < clearance+1e-9 {
+			continue // against the outer limit: nothing passes there
+		}
+		dIn, dOut := unit(cur.sub(prev)), unit(next.sub(cur))
+		bis := unit(Point{-dIn.Y, dIn.X}.add(Point{-dOut.Y, dOut.X})) // inward (CCW)
+		center := cur.add(bis.scale(o.cornerRadius - clearance))
+		edge := discretizeCircle(center, o.cornerRadius, segs)
+		out = append(out, obstacle{edge: edge, core: erodeConvex(edge, o.coreErode), bounds: boundsOf(edge)})
+	}
+	return out
 }
 
 // usableBoundary verifies the eroded outer limit is still a real region: a
@@ -215,8 +280,19 @@ func (p *Planner) buildGraph() {
 			if !pointInPolygon(v, p.boundary) {
 				continue // clipped away by the eroded outer limit
 			}
-			if p.insideAnyObstacleExcept(v, i) {
+			if p.insideAnyObstacleExcept(v, i) || p.insideShaper(v, -1) >= 0 {
 				continue // buried in an overlapping zone; no route can use it
+			}
+			p.nodes = append(p.nodes, v)
+		}
+	}
+	for i, o := range p.shapers {
+		for _, v := range o.edge {
+			if !pointInPolygon(v, p.boundary) || p.insideAnyObstacleExcept(v, -1) {
+				continue
+			}
+			if k := p.insideShaper(v, i); k >= 0 {
+				continue
 			}
 			p.nodes = append(p.nodes, v)
 		}
@@ -225,7 +301,7 @@ func (p *Planner) buildGraph() {
 	p.adj = make([][]arc, len(p.nodes))
 	for i := 0; i < len(p.nodes); i++ {
 		for j := i + 1; j < len(p.nodes); j++ {
-			if !p.visible(p.nodes[i], p.nodes[j]) {
+			if !p.visible(p.nodes[i], p.nodes[j], nil) {
 				continue
 			}
 			w := p.nodes[i].dist(p.nodes[j])
@@ -233,6 +309,37 @@ func (p *Planner) buildGraph() {
 			p.adj[j] = append(p.adj[j], arc{int32(i), w})
 		}
 	}
+}
+
+// insideShaper returns the index of a corner circle containing pt (other than
+// skip), or -1.
+func (p *Planner) insideShaper(pt Point, skip int) int {
+	for i, o := range p.shapers {
+		if i != skip && o.bounds.contains(pt) && pointInPolygon(pt, o.edge) {
+			return i
+		}
+	}
+	return -1
+}
+
+// allShapers, passed as the ignore set of visible, ignores every corner circle.
+var allShapers = map[int]bool{-1: true}
+
+// shapersAround lists the corner circles containing any of pts: a query point
+// inside one must still be able to leave it.
+func (p *Planner) shapersAround(pts ...Point) map[int]bool {
+	var m map[int]bool
+	for i, o := range p.shapers {
+		for _, pt := range pts {
+			if o.bounds.contains(pt) && pointInPolygon(pt, o.edge) {
+				if m == nil {
+					m = map[int]bool{}
+				}
+				m[i] = true
+			}
+		}
+	}
+	return m
 }
 
 func (p *Planner) insideAnyObstacleExcept(pt Point, skip int) bool {
@@ -248,13 +355,22 @@ func (p *Planner) insideAnyObstacleExcept(pt Point, skip int) bool {
 }
 
 // visible reports whether a can see b: the segment stays inside the eroded
-// boundary and clears every offset obstacle's interior.
-func (p *Planner) visible(a, b Point) bool {
+// boundary and clears every offset obstacle's interior, and every corner
+// circle's except the ignored ones.
+func (p *Planner) visible(a, b Point, ignore map[int]bool) bool {
 	if segCrossesBoundary(a, b, p.boundary, p.opt.segSamples) {
 		return false
 	}
 	for _, o := range p.obstacles {
 		if !o.bounds.overlapsSegment(a, b) {
+			continue
+		}
+		if segBlockedByPolygon(a, b, o.edge, o.core, p.opt.segSamples) {
+			return false
+		}
+	}
+	for i, o := range p.shapers {
+		if ignore[-1] || ignore[i] || !o.bounds.overlapsSegment(a, b) {
 			continue
 		}
 		if segBlockedByPolygon(a, b, o.edge, o.core, p.opt.segSamples) {
@@ -353,10 +469,13 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 	// Euclidean lower bound of any route), so the graph work can be skipped
 	// entirely. This is the common case for a pick-and-place move that does
 	// not cross a zone's clearance shadow.
-	if p.visible(start, goal) {
+	// The corner circles do not count here: a straight route has no corner to
+	// turn wide, and it stays the shortest.
+	if p.visible(start, goal, allShapers) {
 		return p.assembleRoute([]Point{start, goal}, goal), nil
 	}
 
+	ign := p.shapersAround(start, goal)
 	// Wire the two query points into the static graph: one segment test per
 	// static node each, instead of rebuilding the graph. The direct start-goal
 	// edge was ruled out above.
@@ -365,10 +484,10 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 	goalVis := make([]float64, n)
 	for i, nd := range p.nodes {
 		startVis[i], goalVis[i] = -1, -1
-		if p.visible(start, nd) {
+		if p.visible(start, nd, ign) {
 			startVis[i] = start.dist(nd)
 		}
-		if p.visible(goal, nd) {
+		if p.visible(goal, nd, ign) {
 			goalVis[i] = goal.dist(nd)
 		}
 	}
@@ -418,6 +537,9 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 	}
 
 	if math.IsInf(dist[goalIdx], 1) {
+		if p.tight != nil {
+			return p.tight.Plan(start, goal)
+		}
 		return nil, fmt.Errorf("pnproute: %w from (%.3f,%.3f) to (%.3f,%.3f)",
 			ErrNoRoute, start.X, start.Y, goal.X, goal.Y)
 	}

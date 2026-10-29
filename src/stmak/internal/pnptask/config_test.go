@@ -372,6 +372,19 @@ func TestBlendToleranceZeroWithoutWaitZone(t *testing.T) {
 	}
 }
 
+// TestCornerRadius: CORNER_RADIUS is optional, 0 (the clearance) by default,
+// and reaches the config as a length.
+func TestCornerRadius(t *testing.T) {
+	setupPaths(t)
+	if cfg := mustLoad(t, trajSection+pnptaskSection+stationSections); cfg.CornerRadius != 0 {
+		t.Errorf("default CORNER_RADIUS = %g, want 0", cfg.CornerRadius)
+	}
+	cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 2.0\nCORNER_RADIUS = 50", 1)+stationSections)
+	if cfg.CornerRadius != 50 {
+		t.Errorf("CORNER_RADIUS = %g, want 50", cfg.CornerRadius)
+	}
+}
+
 // TestLoadConfigDefaultTrayDef checks the optional tray-id seed: present it is
 // the TRAYDEF id it names, absent it is 0, which is what tells the pin builder
 // to leave the selector alone.
@@ -743,6 +756,11 @@ func TestLoadConfigErrors(t *testing.T) {
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = -8\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "BLEND_TOLERANCE = -8: must not be negative",
+	}, {
+		name: "negative corner radius",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nCORNER_RADIUS = -5\n" +
+			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
+		want: "CORNER_RADIUS = -5: must not be negative",
 	}, {
 		name: "negative velocity",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nMOVE_VEL = -500\n" +
