@@ -18,3 +18,14 @@ asserts the message exists and travels its chain; this asserts it comes back.
 
 joint 0's motor-pos-fb is left unlinked by the HAL file so the test can open a
 following error with halcmd setp, without commanding any motion.
+
+Each episode must say exactly "joint 0 following error", once: a silent
+second episode is the re-arm lost, a doubled one the gate leaking.  The count
+is made against a barrier, not a quiet period -- logmark.comp logs "mark N"
+into the C log ring from the servo thread after the episode, and the ring
+reaches the operator in order, so everything motmod said about the episode
+has arrived once the mark has.  Between the rounds the test waits for the
+task to drop to ESTOP_RESET, which only the next machine-on undoes.
+
+motmod re-arms in two places, when a joint reads clean while enabled and on
+every enable; this scenario passes with either, and goes silent without both.
