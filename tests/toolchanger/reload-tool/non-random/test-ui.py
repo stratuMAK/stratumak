@@ -74,6 +74,7 @@ ztool   = 0.333 # [EMCIO]TOOL_CHANGE_POSITION z
 EPSILON = 1e-10
 
 def wait_for_hal_pin(name, value, timeout=10):
+    timeout *= stmak_test.scale()
     start_time = time.time()
     while (time.time() - start_time) < timeout:
         if h[name] == value:
