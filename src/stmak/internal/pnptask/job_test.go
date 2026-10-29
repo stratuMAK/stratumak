@@ -1892,9 +1892,9 @@ func TestJobPublishesPlanTime(t *testing.T) {
 	if plan <= 0 {
 		t.Errorf("plan-time = %v after a job that planned several legs, want > 0", plan)
 	}
-	if plan >= 0.1 {
-		t.Errorf("plan-time = %v s, over D13's 100 ms budget on a fixture scene", plan)
-	}
+	// Not judged against D13's budget here: this is one wall-clock run, which a
+	// preemption on a shared runner stretches. TestPlanWithinD13Budget is that
+	// check.
 
 	// A job refused before it plans anything reports no planning, rather than
 	// leaving the previous job's number standing for the PLC to read.
