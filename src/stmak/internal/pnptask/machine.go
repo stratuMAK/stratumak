@@ -447,6 +447,7 @@ func (c *control) tick() bool {
 		// function, so a slot emptied halfway through a pick is written within
 		// one cycle instead of at the end of the job.
 		c.m.world.flush()
+		c.m.pins.cycleCount.Set(c.m.pins.cycleCount.Get() + 1)
 		return true
 	}
 }

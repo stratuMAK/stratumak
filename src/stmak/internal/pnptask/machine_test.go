@@ -639,6 +639,18 @@ func (f *machineFixture) homed() {
 
 // ---------------------------------------------------------------------------
 
+// cycle-count advances with the control loop. tick() bumps it only after the
+// cycle has sampled its inputs and published its outputs, so two increments
+// after a write prove the write was read -- what a driver waits for instead of
+// holding a pin for a guessed time.
+func TestCycleCountAdvances(t *testing.T) {
+	f := newMachineFixture(t)
+	start := uint32(f.get("cycle-count"))
+	f.eventually("two control cycles", func() bool {
+		return uint32(f.get("cycle-count"))-start >= 2
+	})
+}
+
 // machine-on high enables motion, and machine-is-on only goes high once motion
 // itself reports enabled.
 func TestMachineEnable(t *testing.T) {
