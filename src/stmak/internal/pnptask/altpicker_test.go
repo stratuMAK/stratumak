@@ -568,15 +568,9 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 	// The next close runs all the way shut: there is nothing between the jaws.
 	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
 	f.press(f.m.pins.pickers[0].manualClose)
-	f.eventually("the picker to report fully closed", func() bool {
-		return f.m.pins.pickers[0].closed.Get()
-	})
-	// The verdict reopens the picker along with dropping the record: a free
-	// picker whose jaws stayed commanded shut would make the next job's
-	// closeAndCheck read "closed" whatever sits under the head.
-	f.eventually("the picker reopened with the verdict", func() bool {
-		return !f.bit("picker.0.close")
-	})
+	// The verdict drops the record and leaves the picker closed: the operator
+	// closed it, and the next pick's openForPick is what opens it again.
+	f.waitDropped(0)
 
 	w := f.stopped()
 	if w.held[0].present || w.held[0].retained {
@@ -737,7 +731,8 @@ func TestManualCloseOnEmptyPickerDoesNotEmptyTheTray(t *testing.T) {
 	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
 	f.press(f.m.pins.pickers[0].manualClose)
 	f.eventually("the picker to close", func() bool { return f.bit("picker.0.close") })
-	// The verdict: gripped nothing, and the picker is opened again.
+	// The verdict: gripped nothing. The picker stays closed, so the job below
+	// has to open it before its pick (openForPick) for the count to come out.
 	f.waitDropped(0)
 
 	f.setBit(f.m.pins.autoEnable, true)

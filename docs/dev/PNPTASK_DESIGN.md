@@ -1247,12 +1247,12 @@ restoring a swap record.
   pending close), the swap obligation stays armed, and the record — with its
   station and swap flag — **persists across a restart** (restored retained,
   close output left low, the operator's close still judges). A second open
-  press is idempotent; a close that grips nothing clears the record AND
-  reopens the picker (phase-7 review — jaws left commanded shut on a free
-  picker would make the next job's grip check read "closed" whatever sits
-  under the head). The free-the-picker workflow is therefore three presses:
-  open, take the part, close on the empty gripper — the verdict opens it
-  again itself.
+  press is idempotent; a close that grips nothing clears the record and
+  leaves the picker closed, as the operator put it (2026-10-29 — reopening
+  it, the phase-7 answer to jaws left commanded shut on a free picker, undid
+  every manual close on an empty gripper; `openForPick` covers that hazard
+  at the pick itself). The free-the-picker workflow is therefore three
+  presses: open, take the part, close on the empty gripper.
 - **The sequence constraint accepts any standing swap obligation.** Normally
   one exists; a place that fails after its swap-out leaves two (both parts
   really are in pickers), and a job from either station is the recovery. A
@@ -1541,7 +1541,8 @@ fixed on the branch with unit tests; the integration scenarios under
   `closeAndCheck` read "closed" as an empty slot, and with `MAX_UNPOPULATED`
   at its default of 1 the tray was declared empty. Now every manual close on a
   picker without a present record reserves it (a retained record with no
-  station) and is judged: fully closed → dropped and reopened; in between →
+  station) and is judged: fully closed → dropped (the picker stays closed
+  since 2026-10-29, `openForPick` opens it for the next pick); in between →
   a present record of **unknown origin** (`holds` high, `origin-id` 0, §8)
   that counts the picker occupied until a manual open, since a job cannot
   place what it cannot name; still opened → re-armed with one warning. The

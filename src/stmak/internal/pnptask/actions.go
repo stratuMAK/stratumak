@@ -83,8 +83,9 @@ func (c *control) waitPickerOpen(pk int) error {
 // openForPick makes sure a picker the engine counts free really is open before
 // it is sent down onto material (pre-merge review 2026-09-08). The record says
 // the picker holds nothing; it says nothing about the close output, and a
-// close left standing — by anything the judgements of machine.go did not
-// cover — turns closeAndCheck into a lie: jaws that are already shut read
+// close left standing — a manual close that gripped nothing leaves one on
+// purpose, so the picker stays as the operator put it — turns closeAndCheck
+// into a lie: jaws that are already shut read
 // "closed" whatever lies under the head, which is an empty verdict on a
 // populated slot and, at MAX_UNPOPULATED's default of 1, a whole tray declared
 // empty. Only a standing close is acted on: the output is dropped and the

@@ -591,12 +591,19 @@ func (f *machineFixture) waitRestored(pk int, station uint32) {
 }
 
 // waitDropped is the other outcome: the close gripped nothing, so the record is
-// forgotten and the picker is commanded open again.
+// forgotten — and the picker stays closed, as the operator left it. No pin
+// tells a dropped record from a retained one (holds is low for both), so this
+// waits for the gripper to report fully closed and then for the judgement to
+// pass without reopening it; the caller proves the record gone, by a job that
+// runs or by the world model.
 func (f *machineFixture) waitDropped(pk int) {
 	f.t.Helper()
-	holds, close := fmt.Sprintf("picker.%d.holds", pk), fmt.Sprintf("picker.%d.close", pk)
-	f.eventually(fmt.Sprintf("picker %d's retained record judged gone", pk),
-		func() bool { return !f.bit(holds) && !f.bit(close) })
+	holds, close, closed := fmt.Sprintf("picker.%d.holds", pk),
+		fmt.Sprintf("picker.%d.close", pk), fmt.Sprintf("picker.%d.closed", pk)
+	f.eventually(fmt.Sprintf("picker %d to report fully closed", pk),
+		func() bool { return f.bit(closed) })
+	f.consistently(fmt.Sprintf("picker %d left closed by the verdict", pk),
+		func() bool { return f.bit(close) && !f.bit(holds) })
 }
 
 // consistently gives the loop a handful of cycles and then checks cond — for

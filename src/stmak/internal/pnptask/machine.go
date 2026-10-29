@@ -1344,11 +1344,9 @@ func (c *control) manualPickers() {
 			// §8: whether that grip restores the retained record depends on what
 			// the gripper feedback says once it has settled, which is a few
 			// cycles from now — see updateManualGrip. A picker with no record
-			// is judged the same way (pre-merge review 2026-09-08): its close
-			// left standing over nothing would make the next job's grip check
-			// read "closed" whatever sits under the head, and a close that
-			// did grip something by hand is a loaded picker the engine must
-			// not count free.
+			// is judged the same way (pre-merge review 2026-09-08): a close
+			// that did grip something by hand is a loaded picker the engine
+			// must not count free.
 			c.m.world.reserveManualClose(i)
 			if c.m.world.held[i].retained {
 				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
@@ -1409,14 +1407,13 @@ func (c *control) updateManualGrip() {
 			c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
-				// The close output goes low with the record: leaving the jaws
-				// commanded shut on a picker the engine now counts free would
-				// send the next job's closeAndCheck against an already-closed
-				// gripper — which reads "closed" whatever sits under the head
-				// and falsely empties good slots (the same reconciliation
-				// verifyRestoredHeld does for a vanished restored part).
-				c.m.pins.pickers[i].close.Set(false)
-				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone and the picker reopened",
+				// The close output stays high: the operator closed the picker
+				// and it stays closed. Reopening it here undid every manual
+				// close on an empty gripper behind the operator's back. The
+				// shut jaws on a picker the engine now counts free are the
+				// pick sequence's business — openForPick opens them before
+				// any descent, so closeAndCheck never judges a standing close.
+				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone",
 					"picker", i, "station", station)
 			}
 		default:
