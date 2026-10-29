@@ -601,13 +601,13 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 	}
 }
 
-// TestManualHandlingBlocksJobsUntilJudged (§8.1): a manual open puts the record
-// into retention — a manual intervention in progress, a reservation, not a mere
-// memory. Jobs are refused until a manual close judges the outcome; a close
-// that grips nothing clears the record, and only then is the picker the
-// engine's again. (Counting the picker free while retained was the settle-race
-// hole of the phase-6 review: a job could grab a picker whose part was about to
-// be re-gripped.)
+// TestManualHandlingBlocksJobsUntilJudged (§8.1, D44): a manual open puts the
+// record into retention — a manual intervention in progress, a reservation,
+// not a mere memory. Jobs are refused while the picker has not answered the
+// open; once it reports opened, automatic starting is the operator's verdict
+// (the part was taken out), and the picker is the engine's again. (Counting
+// the picker free while retained was the settle-race hole of the phase-6
+// review: a job could grab a picker whose part was about to be re-gripped.)
 func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 99, false, 0, true) })
 	f.selectTray(1)
@@ -618,28 +618,52 @@ func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f.requireError("a job with the only picker loaded", errNoFreePicker)
 	f.clearError()
 
-	// The operator opens the picker: retention. Jobs are still refused — the
-	// part is in the operator's hands and nothing is decided yet.
+	// The operator opens the picker, and it does not answer: the reservation
+	// survives automatic starting, and jobs are still refused.
+	f.sim.set(func(s *machineSim) { s.jammedOpen = true })
 	f.setBit(f.m.pins.autoEnable, false)
 	f.press(f.m.pins.pickers[0].manualOpen)
 	f.setBit(f.m.pins.autoEnable, true)
 	f.runJob(10, 20, 0)
-	f.requireError("a job while the picker is mid manual handling", errNoFreePicker)
+	f.requireError("a job while the picker has not opened", errNoFreePicker)
 	f.clearError()
 
-	// The operator keeps the part: a close onto nothing judges the record gone.
-	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+	// Opened, then automatic: the part is with the operator, the picker free.
 	f.setBit(f.m.pins.autoEnable, false)
-	f.press(f.m.pins.pickers[0].manualClose)
-	f.eventually("the record judged empty and cleared", func() bool {
-		return !f.bit("error") // no pin shows the record; the job below is the proof
-	})
-	f.waitDropped(0)
-	f.press(f.m.pins.pickers[0].manualOpen)
+	f.sim.set(func(s *machineSim) { s.jammedOpen = false })
+	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
 	f.setBit(f.m.pins.autoEnable, true)
-
 	f.runJob(10, 20, 0)
-	f.requireOK("a job after the manual handling was resolved")
+	f.requireOK("a job after automatic started with the picker opened")
+
+	w := f.stopped()
+	if w.held[0].retained {
+		t.Errorf("held record after the job = %+v, want the reservation gone", w.held[0])
+	}
+}
+
+// TestAutoStartKeepsAReservationBeingClosed (D44): a manual close still being
+// judged is not "opened by hand": its close output is high, and the
+// reservation stands until the judgement — even if automatic starts before
+// the gripper has left opened.
+func TestAutoStartKeepsAReservationBeingClosed(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) })
+	f.setBit(f.m.pins.autoEnable, false)
+	f.press(f.m.pins.pickers[0].manualOpen)
+	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
+
+	// A gripper that never leaves opened: the close stays commanded and
+	// unjudged while automatic starts.
+	f.sim.set(func(s *machineSim) { s.jammedClosed = true })
+	f.press(f.m.pins.pickers[0].manualClose)
+	f.eventually("the close to be commanded", func() bool { return f.bit("picker.0.close") })
+	f.setBit(f.m.pins.autoEnable, true)
+	f.consistently("the reservation kept", func() bool { return f.bit("picker.0.close") })
+
+	w := f.stopped()
+	if !w.held[0].retained || w.held[0].station != 10 {
+		t.Errorf("held record = %+v, want the reservation of station 10 kept", w.held[0])
+	}
 }
 
 // TestManualOpenTwiceKeepsRetained (§8.1): a second open press on an already
@@ -680,27 +704,23 @@ func TestRetainedRecordSurvivesRestart(t *testing.T) {
 	first.press(first.m.pins.pickers[1].manualOpen)
 	first.m.Stop()
 
+	// The restart comes up in manual mode, as the machine does: automatic
+	// starting would release the opened picker (D44).
+	restore := withPersist(persistName, ns, nil)
 	second := newJobFixtureOpts(t, fixtureOpts{
 		args: []string{"pickers=2"},
-		prep: withPersist(persistName, ns, nil),
+		prep: func(t *testing.T, m *pnptaskModule) {
+			restore(t, m)
+			m.pins.autoEnable.Set(false)
+		},
 	})
-	second.homed()
-	second.mot.setPos(100, 100, 60)
-	second.selectTray(1)
-	second.fillTray(0)
 
-	// Mid-handling: jobs are refused, and the close output was NOT re-driven
-	// (the part is in the operator's hands, not the picker).
-	if second.bit("picker.1.close") {
-		t.Error("a retained record re-drove the close output")
-	}
-	second.runJob(10, 20, 0)
-	second.requireError("a job while the restored handling is unresolved", errNoFreePicker)
+	// Mid-handling: the close output was NOT re-driven (the part is in the
+	// operator's hands, not the picker).
+	second.consistently("the close output left low", func() bool { return !second.bit("picker.1.close") })
 
 	// The operator closes onto the part: record, station and swap obligation
 	// are back.
-	second.clearError()
-	second.setBit(second.m.pins.autoEnable, false)
 	second.press(second.m.pins.pickers[1].manualClose)
 	second.waitRestored(1, 20)
 
@@ -793,20 +813,11 @@ func TestManualCloseOnEmptyPickerGrippingSomethingReservesIt(t *testing.T) {
 	f.requireError("a job with a picker loaded by hand", errNoFreePicker)
 	f.clearError()
 
-	// Open by hand: the material is let go, but the picker stays reserved until
-	// the next close judges what it finds (§8.1).
+	// Open by hand: the material is let go, the picker reserved (§8.1) until
+	// automatic starts with it opened (D44).
 	f.setBit(f.m.pins.autoEnable, false)
 	f.press(f.m.pins.pickers[0].manualOpen)
-	f.setBit(f.m.pins.autoEnable, true)
-	f.runJob(10, 20, 0)
-	f.requireError("a job mid manual handling", errNoFreePicker)
-	f.clearError()
-
-	// Closed on the emptied gripper: free again.
-	f.setBit(f.m.pins.autoEnable, false)
-	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
-	f.press(f.m.pins.pickers[0].manualClose)
-	f.waitDropped(0)
+	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
 	f.setBit(f.m.pins.autoEnable, true)
 	f.runJob(10, 20, 0)
 	f.requireOK("a job after the picker was emptied by hand")

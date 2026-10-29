@@ -276,6 +276,10 @@ type control struct {
 	// close request (the judgement re-arms until the gripper answers).
 	manualGrip       []int
 	manualGripWarned []bool
+
+	// autoLast is auto-enable as step last saw it, for the release of opened
+	// reservations when automatic starts (releaseOpenRetained).
+	autoLast bool
 }
 
 func newControl(m *pnptaskModule) *control {
@@ -720,6 +724,11 @@ func (c *control) step() {
 			c.raise(err)
 		}
 	}
+
+	if c.in.autoEnable && !c.autoLast {
+		c.releaseOpenRetained()
+	}
+	c.autoLast = c.in.autoEnable
 
 	if c.in.autoEnable {
 		// Auto mode: the manual controls are inert, and a jog left running by
@@ -1352,6 +1361,30 @@ func (c *control) manualPickers() {
 				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 				c.manualGripWarned[i] = false
 			}
+		}
+	}
+}
+
+// releaseOpenRetained ends the manual handling of §8.1 for every picker that
+// is open and empty when automatic starts (D44). A retained record is a
+// reservation until a manual close decides where the part went — but an
+// operator who opened a picker, took the part out and switched to automatic
+// has decided: the picker reports opened, its close output is low, there is
+// nothing in it. Waiting for a close nobody is going to press refused every
+// job with NO_FREE_PICKER, and the only way out was a close and an open on
+// each picker by hand. A picker that does not report opened, or whose close
+// is commanded (a manual close still being judged), keeps its reservation.
+func (c *control) releaseOpenRetained() {
+	for i := range c.m.world.held {
+		if !c.m.world.held[i].retained || !c.in.pickerOpened[i] ||
+			c.m.pins.pickers[i].close.Get() {
+			continue
+		}
+		if station, ok := c.m.world.dropRetained(i); ok {
+			c.manualGrip[i] = 0
+			c.manualGripWarned[i] = false
+			c.m.logger.Warn("pnptask: automatic started with a picker opened by hand, its part is taken as removed",
+				"picker", i, "station", station)
 		}
 	}
 }

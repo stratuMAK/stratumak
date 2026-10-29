@@ -858,9 +858,9 @@ func (w *world) releaseHeld(n int) {
 // for (§8.1, pre-merge review 2026-09-08): what the jaws are closing on is
 // unknown, so the picker is reserved — a retained record with no station —
 // until the grip judgement says whether they found anything. Judged like every
-// other retained record: gripped nothing → dropped and reopened; gripped
-// something → a present record of unknown origin (station 0) that counts the
-// picker occupied until a manual open lets the material go. Only an empty
+// other retained record: gripped nothing → dropped, the picker left closed;
+// gripped something → a present record of unknown origin (station 0) that
+// counts the picker occupied until a manual open lets the material go. Only an empty
 // record is reserved: a present one describes a grip the close does not
 // change, and a retained one is already waiting for the same judgement.
 func (w *world) reserveManualClose(n int) {

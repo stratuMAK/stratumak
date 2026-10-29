@@ -8,6 +8,8 @@ Between the two the world is in limbo — the picker is neither loaded nor free 
 so every job is refused until the question is answered.
 
 Retention is a reservation, not a memory: that refusal is the whole point of it.
+Automatic started with the picker opened is a verdict too (D44): the part is
+taken as removed.
 """
 
 import pnpdrv
@@ -43,18 +45,9 @@ m.wait(lambda s: not s["picker.%d.close" % pk], "the picker to open")
 m.wait_gripper(pk, False)
 pnpdrv.check(not m.holding(pk), "the gripper physically let the part go")
 
-m.set("auto-enable", True)
-pnpdrv.check_eq(m.run_job(20, 21), 22,
-                "a retained record refuses every job, including the obligated one")
-m.clear_error()
-
-# A second open press is idempotent — it does not turn the reservation into a
-# free picker.
-m.set("auto-enable", False)
+# A second open press is idempotent — the close that follows still restores
+# the record, station and obligation.
 m.pulse("picker.%d.manual-open" % pk)
-m.set("auto-enable", True)
-pnpdrv.check_eq(m.run_job(20, 21), 22, "pressing open again changes nothing")
-m.clear_error()
 
 # ── the operator puts the part back ──────────────────────────────────────────
 
@@ -111,5 +104,24 @@ m.reset_sim()
 
 pnpdrv.check_eq(m.run_job(10, 21), 0,
                 "the record is gone with the part: jobs run again, obligation and all")
+
+# ── automatic started with the picker opened (D44) ───────────────────────────
+# The operator opens the picker, takes the part and starts automatic without
+# closing it again: that is the verdict, and jobs run.
+
+# The job above swapped station 21's part out: a picker is loaded again, and
+# its obligation refuses other origins.
+held = loaded(m)
+pnpdrv.check_eq(len(held), 1, "a picker holds the part swapped out of station 21")
+pk = held[0]
+
+m.set("auto-enable", False)
+m.pulse("picker.%d.manual-open" % pk)
+m.wait(lambda s: not s["picker.%d.close" % pk], "the picker to open")
+m.wait_gripper(pk, False)
+m.set("auto-enable", True)
+
+pnpdrv.check_eq(m.run_job(10, 21), 0,
+                "automatic with the picker opened: the reservation is gone, jobs run")
 
 pnpdrv.done()
