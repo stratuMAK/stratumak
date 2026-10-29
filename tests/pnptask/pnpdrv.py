@@ -28,7 +28,6 @@ PYTHONPATH)::
 """
 
 import sys
-import time
 import urllib.error
 
 import gmi
@@ -47,23 +46,10 @@ SIM = "pnp.sim"
 # it honours STMAK_TEST_TIMEOUT_SCALE like every other deadline in the suite.
 JOB_TIMEOUT = 60.0
 
-# How long an edge-triggered request pin is held high. The control loop runs at
-# 100 Hz and samples once per cycle, so a pulse has to outlast a cycle by a
-# comfortable margin — a pulse the loop never saw is a test that hangs waiting
-# for its effect.
-PULSE_HIGH = 0.1
-
-# How long start-job is held low before a job is commanded. start-job is armed
-# rather than edge-detected (§7.7): the module has to sample it low before a
-# high counts as a request, and the module clearing it at the end of the
-# previous job is not enough — this driver could raise it again inside the same
-# 10 ms control cycle, and the module would then never see a low sample.
-REARM_LOW = 0.05
-
-# The module's control-loop period (§6.5: one 100 Hz goroutine owns everything).
-# Used by cycles(), for the handful of assertions whose subject is that nothing
-# happens — there is no "it did not move" event to wait for.
-CONTROL_CYCLE = 0.01
+# Request pins are held, and start-job is held low before a job, until the
+# module has sampled them: counted in its own control cycles (cycle-count), not
+# in seconds, which a loaded host stretches past any margin -- a pulse the loop
+# never saw is a test that hangs waiting for its effect.
 
 # The log lines updateManualGrip writes when it judges a manual close (§8.1).
 # The verdict is a record, not a pin, so the server log is where it becomes
@@ -171,6 +157,13 @@ def raw_set(name, value):
         raise Error("writing pin %s: %s" % (name, e)) from e
 
 
+def wait_raw(name, value, desc, timeout=None):
+    """Wait for a HAL pin, by its full name, to read `value`."""
+    return stmak_test.wait_until(lambda: raw_get(name) == value, desc,
+                                 timeout=timeout,
+                                 detail=lambda: "%s is %r" % (name, raw_get(name)))
+
+
 def raw_snapshot(pattern):
     """Read every pin matching a glob, as one request: {name: value}."""
     return {p.name: _decode(p) for p in _halcmd().list_pins(pattern)}
@@ -236,27 +229,37 @@ class Machine:
             lambda s: abs(s[px] - x) <= tol and abs(s[py] - y) <= tol,
             "picker %d to reach (%g, %g)" % (picker, x, y), timeout=timeout)
 
-    def wait_still(self, picker=0, timeout=None):
-        """Wait for a picker's reported position to stop changing."""
-        px, py = "picker.%d.pos-x" % picker, "picker.%d.pos-y" % picker
-        last = {}
+    def wait_still(self, timeout=None):
+        """Wait for the machine to come to rest, and for the module to have
+        published the position it rests at.
 
-        def _still():
-            s = self.snapshot()
-            was, last["p"] = last.get("p"), (s[px], s[py])
-            return was is not None and was == last["p"]
-
-        return stmak_test.wait_until(_still, "picker %d to come to a stop" % picker,
-                                     timeout=timeout, interval=0.05)
+        At rest is motion's own verdict -- in position, no jog running -- not
+        two equal position samples, which a servo thread that did not run
+        between them produces too. One module cycle afterwards the picker
+        position pins describe the resting machine.
+        """
+        stmak_test.wait_until(
+            lambda: raw_get("pnp.mot.motion.in-position")
+            and not raw_get("pnp.mot.motion.jog-is-active"),
+            "the machine to come to rest", timeout=timeout)
+        self.sampled()
 
     def cycles(self, n=5):
-        """Let n control cycles pass.
+        """Let n control cycles of the module pass, counted on cycle-count.
 
         Only for assertions whose subject is that *nothing* happened — an
         ignored jog pin, a machine that stays off. There is no event to wait
-        for in those, so the wait is a duration and the test says why.
+        for in those, so the wait is the module's own time, and the test says
+        why. One extra cycle is added: the first increment seen may belong to
+        a cycle that sampled its inputs before this call.
         """
-        time.sleep(n * CONTROL_CYCLE)
+        start = self.get("cycle-count")
+        self.wait(lambda s: (s["cycle-count"] - start) % 2**32 >= n + 1,
+                  "%d control cycles of the module" % n)
+
+    def sampled(self):
+        """Wait until the module has sampled every input written before this."""
+        self.cycles(1)
 
     def wait_manual_judged(self, log="server.log"):
         """Wait for the module to judge a manual close against the gripper.
@@ -338,16 +341,18 @@ class Machine:
 
     # ── requests ──
 
-    def pulse(self, name, high=PULSE_HIGH):
-        """Drive an edge-triggered request pin high, then low again.
+    def pulse(self, name):
+        """Drive an edge-triggered request pin high, then low again, each for
+        as long as it takes the module to sample it.
 
         home, error-reset, set-full/set-empty and the manual picker pins are
         rising edges primed against their startup state (D26). The pin has to
         go back low afterwards or the next request would not be an edge.
         """
         self.set(name, True)
-        time.sleep(high)
+        self.sampled()
         self.set(name, False)
+        self.sampled()
 
     def start_job(self, origin, dest, step=0, deadzone=0):
         """Raise the start-job handshake. Does not wait — see await_job.
@@ -358,7 +363,7 @@ class Machine:
         were already there.
         """
         self.set("start-job", False)
-        time.sleep(REARM_LOW)
+        self.sampled()
         self.set("origin-id", origin)
         self.set("dest-id", dest)
         self.set("process-step", step)

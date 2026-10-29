@@ -17,13 +17,20 @@ m.fill_tray(10, step=0)
 
 # ── estop mid-move ───────────────────────────────────────────────────────────
 
-m.start_job(10, 20)
 # The component tray is at y = 380..440 and the machine homes at y = 0, so a
-# picker past y = 100 is one in the middle of the travel leg.
-m.wait(lambda s: s["picker.0.pos-y"] > 100, "the job to get moving")
+# picker past y = 100 is one in the middle of the travel leg. The stop latch in
+# pnptask.hal holds the move there from the servo thread, so the estop -- sent
+# from here, whenever this script gets to it -- still finds the job mid-move,
+# instead of racing it to the end of the leg.
+pnpdrv.raw_set("pnp.stop.latch.reset", True)
+pnpdrv.raw_set("pnp.stop.latch.reset", False)
+pnpdrv.raw_set("pnp.stop.gate.in0", True)
+m.start_job(10, 20)
+pnpdrv.wait_raw("pnp.stop.latch.out", True, "the job to get moving past y = 100")
 
 m.set("estop-on", True)
 err = m.await_job()
+pnpdrv.raw_set("pnp.stop.gate.in0", False)
 pnpdrv.check_eq(err, 1, "the estop ended the running job with ESTOP")
 
 s = m.snapshot()
