@@ -511,17 +511,17 @@ fsm m { inputs: in1; state A { during { outs(2) = 1; } on (in1) -> A; } };`, "m(
 		{"read in action", `fsm m { inputs: in1, in2; outputs: out1; state A { on (in1) -> A { out1 = in2; } } };`, "m();", nil},
 		{"write outside", `fsm m { outputs: out1, outs(1); state_var: fsm_state; state A { on (in1) -> A; } };`,
 			"m();\nout1 = 1; out2 = 1; outs(1) |= 1; outs(2) = 1; outs(i) = 0; fsm_state++; --fsm_state; x.out1 = 1;",
-			[]string{"t.comp:33:1: out1 is the output of fsm m; the fsm overwrites it on its next run",
+			[]string{"t.comp:33:1: out1 is the output of fsm m; the fsm writes its own value to it at the end of every run",
 				"33:21: outs(1) is the output of fsm m", "33:48: write to outs(...) may hit outs(1), the output of fsm m",
 				"33:61: fsm_state is the state_var of fsm m; the state changes only through transitions",
 				"33:76: fsm_state is the state_var of fsm m"}},
 		{"write io state_var", `pin io s32 iost; fsm m { state_var: iost; state A { on (in1) -> A; } };`, "m();\niost = 0;",
-			[]string{"t.comp:33:1: iost is the state_var of fsm m; the fsm overwrites it on its next run"}},
+			[]string{"t.comp:33:1: iost is the state_var of fsm m; the fsm writes its own value to it at the end of every run"}},
 		{"comment continuation", `fsm m { outputs: out1; state A { on (in1) -> A; } };`, "m(); // note \\\nout1 = 1;", nil},
 		{"write from another fsm", `fsm m { outputs: out1; state A { on (in1) -> A; } };
 fsm n { outputs: out2; state_var: fsm_state; timer_var: fsm_timer;
     state X { during { out1 = 1; fsm_state = 0; } on (in2) -> X { fsm_timer = 0; out2 = 1; } } };`, "m(); n();",
-			[]string{"t.comp:32:24: fsm n: out1 is the output of fsm m; the fsm overwrites it",
+			[]string{"t.comp:32:24: fsm n: out1 is the output of fsm m; the fsm writes its own value to it",
 				"32:34: fsm n: fsm_state is the state_var of this fsm; the state changes only through transitions",
 				"32:67: fsm n: fsm_timer is the timer_var of this fsm"}},
 		{"unreachable", `fsm m { state A { on (in1) -> A; } state B { on (in1) -> A; } };`, "m();",
@@ -805,4 +805,36 @@ m();
 // A statement expression may hold ';' inside a condition.
 func TestParseFSMStatementExpression(t *testing.T) {
 	parseFSMSrc(t, fsmHeader+`fsm m { state A { on (({ int x = in1; x; })) -> A; } };`+fsmCall)
+}
+
+// Two outputs that spell the same shadow are refused by the name check, not
+// by the C compiler as a duplicate member: a pin-array element and a pin
+// named like it, and the outputs of two fsms whose names nest.
+func TestFSMOutputShadowNamesClash(t *testing.T) {
+	for name, src := range map[string]string{
+		"array element and a pin named like it": `component t "x";
+pin in bit a;
+pin out bit arr-#[2];
+pin out bit arr-1;
+function _;
+fsm m { outputs: arr(1), arr_1; state A { on (a) -> B; } state B { on (!a) -> A; } };
+;;
+m();
+`,
+		"outputs of nested fsm names": `component t "x";
+pin in bit a;
+pin out bit o-x;
+pin out bit x;
+function _;
+fsm m { outputs: o_x; state A { on (a) -> B; } state B { on (!a) -> A; } };
+fsm m_o { outputs: x; state A { on (a) -> B; } state B { on (!a) -> A; } };
+;;
+m(); m_o();
+`,
+	} {
+		_, err := Parse("t.comp", src)
+		if err == nil || !strings.Contains(err.Error(), "the shadow of output") {
+			t.Errorf("%s: err = %v, want the shadow name clash refused", name, err)
+		}
+	}
 }

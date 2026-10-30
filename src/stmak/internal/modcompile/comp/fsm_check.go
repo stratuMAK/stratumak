@@ -758,7 +758,7 @@ func (r *ownedRef) consequence() string {
 	if r.role == "state_var" && !r.f.StateIO {
 		return "the state changes only through transitions"
 	}
-	return "the fsm overwrites it on its next run"
+	return "the fsm writes its own value to it at the end of every run"
 }
 
 // checkWrites warns about writes among uses, the identifier uses of src, to

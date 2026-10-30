@@ -202,10 +202,7 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 		if s == nil || s.Kind != symPin {
 			continue
 		}
-		name := hid + "_o_" + d.Name
-		if d.Kind == refPinElem {
-			name = fmt.Sprintf("%s_%d", name, d.Index)
-		}
+		name := shadowName(hid, d)
 		l.shadows = append(l.shadows, outShadow{ref: d.fsmRef, ctype: s.Type.CType(), shadow: name})
 		hidden = append(hidden, ast.Variable{Pos: f.Pos, CType: s.Type.CType(), Name: name})
 	}
@@ -324,6 +321,12 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 
 	epi.gen("static void %s_run(inst_t *__comp_inst, long period) {\n", n)
 
+	// The shadows start at zero while the pins hold their declared defaults:
+	// loaded from the pins once, so the reset expression of the first run
+	// sees the pins' initial values, as it did when it read the pins.
+	if len(l.shadows) > 0 {
+		epi.gen("    if (!%s_init) %s_load(__comp_inst);\n", hid, hid)
+	}
 	// The reset expression is read before the outputs are written, so it
 	// sees their values from the previous run.
 	if f.Reset != nil {
@@ -459,9 +462,10 @@ func (l *fsmLowering) lower(comp *ast.Component) {
 // with some elements in the outputs goes through an accessor that picks the
 // shadow for those and the pin for the rest.
 //
-// <fsm>_publish, which copies the shadows to the pins, and the accessors
-// come first: the pin and variable names are macros, so they have to be
-// spelled while the pin macros are still the pins.
+// <fsm>_publish, which copies the shadows to the pins, <fsm>_load, which
+// does the reverse for the first run, and the accessors come first: the pin
+// and variable names are macros, so they have to be spelled while the pin
+// macros are still the pins.
 func (l *fsmLowering) redirectOutputs() {
 	epi, hid := l.epi, l.f.hidden()
 	epi.gen("static void %s_publish(inst_t *__comp_inst) STMAK_NONBLOCKING __attribute__((unused));\n", hid)
@@ -474,6 +478,13 @@ func (l *fsmLowering) redirectOutputs() {
 	if len(l.shadows) == 0 {
 		return
 	}
+	// <hidden>_load: the pins into the shadows, for the first run.
+	epi.gen("static void %s_load(inst_t *__comp_inst) STMAK_NONBLOCKING __attribute__((unused));\n", hid)
+	epi.gen("static void %s_load(inst_t *__comp_inst) {\n", hid)
+	for _, o := range l.shadows {
+		epi.gen("    %s = %s;\n", o.shadow, o.ref.String())
+	}
+	epi.gen("}\n\n")
 	var arrays []string
 	elems := map[string][]outShadow{}
 	for _, o := range l.shadows {

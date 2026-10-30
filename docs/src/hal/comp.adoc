@@ -584,6 +584,8 @@ copies it to the pin after `output`. Written straight to the pin, the default fr
 visible to a reader outside the thread (a userspace task, halui, the REST API) until `output` set the pin again:
 a held output would read as a short pulse low, and a level that something takes edges from -- a machine-on,
 a program run -- would be a fresh edge. User code after `;;` and the other machines see the pins.
+A C helper after `;;` that writes an output pin and is called from a block writes the pin itself, and the
+run's own value replaces it at the end of the run: an output is set in the block, not through a helper.
 Output variables are written directly; they have no readers outside the component.
 
 An internal `on` is a guard that holds the state up. A fault that must stop progress until it clears
