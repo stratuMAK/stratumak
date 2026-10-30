@@ -17,6 +17,7 @@ usr/bin/gscreen
 usr/bin/hal-histogram
 usr/bin/halcmd
 usr/bin/halreport
+usr/bin/siglog-decode
 usr/bin/halsampler
 usr/bin/halscope
 usr/bin/halshow

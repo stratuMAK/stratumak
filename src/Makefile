@@ -923,6 +923,7 @@ install-common: install-dirs
 	$(EXE) ../scripts/linuxcncmkdesktop $(DESTDIR)$(bindir)
 	$(EXE) ../bin/update_ini $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/halreport $(DESTDIR)$(bindir)
+	$(EXE) ../scripts/siglog-decode $(DESTDIR)$(bindir)
 	$(FILE) $(filter ../lib/%.a ../lib/%.so.0,$(TARGETS)) $(DESTDIR)$(libdir)
 	cp --no-dereference $(wildcard ../lib/*.so) $(DESTDIR)$(libdir)
 	# Shared libraries whose soname is not .0 are in neither of the two lines

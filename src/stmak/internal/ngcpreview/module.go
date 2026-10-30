@@ -125,6 +125,11 @@ typedef struct {
     // Current position in program units (for get_external_position_*)
     double prog_pos[9];
 
+    // Target of the last straight_probe in program units. Nothing trips in
+    // the preview, so the probe is taken to reach its target, as LinuxCNC's
+    // gcodemodule does; this feeds #5061..#5069 (get_external_probe_position_*).
+    double probe_pos[9];
+
     // Current tool offset
     double tool_offset[9];
 
@@ -409,6 +414,9 @@ static void pc_straight_probe(void *vctx, int32_t ln,
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
     ctx->line_no = ln;
     (void)ptype;
+    ctx->probe_pos[0] = x; ctx->probe_pos[1] = y; ctx->probe_pos[2] = z;
+    ctx->probe_pos[3] = a; ctx->probe_pos[4] = b; ctx->probe_pos[5] = c;
+    ctx->probe_pos[6] = u; ctx->probe_pos[7] = v; ctx->probe_pos[8] = w;
     add_segment(ctx, 4, x, y, z, a, b, c, u, v, w);
 }
 
@@ -515,6 +523,16 @@ static double pc_get_ext_pos_c(void *vctx) { return ((preview_ctx_t*)vctx)->prog
 static double pc_get_ext_pos_u(void *vctx) { return ((preview_ctx_t*)vctx)->prog_pos[6]; }
 static double pc_get_ext_pos_v(void *vctx) { return ((preview_ctx_t*)vctx)->prog_pos[7]; }
 static double pc_get_ext_pos_w(void *vctx) { return ((preview_ctx_t*)vctx)->prog_pos[8]; }
+
+static double pc_get_probe_pos_x(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[0]; }
+static double pc_get_probe_pos_y(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[1]; }
+static double pc_get_probe_pos_z(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[2]; }
+static double pc_get_probe_pos_a(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[3]; }
+static double pc_get_probe_pos_b(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[4]; }
+static double pc_get_probe_pos_c(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[5]; }
+static double pc_get_probe_pos_u(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[6]; }
+static double pc_get_probe_pos_v(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[7]; }
+static double pc_get_probe_pos_w(void *vctx) { return ((preview_ctx_t*)vctx)->probe_pos[8]; }
 
 static void pc_set_xy_rotation(void *vctx, double r) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
@@ -861,15 +879,15 @@ static canon_callbacks_t make_preview_canon(preview_ctx_t *ctx) {
     cb.get_external_position_u = pc_get_ext_pos_u;
     cb.get_external_position_v = pc_get_ext_pos_v;
     cb.get_external_position_w = pc_get_ext_pos_w;
-    cb.get_external_probe_position_x = pc_nop_rd;
-    cb.get_external_probe_position_y = pc_nop_rd;
-    cb.get_external_probe_position_z = pc_nop_rd;
-    cb.get_external_probe_position_a = pc_nop_rd;
-    cb.get_external_probe_position_b = pc_nop_rd;
-    cb.get_external_probe_position_c = pc_nop_rd;
-    cb.get_external_probe_position_u = pc_nop_rd;
-    cb.get_external_probe_position_v = pc_nop_rd;
-    cb.get_external_probe_position_w = pc_nop_rd;
+    cb.get_external_probe_position_x = pc_get_probe_pos_x;
+    cb.get_external_probe_position_y = pc_get_probe_pos_y;
+    cb.get_external_probe_position_z = pc_get_probe_pos_z;
+    cb.get_external_probe_position_a = pc_get_probe_pos_a;
+    cb.get_external_probe_position_b = pc_get_probe_pos_b;
+    cb.get_external_probe_position_c = pc_get_probe_pos_c;
+    cb.get_external_probe_position_u = pc_get_probe_pos_u;
+    cb.get_external_probe_position_v = pc_get_probe_pos_v;
+    cb.get_external_probe_position_w = pc_get_probe_pos_w;
     cb.get_external_probe_value = pc_nop_rd;
     cb.get_external_probe_tripped_value = pc_nop_ri;
     cb.get_external_speed = (double (*)(void*, int32_t))pc_nop_rdi;

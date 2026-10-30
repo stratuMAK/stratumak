@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""siglog-decode — decode a file written by the siglog cmod.
+
+The file format is documented at the top of src/hal/components/siglog.c.
+
+Output formats:
+  text  one line per change: cycle, time, signal, value (default)
+  csv   the same as CSV, with a header row
+  vcd   Value Change Dump, for GTKWave / Surfer; the timestamp is
+        cycle * period, so it is monotonic even if the thread jittered
+  info  the header only: period, start time, patterns, signal list
+
+In CSV, gaps show up as marker rows in the signal column: "#lost" (value =
+dropped cycles, starting at that cycle) and "#truncated" (no END record, the
+file was not closed cleanly).
+
+Times in text/csv are seconds since the first logged cycle, derived from the
+TIME records (one per second of run time), so they follow the real clock
+rather than assuming a perfect period.
+"""
+
+import argparse
+import datetime
+import fnmatch
+import struct
+import sys
+
+MAGIC = b"STMSLOG\0"
+VERSION = 1
+
+REC_CYCLE, REC_LOSS, REC_TIME, REC_END = 1, 2, 3, 4
+T_BIT, T_FLOAT, T_S32, T_U32 = 1, 2, 3, 4
+TYPE_NAMES = {T_BIT: "bit", T_FLOAT: "float", T_S32: "s32", T_U32: "u32"}
+
+
+class Truncated(Exception):
+    pass
+
+
+class Reader:
+    def __init__(self, data):
+        self.data = data
+        self.pos = 0
+
+    def eof(self):
+        return self.pos >= len(self.data)
+
+    def bytes(self, n):
+        if self.pos + n > len(self.data):
+            raise Truncated()
+        b = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return b
+
+    def u8(self):
+        return self.bytes(1)[0]
+
+    def le(self, fmt):
+        return struct.unpack("<" + fmt, self.bytes(struct.calcsize(fmt)))[0]
+
+    def varint(self):
+        v = shift = 0
+        while True:
+            b = self.u8()
+            v |= (b & 0x7F) << shift
+            if b < 0x80:
+                return v
+            shift += 7
+
+    def str(self):
+        return self.bytes(self.varint()).decode("utf-8", "replace")
+
+    def value(self, typ):
+        if typ == T_BIT:
+            return self.u8()
+        if typ == T_FLOAT:
+            return self.le("d")
+        if typ == T_S32:
+            z = self.varint()
+            return (z >> 1) ^ -(z & 1)
+        if typ == T_U32:
+            return self.varint()
+        raise ValueError("unknown signal type %d" % typ)
+
+
+class Header:
+    pass
+
+
+def read_header(r):
+    if r.bytes(8) != MAGIC:
+        raise ValueError("not a siglog file (bad magic)")
+    h = Header()
+    h.version = r.le("I")
+    if h.version != VERSION:
+        raise ValueError("unsupported siglog version %d" % h.version)
+    h.period_ns = r.le("I")
+    h.realtime_ns = r.le("q")
+    h.monoraw_ns = r.le("q")
+    h.include = r.str()
+    h.exclude = r.str()
+    h.signals = []
+    for _ in range(r.varint()):
+        typ = r.u8()
+        h.signals.append((r.str(), typ))
+    return h
+
+
+def events(r, h):
+    """Yield ("change", cycle, mono_ns, index, value), ("loss", cycle, n),
+    ("end", cycle) and ("truncated", cycle).  mono_ns is the estimated
+    CLOCK_MONOTONIC_RAW time of the cycle, or None before the first TIME."""
+    cycle = 0
+    anchor = None                     # (cycle, mono_ns) of the last TIME
+    try:
+        while not r.eof():
+            tag = r.u8()
+            if tag == REC_CYCLE:
+                cycle += r.varint()
+                n = r.varint()
+                mono = None
+                if anchor:
+                    mono = anchor[1] + (cycle - anchor[0]) * h.period_ns
+                for _ in range(n):
+                    idx = r.varint()
+                    if idx >= len(h.signals):
+                        raise ValueError("signal index %d out of range" % idx)
+                    yield ("change", cycle, mono, idx, r.value(h.signals[idx][1]))
+            elif tag == REC_LOSS:
+                cycle += r.varint()
+                yield ("loss", cycle, r.varint())
+            elif tag == REC_TIME:
+                cycle += r.varint()
+                anchor = (cycle, r.le("Q"))
+            elif tag == REC_END:
+                cycle += r.varint()
+                yield ("end", cycle)
+                return
+            else:
+                raise ValueError("unknown record tag 0x%02x at offset %d"
+                                 % (tag, r.pos - 1))
+    except Truncated:
+        pass
+    yield ("truncated", cycle)
+
+
+def fmt_value(typ, v):
+    if typ == T_FLOAT:
+        return repr(v)
+    return str(v)
+
+
+def print_info(h, out):
+    start = datetime.datetime.fromtimestamp(h.realtime_ns / 1e9).astimezone()
+    out.write("version   %d\n" % h.version)
+    out.write("period    %d ns\n" % h.period_ns)
+    out.write("started   %s\n" % start.isoformat())
+    out.write("include   %s\n" % (h.include or "(all)"))
+    out.write("exclude   %s\n" % (h.exclude or "(none)"))
+    out.write("signals   %d\n" % len(h.signals))
+    for name, typ in h.signals:
+        out.write("  %-5s %s\n" % (TYPE_NAMES.get(typ, "?%d" % typ), name))
+
+
+def write_rows(h, evs, wanted, out, csv):
+    t0 = None
+    if csv:
+        out.write("cycle,time,signal,value\n")
+    for ev in evs:
+        kind = ev[0]
+        if kind == "change":
+            _, cycle, mono, idx, v = ev
+            if not wanted[idx]:
+                continue
+            if mono is not None and t0 is None:
+                t0 = mono
+            t = "" if mono is None else "%.6f" % ((mono - t0) / 1e9)
+            name, typ = h.signals[idx]
+            if csv:
+                out.write("%d,%s,%s,%s\n" % (cycle, t, name, fmt_value(typ, v)))
+            else:
+                out.write("%d %s %s %s\n" % (cycle, t, name, fmt_value(typ, v)))
+        elif kind == "loss":
+            if csv:
+                out.write("%d,,#lost,%d\n" % (ev[1], ev[2]))
+            else:
+                out.write("# lost %d cycle(s) from cycle %d\n" % (ev[2], ev[1]))
+        elif kind == "truncated":
+            if csv:
+                out.write("%d,,#truncated,\n" % ev[1])
+            else:
+                out.write("# end of file without END record (not closed cleanly)\n")
+
+
+def vcd_id(n):
+    chars = []
+    while True:
+        chars.append(chr(33 + n % 94))
+        n //= 94
+        if n == 0:
+            return "".join(chars)
+
+
+def write_vcd(h, evs, wanted, out):
+    start = datetime.datetime.fromtimestamp(h.realtime_ns / 1e9).astimezone()
+    out.write("$date %s $end\n" % start.isoformat())
+    out.write("$version siglog-decode $end\n")
+    out.write("$timescale 1ns $end\n")
+    out.write("$scope module hal $end\n")
+    ids = {}
+    for idx, (name, typ) in enumerate(h.signals):
+        if not wanted[idx]:
+            continue
+        ids[idx] = vcd_id(idx)
+        if typ == T_BIT:
+            kind, width = "wire", 1
+        elif typ == T_FLOAT:
+            kind, width = "real", 64
+        else:
+            kind, width = "integer", 32
+        out.write("$var %s %d %s %s $end\n" % (kind, width, ids[idx], name))
+    out.write("$upscope $end\n$enddefinitions $end\n")
+
+    last_time = None
+    for ev in evs:
+        kind = ev[0]
+        if kind == "change":
+            _, cycle, _, idx, v = ev
+            if idx not in ids:
+                continue
+            t = cycle * h.period_ns
+            if t != last_time:
+                out.write("#%d\n" % t)
+                last_time = t
+            typ = h.signals[idx][1]
+            if typ == T_BIT:
+                out.write("%d%s\n" % (1 if v else 0, ids[idx]))
+            elif typ == T_FLOAT:
+                out.write("r%.17g %s\n" % (v, ids[idx]))
+            else:
+                out.write("b%s %s\n" % (format(v & 0xFFFFFFFF, "b"), ids[idx]))
+        elif kind == "loss":
+            out.write("$comment lost %d cycle(s) from cycle %d $end\n" % (ev[2], ev[1]))
+        elif kind == "end":
+            t = ev[1] * h.period_ns
+            if last_time is None or t > last_time:
+                out.write("#%d\n" % t)
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Decode a siglog change-history file.")
+    ap.add_argument("file", help="file written by the siglog cmod")
+    ap.add_argument("-f", "--format", choices=("text", "csv", "vcd", "info"),
+                    default="text", help="output format (default: text)")
+    ap.add_argument("-s", "--signal", action="append", default=[],
+                    metavar="GLOB", help="only these signals (repeatable)")
+    ap.add_argument("-o", "--output", help="output file (default: stdout)")
+    args = ap.parse_args()
+
+    with open(args.file, "rb") as f:
+        r = Reader(f.read())
+    try:
+        h = read_header(r)
+    except Truncated:
+        sys.exit("siglog-decode: %s: truncated header (logging never started?)"
+                 % args.file)
+    except ValueError as e:
+        sys.exit("siglog-decode: %s: %s" % (args.file, e))
+
+    wanted = [not args.signal or any(fnmatch.fnmatchcase(name, g)
+                                     for g in args.signal)
+              for name, _ in h.signals]
+
+    out = open(args.output, "w") if args.output else sys.stdout
+    try:
+        if args.format == "info":
+            print_info(h, out)
+        elif args.format == "vcd":
+            write_vcd(h, events(r, h), wanted, out)
+        else:
+            write_rows(h, events(r, h), wanted, out, args.format == "csv")
+    except ValueError as e:
+        sys.exit("siglog-decode: %s: %s" % (args.file, e))
+    except BrokenPipeError:
+        pass
+    finally:
+        if out is not sys.stdout:
+            out.close()
+
+
+if __name__ == "__main__":
+    main()
