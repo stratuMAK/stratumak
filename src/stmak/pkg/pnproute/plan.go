@@ -139,8 +139,8 @@ type Planner struct {
 	obstacles []obstacle
 	shapers   []obstacle // corner-radius circles, see WithCornerRadius
 	tight     *Planner   // the same scene without them, for where they block
-	nodes     []Point // static graph nodes (usable offset-obstacle vertices)
-	adj       [][]arc // visibility adjacency over nodes
+	nodes     []Point    // static graph nodes (usable offset-obstacle vertices)
+	adj       [][]arc    // visibility adjacency over nodes
 }
 
 // NewPlanner precomputes the visibility graph of scene at the given clearance.
