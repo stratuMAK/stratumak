@@ -57,8 +57,11 @@ for vel in (8.0, -8.0):
     edges = int(getp("latch.0.edges"))
     start = getp("joint.0.motor-pos-cmd")
     c.jog(JOG_CONTINUOUS, 0, 0, vel)
-    # When the stop comes does not matter: any stop decelerates.
-    stmak_test.wait_until(lambda: abs(getp("joint.0.motor-pos-cmd") - start) > 2.0,
+    # When the stop comes does not matter: any stop decelerates. The jog is
+    # re-sent on every poll: task stops a continuous jog its client does not
+    # refresh within 2 s, and the wait is bounded by distance, not time.
+    stmak_test.wait_until(lambda: (c.jog(JOG_CONTINUOUS, 0, 0, vel),
+                                   abs(getp("joint.0.motor-pos-cmd") - start) > 2.0)[1],
                           "the jog at %g mm/s to cover 2 mm" % vel)
     c.jog(JOG_STOP, 0, 0)
     ok &= check("teleop jog at %g mm/s, stopped" % vel, edges)

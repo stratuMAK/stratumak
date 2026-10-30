@@ -45,6 +45,7 @@ stmak_test.wait_stat(
 s.poll()
 start_pos = s.joint_actual_position[0]
 print("joint 0 start position = %.4f mm" % start_pos)
+stmak_test.setp("seek-reset", 0)  # measure the seek from here (cia402-sim.hal)
 
 errors = []
 drain_errors(errors)  # discard anything stale from bring-up

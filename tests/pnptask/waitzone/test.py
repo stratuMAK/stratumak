@@ -121,6 +121,10 @@ halcmd("net", "pnp-y-cmd", "wz.rel.in0")
 halcmd("net", "wz-passed", "wz.rel.out", "wz.hold.in")
 halcmd("net", "wz-hold", "wz.hold.out", "pnp.task.proc.22.busy", "wz.dz.in")
 halcmd("net", "wz-deadzone", "wz.dz.out", "pnp.task.deadzone-select")
+# The chain's outputs exist once the servo thread has run it; a read right
+# after the net would see the signals' initial values (busy FALSE, CLEAR).
+m.wait(lambda st: st["proc.22.busy"] and st["deadzone-select"] == BLOCKED,
+       "the servo thread to run the release chain once")
 pnpdrv.check(m.get("proc.22.busy") and m.get("deadzone-select") == BLOCKED,
              "station 22 is busy and enclosed while the head is at the tray")
 

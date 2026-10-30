@@ -40,5 +40,9 @@ addf seek.0    servo-thread
 addf ferr.0    servo-thread
 addf ferrmax.0 servo-thread
 net j0-pos-fb => seek.0.in
+# Held in reset until the script has read the start position, so the extremes
+# measure the seek from there and not from wherever the drive stood at load.
+net seek-reset => seek.0.reset
+sets seek-reset 1
 net j0-ferr   joint.0.f-errored => ferr.0.in
 net j0-ferr-f ferr.0.out        => ferrmax.0.in

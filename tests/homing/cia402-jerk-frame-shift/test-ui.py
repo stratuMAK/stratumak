@@ -54,6 +54,7 @@ stmak_test.wait_stat(
 
 s.poll()
 start_pos = s.joint_actual_position[0]
+stmak_test.setp("seek-reset", 0)  # measure the seek from here (cia402-jerk-sim.hal)
 
 drain_errors()
 errors.clear()  # discard anything stale from bring-up

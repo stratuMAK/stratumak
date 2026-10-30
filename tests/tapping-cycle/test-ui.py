@@ -107,9 +107,17 @@ def held(phase, column, what):
 
 
 def stalled(phase):
-    """Z standing still in the tap with the task not yet paused."""
+    """Z standing still just below the mark, with the task not yet paused.
+
+    The hold fires one cycle after Z passes -2, so a working M52 stops Z
+    within a fraction of a millimetre of it. Z also stands still at the
+    bottom (-5) while the spindle reverses: without the bound, a hold that
+    did nothing would pass as "stalled" there, and the pause phase would
+    silently fall back to the timing bet it replaces.
+    """
     rows = [r for r in trace(phase) if r[0] < -2.0]
-    return len(rows) >= 2 and rows[-1][0] == rows[-2][0] and not rows[-1][5]
+    return (len(rows) >= 2 and rows[-1][0] == rows[-2][0] and rows[-1][0] > -3.0
+            and not rows[-1][5])
 
 
 def tap(timeout=30):

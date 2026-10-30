@@ -10,6 +10,13 @@
 # testing the queue-buster at all.
 set -e
 . "$(dirname "$0")/../stmak-driver.sh"
+# Each run starts its own server and kills it below; the trap is for the runs
+# that do not get there: under set -e a failing test-ui.py (or a server that
+# never came up) exits the script, and a server left running would fail every
+# test after this one with "address already in use". STMAK_SRV is read when
+# the trap runs, so it names the current server; a server already killed
+# makes the kill fail harmlessly.
+stmak_add_exit_trap 'kill $STMAK_SRV 2>/dev/null || true; wait 2>/dev/null || true'
 for i in $(seq 20); do
     stmakd -r test.ini >server.log 2>&1 &
     STMAK_SRV=$!
@@ -18,7 +25,9 @@ for i in $(seq 20); do
     # branch) plus a guessed sleep stood here.
     stmak_wait_ready
     ./test-ui.py
-    kill $STMAK_SRV 2>/dev/null; wait 2>/dev/null || true
+    # || true: a server that crashed is already gone, and the grep below is
+    # what says so.
+    kill $STMAK_SRV 2>/dev/null || true; wait 2>/dev/null || true
     if grep -qiE 'Segmentation fault|panic|SIGSEGV' server.log 2>/dev/null; then exit 1; fi
     if ! grep -qx 'post 6' server.log; then
         echo "*** run $i: the last MDI never ran (no \"post 6\" in server.log)" >&2

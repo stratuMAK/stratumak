@@ -22,7 +22,10 @@ m.fill_tray(10, step=0)
 # pnptask.hal holds the move there from the servo thread, so the estop -- sent
 # from here, whenever this script gets to it -- still finds the job mid-move,
 # instead of racing it to the end of the leg.
+# Two writes in a row may land inside one servo cycle, which then never sees
+# the reset high: hold it until the latch reports clear.
 pnpdrv.raw_set("pnp.stop.latch.reset", True)
+pnpdrv.wait_raw("pnp.stop.latch.out", False, "the stop latch to clear")
 pnpdrv.raw_set("pnp.stop.latch.reset", False)
 pnpdrv.raw_set("pnp.stop.gate.in0", True)
 m.start_job(10, 20)
