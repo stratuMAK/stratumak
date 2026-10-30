@@ -134,26 +134,112 @@ def trace_window(mark):
     return rows
 
 
+def fail(msg):
+    print(msg)
+    sys.stdout.flush()
+    sys.exit(1)
+
+
+def at_rest():
+    s.poll()
+    return s.inpos
+
+
+def wait_rest(desc):
+    if not wait_for(at_rest, desc):
+        fail("timed out waiting for %s" % desc)
+
+
+def jog_until(axis, vel, pred, desc):
+    """Jog continuously until pred() holds, then stop and wait for rest.
+
+    The jog is re-sent on every poll: task stops a continuous jog its client
+    does not refresh within 2 s, and these waits are bounded by where the
+    axis gets to, not by a time that a slow runner might not give the jog
+    (a fixed sleep stood here).
+    """
+    c.jog(JOG_CONTINUOUS, 0, axis, vel)
+    ok = wait_for(lambda: (c.jog(JOG_CONTINUOUS, 0, axis, vel), pred())[1], desc)
+    c.jog(JOG_STOP, 0, axis)
+    if not ok:
+        fail("timed out waiting for %s; joint %d at %.3f mm" % (desc, axis, joint_pos(axis)))
+    wait_rest("the jog to stop after %s" % desc)
+
+
+def jog_once(axis, dist, desc):
+    """One incremental jog of `dist` mm, then wait for the machine to stand.
+
+    For the checks that a jog is STOPPED: jog_until re-sends its continuous
+    jog on every poll, and each re-sent jog past a tripped limit runs a few
+    cycles before the backstop sees it heading out -- so how far the axis
+    got depended on how many polls fit in before the test saw it at rest.
+    An incremental jog is sent once and needs no refreshing (the task's
+    watchdog is for continuous jogs only); where it ends is decided in the
+    servo thread alone.
+    """
+    start = joint_pos(axis)
+    c.jog(JOG_INCREMENT, 0, axis, 25.0, dist)
+    # Moved and at rest: the jog has started and ended.  A jog that is
+    # refused outright never moves; that fails the wait, naming the axis.
+    # 1e-4: even the jog the backstop stops at once creeps ~2 um first.
+    if not wait_for(lambda: at_rest() and abs(joint_pos(axis) - start) > 1e-4, desc):
+        fail("timed out waiting for %s to move and stop; joint %d at %.3f mm"
+             % (desc, axis, joint_pos(axis)))
+    sys.stderr.write("%s: joint %d went from %.4f to %.4f mm\n"
+                     % (desc, axis, start, joint_pos(axis)))
+
+
+def limit_is(j, value):
+    """Wait until motion applies a joint's max limit (milltask.inihal.N)."""
+    def _applied():
+        s.poll()
+        return abs(s.joint[j]["max_position_limit"] - value) < 1e-6
+    if not wait_for(_applied, "joint %d's max limit to become %.3f" % (j, value)):
+        fail("motion did not take joint %d's max limit %.3f (it has %.3f)"
+             % (j, value, s.joint[j]["max_position_limit"]))
+
+
+def wait_trace(mark):
+    """Wait until the trace holds the whole window marked `mark`: filestream's
+    I/O thread writes it after the fact, so it is complete once a later row
+    with another mark is in the file."""
+    def _closed():
+        seen = False
+        for line in open(TRACE):
+            p = line.split()
+            if len(p) < 6:
+                continue
+            if int(p[0]) == mark:
+                seen = True
+            elif seen:
+                return True
+        return False
+    if not wait_for(_closed, "the trace of window %d" % mark):
+        fail("the trace never held all of window %d" % mark)
+
+
+def outside_and_off():
+    """With the machine off, shove X past its limit and wait for motion to see it."""
+    sets("hand-pos", OUTSIDE)
+    sets("hand-sel", 1)
+    if not wait_for(lambda: joint_pos() > X_MAX, "the hand to push X outside"):
+        fail("the hand did not move X outside; joint 0 at %.3f mm" % joint_pos())
+
+
 def hand_push_outside():
     """Switch off, shove X past its limit, switch on, let go."""
     c.state(STATE_OFF)
     c.wait_complete()
     if not wait_for(lambda: (s.poll(), s.enabled)[1] == 0, "the machine to go off"):
-        print("machine did not go off")
-        sys.exit(1)
-    sets("hand-pos", OUTSIDE)
-    sets("hand-sel", 1)
-    time.sleep(0.3)
+        fail("machine did not go off")
+    outside_and_off()
     c.state(STATE_ON)
     c.wait_complete()
     if not wait_for(lambda: (s.poll(), s.enabled)[1] == 1, "the machine to come on"):
-        print("machine did not come on")
-        sys.exit(1)
+        fail("machine did not come on")
     sets("hand-sel", 0)
-    time.sleep(0.2)
     if not joint_pos() > X_MAX:
-        print("the hand did not leave X outside; joint 0 at %.3f mm" % joint_pos())
-        sys.exit(1)
+        fail("the hand did not leave X outside; joint 0 at %.3f mm" % joint_pos())
 
 
 c = stmak_test.Command()
@@ -171,8 +257,7 @@ c.home(2)
 c.wait_complete()
 
 if not wait_for(lambda: (s.poll(), sum(s.homed[0:3]))[1] == 3, "homing"):
-    print("failed to home; s.homed = %s" % (s.homed,))
-    sys.exit(1)
+    fail("failed to home; s.homed = %s" % (s.homed,))
 
 c.teleop_enable(1)
 c.wait_complete()
@@ -182,25 +267,24 @@ c.wait_complete()
 c.state(STATE_OFF)
 c.wait_complete()
 if not wait_for(lambda: (s.poll(), s.enabled)[1] == 0, "the machine to go off"):
-    print("machine did not go off")
-    sys.exit(1)
+    fail("machine did not go off")
 
 drain_errors()
-sets("hand-pos", OUTSIDE)
-sets("hand-sel", 1)
+outside_and_off()
 
-# A second of it: the hand is not a transient, and motion has to have sampled
-# the axis where it now stands before the check means anything.
+# The pin is state, not a fault: it is documented as "TRUE if outside a
+# limit", and the machine IS outside one, de-energised or not. A lamp or an
+# interlock chain wired to it must not go dark just because the amps dropped.
+on_soft_off = wait_for(lambda: getp("motion.on-soft-limit") == "TRUE",
+                       "the on-soft-limit pin")
+
+# No fault. Motion has seen the axis outside (above); a second of messages is
+# what a fault would have produced in the meantime.
 msgs = collect_errors(1.0)
 check(not [m for m in msgs if "soft limit" in m],
       "a hand on a disabled axis is not reported as a soft-limit fault",
       "; ".join(m for m in msgs if "soft limit" in m))
-
-# No fault -- but no denial either. The pin is state, not a fault: it is
-# documented as "TRUE if outside a limit", and the machine IS outside one,
-# de-energised or not. A lamp or an interlock chain wired to it must not go
-# dark just because the amps dropped.
-check(getp("motion.on-soft-limit") == "TRUE",
+check(on_soft_off,
       "the on-soft-limit pin reports the pushed-out machine while off")
 
 # ── the machine still comes back on ─────────────────────────────────────────
@@ -212,43 +296,42 @@ check(wait_for(lambda: (s.poll(), s.enabled)[1] == 1, "the machine to come on"),
 
 # The hand lets go; the axis stays where it was pushed.
 sets("hand-sel", 0)
-time.sleep(0.2)
 check(joint_pos() > X_MAX,
       "the axis really is outside its soft limit",
       "joint 0 at %.3f mm, limit %.1f mm" % (joint_pos(), X_MAX))
 
 # ── the way back ────────────────────────────────────────────────────────────
 #
-# The enable with the machine outside reported the trip once and the task
-# monitor has had its abort; from here on the machine is outside, on, and
-# quiet. The jog back in is bracketed by trace-mark 1 for the servo-thread
-# look at it below.
+# The enable with the machine outside reports the trip once and the task
+# monitor aborts; from then on the machine is outside, on, and quiet. Wait for
+# that report and for rest, so the jog below is not caught by that abort. The
+# jog back in is bracketed by trace-mark 1 for the servo-thread look at it.
 
-time.sleep(0.5)
+if not wait_for(lambda: any("soft limit" in m for m in collect_errors(0.1)),
+                "the enable's soft-limit report"):
+    fail("the enable outside the limit was not reported")
+wait_rest("the machine to settle after the enable")
 sets("trace-mark", 1)
 before = joint_pos()
-c.jog(JOG_CONTINUOUS, 0, X, -25.0)
-time.sleep(1.0)
-c.jog(JOG_STOP, 0, X)
-time.sleep(0.5)
+# Until the axis is 2 mm back inside: the window then holds the re-entry and
+# the ramp-down JOG_STOP asks for (an ABORT with immediate=0, which
+# decelerates at the axis acceleration).
+jog_until(X, -25.0, lambda: joint_pos() < X_MAX - 2.0, "X to re-enter its limit")
 sets("trace-mark", 0)
 moved_back = before - joint_pos()
 check(moved_back > 1.0,
       "jogging back toward the valid range moves the axis",
       "moved %.3f mm, wanted more than 1" % moved_back)
 
-# What the servo thread saw of that jog. The 12.7 mm from OUTSIDE to the limit
-# take 0.6 s of the 1 s jog, so the window holds the re-entry and the ramp-down
-# JOG_STOP asks for (an ABORT with immediate=0, which decelerates at the axis
-# acceleration). A backstop that misreads the re-entry -- the joint command
-# is still outside for the two cycles of cubic lag after the axis sum is in --
-# aborts with immediate=1: the velocity drops from jog speed to zero in one
-# cycle, and the motion error flag goes up. Neither may happen here.
-time.sleep(0.2)
+# What the servo thread saw of that jog. A backstop that misreads the
+# re-entry -- the joint command is still outside for the two cycles of cubic
+# lag after the axis sum is in -- aborts with immediate=1: the velocity drops
+# from jog speed to zero in one cycle, and the motion error flag goes up.
+# Neither may happen here.
+wait_trace(1)
 rows = trace_window(1)
-if len(rows) < 1000:
-    print("the trace holds only %d samples of the recovery jog" % len(rows))
-    sys.exit(1)
+if not rows:
+    fail("the trace holds no samples of the recovery jog")
 vel = [r[0] for r in rows]
 biggest_step = max(abs(b - a) for a, b in zip(vel, vel[1:]))
 check(biggest_step < 4 * X_RAMP_STEP,
@@ -265,11 +348,10 @@ check(on_soft[0] == 1 and on_soft[-1] == 0 and on_soft == sorted(on_soft, revers
 
 # And the limit still holds from the inside. A teleop jog targets the limit
 # itself, so "further out" is not something a jog can ask for -- what has to be
-# true is that jogging toward a limit stops at it.
-c.jog(JOG_CONTINUOUS, 0, X, 25.0)
-time.sleep(4.0)
-c.jog(JOG_STOP, 0, X)
-time.sleep(0.5)
+# true is that jogging toward a limit stops at it: the jog runs until the axis
+# stands still near the limit, and it must stand at or inside it.
+jog_until(X, 25.0, lambda: at_rest() and joint_pos() > X_MAX - 1.0,
+          "X to stop at its limit")
 check(joint_pos() <= X_MAX + 0.001,
       "jogging toward the limit stops at it",
       "joint 0 ended at %.4f mm, limit %.1f mm" % (joint_pos(), X_MAX))
@@ -285,39 +367,32 @@ check(joint_pos() <= X_MAX + 0.001,
 # still-wide axis limit.
 
 # Somewhere clearly inside first.
-c.jog(JOG_CONTINUOUS, 0, X, -25.0)
-if not wait_for(lambda: joint_pos() < X_MAX - 25.0, "jogging clear of the limit"):
-    print("could not jog clear; joint 0 at %.3f mm" % joint_pos())
-    sys.exit(1)
-c.jog(JOG_STOP, 0, X)
-time.sleep(0.5)
+jog_until(X, -25.0, lambda: joint_pos() < X_MAX - 25.0, "X to get clear of the limit")
 
 drain_errors()
 TIGHT = joint_pos() - 12.7  # a joint limit below where the machine stands
 setp("milltask.inihal.0.max_limit", TIGHT)
-msgs = collect_errors(1.0)
-check([m for m in msgs if "soft limit" in m],
+limit_is(X, TIGHT)
+check(wait_for(lambda: any("soft limit" in m for m in collect_errors(0.1)),
+               "the trip to be reported"),
       "tightening the joint limit under the machine reports the trip")
 
 # The first abort (task monitor or backstop) has come and gone; this is the
 # second attempt, heading away from validity but well inside the axis limits.
+wait_rest("the machine to settle after the trip")
 before = joint_pos()
-c.jog(JOG_CONTINUOUS, 0, X, 25.0)
-time.sleep(1.0)
-c.jog(JOG_STOP, 0, X)
-time.sleep(0.5)
+jog_once(X, 25.0, "the jog past the tripped limit")
 check(joint_pos() - before < 1.0,
       "a jog is stopped by the RT backstop when the trip is joint-frame",
       "moved %.3f mm past a tripped joint limit" % (joint_pos() - before))
 
 # Restoring the limit clears the trip, and the machine jogs again.
 setp("milltask.inihal.0.max_limit", X_MAX)
-time.sleep(0.5)
+limit_is(X, X_MAX)
+if not wait_for(lambda: getp("motion.on-soft-limit") == "FALSE", "the trip to clear"):
+    fail("restoring the joint limit did not clear on-soft-limit")
 before = joint_pos()
-c.jog(JOG_CONTINUOUS, 0, X, 25.0)
-time.sleep(1.0)
-c.jog(JOG_STOP, 0, X)
-time.sleep(0.5)
+jog_until(X, 25.0, lambda: joint_pos() - before > 1.0, "X to jog again")
 check(joint_pos() - before > 1.0,
       "restoring the joint limit gives the jogs back",
       "moved %.3f mm" % (joint_pos() - before))
@@ -339,17 +414,16 @@ drain_errors()
 y_before = joint_pos(Y)
 Y_TIGHT = y_before + 12.7
 setp("milltask.inihal.1.max_limit", Y_TIGHT)
-time.sleep(0.3)
-c.jog(JOG_CONTINUOUS, 0, Y, 25.0)
-time.sleep(1.5)
-c.jog(JOG_STOP, 0, Y)
-time.sleep(0.5)
+limit_is(Y, Y_TIGHT)
+# One 25 mm jog: stopped by the backstop near its joint limit, or -- without
+# it -- run out to its end, twice the limit away.
+jog_once(Y, 25.0, "the Y jog toward its tightened limit")
 y_after = joint_pos(Y)
 check(y_before + 5.0 < y_after < Y_TIGHT + 1.0,
       "a joint-frame trip on Y is stopped while X sits outside its axis limits",
       "Y went from %.3f to %.3f mm, joint limit %.3f mm" % (y_before, y_after, Y_TIGHT))
 setp("milltask.inihal.1.max_limit", Y_MAX)
-time.sleep(0.3)
+limit_is(Y, Y_MAX)
 
 # ── the way back, under an external offset ──────────────────────────────────
 #
@@ -365,22 +439,16 @@ setp("axis.x.eoffset-enable", 1)
 setp("axis.x.eoffset-counts", -50)
 if not wait_for(lambda: abs(float(getp("axis.x.eoffset")) + 5.0) < 0.01,
                 "the external offset to settle"):
-    print("external offset did not settle; axis.x.eoffset = %s" % getp("axis.x.eoffset"))
-    sys.exit(1)
+    fail("external offset did not settle; axis.x.eoffset = %s" % getp("axis.x.eoffset"))
 if not joint_pos() > X_MAX:
-    print("X is inside its limit with the offset applied; joint 0 at %.3f mm" % joint_pos())
-    sys.exit(1)
+    fail("X is inside its limit with the offset applied; joint 0 at %.3f mm" % joint_pos())
 before = joint_pos()
-c.jog(JOG_CONTINUOUS, 0, X, -25.0)
-time.sleep(1.0)
-c.jog(JOG_STOP, 0, X)
-time.sleep(0.5)
+jog_until(X, -25.0, lambda: before - joint_pos() > 1.0, "X to jog back in")
 moved_back = before - joint_pos()
 check(moved_back > 1.0,
       "the jog back in is not aborted over an external offset in the recovery direction",
       "moved %.3f mm, wanted more than 1" % moved_back)
 
 if _checks != 14:
-    print("expected 14 checks, made %d" % _checks)
-    sys.exit(1)
+    fail("expected 14 checks, made %d" % _checks)
 print("ALL OK")

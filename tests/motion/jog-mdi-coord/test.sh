@@ -5,6 +5,10 @@ set -e
 
 . "$(dirname "$0")/../../stmak-driver.sh"
 
+# Build+install the in-position watch cmod (installs to EMC2_CMOD_DIR, where
+# stmakd's `load` resolves it).
+${SUDO} modcompile --install inpos_motion.comp
+
 rm -f server.log
 
 stmakd -r jog-mdi.ini >server.log 2>&1 &

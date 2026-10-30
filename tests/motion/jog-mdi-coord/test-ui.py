@@ -14,8 +14,10 @@
 #      the MDI must run after the jog, from where the jog ended (interpreter
 #      re-synched), ending at X3 in coordinated mode
 #   2. MDI G0 X0 returns to the start
-# For the axis jog, motion.in-position must be FALSE while the jog runs: in
-# teleop it was never recomputed and kept its value from before the jog.
+# motion.in-position must not stay TRUE while the joint moves: in teleop it
+# was never recomputed and kept its value from before the jog. inpos_motion
+# counts such cycles in the servo thread for the whole run (reading the pin
+# once, 0.1 s into the 0.4 s jog, failed whenever the script was late).
 #
 # PASS (fixed):   both MDIs run, X ends at 3 then 0, motion in coord mode.
 # FAIL (pre-fix): the MDIs fail, X stays at 2, motion stays in teleop/free.
@@ -26,7 +28,6 @@ from gmi.constants import *
 
 import subprocess
 import sys
-import time
 
 c = stmak_test.Command()
 s = gmi.Stat()
@@ -53,11 +54,8 @@ stmak_test.drain_mdi(s)
 
 ok = True
 for jjog, kind in ((False, "axis"), (True, "joint")):
+    moved_before = getp("moved.0.count")
     c.jog(JOG_INCREMENT, jjog, 0, 5.0, 2.0)
-    time.sleep(0.1)
-    if not jjog and getp("motion.in-position"):
-        print("FAIL: %s jog: motion.in-position TRUE while the jog runs" % kind)
-        ok = False
     try:
         c.mdi("G91 G0 X1")
         c.mdi("G90")
@@ -74,6 +72,11 @@ for jjog, kind in ((False, "axis"), (True, "joint")):
     stmak_test.drain_mdi(s)
     if abs(x()) > 1e-6:
         print("FAIL: %s jog: G0 X0 ended at X%.4f" % (kind, x()))
+        ok = False
+    moved = getp("moved.0.count") - moved_before
+    if moved:
+        print("FAIL: %s jog: X moved in %d servo cycles with motion.in-position "
+              "TRUE" % (kind, moved))
         ok = False
 
 if not ok:

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -55,6 +56,54 @@ func TestNewPlanners(t *testing.T) {
 	}
 	if len(route.Waypoints) < 2 {
 		t.Errorf("route has %d points, want at least a start and a goal", len(route.Waypoints))
+	}
+}
+
+// TestPlanWithinD13Budget: D13 lets a job's route planning add at most 100 ms
+// to its cycle. The planner's cost is judged by the fastest of several runs of
+// each plan between configured stations: a planner that is really too slow is
+// slow every time, while a preemption on a shared, non-realtime runner
+// stretches single runs and is never what the minimum measures. The plan-time
+// pin reports a single wall-clock run and so cannot carry this verdict.
+func TestPlanWithinD13Budget(t *testing.T) {
+	const budget = 100 * time.Millisecond
+	const runs = 20
+
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	set, err := newPlanners(cfg)
+	if err != nil {
+		t.Fatalf("newPlanners: %v", err)
+	}
+
+	var stations []pnproute.Point
+	for _, d := range cfg.TrayDefs {
+		stations = append(stations, d.SlotPos(0, 0))
+	}
+	for _, p := range cfg.Procs {
+		stations = append(stations, p.Pos)
+	}
+
+	for i, pl := range set.planners {
+		for _, from := range stations {
+			for _, to := range stations {
+				if from == to {
+					continue
+				}
+				fastest := time.Duration(math.MaxInt64)
+				for r := 0; r < runs; r++ {
+					start := time.Now()
+					if _, err := pl.Plan(from, to); err != nil {
+						t.Fatalf("planner %d: Plan %v -> %v: %v", i, from, to, err)
+					}
+					fastest = min(fastest, time.Since(start))
+				}
+				if fastest >= budget {
+					t.Errorf("planner %d: Plan %v -> %v takes %v at best, over D13's %v",
+						i, from, to, fastest, budget)
+				}
+			}
+		}
 	}
 }
 

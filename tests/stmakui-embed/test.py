@@ -36,10 +36,14 @@ import tkinter as tk
 from Xlib import X, XK, display
 from Xlib.ext import xtest
 
+import stmak_test
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 AXIS_PY = os.path.join(HERE, "..", "..", "src", "cnc", "usr_intf", "axis",
                        "scripts", "axis.py")
-TIMEOUT = 30.0      # generous: WebKit start-up on a loaded CI runner
+# Generous, as WebKit start-up on a loaded CI runner is slow; a deadline only
+# ends a wait that has failed.
+TIMEOUT = 30.0 * stmak_test.scale()
 
 
 def ok(name):
@@ -146,13 +150,16 @@ def wait_for(cond, timeout=TIMEOUT):
 
 
 def click(x, y):
-    """Click at (x, y) inside the Tk window."""
+    """Click at (x, y) inside the Tk window.
+
+    Returns once the X server has the click; where the keyboard ends up is
+    for the caller to wait for (into_page / out_of_page).
+    """
     xtest.fake_input(dpy, X.MotionNotify, x=root.winfo_rootx() + x,
                      y=root.winfo_rooty() + y)
     xtest.fake_input(dpy, X.ButtonPress, 1)
     xtest.fake_input(dpy, X.ButtonRelease, 1)
     dpy.sync()
-    pump(0.5)
 
 
 def keycode(name):
@@ -173,6 +180,18 @@ def plug_has_x_focus():
     return any(getattr(focus, "id", None) == k.id for k in kids)
 
 
+def into_page(x, y, name, focus):
+    """Click into the page and wait until it has the keyboard, with the DOM
+    focus on `focus` (a tag name): the X focus alone moves before WebKit has
+    handled the click, and a key typed then lands on the old element."""
+    seen = len(page_keys)
+    click(x, y)
+    if not wait_for(lambda: plug_has_x_focus()
+                    and ("click", focus) in page_keys[seen:]):
+        fail(name, "the click did not move the keyboard into the page to %s: %r"
+             % (focus, page_keys[seen:]))
+
+
 def tk_got(kind, name):
     return (kind, name) in tk_keys
 
@@ -183,7 +202,8 @@ def page_got(name, target=None):
 
 # A window manager gives the application window the focus; there is none here.
 root.focus_force()
-pump(0.2)
+if not wait_for(lambda: root.focus_get() is not None):
+    fail("setup", "Tk did not get the focus")
 
 # --- start: page requested before the server is up --------------------------
 
@@ -198,7 +218,9 @@ viewer = subprocess.Popen([stmakui, "--xid", str(container.winfo_id()),
                            "--path", "/app/embed/", "--instance", "testinst"],
                           env=env)
 try:
-    pump(1.5)       # connection refused meanwhile: stmakui must retry
+    # Connection refused meanwhile: stmakui must retry.  The window can only
+    # make the check weaker on a slow start, never fail a good run.
+    pump(1.5)
     start_server(port)
 
     if not wait_for(lambda: requests):
@@ -209,18 +231,21 @@ try:
         fail("url-carries-path-and-instance", "requested %r" % requests[0])
     ok("url-carries-path-and-instance")
 
-    # The page needs its script running before key reports mean anything.
-    pump(1.0)
+    # Key reports mean something only once the page's listener is in place.
+    if not wait_for(lambda: page_got("ready", "load")):
+        fail("page-loads-once-server-answers", "the page script did not run within %ds" % TIMEOUT)
 
     # --- a key the page uses stays in the page ------------------------------
-    click(60, 20)       # the input field
-    if not wait_for(plug_has_x_focus, 5):
-        fail("key-used-by-page-stays-in-page", "click did not move the keyboard into the page")
+    into_page(60, 20, "key-used-by-page-stays-in-page", "INPUT")     # the input field
     del tk_keys[:]
     key("b")
     if not wait_for(lambda: page_got("b", "INPUT")):
         fail("key-used-by-page-stays-in-page", "page did not see b")
-    pump(0.5)
+    # A barrier instead of a quiet period: WebKit answers keys in order, so a
+    # b handed on to Tk would be there before an unused key typed after it.
+    key("F8")
+    if not wait_for(lambda: tk_got("press", "F8") and tk_got("release", "F8")):
+        fail("key-used-by-page-stays-in-page", "the unused F8 after b never reached Tk: %r" % tk_keys)
     if tk_got("press", "b") or tk_got("release", "b"):
         fail("key-used-by-page-stays-in-page", "Tk saw b too: %r" % tk_keys)
     ok("key-used-by-page-stays-in-page")
@@ -228,21 +253,21 @@ try:
     # --- Escape is AXIS's abort: it must get through even from a field ------
     del tk_keys[:]
     key("Escape")
-    if not wait_for(lambda: tk_got("press", "Escape") and tk_got("release", "Escape"), 10):
+    if not wait_for(lambda: tk_got("press", "Escape") and tk_got("release", "Escape")):
         fail("escape-reaches-tk-from-a-field", "Tk saw %r" % tk_keys)
     ok("escape-reaches-tk-from-a-field")
 
     # --- an unused key reaches Tk, press while held, release on release -----
-    click(300, 250)     # the page body
+    into_page(300, 250, "unused-key-reaches-tk-with-press-and-release", "BODY")  # the body
     del tk_keys[:]
     key("F5", release=False)
-    if not wait_for(lambda: tk_got("press", "F5"), 10):
+    if not wait_for(lambda: tk_got("press", "F5")):
         fail("unused-key-reaches-tk-with-press-and-release", "no press: %r" % tk_keys)
     pump(0.3)
     if tk_got("release", "F5"):
         fail("unused-key-reaches-tk-with-press-and-release", "released while held: %r" % tk_keys)
     key("F5", press=False)
-    if not wait_for(lambda: tk_got("release", "F5"), 10):
+    if not wait_for(lambda: tk_got("release", "F5")):
         fail("unused-key-reaches-tk-with-press-and-release", "no release: %r" % tk_keys)
     ok("unused-key-reaches-tk-with-press-and-release")
 
@@ -251,7 +276,7 @@ try:
     # before WebKit has handed the press back as unused.
     del tk_keys[:]
     key("F6")
-    if not wait_for(lambda: tk_got("press", "F6") and tk_got("release", "F6"), 10):
+    if not wait_for(lambda: tk_got("press", "F6") and tk_got("release", "F6")):
         fail("fast-tap-reaches-tk-with-press-and-release", "Tk saw %r" % tk_keys)
     if tk_keys.index(("press", "F6")) > tk_keys.index(("release", "F6")):
         fail("fast-tap-reaches-tk-with-press-and-release", "release before press: %r" % tk_keys)
@@ -260,25 +285,23 @@ try:
     # --- held key, then the page loses the keyboard -------------------------
     del tk_keys[:]
     key("F7", release=False)
-    if not wait_for(lambda: tk_got("press", "F7"), 10):
+    if not wait_for(lambda: tk_got("press", "F7")):
         fail("held-key-released-when-page-loses-keyboard", "no press: %r" % tk_keys)
     click(entry.winfo_x() + 10, entry.winfo_y() + 5)
-    if not wait_for(lambda: tk_got("release", "F7"), 10):
+    if not wait_for(lambda: tk_got("release", "F7")):
         fail("held-key-released-when-page-loses-keyboard", "no release: %r" % tk_keys)
     key("F7", press=False)
     ok("held-key-released-when-page-loses-keyboard")
 
     # --- a click into Tk takes the keyboard back ----------------------------
-    click(300, 250)     # the page has the keyboard again
-    if not wait_for(plug_has_x_focus, 5):
-        fail("click-into-tk-takes-keyboard-back", "click did not move the keyboard into the page")
+    into_page(300, 250, "click-into-tk-takes-keyboard-back", "BODY")   # the body
     click(label.winfo_x() + 10, label.winfo_y() + 5)
-    if plug_has_x_focus():
+    if not wait_for(lambda: not plug_has_x_focus()):
         fail("click-into-tk-takes-keyboard-back", "page still has the X focus")
     del tk_keys[:]
     del page_keys[:]
     key("c")
-    if not wait_for(lambda: tk_got("press", "c") and tk_got("release", "c"), 10):
+    if not wait_for(lambda: tk_got("press", "c") and tk_got("release", "c")):
         fail("click-into-tk-takes-keyboard-back", "Tk saw %r" % tk_keys)
     pump(0.5)
     if page_got("c"):

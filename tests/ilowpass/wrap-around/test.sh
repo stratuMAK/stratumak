@@ -14,7 +14,7 @@ getout() { halcmd getp ilowpass.out 2>/dev/null | awk '{print $NF}'; }
 OUT=""
 wait_changed() {   # wait_changed <previous-value> <what>
     local prev="$1" what="$2" cur deadline
-    deadline=$(( SECONDS + 30 ))
+    deadline=$(( SECONDS + $(stmak_scale 30) ))
     while [ "$SECONDS" -lt "$deadline" ]; do
         cur=$(getout)
         if [ -n "$cur" ] && [ "$cur" != "$prev" ]; then

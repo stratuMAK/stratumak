@@ -33,10 +33,12 @@ def lock(value):
         detail=lambda st: "program_ui_disabled=%s" % st.program_ui_disabled)
 
 
-def pulse(pin):
-    """halui program pins act on the rising edge."""
+def pulse(pin, effect):
+    """halui pins act on the rising edge: raise the pin, wait for its effect
+    (effect() waits and fails the test), then drop it. Held for a fixed
+    0.1 s, the pulse could fall between two ticks of halui's monitor."""
     subprocess.run(["halcmd", "setp", pin, "1"], check=True)
-    time.sleep(0.1 * stmak_test.scale())
+    effect()
     subprocess.run(["halcmd", "setp", pin, "0"], check=True)
 
 
@@ -88,8 +90,8 @@ c.set_optional_stop(True, force=True)
 stmak_test.wait_stat(s, lambda st: st.optional_stop, "forced optional stop")
 print("ok: forced set_optional_stop")
 
-pulse("halui.program.block-delete.on")
-stmak_test.wait_stat(s, lambda st: st.block_delete, "halui block delete")
+pulse("halui.program.block-delete.on",
+      lambda: stmak_test.wait_stat(s, lambda st: st.block_delete, "halui block delete"))
 print("ok: halui block-delete.on")
 
 # --- run, pause, resume, abort ---------------------------------------------
@@ -116,8 +118,8 @@ if s.interp_state not in (INTERP_READING, INTERP_WAITING):
                     "(interp_state=%d)" % s.interp_state)
 print("ok: program carries on")
 
-pulse("halui.program.pause")
-interp_is((INTERP_PAUSED,), "halui pause")
+pulse("halui.program.pause",
+      lambda: interp_is((INTERP_PAUSED,), "halui pause"))
 print("ok: halui pause")
 
 refused("auto resume", c.auto, AUTO_RESUME)
@@ -126,8 +128,8 @@ c.auto(AUTO_RESUME, force=True)
 interp_is((INTERP_READING, INTERP_WAITING), "the forced resume")
 print("ok: forced resume")
 
-pulse("halui.program.stop")
-interp_is((INTERP_IDLE,), "halui stop")
+pulse("halui.program.stop",
+      lambda: interp_is((INTERP_IDLE,), "halui stop"))
 print("ok: halui stop")
 
 c.auto(AUTO_RUN, force=True)

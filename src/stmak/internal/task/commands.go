@@ -298,7 +298,7 @@ func (t *Task) signalAbort() {
 	// operator asked for everything in progress to stop, and a filter can run
 	// for minutes.
 	t.cancelFiltering()
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 }
 
 // This file implements the 27 emccmd GMI methods.
@@ -384,7 +384,7 @@ type shutdownOpts struct {
 func (t *Task) stopSignals(o shutdownOpts) {
 	t.AbortSequencer()
 	t.mcodeAbort()
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 	if o.disable {
 		_ = t.motion.Disable()
 	}
@@ -490,6 +490,21 @@ func (t *Task) pushDefaultTermCond() {
 	t.canon.lastTermCond = cond
 	t.canon.lastTermTol = tol
 	t.canon.lastTermSet = true
+}
+
+// syncTermCond is pushDefaultTermCond on change only: it sends the canon's
+// modal blending mode when it differs from what the TP was last given, so a
+// capture stays free of a redundant SET_TERM_COND when nothing changed.
+func (t *Task) syncTermCond() {
+	if t.canon == nil {
+		return
+	}
+	c := t.canon
+	if c.lastTermSet && canonModeToTPTermCond(c.state.motionMode) == c.lastTermCond &&
+		c.state.motionTolerance == c.lastTermTol {
+		return
+	}
+	t.pushDefaultTermCond()
 }
 
 // fullShutdownOpts returns the options for a full machine off/estop teardown.
@@ -608,7 +623,7 @@ func (t *Task) setState(state int32) error {
 		// are cleared — including when estop was entered from a non-ON state,
 		// whose light teardown did no IoAbort at all. The reason (5) is the
 		// argument a configured ON_ABORT_COMMAND sees.
-		_ = t.motion.Abort()
+		_ = t.abortMotion()
 		_ = t.io.IoAbort(emcAbortTaskStateEstopReset)
 		_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 		if t.interp != nil {
@@ -1680,7 +1695,7 @@ func (t *Task) executeMDI(command string) error {
 // MDI caller already holding cmdMu can call it.
 func (t *Task) faultProgram(reason int32, msg string) {
 	t.operatorError(msg)
-	_ = t.motion.Abort() // stop what is already moving
+	_ = t.abortMotion() // stop what is already moving
 	// Run the interpreter's on_abort so it reset()s and clears the
 	// toolchange/probe/input/mdi_interrupt flags that an interrupted remapped
 	// procedure may have left set — otherwise the next tool change can fail with
@@ -1794,7 +1809,7 @@ func (t *Task) faultMDI(msg string) {
 	// failed remapped M6. The AUTO readahead path (faultProgram alone)
 	// deliberately does no IoAbort/spindle stop, to match 2.9 which only
 	// clears the interp list and runs on_abort there.
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.flushMDIQueue()
 	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
@@ -1861,10 +1876,19 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 
 	// Run-from-line: if startLine > 0, read/execute lines without enqueuing
 	// motion commands until we reach startLine (matching C milltask behavior).
+	// The seek stops with the start line read but not executed: it runs below
+	// like every line after it.
+	startRead := false
 	if startLine > 0 {
-		if aborted := t.seekToLine(interp, startLine, abort); aborted {
+		aborted := false
+		if aborted, startRead = t.seekToLine(interp, startLine, abort); aborted {
 			return
 		}
+		// G61/G64 in the skipped lines reached the canon but, discarded, never
+		// the TP; its on-change cache would then keep the start line's own
+		// G64 from being sent either. Hand the TP the modal blending mode the
+		// skipped lines left, if it differs from what the TP has.
+		t.syncTermCond()
 	}
 
 	for {
@@ -1875,18 +1899,22 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 		default:
 		}
 
-		rc, err := interp.Read()
-		if err != nil {
-			t.logger.Error("interpreter read error", "err", err, "rc", rc)
-			t.faultProgram(emcAbortInterpreterError, fmt.Sprintf("Interpreter read error: %v", err))
-			return
-		}
-		if rc == InterpEndfile || rc == InterpExit {
-			// Best-effort completion signal: if the sequencer was aborted
-			// concurrently the enqueue fails, but recoverSeqFault/the abort
-			// select already own teardown (see recoverSeqFault doc).
-			_ = t.EnqueueCmd(&interpDoneCmd{})
-			return
+		if startRead {
+			startRead = false
+		} else {
+			rc, err := interp.Read()
+			if err != nil {
+				t.logger.Error("interpreter read error", "err", err, "rc", rc)
+				t.faultProgram(emcAbortInterpreterError, fmt.Sprintf("Interpreter read error: %v", err))
+				return
+			}
+			if rc == InterpEndfile || rc == InterpExit {
+				// Best-effort completion signal: if the sequencer was aborted
+				// concurrently the enqueue fails, but recoverSeqFault/the abort
+				// select already own teardown (see recoverSeqFault doc).
+				_ = t.EnqueueCmd(&interpDoneCmd{})
+				return
+			}
 		}
 
 		// Update readLine after successful read.
@@ -1895,7 +1923,7 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 		t.mu.Unlock()
 
 		startSerial := t.canon.serial()
-		rc, err = interp.Execute()
+		rc, err := interp.Execute()
 		if err != nil {
 			t.logger.Error("interpreter execute error", "err", err, "rc", rc)
 			t.faultProgram(emcAbortInterpreterError, fmt.Sprintf("Interpreter error: %v", err))
@@ -1936,11 +1964,15 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 }
 
 // seekToLine reads and executes interpreter lines without enqueuing motion
-// commands (they are discarded) until we reach startLine. This implements
+// commands (they are discarded) until it reads startLine. This implements
 // "Run from line N": the interpreter processes preamble (offsets, units, tool
 // changes) so it's in the correct state, but no actual motion is queued.
-// Returns true if aborted.
-func (t *Task) seekToLine(interp Interpreter, startLine int32, abort <-chan struct{}) bool {
+// Lines before startLine are skipped and startLine itself runs, like C
+// milltask (readLine < programStartLine): the seek returns with that line
+// read but not executed (startRead), for the caller to execute normally. It
+// used to execute it here, into the discard sink, so the run started one line
+// late. Returns aborted=true if aborted or the file ended first.
+func (t *Task) seekToLine(interp Interpreter, startLine int32, abort <-chan struct{}) (aborted, startRead bool) {
 	// Temporarily redirect canon enqueue to a discard sink.
 	t.canon.setDiscard(true)
 	defer t.canon.setDiscard(false)
@@ -1948,7 +1980,7 @@ func (t *Task) seekToLine(interp Interpreter, startLine int32, abort <-chan stru
 	for {
 		select {
 		case <-abort:
-			return true
+			return true, false
 		default:
 		}
 
@@ -1956,21 +1988,34 @@ func (t *Task) seekToLine(interp Interpreter, startLine int32, abort <-chan stru
 		if err != nil {
 			t.logger.Error("interpreter read error during seek", "err", err)
 			t.setInterpState(InterpIdle)
-			return true
+			return true, false
 		}
 		if rc == InterpEndfile || rc == InterpExit {
 			// Reached end before startLine — run from beginning
 			t.logger.Warn("seekToLine: reached end before target line", "target", startLine)
-			return true
+			return true, false
 		}
 
-		lineNow := int32(interp.Line())
+		// Only a line of the program itself counts: inside a subroutine or a
+		// remap (call level > 0) Line() numbers the lines of that file, so a
+		// remapped M-code before the start line would end the seek half-way
+		// through its body (C milltask: emcTaskPlanLevel() == 0).
+		if interp.CallLevel() == 0 && int32(interp.Line()) >= startLine {
+			// The start line: leave it unexecuted for the caller, and sync the
+			// interpreter with the actual machine position first, so its first
+			// real move goes to the right place.
+			t.canon.syncEndPointFromMachine()
+			if err := interp.Synch(); err != nil {
+				t.logger.Error("interp synch after seek", "err", err)
+			}
+			return false, true
+		}
 
 		rc, err = interp.Execute()
 		if err != nil {
 			t.logger.Error("interpreter execute error during seek", "err", err)
 			t.setInterpState(InterpIdle)
-			return true
+			return true, false
 		}
 		t.updateActiveCodes(interp)
 
@@ -1980,17 +2025,6 @@ func (t *Task) seekToLine(interp Interpreter, startLine int32, abort <-chan stru
 			if err := interp.Synch(); err != nil {
 				t.logger.Error("interp synch during seek", "err", err)
 			}
-		}
-
-		// Check if we've reached the target line.
-		if lineNow >= startLine {
-			// Sync interpreter position with actual machine position
-			// so the first real move goes to the right place.
-			t.canon.syncEndPointFromMachine()
-			if err := interp.Synch(); err != nil {
-				t.logger.Error("interp synch after seek", "err", err)
-			}
-			return false
 		}
 	}
 }
@@ -2646,7 +2680,7 @@ func (t *Task) abortMachineLocked(full bool) {
 	// External calls (no mutex held — won't block stat reads).
 	t.AbortSequencer()
 	t.mcodeAbort()
-	_ = t.motion.Abort()
+	_ = t.abortMotion()
 	if full {
 		_ = t.io.IoAbort(emcAbortTaskAbort)
 		_ = t.motion.SpindleOff(-1) // all-spindles broadcast

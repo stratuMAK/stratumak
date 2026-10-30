@@ -58,6 +58,23 @@ net pnp-y-fb  pnp.hand.1.out                => pnp.mot.joint.1.motor-pos-fb
 net pnp-z-cmd pnp.mot.joint.2.motor-pos-cmd => pnp.hand.2.in0
 net pnp-z-fb  pnp.hand.2.out                => pnp.mot.joint.2.motor-pos-fb
 
+# A job stopped in mid-travel, for the scenarios that need one standing there
+# (estop): once armed (pnp.stop.gate.in0), Y passing 100 latches the feed
+# inhibit, so the move halts in the servo thread wherever the scenario's own
+# requests happen to be in time.  pnp.stop.latch.reset clears it.  Disarmed,
+# as every other scenario runs, it does nothing.
+load comp     <pnp.stop.at>
+load flipflop <pnp.stop.latch>
+load and2     <pnp.stop.gate>
+addf pnp.stop.at    servo-thread
+addf pnp.stop.latch servo-thread
+addf pnp.stop.gate  servo-thread
+net pnp-y-cmd => pnp.stop.at.in1
+setp pnp.stop.at.in0 100
+net pnp-stop-at    pnp.stop.at.out    => pnp.stop.latch.set
+net pnp-stop-latch pnp.stop.latch.out => pnp.stop.gate.in1
+net pnp-stop       pnp.stop.gate.out  => pnp.mot.motion.feed-inhibit
+
 # Instant home: the switch is always made, so a home search finishes at once.
 setp pnp.home.joint.0.home-sw-in 1
 setp pnp.home.joint.1.home-sw-in 1

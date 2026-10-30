@@ -1,0 +1,30 @@
+component inpos_motion """Count servo cycles in which a joint moves although motion reports it in position.
+
+A cycle counts when in-position was TRUE in the previous cycle, is still
+TRUE, and the watched position changed: the machine moving on after it was
+reported at rest. The cycle a move starts (in-position falls with it) and
+the cycle it arrives (in-position rises with it) do not count. Counted in
+the servo thread, so the result does not depend on when a test looks.
+Steps below 1e-9 do not count: a mode switch hands the position from one
+planner to another with a rounding step of ~1e-16.""";
+
+pin in  bit   inpos  "motion.in-position";
+pin in  float pos    "Watched position (joint motor position command)";
+pin out s32   count  "Cycles moved while reported in position";
+
+variable int was = 1;
+variable double last = 0;
+variable int primed = 0;
+
+function _;
+license "GPL";
+;;
+
+#include <math.h>
+
+
+if (primed && was && inpos && fabs(pos - last) > 1e-9)
+    count++;
+was = inpos;
+last = pos;
+primed = 1;

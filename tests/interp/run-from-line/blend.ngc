@@ -1,0 +1,5 @@
+G64 (line 1: skipped by AUTO_RUN 2)
+G0 X0 Y0 F120
+G1 X5 Y1
+G1 X0 Y2
+M2

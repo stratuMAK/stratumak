@@ -14,7 +14,6 @@ import os
 import math
 
 # this is how long we wait for linuxcnc to do our bidding
-timeout = 5.0
 
 
 # unbuffer stdout
@@ -74,7 +73,10 @@ l.jog_axis('z', 0.0)
 # do some MDI commands
 #
 
+# jog_axis returned with the machine at rest, so motion takes the switch;
+# confirm it did before the first MDI rather than assume it.
 c.mode(MODE_MDI)
+stmak_test.wait_stat(s, lambda st: st.task_mode == MODE_MDI, "MDI mode")
 
 gcode = 'g0 x2 z2'
 print("running gcode: {}".format(gcode))

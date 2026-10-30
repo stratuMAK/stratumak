@@ -1464,8 +1464,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 
 	case EMCMOT_AF_ENABLE:
 	    /* enable/disable adaptive feedrate override from HAL pin */
-	    /* can happen at any time */
-	    if ( inst->command->flags != 0 ) {
+	    /* can happen at any time.  The flag is in .mode, as for the other
+	       enables: testing .flags (where LinuxCNC's task put it) left M52 P1
+	       without effect. */
+	    if ( inst->command->mode != 0 ) {
 		stmak_log_debugf(inst->log, inst->name, "ADAPTIVE FEED: ON");
 		inst->status->enables_new |= AF_ENABLED;
             } else {

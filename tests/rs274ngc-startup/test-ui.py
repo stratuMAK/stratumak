@@ -7,7 +7,6 @@ from gmi.constants import *
 import stmak_test
 
 import math
-import time
 import sys
 
 # stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
@@ -16,29 +15,25 @@ c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
-# Wait for startup + RS274NGC_STARTUP_CODE (G43 H1) to be applied.
-t = time.time()
-while time.time() - t < 10:
-    s.poll()
-    if s.interp_state == INTERP_IDLE and s.task_state != 0:
-        break
-    time.sleep(0.1)
-time.sleep(0.5)
-
-s.poll()
-retval = 0
-
-if s.g5x_index != 1:
-    print("Expected g5x_index=1 (startup in G54), got %d instead" % s.g5x_index)
-    retval = 1
-
 # The tool table Z offset is 0.1234 inch; the gmi stat API reports tool
 # offsets in stratuMAK's internal millimetres (mm-everywhere convention, see
 # docs/dev/UNITS_MM_CONSISTENCY_FIX.md).
 expected = 0.1234 * 25.4
-if math.fabs(s.tool_offset[2] - expected) > 0.000001:
-    print("Expected tool offset of %f (0.1234 in) via startup gcode not detected" % expected)
-    print("Got %f instead." % s.tool_offset[2])
+
+# RS274NGC_STARTUP_CODE (G43 H1) has run once its offset is in effect: wait
+# for exactly that, rather than for an idle interpreter plus half a second.
+retval = 0
+try:
+    stmak_test.wait_stat(
+        s, lambda st: math.fabs(st.tool_offset[2] - expected) <= 0.000001,
+        "the startup G43 H1 to apply a Z tool offset of %f (0.1234 in)" % expected,
+        detail=lambda st: "tool_offset[2]=%f" % st.tool_offset[2])
+except stmak_test.Timeout as err:
+    print(err)
+    retval = 1
+
+if s.g5x_index != 1:
+    print("Expected g5x_index=1 (startup in G54), got %d instead" % s.g5x_index)
     retval = 1
 
 sys.exit(retval)

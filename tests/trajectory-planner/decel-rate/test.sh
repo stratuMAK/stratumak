@@ -9,14 +9,13 @@
 set -e
 rm -f vel.txt sim.var sim.var.bak
 
-stmakd -r decel.ini >server.log 2>&1 &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
+. ../../stmak-driver.sh
+stmak_start_server decel.ini
+# The machine must be up before the run starts: a guess at readiness here let
+# the script's first commands reach a task that was not ready yet.
+stmak_wait_ready
 
 ./run-decel.py
-
-# Stop the server so filestream flushes and closes vel.txt before checkresult.
-kill $SRV 2>/dev/null; wait 2>/dev/null
-trap - EXIT
+stmak_check_filestream
+# The EXIT trap stops the server, so filestream flushes and closes vel.txt
+# before checkresult reads it.

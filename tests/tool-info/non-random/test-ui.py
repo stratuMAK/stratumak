@@ -42,6 +42,7 @@ e = gmi.ErrorChannel()
 
 
 def wait_for_linuxcnc_startup(status, timeout=10.0):
+    timeout *= stmak_test.scale()
     start_time = time.time()
     while time.time() - start_time < timeout:
         status.poll()
@@ -55,29 +56,12 @@ def wait_for_linuxcnc_startup(status, timeout=10.0):
 
 
 def verify_interp_vars(state, current_tool, current_pocket, selected_tool, selected_pocket):
-    c.mdi('(debug,current_tool=#<_current_tool> current_pocket=#<_current_pocket> selected_tool=#<_selected_tool> selected_pocket=#<_selected_pocket>)')
-    c.wait_complete()
-
     expected = "current_tool=%.6f current_pocket=%.6f selected_tool=%.6f selected_pocket=%.6f" % (current_tool, current_pocket, selected_tool, selected_pocket)
-
-    deadline = time.time() + 3.0
-    while time.time() < deadline:
-        result = e.poll()
-        if result is None:
-            time.sleep(0.05)
-            continue
-        (typ, msg) = result
-        if typ == OPERATOR_DISPLAY:
-            if msg == expected:
-                break
-            print("state='%s', unexpected interp variables" % state)
-            print("result: {}".format(msg))
-            print("expected: {}".format(expected))
-            sys.exit(1)
-        else:
-            print("state='%s', ignoring unexpected error type %d: %s" % (state, typ, msg))
-    else:
-        print("state='%s', timeout waiting for interp variables" % state)
+    msg = stmak_test.debug_reply(c, s, e, 'current_tool=#<_current_tool> current_pocket=#<_current_pocket> selected_tool=#<_selected_tool> selected_pocket=#<_selected_pocket>')
+    if msg != expected:
+        print("state='%s', unexpected interp variables" % state)
+        print("result: {}".format(msg))
+        print("expected: {}".format(expected))
         sys.exit(1)
 
     print("state='%s', got expected interp variables:" % state)
@@ -107,13 +91,10 @@ def verify_status_buffer(state, tool_in_spindle):
     # Poll for the expected value rather than betting on how fast task
     # republishes it.  The loop exits as soon as it lands, so the ceiling is
     # sized for a loaded CI runner and costs nothing on the happy path.
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        s.poll()
-        if s.tool_in_spindle == tool_in_spindle:
-            break
-        time.sleep(.05)
-    if s.tool_in_spindle != tool_in_spindle:
+    try:
+        stmak_test.wait_stat(s, lambda st: st.tool_in_spindle == tool_in_spindle,
+                             "status.tool_in_spindle to become %d" % tool_in_spindle)
+    except stmak_test.Timeout:
         print("state=%s, expected status.tool_in_spindle=%d, got %d" % (state, tool_in_spindle, s.tool_in_spindle))
         sys.exit(1)
     print("state='%s', got expected status buffer fields:" % state)
@@ -121,6 +102,7 @@ def verify_status_buffer(state, tool_in_spindle):
 
 
 def wait_for_hal_pin(pin_name, value, timeout=10):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() < (start + timeout):
         if h[pin_name] == value:

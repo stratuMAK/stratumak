@@ -51,18 +51,20 @@ def sets(signal, value):
     subprocess.run(["halcmd", "sets", signal, str(value)], check=True)
 
 
-def rearm(phase, feed=False, spindle=False, hold=False):
+def rearm(phase, feed=False, spindle=False, hold=False, stall=False):
     """Clear the latch, pick the input the trigger drives, mark the trace."""
     sets("latch-reset", 1)
     sets("latch-reset", 0)
     sets("arm-feed", 1 if feed else 0)
     sets("arm-spindle", 1 if spindle else 0)
     sets("arm-hold", 1 if hold else 0)
+    sets("arm-stall", 1 if stall else 0)
     sets("phase", phase)
 
 
 def trace(phase):
-    """Rows (z, speed, feed_inh, spin_inh, hold) sampled while phase was `phase`.
+    """Rows (z, speed, feed_inh, spin_inh, hold, paused) sampled while phase
+    was `phase`.
 
     filestream keeps appending every servo cycle, so the file is never
     "stable"; a caller that needs the trace up to some event waits for that
@@ -71,9 +73,9 @@ def trace(phase):
     rows = []
     for line in open(TRACE):
         p = line.split()
-        if len(p) >= 6 and int(p[0]) == phase:
+        if len(p) >= 7 and int(p[0]) == phase:
             rows.append((float(p[1]), float(p[2]), int(p[3]), int(p[4]),
-                         int(p[5])))
+                         int(p[5]), int(p[6])))
     return rows
 
 
@@ -102,6 +104,20 @@ def held(phase, column, what):
     check(all(abs(r[0] - 2.0) < 1e-6 for r in got),
           "the move after the cycle is held by %s" % what,
           "Z range %.4f..%.4f" % (min(r[0] for r in got), max(r[0] for r in got)))
+
+
+def stalled(phase):
+    """Z standing still just below the mark, with the task not yet paused.
+
+    The hold fires one cycle after Z passes -2, so a working M52 stops Z
+    within a fraction of a millimetre of it. Z also stands still at the
+    bottom (-5) while the spindle reverses: without the bound, a hold that
+    did nothing would pass as "stalled" there, and the pause phase would
+    silently fall back to the timing bet it replaces.
+    """
+    rows = [r for r in trace(phase) if r[0] < -2.0]
+    return (len(rows) >= 2 and rows[-1][0] == rows[-2][0] and rows[-1][0] > -3.0
+            and not rows[-1][5])
 
 
 def tap(timeout=30):
@@ -215,28 +231,33 @@ sets("arm-hold", 0)
 c.wait_complete()
 
 # --- a program pause mid-tap -------------------------------------------------
-# Pause is a task command, so it is sent from here when Z passes the mark; the
-# check below refuses a run in which it missed the tap.  Both halves are under
-# test: motion must not stop the feed, and the task's sequencer must not hold
-# the spindle reversal at the bottom -- it is waiting on that reversal when
-# the pause arrives.
-rearm(8)
+# Both halves are under test: motion must not stop the feed, and the task's
+# sequencer must not hold the spindle reversal at the bottom -- it is waiting
+# on that reversal when the pause arrives.  A pause is a task command, so it
+# cannot be sent from the servo thread; instead the adaptive feed holds Z in
+# the tap from the mark until the task reports the pause (tapping-cycle.hal),
+# so the pause lands inside the tap however late it is sent or acted on.  It is
+# sent once Z stands, which also proves the hold (M52) works at all.
+rearm(8, stall=True)
 c.mode(MODE_AUTO)
 c.wait_complete()
 c.program_open("tap.ngc")
 c.auto(AUTO_RUN, 0)
-stmak_test.wait_stat(s, lambda st: st.joint[2]["output"] < -2.0,
-                     "Z to pass the mark", interval=0.002)
+stmak_test.wait_until(lambda: stalled(8), "the adaptive feed to hold Z in the tap",
+                      detail=lambda: "Z %.4f" % trace(8)[-1][0])
 c.auto(AUTO_PAUSE)
-s.poll()
-z_paused = s.joint[2]["output"]
-check(-5.0 < z_paused < -2.0, "the pause landed inside the tap", "Z %.4f" % z_paused)
 rows = caught_up(8)
+first = next((r for r in rows if r[5]), None)
+check(first is not None and -5.0 < first[0] < -2.0,
+      "the pause landed inside the tap",
+      "Z %.4f at the pause" % first[0] if first else "never paused")
 check(min(r[0] for r in rows) <= -4.999, "Z still reached the bottom under the pause",
       "min Z %.4f" % min(r[0] for r in rows))
-check(any(r[1] < 0 for r in rows), "the spindle reversed at the bottom under the pause")
+check(any(r[1] < 0 and r[5] for r in rows),
+      "the spindle reversed at the bottom under the pause")
 sets("phase", 9)
 held(9, None, "the pause")
+sets("arm-stall", 0)
 c.auto(AUTO_RESUME)
 stmak_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE, "the program to end")
 s.poll()

@@ -25,6 +25,9 @@ func poll(t *testing.T, fn func() (json.RawMessage, error)) []emcerror.PublishEr
 		t.Fatalf("watch fn: %v", err)
 	}
 	var evs []emcerror.PublishErrorEvent
+	if raw == nil {
+		return evs // no new events: the watch sends nothing (an Events watch)
+	}
 	if err := json.Unmarshal(raw, &evs); err != nil {
 		t.Fatalf("unmarshal %q: %v", raw, err)
 	}

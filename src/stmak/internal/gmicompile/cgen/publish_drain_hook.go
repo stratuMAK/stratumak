@@ -146,6 +146,7 @@ func (g *publishDrainHookGen) emitDrainHook(fn ast.Func) {
 		g.printf("\t\t\t\tName:        %q,\n", watchName)
 		g.printf("\t\t\t\tDefaultRate: %d * time.Millisecond,\n", rateMs)
 		g.printf("\t\t\t\tFactory:     drain.WatchFactory(),\n")
+		g.printf("\t\t\t\tEvents:      true,\n")
 		g.printf("\t\t\t},\n")
 		g.printf("\t\t},\n")
 		g.printf("\t})\n")

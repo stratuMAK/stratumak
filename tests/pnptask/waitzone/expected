@@ -7,6 +7,7 @@ PASS the last leg drives into the once-blocked station
 PASS the station holds the part
 PASS the stop at the wait position was counted
 PASS the station is emptied back into the tray
+PASS station 22 is busy and enclosed while the head is at the tray
 PASS the job that never had to wait
 PASS the station holds the part
 PASS the approach did not stop, so nothing was counted

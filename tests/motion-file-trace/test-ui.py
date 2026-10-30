@@ -22,17 +22,16 @@ call boundary under the wrong side of it. Only a running machine showed it.
 """
 
 import os
+import subprocess
 import sys
-import time
 
 import gmi
 from gmi.constants import *
 import stmak_test
 
-# Each move is 5 mm at 600 mm/min = 0.5 s, in G61 exact stop so segments do
-# not blend or chain — every one of them is the executing segment for long
-# enough that a 20 ms poll cannot miss it.
-POLL = 0.02
+# Every segment is held at its start until it has been recorded (hold.hal):
+# the trace is taken one segment at a time, not by polling a moving machine,
+# so no poll can fall between two segments and lose one.
 
 s = gmi.Stat()
 c = stmak_test.Command()
@@ -45,29 +44,51 @@ c.mode(MODE_AUTO)
 c.program_open('main.ngc')
 c.wait_complete()
 
-trace = []          # (basename, line) transitions, in order
+
+def segment():
+    return int(stmak_test.getp("motion.segment-id"))
+
+
+def ack(sid):
+    subprocess.run(["halcmd", "sets", "ack", str(sid)], check=True)
+
+
+trace = []          # (basename, line) of every segment, in order
 absolute = True     # every non-empty motion_file arrives as an absolute path
 main_paths = set()  # full motion_file values seen for the main program
 
+acked = segment()
+ack(acked)
 c.auto(AUTO_RUN, 0)
 
-deadline = time.time() + 60 * stmak_test.scale()
-started = False
-while time.time() < deadline:
+def next_or_end():
+    """A segment not yet recorded is held, or the program has ended -- which
+    it cannot while one is held."""
+    if segment() != acked:
+        return True
     s.poll()
+    return s.interp_state == INTERP_IDLE
+
+
+while True:
+    stmak_test.wait_until(next_or_end, "the next segment or the end of the program")
+    sid = segment()
+    if sid == acked:
+        break           # the program ended with every segment recorded
+    # The status catches up with motion by the task's next cycle; the segment
+    # stands meanwhile.
+    stmak_test.wait_stat(s, lambda st: st.motion_id == sid,
+                         "the status to report segment %d" % sid,
+                         detail=lambda st: "motion_id %d" % st.motion_id)
     f = s.motion_file
-    if f:
+    if f:               # an id that names no program line has no file
         if not os.path.isabs(f):
             absolute = False
-        key = (os.path.basename(f), s.motion_line)
-        if not trace or trace[-1] != key:
-            trace.append(key)
-        if key[0] == 'main.ngc':
+        trace.append((os.path.basename(f), s.motion_line))
+        if trace[-1][0] == 'main.ngc':
             main_paths.add(f)
-        started = True
-    if started and s.interp_state == INTERP_IDLE and not s.motion_line:
-        break
-    time.sleep(POLL)
+    acked = sid
+    ack(sid)
 
 print("trace:")
 for name, line in trace:

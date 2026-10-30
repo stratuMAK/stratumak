@@ -8,6 +8,9 @@ feedback — only the step at the re-enable transition is the defect.""";
 pin in  float in       "Watched value (motor position command)";
 pin in  bit   arm      "Track while TRUE; max-step clears on the rising edge";
 pin out float max_step "Largest per-cycle |delta| of in seen while armed";
+pin in  bit   enabled  "motion.motion-enabled";
+pin out u32   enabled_cycles "Cycles seen enabled while armed (clears on arming)";
+pin out bit   dropped  "Latched: enabled fell again while armed (clears on arming)";
 
 variable double prev = 0.0;
 variable int was_armed = 0;
@@ -17,6 +20,12 @@ license "GPL";
 ;;
 
 if (arm) {
+    if (enabled) {
+        enabled_cycles++;
+    } else if (enabled_cycles > 0) {
+        /* motion disabled itself after coming on: a fault tripped */
+        dropped = 1;
+    }
     if (was_armed) {
         double d = in - prev;
         if (d < 0.0) d = -d;
@@ -25,6 +34,8 @@ if (arm) {
         /* arming edge: start fresh, but measure from THIS cycle's value so
            the very next cycle's step is seen (the enable transition). */
         max_step = 0.0;
+        enabled_cycles = enabled ? 1 : 0;
+        dropped = 0;
     }
     was_armed = 1;
 } else {

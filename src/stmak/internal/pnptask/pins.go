@@ -65,6 +65,14 @@ type pinSet struct {
 	// shift, not a property of one job.
 	waitStops *hal.Pin[uint32]
 
+	// cycleCount advances once per control cycle, after the cycle has sampled
+	// its inputs and published its outputs. A driver that sets an input and
+	// then sees the count go up by two knows the input has been sampled since:
+	// the cycle behind the first increment may have read the inputs before
+	// the write, the one behind the second cannot have. That replaces holding
+	// a request pin for a guessed time, which a loaded host stretches.
+	cycleCount *hal.Pin[uint32]
+
 	// Error latch.
 	errorFlag  *hal.Pin[bool]   // out
 	errorID    *hal.Pin[uint32] // out, 0 = none
@@ -237,6 +245,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.busy = mkPin[bool](b, "busy", hal.Out)
 	p.planTime = mkPin[float64](b, "plan-time", hal.Out)
 	p.waitStops = mkPin[uint32](b, "wait-stops", hal.Out)
+	p.cycleCount = mkPin[uint32](b, "cycle-count", hal.Out)
 
 	p.errorFlag = mkPin[bool](b, "error", hal.Out)
 	p.errorID = mkPin[uint32](b, "error-id", hal.Out)

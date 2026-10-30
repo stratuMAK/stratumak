@@ -368,6 +368,7 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
 	halcmd "github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
+	halparse "github.com/stratuMAK/stratumak/src/stmak/internal/halparse"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
@@ -602,7 +603,22 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 // "load" REST endpoint).  It resolves the path, calls loadCPlugin, Init,
 // and Start so the module is fully operational when the call returns.
 func (l *Launcher) runtimeLoadModule(module string, args []string) error {
-	return l.loadModuleNamed(module, "", args)
+	// The same <name1,name2,...> instance list a HAL file's load takes: it
+	// used to reach the module as a plain argument, so `halcmd load comp
+	// <a.b>` came up named "comp" and a second one failed as a duplicate.
+	names, rest, err := halparse.SplitInstanceNames(args)
+	if err != nil {
+		return fmt.Errorf("load %s: %w", module, err)
+	}
+	if len(names) == 0 {
+		return l.loadModuleNamed(module, "", rest)
+	}
+	for _, name := range names {
+		if err := l.loadModuleNamed(module, name, rest); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // loadModuleNamed loads a single module (cmod plugin or Go module) at runtime

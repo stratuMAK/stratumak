@@ -42,13 +42,7 @@ stmak_wait_ready
 # o<m103check> sub has printed sub-udr=, M101 has long since logged its
 # completion (checkresult greps server.log for both); the EXIT trap tears the
 # server down.
-for i in $(seq 100); do
-    grep -q 'sub-udr=' server.log && break
-    sleep 0.1
-done
-for i in $(seq 100); do
-    grep -q 'sub-udr=' server.log && break
-    sleep 0.1
-done
+stmak_wait_until 10 "the handler's sub-udr= report in server.log" \
+    "grep -q 'sub-udr=' server.log"
 
 exit 0

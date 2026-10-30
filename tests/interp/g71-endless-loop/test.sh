@@ -8,8 +8,9 @@
 rs274 -g g71-endless-loop.ngc | awk '{$1=""; print}' > result &
 pid=$!
 
-# Give it 10 seconds to complete
-count=10
+# Give it 10 seconds to complete (scaled for slow runners)
+. "$(dirname "$0")/../../stmak-scale.sh"
+count=$(stmak_scale 10)
 while [ 0 -lt $count ] && kill -0 $pid > /dev/null 2>&1 ; do
     sleep 1
     count=$(($count - 1))

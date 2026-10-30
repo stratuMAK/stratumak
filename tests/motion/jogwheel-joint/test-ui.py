@@ -45,21 +45,14 @@ h = HalShim()
 
 
 def wait_for_joint_to_stop(joint_number):
-    pos_pin = 'joint-%d-position' % joint_number
-    start_time = time.time()
-    # A 2 s ceiling was a bet on an idle machine; the loop returns as soon as two
-    # consecutive samples match, so a generous deadline only bounds the failure.
-    timeout = stmak_test.DEFAULT_TIMEOUT * stmak_test.scale()
-    prev_pos = h[pos_pin]
-    while (time.time() - start_time) < timeout:
-        time.sleep(0.1)
-        new_pos = h[pos_pin]
-        if new_pos == prev_pos:
-            return
-        prev_pos = new_pos
-    print("Error: joint didn't stop jogging!")
-    print("joint %d is at %.6f %.6f seconds after reaching target (prev_pos=%.6f)" % (joint_number, h[pos_pin], timeout, prev_pos))
-    sys.exit(1)
+    # Motion's own answer, as linuxcnc_util._at_rest gives it for the axis
+    # test: in position (no jog or free-planner move active) with an empty
+    # queue.  Two equal position polls stood here, and a status stall of one
+    # poll interval on a loaded machine made a moving joint look stopped.
+    stmak_test.wait_stat(s, lambda st: st.inpos and st.queue == 0,
+                         "joint %d to stop" % joint_number,
+                         detail=lambda st: "position=%.6f inpos=%s queue=%d"
+                         % (st.joint_actual_position[joint_number], st.inpos, st.queue))
 
 
 # Positions here are stmak-internal millimeters. simple_tp's arrival deadband
@@ -74,7 +67,7 @@ def close_enough(a, b, epsilon=0.0001):
 
 
 def jog_joint(joint_number, counts=1, scale=0.001):
-    timeout = 5.0
+    timeout = 5.0 * stmak_test.scale()
 
     start_pos = {}
     for j in range(3):

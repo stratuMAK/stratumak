@@ -16,14 +16,9 @@ SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
 # Wait for the REST API + mqtt-bridge component to be ready.
-for i in $(seq 100); do
-    halcmd show comp 2>/dev/null | grep -q mqtt-bridge && break
-    sleep 0.1
-done
-if ! halcmd show comp 2>/dev/null | grep -q mqtt-bridge; then
-    echo "mqtt: mqtt-bridge component never loaded" >&2
-    exit 1
-fi
+. "$(dirname "$0")/../stmak-scale.sh"
+stmak_wait_until 10 "the mqtt-bridge component to load" \
+    'halcmd show comp 2>/dev/null | grep -q mqtt-bridge'
 
 # Bring the machine up and make a move, so real positions flow to the bridge.
 (

@@ -67,7 +67,7 @@ import os
 # CI runner, not an idle workstation: every wait below polls its predicate and
 # returns as soon as it holds, so a generous ceiling costs nothing on the happy
 # path -- it only bounds how long a genuine failure takes to report.
-timeout = 10.0
+timeout = 10.0 * _stmak_test.scale()
 
 
 def introspect():
@@ -98,36 +98,11 @@ def verify_pin_value(pin_name, value):
 
 
 def get_interp_param(param_number):
-    # stratuMAK: the emcerror WS watch destructively flushes queued messages and the
-    # push loop suppresses byte-identical consecutive payloads, so a DEBUG
-    # display that repeats the previous one within a watch tick is LOST (see
-    # docs/dev/PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
-    # the 200 ms watch tick and retry on a lost reply.
-    for attempt in range(3):
-        time.sleep(0.3)
-        c.mdi("(debug, #%d)" % param_number)
-        c.wait_complete()
-
-        # wait up to 2 seconds for a reply
-        start = time.time()
-        while (time.time() - start) < 2:
-            error = e.poll()
-            if error == None:
-                time.sleep(0.010)
-                continue
-
-            kind, text = error
-            if kind == linuxcnc.OPERATOR_DISPLAY:
-                return float(text)
-
-            print(text)
-
-    # Every retry lost its reply.  Fail here, naming the param: returning None
-    # only defers the failure to the caller's "%f" % None, which raises a
-    # TypeError that says nothing about which parameter went missing.
-    print("ERROR: no OPERATOR_DISPLAY reply for interp param #%d after 3 attempts"
-          % param_number)
-    sys.exit(1)
+    # A tagged (debug,#N), drained, and its own reply waited for on a scaled
+    # deadline (stmak_test.debug_reply).  The 0.3 s pacing and the retries
+    # that stood here worked around replies the error watch used to drop
+    # when they repeated the previous one; it no longer does.
+    return _stmak_test.interp_param(c, s, e, param_number)
 
 
 def verify_interp_param(param_number, expected_value):

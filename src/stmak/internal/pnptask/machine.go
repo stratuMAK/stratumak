@@ -175,6 +175,13 @@ type control struct {
 	stop   chan struct{}
 	done   chan struct{}
 
+	// sampledAt is when this cycle's inputs were read. A wait's deadline is
+	// judged against it, not against the clock: feedback missing from a
+	// sample taken before the deadline is no timeout, however late the loop
+	// gets to look -- a goroutine descheduled after its sample (a GC pause, a
+	// loaded host) must not turn an answer that arrived in time into a fault.
+	sampledAt time.Time
+
 	// This cycle's inputs and the previous cycle's, for edge detection.
 	in   inputs
 	prev inputs
@@ -440,6 +447,10 @@ func (c *control) tick() bool {
 	case <-c.stop:
 		return false
 	case <-c.ticker.C:
+		if c.m.tickHook != nil {
+			c.m.tickHook()
+		}
+		c.sampledAt = time.Now()
 		c.sample()
 		c.publish()
 		// Persisting from here rather than from step() is what keeps the state
@@ -447,6 +458,7 @@ func (c *control) tick() bool {
 		// function, so a slot emptied halfway through a pick is written within
 		// one cycle instead of at the end of the job.
 		c.m.world.flush()
+		c.m.pins.cycleCount.Set(c.m.pins.cycleCount.Get() + 1)
 		return true
 	}
 }
@@ -1109,6 +1121,12 @@ func (c *control) setMotionMode(want int32) error {
 		if c.statusOK && c.status.MotionState == want {
 			return nil
 		}
+		// Only a status sampled after the deadline that still shows the old
+		// mode is a failure (see sampledAt) -- checked here, after the fresh
+		// status was looked at, not straight after the tick that read it.
+		if c.sampledAt.After(deadline) {
+			return faultf(errMotionError, "motion did not switch to mode %d within %v", want, motionModeTimeout)
+		}
 		var err error
 		switch want {
 		case motstat.MOTION_FREE:
@@ -1128,9 +1146,6 @@ func (c *control) setMotionMode(want int32) error {
 		}
 		if err := c.abortCheck(); err != nil {
 			return err
-		}
-		if time.Now().After(deadline) {
-			return faultf(errMotionError, "motion did not switch to mode %d within %v", want, motionModeTimeout)
 		}
 	}
 }
@@ -1372,7 +1387,8 @@ func (c *control) waitUntil(id errorID, timeout time.Duration, what string, cond
 		if cond() {
 			return nil
 		}
-		if timeout > 0 && time.Now().After(deadline) {
+		// Judged on the sample cond() just read, not on the clock: see sampledAt.
+		if timeout > 0 && c.sampledAt.After(deadline) {
 			return faultf(id, "timed out after %v waiting for %s", timeout, what)
 		}
 		if !c.tick() {

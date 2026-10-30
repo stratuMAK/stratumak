@@ -1,6 +1,8 @@
-# Replay 9 mixed-type (bfsu) samples through a loopback into a depth-10 ring,
+# Replay 9 mixed-type (bfsu) samples through a loopback into a depth-16 ring,
 # clocked for 12 ticks: the ring round-trips the 9 samples then underruns 3 times.
-load filestream stream_cfg=bfsu infile=in.txt sample_cfg=bfsu outfile=out.txt depth=10 samples=12
+# The ring holds the whole run (16 >= 12), so no capture overrun can depend on
+# how soon the I/O thread drains it.
+load filestream stream_cfg=bfsu infile=in.txt sample_cfg=bfsu outfile=out.txt depth=16 samples=12
 newthread t 1000000
 net a filestream.stream.0 => filestream.sample.0
 net b filestream.stream.1 => filestream.sample.1

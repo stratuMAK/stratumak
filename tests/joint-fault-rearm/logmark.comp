@@ -1,0 +1,22 @@
+component logmark "logs a numbered operator message on demand, as a barrier in the log ring";
+
+// The C log ring is one queue, drained in order: a message this comp logs
+// reaches the operator after every message any servo-thread producer logged
+// in an earlier cycle.  So once mark N has arrived, nothing logged before
+// fire went high can still be on its way.
+pin in bit fire;
+pin out u32 marks;
+
+variable int fire_last;
+
+function _;
+license "GPL";
+;;
+
+FUNCTION(_) {
+  if (fire && !fire_last) {
+    marks++;
+    STMAK_LOG(STMAK_LOG_INFO | STMAK_LOG_OPER, "mark %u", marks);
+  }
+  fire_last = fire;
+}

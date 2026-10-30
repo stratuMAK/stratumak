@@ -18,7 +18,7 @@ load mux_generic <mux-gen.14> config=u2s
 load mux_generic <mux-gen.15> config=u2u
 load mux_generic <mux-gen.16> config=b2b
 load mux_generic <mux-gen.17> config=f5f
-load filestream stream_cfg=bu sample_cfg=bfsubfsubfsubfsubfbu infile=input-signals outfile=out.txt depth=100 samples=105
+load filestream stream_cfg=bu sample_cfg=bfsubfsubfsubfsubfbu infile=input-signals outfile=out.txt depth=128 samples=105
 
 addf filestream.write slow
 addf mux-gen.00 slow

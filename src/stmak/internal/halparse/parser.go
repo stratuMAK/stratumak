@@ -670,6 +670,29 @@ func parsePrint(tokens []string, loc SourceLoc) (Token, *ParseError) {
 	return Token{Location: loc, Data: &PrintToken{Message: strings.Join(tokens, " ")}}, nil
 }
 
+// SplitInstanceNames splits the optional <name1,name2,...> instance name list
+// off the front of a load command's arguments. names is nil when there is
+// none; rest is what follows. Shared by the HAL-file parser and the runtime
+// "load" command, so both accept the same syntax.
+func SplitInstanceNames(args []string) (names, rest []string, err error) {
+	if len(args) == 0 || !strings.HasPrefix(args[0], "<") || !strings.HasSuffix(args[0], ">") {
+		return nil, args, nil
+	}
+	nameList := args[0][1 : len(args[0])-1] // strip angle brackets
+	if nameList == "" {
+		return nil, nil, fmt.Errorf("empty instance name list <>")
+	}
+	names = strings.Split(nameList, ",")
+	for i, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			return nil, nil, fmt.Errorf("empty name in instance name list")
+		}
+		names[i] = n
+	}
+	return names, args[1:], nil
+}
+
 func parseLoad(tokens []string, loc SourceLoc) (Token, *ParseError) {
 	if len(tokens) < 1 {
 		return Token{}, &ParseError{Loc: loc, Msg: "load: missing module path"}
@@ -677,24 +700,11 @@ func parseLoad(tokens []string, loc SourceLoc) (Token, *ParseError) {
 	tok := &LoadToken{
 		Path: tokens[0],
 	}
-	rest := tokens[1:]
-	// Check for optional <name1,name2,...> instance name list.
-	if len(rest) > 0 && strings.HasPrefix(rest[0], "<") && strings.HasSuffix(rest[0], ">") {
-		nameList := rest[0][1 : len(rest[0])-1] // strip angle brackets
-		if nameList == "" {
-			return Token{}, &ParseError{Loc: loc, Msg: "load: empty instance name list <>"}
-		}
-		names := strings.Split(nameList, ",")
-		for i, n := range names {
-			n = strings.TrimSpace(n)
-			if n == "" {
-				return Token{}, &ParseError{Loc: loc, Msg: "load: empty name in instance name list"}
-			}
-			names[i] = n
-		}
-		tok.Names = names
-		rest = rest[1:]
+	names, rest, err := SplitInstanceNames(tokens[1:])
+	if err != nil {
+		return Token{}, &ParseError{Loc: loc, Msg: "load: " + err.Error()}
 	}
+	tok.Names = names
 	if len(rest) > 0 {
 		tok.Args = rest
 	}

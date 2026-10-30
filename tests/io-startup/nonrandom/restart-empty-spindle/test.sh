@@ -16,8 +16,10 @@ cp tool.tbl.original tool.tbl
 # Boot 1: load T1 into the spindle (M61 Q1), leave it mounted at shutdown.
 stmak_start_server --log server1.log test.ini
 stmak_wait_ready
-./drive.py load
+./drive.py load || exit 1
 
+# The server is stopped, not crashed: SetEntry wrote to SQLite before boot 1's
+# status could show slot 0, so whatever this store keeps is on disk by now.
 kill $STMAK_SRV
 wait $STMAK_SRV 2>/dev/null
 

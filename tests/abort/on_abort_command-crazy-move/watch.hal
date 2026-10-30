@@ -1,0 +1,10 @@
+# Where X and Y go after the program is aborted, measured in the servo
+# thread. The test holds watch-reset high until the machine stands paused,
+# then reads the extremes after the abort.
+load minmax <xmm,ymm>
+addf xmm servo-thread
+addf ymm servo-thread
+net Xpos => xmm.in
+net Ypos => ymm.in
+net watch-reset => xmm.reset ymm.reset
+sets watch-reset 1

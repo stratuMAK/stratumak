@@ -103,8 +103,15 @@ c.teleop_enable(0)
 # run the test: start a jog on X, then trip a limit switch
 #
 
-# jog arguments are: (jog_type, joint_flag, axis, velocity)
-c.jog(JOG_CONTINUOUS, 1, 0, -0.1)
+# jog arguments are: (jog_type, joint_flag, axis, velocity, distance)
+#
+# Incremental jogs far longer than the test, not continuous ones: task stops
+# a continuous jog that its client does not refresh within 2 s (runaway
+# protection for a disconnected UI), and the status reads and asserts below
+# took long enough on a slow runner for that to stop the jog under the test
+# ("inpos" then read TRUE). JOG_STOP ends these.
+JOG_DIST = 100.0   # mm: 1000 s at 0.1 mm/s, 100 s at 1 mm/s; limits are 254 mm off
+c.jog(JOG_INCREMENT, 1, 0, -0.1, JOG_DIST)
 
 # verify that we're starting to move
 s.poll()
@@ -220,7 +227,7 @@ assert(s.inpos == True)
 assert(s.enabled == True)
 
 # jog X in the positive direction, off the negative limit switch
-c.jog(JOG_CONTINUOUS, 1, 0, 1)
+c.jog(JOG_INCREMENT, 1, 0, 1, JOG_DIST)
 
 # verify that we're starting to move
 s.poll()
