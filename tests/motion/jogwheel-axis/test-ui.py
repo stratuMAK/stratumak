@@ -63,7 +63,7 @@ def close_enough(a, b, epsilon=0.0001):
 
 
 def jog_axis(axis_letter, counts=1, scale=0.001):
-    timeout = 5.0
+    timeout = 5.0 * stmak_test.scale()
 
     start_pos = {}
     for a in 'xyz':

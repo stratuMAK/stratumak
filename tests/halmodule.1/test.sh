@@ -3,7 +3,7 @@
 # filestream cmod.  stratuMAK removed the embedded Python hal.stream binding; the ring
 # semantics it exercised (mixed-type round-trip, sample counting, underrun when
 # clocked empty, no overrun) are now HAL pins.  Replay 9 bfsu samples through a
-# depth-10 ring clocked for 12 ticks and verify them.
+# depth-16 ring (it holds all 12 samples) clocked for 12 ticks and verify them.
 cat > in.txt <<DATA
 0 0 0 0
 1 1 1 1
@@ -40,15 +40,17 @@ fi
 sn=$(halcmd getp filestream.sample-num | awk '{print $NF}')
 un=$(halcmd getp filestream.underruns  | awk '{print $NF}')
 ov=$(halcmd getp filestream.overruns   | awk '{print $NF}')
+st=$(halcmd getp filestream.starved    | awk '{print $NF}')
 halcmd stop
 kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
 
 # sampleno counts every clocked sample; underruns once per empty clock (12-9=3);
-# overruns never (the reader keeps up); and the ring round-trips all 9 samples.
-if [ "$sn" = 12 ] && [ "$un" = 3 ] && [ "$ov" = 0 ] && diff -q out.txt capture.golden >/dev/null; then
+# overruns never (the ring holds the whole run); starved never (the input is
+# primed before the first tick); and the ring round-trips all 9 samples.
+if [ "$sn" = 12 ] && [ "$un" = 3 ] && [ "$ov" = 0 ] && [ "$st" = 0 ] && diff -q out.txt capture.golden >/dev/null; then
     echo pass
     exit 0
 fi
-echo "FAIL sampleno=$sn underruns=$un overruns=$ov"
+echo "FAIL sampleno=$sn underruns=$un overruns=$ov starved=$st"
 diff out.txt capture.golden
 exit 1

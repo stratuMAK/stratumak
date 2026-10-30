@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+${SUDO} modcompile --install logmark.comp
 . ../stmak-driver.sh
 stmak_start_server joint-fault-rearm.ini
 stmak_wait_ready

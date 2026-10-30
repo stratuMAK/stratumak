@@ -34,10 +34,20 @@ def expect(cond, msg):
 
 
 def test_returns_predicate_value_immediately():
-    start = time.monotonic()
-    got = stmak_test.wait_until(lambda: "value", "an already-true condition")
+    # Counted, not timed: an already-true predicate is asked once and the
+    # wait never sleeps.
+    calls = []
+    sleeps = []
+    real_sleep = time.sleep
+    time.sleep = sleeps.append
+    try:
+        got = stmak_test.wait_until(lambda: calls.append(1) or "value",
+                                    "an already-true condition")
+    finally:
+        time.sleep = real_sleep
     expect(got == "value", "wait_until must return the predicate's value, got %r" % got)
-    expect(time.monotonic() - start < 1.0, "an already-true predicate must not wait")
+    expect(len(calls) == 1 and not sleeps,
+           "an already-true predicate must not wait (%d calls, sleeps %r)" % (len(calls), sleeps))
 
 
 def test_raises_on_deadline_and_names_what_it_waited_for():
@@ -149,37 +159,47 @@ def test_wait_file_contains_honours_count():
         raise AssertionError("count=2 must not be satisfied by a single occurrence")
 
 
-def test_wait_file_stable_waits_for_the_writer_to_finish():
-    # The writer's gap (0.05s) must sit comfortably inside the quiet window
-    # (settle * (samples-1) = 0.2s) — that is wait_file_stable's contract. A
-    # writer slower than the quiet window is outside what it can detect, and
-    # parameterising the test that way would only be testing a coin flip.
+def _file_stable_with_writer(samples):
+    """wait_file_stable against a writer that appends one line at each of
+    the reader's first four sleeps: the writer runs in lockstep with the
+    reader's polls instead of on a thread a loaded machine can starve, so
+    the writer's gap always sits inside the quiet window -- the contract
+    wait_file_stable states -- however slow the host is."""
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "log")
         with open(path, "w") as f:
             f.write("line\n")
+        pending = [4]
 
-        stop = threading.Event()
-
-        def grow():
-            for _ in range(4):
-                if stop.is_set():
-                    return
-                time.sleep(0.05)
+        def sleep_and_write(_secs):
+            if pending[0]:
+                pending[0] -= 1
                 with open(path, "a") as f:
                     f.write("line\n")
 
-        t = threading.Thread(target=grow)
-        t.start()
+        real_sleep = time.sleep
+        time.sleep = sleep_and_write
         try:
-            body = stmak_test.wait_file_stable(path, timeout=10, settle=0.1)
-            # The writer appends 5 lines total; a truncated read is exactly the
-            # bug wait_file_stable exists to prevent.
-            expect(body.count("line") == 5,
-                   "expected the complete file, got %d lines" % body.count("line"))
+            return stmak_test.wait_file_stable(path, timeout=10, settle=0.1,
+                                               samples=samples)
         finally:
-            stop.set()
-            t.join()
+            time.sleep = real_sleep
+
+
+def test_wait_file_stable_waits_for_the_writer_to_finish():
+    body = _file_stable_with_writer(samples=3)
+    # The writer appends 5 lines total; a truncated read is exactly the
+    # bug wait_file_stable exists to prevent.
+    expect(body.count("line") == 5,
+           "expected the complete file, got %d lines" % body.count("line"))
+
+
+def test_wait_file_stable_check_can_fail():
+    # Guard the guard: with a quiet window of zero (one sample) the same
+    # writer is cut short, so the test above can tell a truncated read.
+    body = _file_stable_with_writer(samples=1)
+    expect(body.count("line") < 5,
+           "a one-sample wait must return early, got all %d lines" % body.count("line"))
 
 
 def test_missing_file_times_out_rather_than_raising_oserror():

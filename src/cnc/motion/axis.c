@@ -377,7 +377,11 @@ bool axis_jog_is_active(axis_inst_t *ai)
     emcmot_axis_t *axis;
     for (n = 0; n < EMCMOT_MAX_AXIS; n++) {
         axis = &ai->axis_array[n];
-        if (axis->kb_ajog_active || axis->wheel_ajog_active) {
+        /* teleop_tp.active: a stopped jog still decelerates, and a jog
+           stop clears kb_ajog_active at once -- INPOS (control.c) reported
+           the machine in position while the axis was still moving */
+        if (axis->kb_ajog_active || axis->wheel_ajog_active ||
+            axis->teleop_tp.active) {
             return 1;
         }
     }

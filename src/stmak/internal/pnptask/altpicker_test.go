@@ -463,11 +463,12 @@ func TestSwapRefusedWithOnePicker(t *testing.T) {
 func TestAltSwapAbortLeavesTheStationEmptyInTheModel(t *testing.T) {
 	f := newAltFixture(t, func(w *world) { w.procs[0].setHasMaterial(true) })
 	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
-	// Slow the moves down so the estop lands inside the swap.
-	f.mot.setMoveCycles(20)
+	// Hold the swap at its first move after the removal committed, so the
+	// estop lands inside the swap however late it is sent.
+	f.mot.holdFrom(func() bool { return !f.bit("proc.20.has-material") })
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)

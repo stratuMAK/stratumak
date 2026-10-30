@@ -686,8 +686,9 @@ func (c *control) dwell(seconds float64) error {
 
 // settleTimeout turns a settle-time param into a wait timeout. A configured zero
 // means "no dwell", and waitUntil reads a non-positive timeout as "no timeout at
-// all" — so a machine with the settle times left at 0 gets exactly one cycle to
-// show the feedback rather than an unbounded wait.
+// all" — so a machine with the settle times left at 0 gets a cycle or two (the
+// first sample past the deadline decides, see control.sampledAt) to show the
+// feedback rather than an unbounded wait.
 func settleTimeout(seconds float64) time.Duration {
 	if d := time.Duration(seconds * float64(time.Second)); d > 0 {
 		return d

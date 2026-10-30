@@ -6,7 +6,6 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -722,7 +721,7 @@ func TestTrayBothResetPinsAtOnce(t *testing.T) {
 
 	tray.setFull.Set(false)
 	tray.setEmpty.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	tray.setFull.Set(true)
 	tray.setEmpty.Set(true)
 	f.consistently("both edges at once change nothing", func() bool {
@@ -748,10 +747,10 @@ func TestTrayResetsDuringHomingSnapshotAndLastWin(t *testing.T) {
 
 	// Operator: empty... no, full of step-3 material (the correction wins).
 	f.pulse(tray.setEmpty)
-	time.Sleep(levelHold)
+	f.sampled()
 	tray.step.Set(3)
 	f.pulse(tray.setFull)
-	time.Sleep(levelHold)
+	f.sampled()
 	// The tray's step is re-pointed at another kind of material while homing
 	// still runs; the pending reset must carry the value it was pressed with.
 	tray.step.Set(4)
@@ -856,8 +855,10 @@ func TestEstopKeepsGrip(t *testing.T) {
 	f.consistently("the picker stays closed through the estop", func() bool { return f.bit("picker.1.close") })
 
 	f.setBit(f.m.pins.estopOn, false)
-	// The check waits out the pick settle time (10 ms here) before it judges.
-	time.Sleep(300 * time.Millisecond)
+	// The check is a countdown in control cycles (heldVerify, settleTicks of
+	// the pick settle time) started when the estop clears: once that many
+	// cycles have passed, it has judged.
+	f.cycles(uint32(settleTicks(f.m.pins.pickSettleTime.Get())) + 2)
 	f.consistently("... and after it, the grip confirmed", func() bool { return f.bit("picker.1.close") })
 
 	w := f.stopped()

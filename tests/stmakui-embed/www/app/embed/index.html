@@ -6,5 +6,11 @@
 // page used from one it passed on.
 document.addEventListener('keydown', e =>
     fetch('/log?key=' + encodeURIComponent(e.key) + '&target=' + e.target.tagName));
+// A click is handled, focus moved included: report where the focus now is,
+// so the test types only once a click has taken effect.
+document.addEventListener('click', e =>
+    fetch('/log?key=click&target=' + document.activeElement.tagName));
+// The listener is in place: the test waits for this before its first key.
+fetch('/log?key=ready&target=load');
 </script>
 </body></html>

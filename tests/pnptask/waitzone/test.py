@@ -23,7 +23,13 @@ deadzone-select still says the enclosure is shut is a sequencing bug, not a
 blocked route: WAIT_SCENE_MISMATCH.
 """
 
+import subprocess
+
 import pnpdrv
+
+
+def halcmd(*args):
+    subprocess.check_call(["halcmd"] + list(args))
 
 # tests/pnptask/pnptask.ini: station 22 sits at (185, 205), inside the zone
 # zones_alt.dxf (deadzone-select 1) draws at (150,150)..(220,260). zones.dxf
@@ -96,14 +102,37 @@ pnpdrv.check_eq(err, 0, "the station is emptied back into the tray")
 # busy drops while the first leg is still running, so the second is queued
 # behind it and the trajectory planner blends the two. The head never comes to
 # a standstill, and the counter says so.
+#
+# The release must land inside the first leg, so it is made in the servo
+# thread, at a machine coordinate: a comparator on the commanded Y drops busy
+# and switches deadzone-select to CLEAR once the head has left the tray rows
+# (Y >= 380) heading for the wait point (Y ~274). Releasing over REST after
+# seeing the gripper close put the script's latency in series with a ~0.2 s
+# leg, and a late release meant a stop. What remains is pnptask's own loop
+# (100 Hz, not realtime) noticing the release within that leg.
+REL_Y = 375.0
+halcmd("load", "comp", "<wz.rel>")
+halcmd("load", "not", "<wz.hold>")
+halcmd("load", "conv_bit_u32", "<wz.dz>")
+for f in ("wz.rel", "wz.hold", "wz.dz"):
+    halcmd("addf", f, "servo-thread")
+halcmd("setp", "wz.rel.in1", str(REL_Y))     # out = in1 > in0: the head is past
+halcmd("net", "pnp-y-cmd", "wz.rel.in0")
+halcmd("net", "wz-passed", "wz.rel.out", "wz.hold.in")
+halcmd("net", "wz-hold", "wz.hold.out", "pnp.task.proc.22.busy", "wz.dz.in")
+halcmd("net", "wz-deadzone", "wz.dz.out", "pnp.task.deadzone-select")
+# The chain's outputs exist once the servo thread has run it; a read right
+# after the net would see the signals' initial values (busy FALSE, CLEAR).
+m.wait(lambda st: st["proc.22.busy"] and st["deadzone-select"] == BLOCKED,
+       "the servo thread to run the release chain once")
+pnpdrv.check(m.get("proc.22.busy") and m.get("deadzone-select") == BLOCKED,
+             "station 22 is busy and enclosed while the head is at the tray")
 
-m.set_busy(22, True)
-m.start_job(10, 22, deadzone=BLOCKED)
-m.wait_gripper(0, True)   # the pick is done; the gated approach has just begun
-
-m.set("deadzone-select", CLEAR)
-m.set_busy(22, False)
+m.start_job(10, 22, deadzone=None)
 err = m.await_job()
+for pin in ("pnp.task.proc.22.busy", "pnp.task.deadzone-select"):
+    halcmd("unlinkp", pin)
+m.set_busy(22, False)
 pnpdrv.check_eq(err, 0, "the job that never had to wait")
 pnpdrv.check(m.get("proc.22.has-material"), "the station holds the part")
 pnpdrv.check_eq(m.get("wait-stops"), 1,

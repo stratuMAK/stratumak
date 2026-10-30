@@ -74,31 +74,17 @@ hal_feed_streamer() {
 hal_sample() {
     local n=$1
     shift
-    halsampler "$@" -n "$n" &
+    rm -f .halsampler-ready
+    halsampler -R .halsampler-ready "$@" -n "$n" &
     _HAL_SAMPLER_PID=$!
-    # Give the WebSocket subscription time to establish before threads run.
-    #
-    # This sleep is a known bet, NOT a wait — deliberately left as-is because
-    # there is nothing to poll. Subscription happens entirely inside the server:
-    # apiserver.handleStreamUpgrade accepts the WS and calls sampler.c's
-    # on_new_conn, which sets conns[idx].active and latches read_pos = write_pos.
-    # None of that is observable from the outside:
-    #   - no HAL pin reflects it (sampler.c exports full/enable/curr-depth/
-    #     overruns/sample-num only; curr-depth is derived from active conns but is
-    #     computed by the RT funct, i.e. only after `halcmd start` — too late);
-    #   - no REST endpoint exposes stream conns (hal_sampler.gmi sets
-    #     @rest_export false; the server tracks them in an unexported map);
-    #   - nothing is logged on accept (stream_handler.go logs only accept
-    #     *failures*);
-    #   - halsampler itself prints nothing on connect — it reads the "cfg:"
-    #     header and then blocks for samples.
-    # If the subscription is missed, on_new_conn latches read_pos at the current
-    # write_pos and every sample before that point is lost silently (see this
-    # file's header). Closing this hole needs an upstream readiness signal — e.g.
-    # a `sampler.connections` HAL pin bumped by on_new_conn, or a --ready-fd /
-    # "connected" line from halsampler — which this driver could then poll.
-    # Inventing a client-side predicate here would only re-time the same bet.
-    sleep 0.5
+    # Wait until the WebSocket subscription is established before the threads
+    # run: halsampler creates the file once it has the stream header, which the
+    # server sends only after on_new_conn has latched this connection's read
+    # position. Every sample from `halcmd start` on reaches it. (A 0.5 s sleep
+    # stood here, with nothing to poll; a missed subscription lost the first
+    # samples silently.)
+    stmak_wait_until --pid "$_HAL_SAMPLER_PID" 10 "halsampler to subscribe" \
+        '[ -e .halsampler-ready ]'
 }
 
 # hal_run: start the HAL threads, wait for the sampler to collect its samples,
@@ -121,7 +107,16 @@ hal_run() {
                  "$(( ticks / 10 ))s (missed subscription?)" >&2
             kill "$_HAL_SAMPLER_PID" 2>/dev/null
         fi
-        wait "$_HAL_SAMPLER_PID" 2>/dev/null
+        # halsampler exits non-zero when it lost samples (and says so on
+        # stderr): the result would be a record with a hole in it.
+        local rc=0
+        wait "$_HAL_SAMPLER_PID" 2>/dev/null || rc=$?
+        _HAL_SAMPLER_PID=""
+        if [ "$rc" != 0 ]; then
+            echo "hal-stream-driver: halsampler failed (exit $rc)" >&2
+            halcmd stop
+            exit 1
+        fi
     fi
     halcmd stop
 }

@@ -36,26 +36,28 @@ wait_pin ethercat.0.io.slave-oper TRUE \
 wait_pin ethercat.0.all-op TRUE \
     || { echo "FAIL: all-op did not go TRUE with the configured slave in OP" >&2; fail=1; }
 
-# 2. Both slaves are on the bus...
+# 2. Both slaves are on the bus...  Waited for, not read once: the scan
+#    and the AL state word are separate from the all-op derivation and need
+#    not have been published in the same cycle.
+wait_pin ethercat.0.slaves-responding 2 \
+    || { echo "FAIL: expected 2 slaves responding, got '$(getp ethercat.0.slaves-responding)'" >&2; fail=1; }
 responding=$(getp ethercat.0.slaves-responding)
-[ "$responding" = 2 ] \
-    || { echo "FAIL: expected 2 slaves responding, got '$responding'" >&2; fail=1; }
 
-# 3. ...and the unconfigured one is still in PRE-OP, dragging the master's
-#    AL state word with it. Without this the test would be vacuous.
-preop=$(getp ethercat.0.state-preop)
-[ "$preop" = TRUE ] \
+# 3. ...and the unconfigured one is in PRE-OP, dragging the master's AL
+#    state word with it -- for good: nothing claims it, so it never leaves
+#    PRE-OP. Without this the test would be vacuous.
+wait_pin ethercat.0.state-preop TRUE \
     || { echo "FAIL: expected the unconfigured slave to hold state-preop TRUE," \
-              "got '$preop' — the bus is fully in OP and this test proves nothing" >&2
+              "got '$(getp ethercat.0.state-preop)' — the bus is fully in OP and this test proves nothing" >&2
          fail=1; }
+preop=$(getp ethercat.0.state-preop)
 
 echo "all-op=$(getp ethercat.0.all-op) oper=$(getp ethercat.0.io.slave-oper)" \
      "responding=$responding state-preop=$preop state-op=$(getp ethercat.0.state-op)"
 
 # 4. The global (all-masters) pin must agree with the per-master one.
-globalall=$(getp ethercat.all-op)
-[ "$globalall" = TRUE ] \
-    || { echo "FAIL: global all-op is '$globalall', expected TRUE" >&2; fail=1; }
+wait_pin ethercat.all-op TRUE \
+    || { echo "FAIL: global all-op is '$(getp ethercat.all-op)', expected TRUE" >&2; fail=1; }
 
 halcmd stop >/dev/null 2>&1
 

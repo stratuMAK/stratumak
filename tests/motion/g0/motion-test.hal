@@ -1,9 +1,13 @@
 
-# sample where motion tells us to go
+# Where motion tells X and Y to go, every servo cycle. filestream records in
+# the servo thread and writes from its own I/O thread, so the capture starts
+# with the first cycle and nothing is lost to a client falling behind (the
+# halsampler WebSocket stream this replaced needed a subscribe-before-motion
+# sleep, and failed the test whenever it lost a sample under load).
 
-load sampler depth=5000 cfg=ff
+load filestream sample_cfg=ff outfile=result.halsamples tag depth=65536 samples=0
 
-addf sampler              servo-thread
+addf filestream.read      servo-thread
 
-net Xpos => sampler.pin.0
-net Ypos => sampler.pin.1
+net Xpos => filestream.sample.0
+net Ypos => filestream.sample.1

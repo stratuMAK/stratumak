@@ -23,7 +23,6 @@ from gmi.constants import *
 import stmak_test
 
 import sys
-import time
 import glob
 import re
 import difflib
@@ -38,22 +37,14 @@ log_offset = 0
 LOG = "out.motion-logger"
 
 
-def wait_idle(timeout=30.0):
-    '''Wait for an AUTO_RUN to finish. auto() returns as soon as the command is
-    accepted (interp still shows IDLE for a moment), so first wait for the run
-    to start (interp leaves IDLE), then wait for it to return to IDLE.'''
-    start = time.time()
-    while time.time() - start < 5.0:
-        s.poll()
-        if s.interp_state != INTERP_IDLE:
-            break
-        time.sleep(0.02)
-    while time.time() - start < timeout:
-        s.poll()
-        if s.interp_state == INTERP_IDLE:
-            return
-        time.sleep(0.02)
-    raise SystemExit("timeout waiting for interp idle")
+def wait_idle():
+    '''Wait for an AUTO_RUN to finish.  Task.AutoRun puts the interpreter in
+    READING before the POST returns, so IDLE seen after auto() is the end of
+    this run, never the moment before it started.'''
+    stmak_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE,
+                         "the program run to finish",
+                         detail=lambda st: "interp_state=%d line=%d"
+                                           % (st.interp_state, st.current_line))
 
 
 def capture(name, compare=True):

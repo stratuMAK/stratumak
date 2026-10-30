@@ -64,14 +64,10 @@ class _LinuxcncUtil:
             self._s = status if status is not None else _gmi.Stat()
 
         def wait_for_linuxcnc_startup(self, timeout=10.0):
-            import time as _t
-            start = _t.time()
-            while _t.time() - start < timeout:
-                self._s.poll()
-                if (self._s.task_state == STATE_ESTOP) and (self._s.exec_state == EXEC_DONE) and (self._s.interp_state == INTERP_IDLE):
-                    return
-                _t.sleep(0.1)
-            raise RuntimeError("timeout waiting for linuxcnc startup")
+            _stmak_test.wait_stat(
+                self._s, lambda st: st.task_state == STATE_ESTOP
+                and st.exec_state == EXEC_DONE and st.interp_state == INTERP_IDLE,
+                "the machine to start up", timeout=timeout)
 
 
 linuxcnc_util = _LinuxcncUtil()
@@ -88,7 +84,7 @@ import math
 # CI runner, not an idle workstation: the wait below polls and returns as soon
 # as the pin lands, so a generous ceiling costs nothing on the happy path -- it
 # only bounds how long a genuine failure takes to report.
-timeout = 10.0
+timeout = 10.0 * _stmak_test.scale()
 
 
 def introspect():
@@ -119,39 +115,11 @@ def verify_pin_value(pin_name, value):
 
 
 def get_interp_param(param_number):
-    # stratuMAK: the emcerror WS watch destructively flushes queued messages and the
-    # push loop suppresses byte-identical consecutive payloads, so a DEBUG
-    # display that repeats the previous one within a watch tick is LOST (see
-    # docs/dev/PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
-    # the 200 ms watch tick and retry on a lost reply.
-    for attempt in range(3):
-        time.sleep(0.3)
-        c.mdi("(debug, #%d)" % param_number)
-        # Spinning on a -1 return used to be the only way to tell a timed-out
-        # wait from a completed one. stmak_test.Command raises instead, so what
-        # this loop expressed is now the exception path.
-        c.wait_complete()
-
-        # wait up to 2 seconds for a reply
-        start = time.time()
-        while (time.time() - start) < 2:
-            error = e.poll()
-            if error == None:
-                time.sleep(0.010)
-                continue
-
-            kind, text = error
-            if kind == linuxcnc.OPERATOR_DISPLAY:
-                return float(text)
-
-            print(text)
-
-    # Every retry lost its reply.  Fail here, naming the param: returning None
-    # only defers the failure to the caller's math.fabs(None - expected), which
-    # raises a TypeError that says nothing about which parameter went missing.
-    print("ERROR: no OPERATOR_DISPLAY reply for interp param #%d after 3 attempts"
-          % param_number)
-    sys.exit(1)
+    # A tagged (debug,#N), drained, and its own reply waited for on a scaled
+    # deadline (stmak_test.debug_reply).  The 0.3 s pacing and the retries
+    # that stood here worked around replies the error watch used to drop
+    # when they repeated the previous one; it no longer does.
+    return _stmak_test.interp_param(c, s, e, param_number)
 
 
 def verify_interp_param(param_number, expected_value):
@@ -296,29 +264,16 @@ verify_tool(
 print("*** try to add in TLO with no H-word, should fail")
 
 # first drain the error queue
-start = time.time()
-while (time.time() - start) < 2:
-    error = e.poll()
-    if error == None:
-        # no more queued errors, continue with test
-        break
+while e.poll() is not None:
+    pass
 
 c.mdi('g43.2')
 c.wait_complete()
-# stratuMAK: the error arrives via the WS error channel within a watch tick — poll
-# for it (classic NML delivered synchronously), and match as substring (stratuMAK
-# wraps interp errors with the execute context).
-error = None
-start = time.time()
-while (time.time() - start) < 2:
-    error = e.poll()
-    if error is not None:
-        break
-    time.sleep(0.010)
-if error is None or "G43.2: No axes specified and H word missing" not in error[1]:
-    print("G43.2 with missing H-word did not produce expected error")
-    print("got [%s]" % (error[1] if error else "no error message"))
-    sys.exit(1)
+# stratuMAK: the error arrives via the WS error channel (classic NML delivered
+# synchronously), and is matched as a substring (stratuMAK wraps interp errors
+# with the execute context).
+_stmak_test.wait_message(e, "G43.2: No axes specified and H word missing",
+                         "G43.2 with missing H-word to produce its error")
 
 
 print("*** add in TLO of T100")

@@ -45,6 +45,15 @@ type fakeMotion struct {
 	moveCycles int
 	moving     int
 
+	// held keeps every dispatched move in flight until release(): for the
+	// cases that act in the middle of a move (an estop, a station clearing),
+	// the window then stays open however late the test goroutine gets to act,
+	// instead of closing after a number of cycles it may sleep through.
+	// holdWhen engages the hold from the control goroutine itself, at the
+	// first move dispatched while it reports true.
+	held     bool
+	holdWhen func() bool
+
 	// homingGapFrom/homingGapLen script a HOME_SEQUENCE group handover: for
 	// homingGapLen status reads, starting when the countdown reaches
 	// homingGapFrom, no joint reports Homing although the sequence is still
@@ -73,6 +82,9 @@ type moveCall struct {
 	acc      float64
 	id       int32
 	termCond int32
+	// at is when the module issued the move, for the cases that measure a
+	// dwell against the wall-clock settle time it is configured in.
+	at time.Time
 }
 
 type termCall struct {
@@ -101,7 +113,7 @@ func (f *fakeMotion) GetStatus() (motstat.MotionStatus, error) {
 	if f.statusErr != nil {
 		return motstat.MotionStatus{}, f.statusErr
 	}
-	if f.moving > 0 {
+	if f.moving > 0 && !f.held {
 		f.moving--
 		if f.moving == 0 {
 			f.st.Inpos, f.st.QueueDepth = 1, 0
@@ -150,6 +162,10 @@ func (f *fakeMotion) Abort() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record("Abort")
+	// Motion stops and drops its queue: whatever was in flight, held or not,
+	// is over.
+	f.moving, f.held, f.holdWhen = 0, false, nil
+	f.st.Inpos, f.st.QueueDepth = 1, 0
 	return nil
 }
 
@@ -233,11 +249,14 @@ func (f *fakeMotion) SetLine(pos motctl.Pose, vel, _, acc float64, _, id int32, 
 	if n := len(f.termConds); n > 0 {
 		term = f.termConds[n-1].cond
 	}
-	f.moves = append(f.moves, moveCall{pos: pos, vel: vel, acc: acc, id: id, termCond: term})
+	f.moves = append(f.moves, moveCall{pos: pos, vel: vel, acc: acc, id: id, termCond: term, at: time.Now()})
 	f.posCmd = motstat.Pose{X: pos.X, Y: pos.Y, Z: pos.Z}
 	f.posFb = f.posCmd
-	if f.moveCycles > 0 {
-		f.moving = f.moveCycles
+	if f.holdWhen != nil && f.holdWhen() {
+		f.held, f.holdWhen = true, nil
+	}
+	if f.moveCycles > 0 || f.held {
+		f.moving = max(f.moveCycles, 1)
 		f.st.Inpos, f.st.QueueDepth = 0, 1
 	} else {
 		f.st.Inpos, f.st.QueueDepth = 1, 0
@@ -392,6 +411,29 @@ func (f *fakeMotion) moveList() []moveCall {
 	return append([]moveCall(nil), f.moves...)
 }
 
+// hold keeps every move dispatched from now on, and the one in flight, from
+// completing until release.
+func (f *fakeMotion) hold() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held = true
+}
+
+// holdFrom engages the hold at the first move dispatched while cond reports
+// true. cond runs on the control goroutine, inside the dispatch.
+func (f *fakeMotion) holdFrom(cond func() bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.holdWhen = cond
+}
+
+// release lets held moves run out (moveCycles, at least one status read).
+func (f *fakeMotion) release() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held, f.holdWhen = false, nil
+}
+
 func (f *fakeMotion) setMoveCycles(n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -405,6 +447,9 @@ type machineFixture struct {
 	m    *pnptaskModule
 	mot  *fakeMotion
 	name string
+	// sim is the simulated gripper/fixture feedback, when the fixture asked
+	// for one (fixtureOpts.sim / simulate).
+	sim *machineSim
 }
 
 // The control loop is time-driven; the tests run it far faster than the machine
@@ -469,10 +514,13 @@ type fixtureOpts struct {
 	// in place by then.
 	files map[string]string
 	// sim arms the simulated gripper/fixture before it publishes for the first
-	// time (job fixtures only): for a knob that has to judge a close command
+	// time, and asks for one: for a knob that has to judge a close command
 	// issued before the loop exists — a close output seeded by prep, or one
 	// re-driven from a persisted held record.
 	sim func(*machineSim)
+	// simulate attaches the simulated gripper/fixture without arming anything
+	// (job fixtures always have it).
+	simulate bool
 }
 
 // newMachineFixtureOpts loads a module, hands it a scripted motion stack and
@@ -496,11 +544,15 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	if o.prep != nil {
 		o.prep(t, m)
 	}
+	var sim *machineSim
+	if o.simulate || o.sim != nil {
+		sim = newMachineSim(m, o.sim)
+	}
 	if err := m.startControl(); err != nil {
 		t.Fatalf("startControl: %v", err)
 	}
 	t.Cleanup(m.Stop)
-	return &machineFixture{t: t, m: m, mot: mot, name: name}
+	return &machineFixture{t: t, m: m, mot: mot, name: name, sim: sim}
 }
 
 // setBit and setFloat write an input pin the way halcmd setp would: the pins
@@ -511,22 +563,35 @@ func (f *machineFixture) setBit(pin *hal.Pin[bool], v bool) { pin.Set(v) }
 
 func (f *machineFixture) setFloat(pin *hal.Pin[float64], v float64) { pin.Set(v) }
 
-// levelHold is how long a level is held for the control loop to sample it.
-//
-// Sized against SCHEDULER JITTER, like pickSettleBudget and for the same
-// reason: what has to be survived is this process being descheduled, which has
-// nothing to do with how fast the loop is configured to run. A handful of
-// cycles (10 ms) is inside the jitter of a loaded machine, and a level the loop
-// never samples is no edge at all — the request is simply lost, and the case
-// fails somewhere later with no hint that a button press went missing.
-const levelHold = 50 * time.Millisecond
+// cycles waits until the control loop has run n more cycles, counted on its
+// cycle-count pin: the loop's own time, which a descheduled test goroutine
+// cannot shorten the way it shortens a sleep.
+func (f *machineFixture) cycles(n uint32) {
+	f.t.Helper()
+	start := uint32(f.get("cycle-count"))
+	f.eventually(fmt.Sprintf("%d control cycles", n), func() bool {
+		return uint32(f.get("cycle-count"))-start >= n
+	})
+}
+
+// sampled waits until the control loop has read every input written before
+// the call. The cycle behind the first increment may have sampled before the
+// write; the one behind the second cannot have (see the cycle-count pin).
+// This is what holding a level is for — a level the loop never samples is no
+// edge at all, and the case fails somewhere later with no hint that a button
+// press went missing.
+func (f *machineFixture) sampled() {
+	f.t.Helper()
+	f.cycles(2)
+}
 
 // pulse drives an edge-triggered input low, gives the loop time to see the low,
 // and drives it high again — the edge detection compares consecutive cycles, so
 // a low/high pair inside one cycle is no edge at all.
 func (f *machineFixture) pulse(pin *hal.Pin[bool]) {
+	f.t.Helper()
 	pin.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	pin.Set(true)
 }
 
@@ -534,8 +599,9 @@ func (f *machineFixture) pulse(pin *hal.Pin[bool]) {
 // are held: a caller that has no observable effect to wait for cannot simply
 // drive the pin low again.
 func (f *machineFixture) press(pin *hal.Pin[bool]) {
+	f.t.Helper()
 	f.pulse(pin)
-	time.Sleep(levelHold)
+	f.sampled()
 	pin.Set(false)
 }
 
@@ -591,19 +657,23 @@ func (f *machineFixture) waitRestored(pk int, station uint32) {
 }
 
 // waitDropped is the other outcome: the close gripped nothing, so the record is
-// forgotten — and the picker stays closed, as the operator left it. No pin
-// tells a dropped record from a retained one (holds is low for both), so this
-// waits for the gripper to report fully closed and then for the judgement to
-// pass without reopening it; the caller proves the record gone, by a job that
-// runs or by the world model.
+// forgotten and the picker stays closed (the operator closed it; the next
+// pick's openForPick opens it). No pin tells a dropped record from a retained
+// one (holds is low for both), but the judgement is a countdown in control
+// cycles (settleTicks) that the close command starts, so once that many cycles
+// have passed since the gripper reported fully closed it is in. The caller
+// proves the record gone, by a job that runs or by the world model.
 func (f *machineFixture) waitDropped(pk int) {
 	f.t.Helper()
 	holds, close, closed := fmt.Sprintf("picker.%d.holds", pk),
 		fmt.Sprintf("picker.%d.close", pk), fmt.Sprintf("picker.%d.closed", pk)
 	f.eventually(fmt.Sprintf("picker %d to report fully closed", pk),
 		func() bool { return f.bit(closed) })
-	f.consistently(fmt.Sprintf("picker %d left closed by the verdict", pk),
-		func() bool { return f.bit(close) && !f.bit(holds) })
+	f.cycles(uint32(settleTicks(f.m.pins.pickSettleTime.Get())) + 2)
+	if !f.bit(close) || f.bit(holds) {
+		f.t.Fatalf("picker %d after the verdict: close=%v holds=%v, want it left closed and holding nothing",
+			pk, f.bit(close), f.bit(holds))
+	}
 }
 
 // consistently gives the loop a handful of cycles and then checks cond — for
@@ -611,7 +681,7 @@ func (f *machineFixture) waitDropped(pk int) {
 func (f *machineFixture) consistently(what string, cond func() bool) {
 	f.t.Helper()
 	for i := 0; i < 20; i++ {
-		time.Sleep(pollInterval)
+		f.cycles(1)
 		if !cond() {
 			f.t.Fatalf("%s: stopped holding after %d cycles", what, i)
 		}
@@ -645,6 +715,18 @@ func (f *machineFixture) homed() {
 }
 
 // ---------------------------------------------------------------------------
+
+// cycle-count advances with the control loop. tick() bumps it only after the
+// cycle has sampled its inputs and published its outputs, so two increments
+// after a write prove the write was read -- what a driver waits for instead of
+// holding a pin for a guessed time.
+func TestCycleCountAdvances(t *testing.T) {
+	f := newMachineFixture(t)
+	start := uint32(f.get("cycle-count"))
+	f.eventually("two control cycles", func() bool {
+		return uint32(f.get("cycle-count"))-start >= 2
+	})
+}
 
 // machine-on high enables motion, and machine-is-on only goes high once motion
 // itself reports enabled.
@@ -732,7 +814,7 @@ func TestMachineOnEdgeDuringEstopNotLatched(t *testing.T) {
 
 	// The PLC cycles machine-on while estop is still active.
 	f.pulse(f.m.pins.machineOn)
-	time.Sleep(levelHold)
+	f.sampled()
 
 	f.setBit(f.m.pins.estopOn, false)
 	f.consistently("stays off after estop clears", func() bool { return !f.bit("machine-is-on") })
@@ -749,10 +831,10 @@ func TestManualPickerPressDuringEstopNotLatched(t *testing.T) {
 	f := newMachineFixture(t)
 	f.setBit(f.m.pins.autoEnable, false)
 	f.setBit(f.m.pins.estopOn, true)
-	time.Sleep(levelHold)
+	f.sampled()
 
 	f.pulse(f.m.pins.pickers[0].manualClose)
-	time.Sleep(levelHold)
+	f.sampled()
 
 	f.setBit(f.m.pins.estopOn, false)
 	f.consistently("press during estop stays dead after clear", func() bool {
@@ -769,7 +851,7 @@ func TestManualPickerPressDuringEstopNotLatched(t *testing.T) {
 func TestErrorResetWithoutFaultNotLatched(t *testing.T) {
 	f := newMachineFixture(t)
 	f.pulse(f.m.pins.errorReset)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.setBit(f.m.pins.errorReset, false)
 
 	// Now a fault: homing with the machine off.
@@ -1000,7 +1082,7 @@ func TestJogGates(t *testing.T) {
 	// between two reads of one sample would have the loop act on a manual-mode
 	// jog request it is about to be told to ignore, which is this test's own
 	// race, not the module's.
-	time.Sleep(levelHold)
+	f.sampled()
 	f.setBit(f.m.pins.jog[0].pos, true)
 	f.consistently("no jog in auto mode", func() bool { return f.mot.callCount("JogCont") == 0 })
 
@@ -1089,6 +1171,44 @@ func TestMotionCommLoss(t *testing.T) {
 	}
 }
 
+// TestWaitUntilJudgesTheSampleNotTheClock: a wait times out only when a
+// sample taken after its deadline still lacks the feedback. The loop stalling
+// between reading a sample and judging it — a GC pause, a loaded host — used
+// to fault feedback that had arrived in time: the stale sample said "not yet",
+// the clock said "too late", and nobody looked again. cond stands in for the
+// stall here: its first call sleeps past the deadline and answers for the
+// sample taken before it.
+func TestWaitUntilJudgesTheSampleNotTheClock(t *testing.T) {
+	fastLoop(t)
+	setupPaths(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc, m.ms = mot, mot
+
+	c := newControl(m)
+	c.ticker = time.NewTicker(pollInterval)
+	defer c.ticker.Stop()
+	c.sampledAt = time.Now()
+	c.sample()
+
+	const timeout = 10 * time.Millisecond
+	calls := 0
+	err := c.waitUntil(errMotionError, timeout, "the feedback", func() bool {
+		calls++
+		if calls == 1 {
+			time.Sleep(2 * timeout)
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatalf("waitUntil faulted feedback the next sample showed: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("cond ran %d times, want the fresh sample looked at", calls)
+	}
+}
+
 // ensureHomed is what the job engine will call at the start of a job: it homes
 // when AUTOHOME allows it and refuses with NOT_HOMED when it does not. It runs
 // here without the loop goroutine — the job engine will call it from inside
@@ -1173,7 +1293,7 @@ func TestMotionSelfDisableDetected(t *testing.T) {
 
 	// Cycling machine-on is.
 	f.setBit(f.m.pins.machineOn, false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.setBit(f.m.pins.machineOn, true)
 	f.eventually("the machine back on after the cycle", func() bool { return f.bit("machine-is-on") })
 }

@@ -143,6 +143,11 @@ static void on_closed_conn(void *ctx, uint32_t conn_id) {
     if (conn) __atomic_store_n(&conn->active, 0, __ATOMIC_RELEASE);
 }
 
+// Each call returns one segment (hal_sampler.gmi, "Wire format"): the index of
+// its first sample and the sample count, then the samples.  The index is what
+// makes a loss visible: a reader that fell further behind than the ring holds
+// skips ahead, and the client sees the jump instead of a seamless-looking
+// stream with a hole in it.
 static int32_t on_poll_transmit(void *ctx, uint32_t conn_id,
                                 void *buf, int32_t maxlen) {
     sampler_priv_t *priv = (sampler_priv_t *)ctx;
@@ -164,20 +169,19 @@ static int32_t on_poll_transmit(void *ctx, uint32_t conn_id,
     // Clamp to ring buffer size (if reader fell behind, skip to oldest)
     if (available > (uint32_t)inst->depth) {
         rp = wp - inst->depth;
-        conn->read_pos = rp;
         available = inst->depth;
     }
 
     // Calculate how many samples fit in the output buffer
     int sample_bytes = inst->num_pins * (int)sizeof(sample_val_t);
-    int max_samples = maxlen / sample_bytes;
+    int max_samples = (maxlen - HAL_SAMPLER_SEGMENT_HDR) / sample_bytes;
     if (max_samples <= 0) return 0;
 
     int to_send = (int)available;
     if (to_send > max_samples) to_send = max_samples;
 
     // Copy samples to output buffer
-    char *out = (char *)buf;
+    char *out = (char *)buf + HAL_SAMPLER_SEGMENT_HDR;
     for (int i = 0; i < to_send; i++) {
         uint32_t ring_idx = (rp + i) % inst->depth;
         memcpy(out, &inst->ring[ring_idx * inst->num_pins],
@@ -185,8 +189,32 @@ static int32_t on_poll_transmit(void *ctx, uint32_t conn_id,
         out += sample_bytes;
     }
 
+    // The RT sampler does not wait for us: if it lapped the ring while we
+    // copied, the oldest slots may now hold newer samples, or half of one.
+    // Sample wp_after is the one it may be writing right now, into the slot of
+    // sample wp_after - depth, so only samples above that one are known good.
+    // Drop the rest; the index below reports them as lost like any other skip.
+    __sync_synchronize();
+    uint32_t wp_after = inst->write_pos;
+    int torn = 0;
+    if (wp_after - rp >= (uint32_t)inst->depth) {
+        uint32_t suspect = (wp_after - rp) - inst->depth + 1;
+        torn = suspect > (uint32_t)to_send ? to_send : (int)suspect;
+    }
+    if (torn > 0) {
+        char *data = (char *)buf + HAL_SAMPLER_SEGMENT_HDR;
+        memmove(data, data + torn * sample_bytes,
+                (to_send - torn) * sample_bytes);
+        rp += torn;
+        to_send -= torn;
+    }
+
     conn->read_pos = rp + to_send;
-    return to_send * sample_bytes;
+    if (to_send == 0) return 0;
+
+    uint32_t hdr[2] = { rp, (uint32_t)to_send };
+    memcpy(buf, hdr, sizeof(hdr));
+    return HAL_SAMPLER_SEGMENT_HDR + to_send * sample_bytes;
 }
 
 // ---------------------------------------------------------------------------

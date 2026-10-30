@@ -7,3 +7,4 @@ rm -f trace.txt
 stmak_start_server soft-limits.ini
 stmak_wait_ready
 ./test-ui.py
+stmak_check_filestream

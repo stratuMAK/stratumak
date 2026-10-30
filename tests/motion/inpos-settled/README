@@ -1,0 +1,17 @@
+motion.in-position must not go TRUE while a joint still moves.
+
+Two ways it did, both at the end of a move, by a few servo cycles:
+
+- In coord and teleop mode a joint's command is the cubic interpolator's
+  output over the planner's positions, which trails the planner by a few
+  cycles. In-position followed the planner, not the joints.
+- In teleop, a jog stop cleared the jog's active flag at once, while its
+  planner still decelerated: in-position came up mid-deceleration.
+
+Task waits on in-position before M-codes, I/O, the end of an MDI command and
+mode switches, and test helpers wait on it for "the machine has stopped".
+
+inpos_latch (from motion/jerk-coord-inpos) records the joint command at
+each rising edge of motion.in-position, in the servo thread. After an MDI G0
+and after a teleop jog stop, the command at the edge must be where the joint
+then rests, exactly.

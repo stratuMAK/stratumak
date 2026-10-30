@@ -43,6 +43,11 @@ type WatchFuncMeta struct {
 	Factory     WatchFactory    // Per-connection watch factory (mutually exclusive with Watch)
 	BinaryWatch BinaryWatchFunc // Binary watch — sent as binary frames
 	Delta       bool            // If true, diff JSON top-level keys per connection.
+	// Events marks a watch whose every non-nil result is a fresh batch of
+	// events (a drain), not a state: it is sent even when byte-identical to
+	// the previous one. Two runs that print the same messages are two
+	// batches; suppressing the second as "unchanged" lost it.
+	Events bool
 }
 
 // CommandMeta describes a command callable over the WebSocket.
@@ -602,12 +607,12 @@ func (c *wsConn) handleSubscribe(sub wsSubscribe) {
 		}
 		go func() {
 			defer loopDone()
-			c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchFn, watchMeta.Delta)
+			c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchFn, watchMeta.Delta, watchMeta.Events)
 		}()
 	} else {
 		go func() {
 			defer loopDone()
-			c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchMeta.Watch, watchMeta.Delta)
+			c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchMeta.Watch, watchMeta.Delta, watchMeta.Events)
 		}()
 	}
 }
@@ -670,7 +675,7 @@ func (c *wsConn) handleCall(call wsCall) {
 	})
 }
 
-func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName string, rate time.Duration, watch WatchFunc, delta bool) {
+func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName string, rate time.Duration, watch WatchFunc, delta, events bool) {
 	// This runs in a goroutine spawned by handleSubscribe, so net/http's
 	// per-request panic recovery does NOT cover it. watch() calls into
 	// generated/cgo code; a panic there would otherwise kill the whole
@@ -740,8 +745,9 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 				continue
 			}
 
-			// Skip if nothing changed since last send
-			if bytes.Equal(data, prevData) {
+			// Skip if nothing changed since last send — a state only: an
+			// event batch is new even when it reads the same (see Events).
+			if !events && bytes.Equal(data, prevData) {
 				continue
 			}
 

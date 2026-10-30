@@ -28,8 +28,9 @@
 sampler \- sample data from HAL in real time
 .SH SYNOPSIS
 .B loadrt sampler
-.BI depth= depth1[,depth2...]
-.BI cfg= string1[,string2...]
+.RB [ <\fINAME\fR[,\fINAME\fR...]> ]
+.BI depth= depth
+.BI cfg= string
 
 .SH DESCRIPTION
 .B sampler
@@ -37,99 +38,88 @@ and
 .BR halsampler (1)
 are used together to sample HAL data in real time and store it in a file.
 .B sampler
-is a realtime HAL component that exports HAL pins and creates a FIFO in shared memory.
-It then begins sampling data from the HAL and storing it to the FIFO.
-.B halsampler
-is a non-realtime program that copies data from the FIFO to stdout, where it can
-be redirected to a file or piped to some other program.
+is a realtime HAL component that exports HAL pins and samples them into a ring
+buffer every time its function runs.
+.B stmakd
+streams the ring to WebSocket clients such as
+.BR halsampler ,
+which copies it to stdout.  The instance name defaults to \fBsampler\fR.
 
 .SH OPTIONS
 .TP
-.BI depth= depth1[,depth2...]
-sets the depth of the realtime->non-realtime FIFO that
-.B sampler
-creates to buffer the realtime data.  Multiple values of
+.BI depth= depth
+sets the number of samples the ring holds, 1000 by default.  The sampler never
+waits for its readers: a reader that falls more than
 .I depth
-(separated by commas) can be specified if you need more than one FIFO
-(for example if you want to sample data from two different realtime threads).
+samples behind loses the oldest ones.  Every sample on the stream carries its
+index, so the client sees each loss and how big it was;
+.B halsampler
+reports it and exits with failure.  Choose
+.I depth
+to bridge momentary stalls of the non-realtime side; it costs
+.I depth
+\(mu 8 bytes per pin.
 .TP
-.BI cfg= string1[,string2...]
+.BI cfg= string
 defines the set of HAL pins that
 .B sampler
-exports and later samples data from.  One 
-.I string
-must be supplied for each FIFO, separated by commas.
+exports and later samples data from.
 .B sampler
 exports one pin for each character in
 .I string.
 Legal characters are:
 .IP "" 7
-.B F, f
+.B f
 (float pin)
 .IP "" 7
-.B B, b
+.B b
 (bit pin)
 .IP "" 7
-.B S, s
+.B s
 (s32 pin)
 .IP "" 7
-.B U, u
+.B u
 (u32 pin)
 
 .SH FUNCTIONS
 .TP
-.BI sampler. N
-One function is created per FIFO, numbered from zero.
+.I NAME
+Samples the pins into the ring.
 
 .SH PINS
 .TP
-\fBsampler.\fIN\fB.pin.\fIM\fR input
+\fINAME\fB.pin.\fIM\fR input
 Pin for the data that will wind up in column
 .I M
-of FIFO
-.I N
-(and in column
-.I M
-of the output file).  The pin type depends on the config string.
+of the output.  The pin type depends on the config string.
 .TP
-\fBsampler.\fIN\fB.curr\-depth\fR s32 output
-Current number of samples in the FIFO.  When this reaches
+\fINAME\fB.curr\-depth\fR s32 output
+How far the slowest connected reader lags behind, in samples.  When this
+reaches
 .I depth
-new data will begin overwriting old data, and some samples
-will be lost.
+that reader starts losing samples.
 .TP
-\fBsampler.\fIN\fB.full\fR bit output
-TRUE when the FIFO
-.I N
-is full, FALSE when there is room for another sample.
+\fINAME\fB.full\fR bit output
+TRUE while the slowest connected reader lags
+.I depth
+samples or more.
 .TP
-\fBsampler.\fIN\fB.enable\fR bit input
-When TRUE, samples are captured and placed in FIFO \fIN\fR,
-when FALSE, no samples are acquired.  Defaults to TRUE.
-
-.SH PARAMETERS
+\fINAME\fB.enable\fR bit input
+When TRUE, samples are captured, when FALSE, no samples are acquired (and none
+count as lost).  Defaults to TRUE.
 .TP
-\fBsampler.\fIN\fB.overruns\fR s32 read/write
-The number of times that
-.B sampler
-has tried to write data to the HAL pins but found no room in the FIFO.  It increments whenever
+\fINAME\fB.overruns\fR s32 read/write
+Incremented on every function run while
 .B full
-is true, and can be reset by the
-.B setp
-command.
-
+is TRUE; it counts periods spent full, not samples lost.  Can be reset with
+.BR setp .
 .TP
-\fBsampler.\fIN\fB.sample\-num\fR s32 read/write
-A number that identifies the sample.  It is automatically incremented for each
-sample, and can be reset using the
-.B setp
-command.  The sample number can optionally be printed in the first column of the output from
-.BR halsampler ,
-using the
-.I \-t
-option (see
-.BR "man 1 halsampler"
-).
+\fINAME\fB.sample\-num\fR s32 read/write
+Incremented for each sample; can be reset with
+.BR setp .
+The numbers
+.B halsampler \-t
+prints come from the stream itself, not from this pin.
 
 .SH "SEE ALSO"
 .BR halsampler (1),

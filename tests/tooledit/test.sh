@@ -16,9 +16,7 @@ stmakd -r "$here/tooledit.ini" >/dev/null 2>&1 &
 SRV=$!
 
 url="${STMAK_REST_URL:-http://127.0.0.1:5080}/api/v1/tooltable/"
-for i in $(seq 100); do
-    curl -sf "$url" >/dev/null 2>&1 && break
-    sleep 0.1
-done
+. "$(dirname "$0")/../stmak-scale.sh"
+stmak_wait_until 10 "the tooledit page at $url" 'curl -sf "$url" >/dev/null 2>&1'
 
 "$here/test.py"

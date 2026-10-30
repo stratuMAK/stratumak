@@ -3,6 +3,7 @@
 package task
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"os"
@@ -327,5 +328,78 @@ func TestEnqueueCmd_NotRunning(t *testing.T) {
 	err := task.EnqueueCmd(&LinearMoveCmd{ID: 1})
 	if err == nil {
 		t.Fatal("expected error when sequencer not running")
+	}
+}
+
+// abortingStatus reports a TP queue that is still draining an abort until
+// the test empties it.
+type abortingStatus struct {
+	mockStatus
+	depth atomic.Int32
+}
+
+func (m *abortingStatus) GetQueueDepth() (int32, error) { return m.depth.Load(), nil }
+
+// A motion command right after an abort used to reach the TP while it was
+// still decelerating, and the TP refused it ("TP is aborting"): the move was
+// dropped. The sequencer now holds motion until the abort has run out.
+func TestWaitTPAbortDone_HoldsMotionUntilAbortRunsOut(t *testing.T) {
+	task, _, _ := newTestTask()
+	st := &abortingStatus{}
+	st.depth.Store(3)
+	task.status = st
+	task.seqAbort = make(chan struct{})
+
+	if err := task.abortMotion(); err != nil {
+		t.Fatalf("abortMotion: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- task.waitTPAbortDone() }()
+
+	select {
+	case err := <-done:
+		t.Fatalf("returned (%v) while the TP still held the aborted segments", err)
+	case <-time.After(5 * pollInterval):
+	}
+
+	st.depth.Store(0)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("waitTPAbortDone: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not return after the TP queue emptied")
+	}
+	if task.tpAbortPending.Load() {
+		t.Fatal("abort still marked pending after it ran out")
+	}
+
+	// With no abort pending it must not wait at all, even on a busy queue.
+	st.depth.Store(5)
+	if err := task.waitTPAbortDone(); err != nil {
+		t.Fatalf("waitTPAbortDone without a pending abort: %v", err)
+	}
+}
+
+// The wait itself must give way to a sequencer abort.
+func TestWaitTPAbortDone_Abortable(t *testing.T) {
+	task, _, _ := newTestTask()
+	st := &abortingStatus{}
+	st.depth.Store(3)
+	task.status = st
+	task.seqAbort = make(chan struct{})
+	_ = task.abortMotion()
+
+	done := make(chan error, 1)
+	go func() { done <- task.waitTPAbortDone() }()
+	close(task.seqAbort)
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not give way to the sequencer abort")
 	}
 }

@@ -1,1 +1,4 @@
-setp halui.joint.jog-speed 100
+# 10 mm/s: joint 2's soft limits are 4 in (101.6 mm) away, so a jog cannot
+# reach them while the test still checks that it runs (at 100 mm/s it got
+# there in about a second, before the script had read the velocity).
+setp halui.joint.jog-speed 10

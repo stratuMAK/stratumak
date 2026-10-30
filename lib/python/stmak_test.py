@@ -267,6 +267,64 @@ def drain_mdi(stat, timeout=None):
                      interval=0.005, detail=_detail)
 
 
+_debug_seq = [0]
+
+
+def debug_reply(c, stat, errors, text, timeout=None):
+    """Run `(debug,<text>)` as MDI and return the interpreter's reply.
+
+    The reply travels the error channel as an OPERATOR_DISPLAY, which also
+    carries every other DEBUG and MSG.  Each request is tagged, so neither a
+    stray display message nor an earlier request's reply can be taken for
+    this one, and the MDI is drained first: the reply is sent while the
+    line executes, so it is on its way once the queue is empty.  Other
+    messages seen meanwhile are printed, not dropped silently.
+    """
+    _debug_seq[0] += 1
+    tag = "dbg%d:" % _debug_seq[0]
+    c.mdi("(debug,%s%s)" % (tag, text))
+    drain_mdi(stat)
+    seen = []
+
+    def _reply():
+        m = errors.poll()
+        while m is not None:
+            kind, msg = m
+            if msg.startswith(tag):
+                return msg[len(tag):]
+            seen.append(m)
+            print("(other message while waiting for %s: %r)" % (tag, m), file=sys.stderr)
+            m = errors.poll()
+        return None
+
+    return wait_until(_reply, "the reply to (debug,%s)" % text, timeout=timeout,
+                      detail=lambda: "other messages: %r" % seen)
+
+
+def interp_param(c, stat, errors, number, timeout=None):
+    """Interpreter parameter #number, read with debug_reply."""
+    return float(debug_reply(c, stat, errors, "#%d" % number, timeout=timeout))
+
+
+def wait_message(errors, match, desc, timeout=None):
+    """Wait for an error-channel message whose text contains `match`; return
+    (kind, text).  Other messages seen meanwhile are printed."""
+    seen = []
+
+    def _found():
+        m = errors.poll()
+        while m is not None:
+            if match in m[1]:
+                return m
+            seen.append(m)
+            print("(other message while waiting for %r: %r)" % (match, m), file=sys.stderr)
+            m = errors.poll()
+        return None
+
+    return wait_until(_found, desc, timeout=timeout,
+                      detail=lambda: "other messages: %r" % seen)
+
+
 # ─── HAL access (halcmd-backed) ───────────────────────────────────────────────
 #
 # Each call forks halcmd (~10s of ms), so pin waiters poll more slowly than
@@ -277,8 +335,12 @@ _PIN_INTERVAL = 0.05
 
 
 def getp(pin):
-    """Read a HAL pin/signal value. Returns bool for TRUE/FALSE, else float."""
-    out = subprocess.check_output(["halcmd", "gets", pin])
+    """Read a HAL signal value, or a pin's/parameter's when no signal has that
+    name. Returns bool for TRUE/FALSE, else float. (It read signals only, so
+    wait_pin on a pin such as motion.in-position failed outright.)"""
+    r = subprocess.run(["halcmd", "gets", pin], capture_output=True)
+    out = r.stdout if r.returncode == 0 else \
+        subprocess.check_output(["halcmd", "getp", pin])
     v = out.decode().strip().split()[-1]
     if v in ("TRUE", "FALSE"):
         return v == "TRUE"

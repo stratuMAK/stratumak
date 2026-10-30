@@ -39,7 +39,7 @@ load conv_float_u32 <conv_float_u32.0>
 net encoder-position => conv_float_u32.0.in
 net mux-select <= conv_float_u32.0.out
 net mux-select => mux_generic.sel-int
-load filestream sample_cfg=ffffu outfile=out.txt depth=1500 samples=5100 tag
+load filestream sample_cfg=ffffu outfile=out.txt depth=8192 samples=5100 tag
 net input => filestream.sample.0
 net output => filestream.sample.1
 net out-vel => filestream.sample.2

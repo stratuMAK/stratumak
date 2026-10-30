@@ -5,7 +5,6 @@ package pnptask
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 // NEAR_HEIGHT (D37): a station's travel height while the head stays at it --
@@ -77,7 +76,7 @@ func (f *jobFixture) runJobNear(origin, dest, step uint32, stay bool) {
 	f.t.Helper()
 	f.m.pins.stayNear.Set(stay)
 	f.runJob(origin, dest, step)
-	time.Sleep(levelHold)
+	f.sampled() // the level has been seen before it is withdrawn
 	f.m.pins.stayNear.Set(false)
 }
 
@@ -195,8 +194,7 @@ func TestLowMoveOutsideTheWindow(t *testing.T) {
 	f.runJobNear(20, 10, 7, true)
 	f.requireOK("proc -> tray with stay-near")
 	// A step-0 part to pick, one slot (10 mm) along: outside the window.
-	f.m.world.trays[0].slots[1] = 0
-	time.Sleep(levelHold)
+	f.sim.inLoop(t, func() { f.m.world.trays[0].slots[1] = 0 })
 
 	f.runJobNear(10, 20, 0, false)
 	f.requireOK("tray -> proc, the target 10 mm away")

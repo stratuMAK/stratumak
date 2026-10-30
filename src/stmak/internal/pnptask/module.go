@@ -124,6 +124,13 @@ type pnptaskModule struct {
 	// ctl is the control loop; nil until Start.
 	ctl *control
 
+	// tickHook, when set, runs at the start of every control cycle, before
+	// the inputs are read. Nil in production. The unit tests step their
+	// simulated gripper and fixtures here, so the simulated hardware answers
+	// in the control loop's own time instead of on a goroutine the scheduler
+	// can hold back past a settle budget. Set before startControl only.
+	tickHook func()
+
 	// motInstance and persistInstance are resolved in the later phases; they
 	// are parsed here so a typo on the load line is at least recorded next to
 	// the config it belongs to.

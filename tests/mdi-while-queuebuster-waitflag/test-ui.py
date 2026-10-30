@@ -13,6 +13,9 @@ s = gmi.Stat()
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 c.mode(MODE_MDI)
+stmak_test.wait_stat(
+    s, lambda st: st.task_state == STATE_ON and st.task_mode == MODE_MDI,
+    "machine ON in MDI mode")
 
 c.mdi('(print,pre 1)')
 c.mdi('(print,pre 2)')
@@ -24,7 +27,7 @@ c.mdi('(print,post 4)')
 c.mdi('(print,post 5)')
 c.mdi('(print,post 6)')
 
-# Shutdown
-c.wait_complete()
+# Shutdown: every queued MDI executed, not just the last command acknowledged.
+stmak_test.drain_mdi(s)
 sys.exit(0)
 

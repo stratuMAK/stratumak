@@ -1,0 +1,12 @@
+Run from line N (AUTO_RUN N) skips the lines before N and runs line N.
+
+lines.ngc puts one (DEBUG,Lk) on each line k and an END line the start line
+never passes; for every N the messages up to END must be exactly L<N>.. — the
+start line used to be executed into the discard sink, so a run began one line
+late.
+
+blend.ngc sets G64 on line 1 and runs from line 2, after an MDI G61. The
+skipped G64 reached the canon but never the trajectory planner, which kept
+exact stop (max X 5.0; after a fresh start, its 0.001 in boot tolerance gave
+4.999). The planner must get the modal blending mode the skipped lines left,
+so the corner blends (max X well under 5; 3.725 here).

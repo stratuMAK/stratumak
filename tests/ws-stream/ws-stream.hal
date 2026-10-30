@@ -3,7 +3,11 @@
 # pins, wired straight into a sampler that transmits them back over a WebSocket to
 # halsampler.  A loopback of all four pin types, driven from the shell clients.
 loadrt streamer cfg=fbus depth=100
-loadrt sampler  cfg=fbus depth=100
+# sampler depth: 10 s at 1 kHz. halsampler is subscribed before the threads
+# start, but the server's sender still has to keep up once they run; with 100
+# (0.1 s) a stalled sender overwrote the first samples and the test failed on
+# the loss.
+loadrt sampler  cfg=fbus depth=10000
 net p0 streamer.pin.0 => sampler.pin.0
 net p1 streamer.pin.1 => sampler.pin.1
 net p2 streamer.pin.2 => sampler.pin.2

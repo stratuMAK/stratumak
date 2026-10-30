@@ -11,24 +11,7 @@ import gmi
 from gmi.constants import *
 import stmak_test
 
-import time
 import sys
-
-# Time increment and timeout, seconds
-TIME_INCR = 0.1
-TIMEOUT = 10.0
-
-
-def wait_for_startup(s, timeout=10.0):
-    start = time.time()
-    while time.time() - start < timeout:
-        s.poll()
-        if (s.angular_units != 0.0 and s.linear_units != 0.0 and s.axis_mask != 0
-                and s.exec_state == EXEC_DONE and s.interp_state == INTERP_IDLE
-                and s.task_state == STATE_ESTOP):
-            return
-        time.sleep(0.1)
-    raise RuntimeError("Timeout waiting for stratuMAK startup")
 
 
 #
@@ -39,7 +22,7 @@ def wait_for_startup(s, timeout=10.0):
 c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
-wait_for_startup(s)
+stmak_test.wait_for_startup(s)
 
 
 def xy():
@@ -68,16 +51,7 @@ c.home(0)
 c.home(1)
 c.home(2)
 c.wait_complete()
-start_time = time.time()
-while True:
-    s.poll()
-    homed = s.homed
-    if homed[0] and homed[1] and homed[2]:
-        break
-    if (time.time() - start_time) > TIMEOUT:
-        sys.stderr.write("Failed to home in time\n")
-        sys.exit(1)
-    time.sleep(TIME_INCR)
+stmak_test.wait_stat(s, lambda st: all(st.homed[:3]), "X, Y and Z homed")
 
 #
 # Set up tool and start position
@@ -89,65 +63,63 @@ c.mdi('G0 X2 Y2')   # Move near to start: unit-less MDI runs in the machine's
 c.wait_complete()
 # s.actual_position is stmak-mm: 2 in = 50.8 mm.
 start_mm = 2 * 25.4
-start_time = time.time()
+stmak_test.wait_stat(
+    s, lambda st: abs(st.actual_position[0] - start_mm) <= .001
+                  and abs(st.actual_position[1] - start_mm) <= .001,
+    "the start position X2 Y2", detail=lambda st: "at %r" % (st.actual_position[:2],))
 px, py = xy()
-while (abs(px - start_mm) > .001) or (abs(py - start_mm) > .001):
-    if (time.time() - start_time) > TIMEOUT:
-        sys.stderr.write("Failed to reach start position in time\n")
-        sys.exit(1)
-    time.sleep(TIME_INCR)
-    px, py = xy()
 sys.stderr.write("Starting at X=%.3f Y=%.3f\n" % (px, py))
 
 
 #
-# Run the generated program, wait for motion to start and the queue to
-# fill up
+# Run the generated program and wait for the read-ahead queue to fill up.
 #
 c.mode(MODE_AUTO)
 c.program_open('3D_Chips.ngc')
 c.auto(AUTO_RUN, 0)
-start_time = time.time()
-s.poll()
-while not (s.queue > 1000):
-    if (time.time() - start_time) > TIMEOUT:
-        sys.stderr.write("Failed to load segments from program\n")
-        sys.exit(1)
-    print_stats()
-    time.sleep(TIME_INCR)
+stmak_test.wait_stat(s, lambda st: st.queue > 1000,
+                     "the program to fill the motion queue",
+                     detail=lambda st: "queue=%d" % st.queue)
 sys.stderr.write("Program partially loaded\n")
 
 #
-# Now stop the program and wait for any additional motion
+# Pause, then abort, then require that nothing moved after the abort.
 #
-# Program X stepover is 2.5mm, or 0.1in; error out if the X stepover
-# exceeds 0.15in = 3.81mm (fudge added to eliminate a legitimate stepover
-# during lag between cycles). Positions from gmi are mm.
-stepover_limit_mm = 0.15 * 25.4
-
-pre_stop_x, pre_stop_y = xy()
+# The bug (#865): the abort's state-tag restore flushed segments the canon
+# still buffered into the queue, and the machine went on cutting after the
+# stop. Pausing first leaves the queue full but the machine standing, so the
+# correct answer is exact -- no motion at all after the abort -- and does not
+# depend on when the abort reaches motion. (Aborting at full speed measured
+# the overrun against a position read before the abort over REST: any row
+# end within that latency, at 400 in/s, failed the test on correct code.)
+# minmax on X/Y in the servo thread (watch.hal) records where the machine
+# went; it is armed once the machine stands.
+c.auto(AUTO_PAUSE)
+stmak_test.wait_stat(s, lambda st: st.paused and st.current_vel == 0.0,
+                     "the paused program to stand still",
+                     detail=lambda st: "paused=%s current_vel=%r" % (st.paused, st.current_vel))
+px, py = xy()
+stmak_test.setp("watch-reset", False)
 c.abort()
+c.wait_complete()
+stmak_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE
+                     and st.queue == 0 and st.inpos,
+                     "the aborted program to settle")
 
-# Sample the live position each iteration (like the classic test's HAL-pin
-# read in the loop condition); stop when two consecutive samples are equal
-# (motion has settled). Seeding cur_x = last_x before the loop instead would
-# make the condition false on the first check and skip the overrun check
-# entirely.
-start_time = time.time()
-last_x = pre_stop_x
+# The joints' interpolators may still have been converging on the paused
+# position by a few micrometres when the watch was armed; a crazy move is
+# millimetres.
+TOL_MM = 0.01
 fail = False
-while (time.time() - start_time) < TIMEOUT:
-    time.sleep(TIME_INCR)
-    cur_x, _ = xy()
-    if cur_x == last_x:
-        break
-    print_stats(pre_stop_x, pre_stop_y)
-    err = abs(pre_stop_x - cur_x)
-    if err > stepover_limit_mm:
-        sys.stderr.write(
-            'ERROR:  X axis motion stopped %.3f mm past stop position\n' % err)
+for axis, pos in (("X", px), ("Y", py)):
+    lo = stmak_test.getp("%smm.min" % axis.lower())
+    hi = stmak_test.getp("%smm.max" % axis.lower())
+    moved = max(abs(hi - pos), abs(pos - lo))
+    sys.stderr.write("%s: paused at %.4f mm, range after the abort %.4f..%.4f\n"
+                     % (axis, pos, lo, hi))
+    if moved > TOL_MM:
+        sys.stderr.write("ERROR:  %s axis moved %.3f mm after the abort\n" % (axis, moved))
         fail = True
-    last_x = cur_x
 
 if fail:
     sys.exit(1)

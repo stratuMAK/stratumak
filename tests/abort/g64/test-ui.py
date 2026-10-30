@@ -1,71 +1,29 @@
 #!/usr/bin/env python3
 
 # Ported to the stratuMAK REST/WS API: uses the `gmi` client instead of the removed
-# NML `linuxcnc` module. Motion samples are captured by halsampler (started in
-# test.sh) into motion-samples.log.
+# NML `linuxcnc` module.
+#
+# How far X got before the abort is measured in the servo thread by a minmax
+# component (motion-test.hal), held in reset outside each program run. This used
+# to be a streamed halsampler record filtered by Z afterwards. Its "max X0.000,
+# 0 samples" failures on CI were not stream loss, as first assumed, but the
+# dropped MDI described in run_and_abort: the machine never reached the run's
+# Z level, so the filter found nothing.
 
 import gmi
 from gmi.constants import *
 import stmak_test
-import time, sys, os
+import sys, os
 
-SETTLE = 0.4
-
-SAMPLES = 'motion-samples.log'
-
-
-def wait_samples_flushed():
-    '''Block until every sample written before now is on disk.
-
-    halsampler (started by test.sh as `halsampler -t`, with no -n) streams for
-    the whole test, so SAMPLES never stops growing and wait_file_stable() does
-    not apply here. Its stdout is a redirected file, i.e. block-buffered, so the
-    samples covering the move we just aborted may still be sitting in halsampler's
-    buffer — which is what the bare sleep() this replaces was really betting on.
-
-    stdio flushes in order, so observing the file grow past the size it has *now*
-    proves the point: the flush that produced the growth necessarily also pushed
-    out everything buffered before it, including every pre-abort sample. If
-    halsampler has died instead, this fails loudly rather than letting
-    process_samples read a truncated log and mis-report max_x.
-    '''
-    size0 = os.path.getsize(SAMPLES)
-    stmak_test.wait_until(
-        lambda: os.path.getsize(SAMPLES) > size0,
-        "halsampler to flush %s past %d bytes" % (SAMPLES, size0),
-        detail=lambda: "still %d bytes" % os.path.getsize(SAMPLES))
+# stratuMAK: HAL joint positions are millimetres (mm-everywhere convention);
+# the program and the expectations are inch.
+MM = 25.4
 
 
-def process_samples(z_lev, expected_max_x):
-    # stratuMAK: the sampled joint positions are millimetres (mm-everywhere
-    # convention); the program/expectations are inch — convert on read.
-    MM = 25.4
+def check_max_x(z_lev, expected_max_x):
     res = 0
-    f = open('motion-samples.log', 'r')
-    max_x = 0.0
-    max_y = 0.0
-    samples = 0
-    for line in f:
-        try:
-            i, x, y, z, xvel, yvel, zvel, xacc, yacc, zacc = [
-                float(n) for n in line.split(' ')[:10]]
-        except ValueError:
-            break
-        x /= MM
-        y /= MM
-        z /= MM
-        # tolerance band: the mm->inch division is not bit-exact
-        if z < z_lev - 1e-6:
-            continue
-        if z > z_lev + 1e-6:
-            break
-        if x > max_x:
-            max_x = x
-            max_y = y
-        samples += 1
-    f.close()
-    print("z=%.1f; max_x = %.6f; max_y = %.6f; samples = %d" % (
-        z_lev, max_x, max_y, samples))
+    max_x = stmak_test.getp('x-max') / MM
+    print("z=%.1f; max_x = %.6f" % (z_lev, max_x))
     if abs(max_x - expected_max_x) > 0.1:
         print("*** ERROR max X%.3f != expected X%.3f" % (max_x, expected_max_x))
         res += 1
@@ -103,17 +61,29 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     c.mode(MODE_MDI)
     c.mdi('F1200 G0X0Y0Z%.1f' % z_lev)
     c.wait_complete()
+    # Every run starts from X0 Y0 at its own Z level. Checked, not assumed:
+    # this MDI follows the previous run's abort, and when the planner dropped
+    # it ("TP is aborting") the run started where that abort had left the
+    # machine — already past Y1.0, so it was aborted at once and reported a
+    # wrong max X (CI, "G64 redo").
+    stmak_test.wait_stat(
+        s, lambda st: all(abs(a - b) < 1e-6 for a, b in
+                          zip(st.actual_position[:3], (0.0, 0.0, z_lev))),
+        "%s: the machine at X0 Y0 Z%.1f" % (msg, z_lev),
+        detail=lambda st: "actual_position=%r" % (st.actual_position[:3],))
     for cmd in init_cmds:
         print("Running command '%s'" % cmd)
         c.mdi(cmd)
         c.wait_complete()
-    time.sleep(SETTLE)
+    stmak_test.drain_mdi(s)
     res += check_status('%s post-command' % msg, expected_mode, expected_p, expected_q)
 
     print("Running program 'test.ngc'")
+    # The machine stands at X0: measure from here.
+    stmak_test.setp('x-max-reset', False)
     c.mode(MODE_AUTO)
     c.program_open("test.ngc")
-    c.auto(AUTO_RUN, 1)
+    c.auto(AUTO_RUN, 0)
 
     # No wait_complete() here. stratuMAK's WaitComplete settles on the interpreter
     # going idle, so after AUTO_RUN it does not return until the PROGRAM ends —
@@ -143,11 +113,14 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     res += check_status('%s pre-abort' % msg, expected_mode, expected_p, expected_q)
     c.abort()
     c.wait_complete()
-    time.sleep(SETTLE)
+    # The planner decelerates along the path after an abort: wait for it to
+    # stop, so max X is final when it is read.
+    stmak_test.wait_stat(s, lambda st: st.inpos and st.queue == 0,
+                         "%s: the machine to stop after the abort" % msg)
 
     res += check_status('%s post-abort' % msg, expected_mode, expected_p, expected_q)
-    wait_samples_flushed()
-    res += process_samples(z_lev, expected_max_x)
+    res += check_max_x(z_lev, expected_max_x)
+    stmak_test.setp('x-max-reset', True)
     print()
     return res
 
@@ -169,7 +142,7 @@ c.home(0)
 c.home(1)
 c.home(2)
 c.wait_complete()
-time.sleep(SETTLE)
+stmak_test.wait_stat(s, lambda st: all(st.homed[:3]), "X, Y and Z homed")
 
 res = 0
 res += run_and_abort('G61',          0.0, 5.0, 610, None, None, 'G61')
@@ -183,8 +156,6 @@ res += run_and_abort('G64 redo',     3.5, 3.7, 640,  0.0,  0.0)
 res += run_and_abort('G64P0Q6',      4.0, 0.0, 640,  0.0,  6.0, 'G64Q6')
 res += run_and_abort('G64P0Q6 redo', 4.5, 0.0, 640,  0.0,  6.0)
 
-if res == 0:
-    os.unlink('motion-samples.log')
 for f in ('sim.var', 'sim.var.bak'):
     if os.path.exists(f):
         os.unlink(f)

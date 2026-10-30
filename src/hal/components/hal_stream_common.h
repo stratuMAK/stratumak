@@ -28,6 +28,14 @@ typedef union {
     uint32_t b;  // 0 or 1
 } hal_stream_val_t;
 
+// The sampler sends its samples in segments, each led by this header: two
+// uint32 in host order (little-endian on every target, like the values), the
+// index of the segment's first sample and the number of samples that follow.
+// Indices count every sample the RT function took since load and wrap at
+// 2^32; a gap between one segment's end and the next one's start is samples
+// the reader lost.  See hal_sampler.gmi.
+#define HAL_SAMPLER_SEGMENT_HDR 8
+
 // A typed pointer to the backing HAL pin.
 typedef union {
     volatile double   *hfloat;

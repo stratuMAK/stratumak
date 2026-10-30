@@ -9,7 +9,6 @@ from gmi.constants import *
 import stmak_test
 
 import subprocess
-import time
 import sys
 
 
@@ -23,25 +22,31 @@ class _HAL:
 hal = _HAL()
 
 
-def wait_for_linuxcnc_startup(status, timeout=10.0):
+def wait_for_linuxcnc_startup(status):
     """Poll Status until the interpreter is idle and settled."""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        status.poll()
-        if (status.exec_state != EXEC_DONE) \
-            or (status.interp_state != INTERP_IDLE) \
-            or (status.task_state != STATE_ESTOP):
-            time.sleep(0.1)
-        else:
-            return
-    raise RuntimeError("timeout waiting for startup")
+    stmak_test.wait_stat(status, lambda st: st.exec_state == EXEC_DONE
+                         and st.interp_state == INTERP_IDLE
+                         and st.task_state == STATE_ESTOP,
+                         "the machine to start up")
 
 
-def settle():
-    # gmi.Stat is a live WS stream that lags command completion slightly;
-    # settle before reading back HAL/spindle state.
-    time.sleep(0.5)
-    s.poll()
+def expect(*speeds):
+    """Wait for spindle N's speed-out pin and status speed to be speeds[N].
+
+    Every step expects other values than the one before it, so the wait
+    cannot be met by the previous step's state; a limit that is wrong never
+    gets there and the wait fails, naming what it saw.  (A flat 0.5 s
+    settle stood here.)"""
+    def seen():
+        s.poll()
+        return [(hal.get_value('spindle.%d.speed-out' % n), s.spindle[n]['speed'])
+                for n in range(len(speeds))]
+
+    stmak_test.wait_until(
+        lambda: all(pin == want and stat == want
+                    for (pin, stat), want in zip(seen(), speeds)),
+        "spindle speeds %r (pin and status)" % (speeds,),
+        detail=lambda: "(speed-out, status speed) per spindle: %r" % (seen(),))
 
 
 # stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
@@ -66,53 +71,25 @@ c.mdi("M3 S10 $0")
 c.mdi("M3 S10 $1")
 c.mdi("M3 S10 $2")
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == 100
-assert s.spindle[0]['speed'] == 100
-assert hal.get_value('spindle.1.speed-out') == 200
-assert s.spindle[1]['speed'] == 200
-assert hal.get_value('spindle.2.speed-out') == 300
-assert s.spindle[2]['speed'] == 300
+expect(100, 200, 300)
 
 c.mdi("M3 S10000 $0")
 c.mdi("M3 S10000 $1")
 c.mdi("M3 S10000 $2")
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == 1000
-assert s.spindle[0]['speed'] == 1000
-assert hal.get_value('spindle.1.speed-out') == 2000
-assert s.spindle[1]['speed'] == 2000
-assert hal.get_value('spindle.2.speed-out') == 3000
-assert s.spindle[2]['speed'] == 3000
+expect(1000, 2000, 3000)
 
 c.mdi("M4 S10 $0")
 c.mdi("M4 S10 $1")
 c.mdi("M4 S10 $2")
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == -500
-assert s.spindle[0]['speed'] == -500
-assert hal.get_value('spindle.1.speed-out') == -200
-assert s.spindle[1]['speed'] == -200
-assert hal.get_value('spindle.2.speed-out') == -300
-assert s.spindle[2]['speed'] == -300
+expect(-500, -200, -300)
 
 c.mdi("M4 S10000 $0")
 c.mdi("M4 S10000 $1")
 c.mdi("M4 S10000 $2")
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == -1500
-assert s.spindle[0]['speed'] == -1500
-assert hal.get_value('spindle.1.speed-out') == -2500
-assert s.spindle[1]['speed'] == -2500
-assert hal.get_value('spindle.2.speed-out') == -3000
-assert s.spindle[2]['speed'] == -3000
+expect(-1500, -2500, -3000)
 
 # Check Python interface commands
 
@@ -120,52 +97,24 @@ c.spindle(SPINDLE_FORWARD, 10, 0, 0)
 c.spindle(SPINDLE_FORWARD, 10, 1, 0)
 c.spindle(SPINDLE_FORWARD, 10, 2, 0)
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == 100
-assert s.spindle[0]['speed'] == 100
-assert hal.get_value('spindle.1.speed-out') == 200
-assert s.spindle[1]['speed'] == 200
-assert hal.get_value('spindle.2.speed-out') == 300
-assert s.spindle[2]['speed'] == 300
+expect(100, 200, 300)
 
 c.spindle(SPINDLE_FORWARD, 10000, 0, 0)
 c.spindle(SPINDLE_FORWARD, 10000, 1, 0)
 c.spindle(SPINDLE_FORWARD, 10000, 2, 0)
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == 1000
-assert s.spindle[0]['speed'] == 1000
-assert hal.get_value('spindle.1.speed-out') == 2000
-assert s.spindle[1]['speed'] == 2000
-assert hal.get_value('spindle.2.speed-out') == 3000
-assert s.spindle[2]['speed'] == 3000
+expect(1000, 2000, 3000)
 
 c.spindle(SPINDLE_REVERSE, 10, 0, 0)
 c.spindle(SPINDLE_REVERSE, 10, 1, 0)
 c.spindle(SPINDLE_REVERSE, 10, 2, 0)
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == -500
-assert s.spindle[0]['speed'] == -500
-assert hal.get_value('spindle.1.speed-out') == -200
-assert s.spindle[1]['speed'] == -200
-assert hal.get_value('spindle.2.speed-out') == -300
-assert s.spindle[2]['speed'] == -300
+expect(-500, -200, -300)
 
 c.spindle(SPINDLE_REVERSE, 10000, 0, 0)
 c.spindle(SPINDLE_REVERSE, 10000, 1, 0)
 c.spindle(SPINDLE_REVERSE, 10000, 2, 0)
 c.wait_complete()
-settle()
-
-assert hal.get_value('spindle.0.speed-out') == -1500
-assert s.spindle[0]['speed'] == -1500
-assert hal.get_value('spindle.1.speed-out') == -2500
-assert s.spindle[1]['speed'] == -2500
-assert hal.get_value('spindle.2.speed-out') == -3000
-assert s.spindle[2]['speed'] == -3000
+expect(-1500, -2500, -3000)
 
 sys.exit(0)

@@ -21,14 +21,15 @@ import (
 // picker opened/closed pins follow each close command, and every process
 // station's released follows its release request.
 //
-// It runs on its own goroutine at the loop rate, which is how the real signals
-// arrive too — the module reads them out of its input snapshot, so the two only
-// meet through HAL pins.
+// It steps inside the control loop, at the start of every cycle before the
+// inputs are read (pnptaskModule.tickHook), so a command written in one cycle
+// is answered in the next one's sample. On a goroutine of its own it raced the
+// loop: a stall of that goroutine longer than a settle budget left the module
+// judging feedback the simulated gripper never had the chance to produce, and
+// the case failed with PICKER_CLOSE_FAILED against working code.
 type machineSim struct {
-	f    *machineFixture
-	mu   sync.Mutex
-	stop chan struct{}
-	done chan struct{}
+	m  *pnptaskModule
+	mu sync.Mutex
 
 	lastClose []bool
 	gripMiss  []bool
@@ -40,6 +41,10 @@ type machineSim struct {
 	// opened again between the swap and the place.
 	lastRelease  []bool
 	releaseRises []int
+	// releasedAt is when each station's released feedback last went high.
+	releasedAt []time.Time
+	// closedAt is when each picker's close command was last seen rising.
+	closedAt []time.Time
 
 	// missesLeft makes the next N close commands report "closed onto nothing",
 	// which is how an empty tray slot presents itself (§5.2).
@@ -50,94 +55,57 @@ type machineSim struct {
 	jammedClosed bool
 	// fixtureStuck: released never follows release.
 	fixtureStuck bool
+
+	// pending runs at the start of the next cycle, on the control goroutine
+	// (see inLoop).
+	pending []func()
 }
 
-// newMachineSimOpts builds the sim with a hook that runs before the first
-// step(): for knobs that must be armed before the sim ever publishes, like a
-// pre-armed miss judging a close command that was issued during startControl.
-func newMachineSimOpts(f *machineFixture, prep func(*machineSim)) *machineSim {
-	n := len(f.m.pins.pickers)
+// newMachineSim builds the sim and hooks it into the control loop. It has to
+// run before startControl: the hook is read by the control goroutine. prep
+// arms knobs before the sim ever publishes, like a pre-armed miss judging a
+// close command that startControl re-drives from a restored held record.
+func newMachineSim(m *pnptaskModule, prep func(*machineSim)) *machineSim {
+	n := len(m.pins.pickers)
 	s := &machineSim{
-		f:            f,
-		stop:         make(chan struct{}),
-		done:         make(chan struct{}),
+		m:            m,
 		lastClose:    make([]bool, n),
 		gripMiss:     make([]bool, n),
-		lastRelease:  make([]bool, len(f.m.pins.procs)),
-		releaseRises: make([]int, len(f.m.pins.procs)),
+		lastRelease:  make([]bool, len(m.pins.procs)),
+		releaseRises: make([]int, len(m.pins.procs)),
+		releasedAt:   make([]time.Time, len(m.pins.procs)),
+		closedAt:     make([]time.Time, n),
 	}
 	if prep != nil {
 		prep(s)
 	}
 	s.step() // publish the resting state before the loop can sample it
-	go s.run()
-	f.t.Cleanup(s.shutdown)
+	m.tickHook = s.step
 	return s
 }
 
-func (s *machineSim) shutdown() {
-	select {
-	case <-s.stop:
-		return // already stopped
-	default:
-	}
-	close(s.stop)
-	<-s.done
-}
-
 // pickSettleBudget is what every fixture gives the simulated gripper to answer
-// a close or an open in. It is a duration rather than a cycle count on purpose:
-// what it has to survive is the machine descheduling this process, which has
-// nothing to do with how fast the control loop is configured to run.
+// a close or an open in. With the sim stepping inside the loop the answer is
+// in the first sample after the command, whatever the scheduler does, so this
+// only has to outlast a cycle; it stays generous because the settle time is
+// also what some cases hold a window open with.
 const pickSettleBudget = 50 * time.Millisecond
-
-// simStepInterval is how often the simulated hardware republishes. It runs
-// several times per control cycle deliberately.
-//
-// What the settle times budget for is the hardware taking time to answer, and
-// the control loop already enforces the ordering the cases care about: dwell
-// costs at least one cycle, so a feedback check always reads a snapshot taken
-// after the command it is checking. The sim's own tick rate adds nothing to
-// that — it only decides how much of a settle budget is spent waiting for this
-// goroutine to be scheduled at all. At one tick per cycle that was most of it:
-// time.Ticker coalesces the ticks missed during a scheduler stall into one, so
-// a stall as long as the settle time left the sim a single step to answer in.
-// Stepping several times per cycle takes the sim out of that race without
-// inflating any budget or costing a case any wall time.
-//
-// Read per sim rather than as a package var: fastLoop lowers pollInterval when
-// a case starts, long after package initialisation would have captured it.
-func simStepInterval() time.Duration {
-	if d := pollInterval / 4; d > 0 {
-		return d
-	}
-	return time.Microsecond
-}
-
-func (s *machineSim) run() {
-	defer close(s.done)
-	t := time.NewTicker(simStepInterval())
-	defer t.Stop()
-	for {
-		select {
-		case <-s.stop:
-			return
-		case <-t.C:
-			s.step()
-		}
-	}
-}
 
 func (s *machineSim) step() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.f.m.pins
+	for _, fn := range s.pending {
+		fn()
+	}
+	s.pending = nil
+	p := s.m.pins
 	for i := range p.pickers {
 		pk := &p.pickers[i]
 		closing := pk.close.Get()
 		if closing != s.lastClose[i] {
 			s.lastClose[i] = closing
 			if closing {
+				s.closedAt[i] = time.Now()
 				// Decide once per close command whether this position holds
 				// anything: a gripper that finds nothing runs to fully closed.
 				s.gripMiss[i] = s.missesLeft > 0
@@ -167,6 +135,9 @@ func (s *machineSim) step() {
 		if s.fixtureStuck {
 			continue
 		}
+		if want && !p.procs[i].released.Get() {
+			s.releasedAt[i] = time.Now()
+		}
 		p.procs[i].released.Set(want)
 	}
 }
@@ -176,6 +147,21 @@ func (s *machineSim) releaseRiseCount(i int) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.releaseRises[i]
+}
+
+// releasedSince is when station i's released feedback last went high.
+func (s *machineSim) releasedSince(i int) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.releasedAt[i]
+}
+
+// closedSince is when picker pk's close command was last seen rising; the
+// zero time if it never has.
+func (s *machineSim) closedSince(pk int) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closedAt[pk]
 }
 
 func (s *machineSim) resetReleaseRises() {
@@ -192,6 +178,23 @@ func (s *machineSim) set(f func(*machineSim)) {
 	f(s)
 }
 
+// inLoop runs fn on the control goroutine, at the start of the next cycle
+// before the inputs are sampled, and returns once it has run. The world model
+// belongs to that goroutine (see machineFixture.stopped): a test that has to
+// change it while the loop runs does it here, not from its own goroutine.
+func (s *machineSim) inLoop(t *testing.T, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.pending = append(s.pending, func() { fn(); close(done) })
+	s.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("inLoop: the control loop never ran the change")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Fixture
 // ---------------------------------------------------------------------------
@@ -201,7 +204,6 @@ func (s *machineSim) set(f func(*machineSim)) {
 // feedback simulated.
 type jobFixture struct {
 	*machineFixture
-	sim *machineSim
 }
 
 // newJobFixtureOpts loads a job-capable machine: auto mode, the settle times
@@ -216,14 +218,9 @@ func newJobFixtureOpts(t *testing.T, o fixtureOpts) *jobFixture {
 		// feedback checks read a fresh sample (see dwell).
 		m.pins.posSettleTime.Set(0)
 		// The pick settle time is what the gripper feedback is given to arrive
-		// in, and it is sized against SCHEDULER JITTER rather than against the
-		// loop rate. dwell counts wall-clock time while the sim answers on its
-		// own goroutine, so a stall longer than this budget leaves the deadline
-		// already expired on the first cycle after it: the feedback check then
-		// judges a sample the gripper never had a chance to appear in, and the
-		// case fails with PICKER_CLOSE_FAILED against working code. A handful
-		// of cycles (10 ms) sat inside the jitter of a loaded machine and was
-		// the suite's dominant false failure.
+		// in. The sim answers in the first sample after a command (it steps
+		// inside the loop, see machineSim), so any settle time of a cycle or
+		// more is met whatever the scheduler does.
 		m.pins.pickSettleTime.Set(pickSettleBudget.Seconds())
 		m.pins.releaseTime.Set(0)
 		// Auto mode: jobs are accepted (§6.4). An unwired pin reads low, which is
@@ -233,10 +230,9 @@ func newJobFixtureOpts(t *testing.T, o fixtureOpts) *jobFixture {
 			userPrep(t, m)
 		}
 	}
+	o.simulate = true
 	f := newMachineFixtureOpts(t, o)
-	jf := &jobFixture{machineFixture: f}
-	jf.sim = newMachineSimOpts(f, o.sim)
-	return jf
+	return &jobFixture{machineFixture: f}
 }
 
 // logCapture is a logger sink the control goroutine and the test can share:
@@ -319,7 +315,7 @@ func (f *jobFixture) runJob(origin, dest, step uint32) {
 	// Drive start-job low and give the loop time to see it: the handshake has to
 	// be re-armed before a level counts as a new request (see jobRequest).
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(origin)
 	f.m.pins.destID.Set(dest)
 	f.m.pins.processStep.Set(step)
@@ -1320,10 +1316,10 @@ func TestJobWaitZoneStopsWhenTheStationStaysBusy(t *testing.T) {
 // is queued behind it and the head never comes to a stop. The counter says so.
 func TestJobWaitZoneDoesNotStopWhenTheStationClearsInTime(t *testing.T) {
 	f := newWaitZoneFixture(t)
-	// Keep every dispatched move in flight long enough that the station can
-	// clear while the first leg is still running — the marginal case on the
-	// machine, made deterministic here.
-	f.mot.setMoveCycles(40)
+	// Keep every dispatched move in flight until the station has cleared while
+	// the first leg is still running — the marginal case on the machine, made
+	// deterministic here.
+	f.mot.hold()
 	startCamPick(f)
 
 	f.eventually("the first leg to be dispatched", func() bool {
@@ -1339,7 +1335,7 @@ func TestJobWaitZoneDoesNotStopWhenTheStationClearsInTime(t *testing.T) {
 	if got := f.get("wait-stops"); got != 0 {
 		t.Errorf("wait-stops = %v, want 0 — the approach should not have stopped", got)
 	}
-	f.mot.setMoveCycles(0)
+	f.mot.release()
 	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
 	f.m.pins.startJob.Set(false)
 	f.requireOK("streamed wait-zone job")
@@ -1497,7 +1493,7 @@ func TestJobWaitZoneRefusesAWrongScene(t *testing.T) {
 // driving to the wait point in manual mode refuses the operator's first jog.
 func TestJobWaitZoneAbortedByAutoEnable(t *testing.T) {
 	f := newWaitZoneFixture(t)
-	f.mot.setMoveCycles(40)
+	f.mot.hold()
 	startCamPick(f)
 
 	f.eventually("the first leg to be dispatched", func() bool {
@@ -1659,7 +1655,7 @@ func TestJobEstopMidMove(t *testing.T) {
 	f.selectTray(1)
 	f.fillTray(0)
 	// Keep every move in flight so the estop lands during one.
-	f.mot.setMoveCycles(1000)
+	f.mot.hold()
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
@@ -1695,7 +1691,7 @@ func TestJobMachineOffMidMove(t *testing.T) {
 	f := newJobFixture(t)
 	f.selectTray(1)
 	f.fillTray(0)
-	f.mot.setMoveCycles(1000)
+	f.mot.hold()
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
@@ -1814,16 +1810,12 @@ func TestRemoveFromProcReleasesBeforeGrip(t *testing.T) {
 	// Started by hand rather than with runJob, which waits the job out: what
 	// is being watched here happens in the middle of it.
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(20) // the proc station
 	f.m.pins.destID.Set(10)   // the tray
 	f.m.pins.processStep.Set(0)
 	f.m.pins.startJob.Set(true)
 
-	f.eventually("the fixture is asked to let go", func() bool { return f.bit("proc.20.release") })
-	f.consistently("the picker stays open while the fixture lets go and settles", func() bool {
-		return !f.bit("picker.0.close") && f.bit("proc.20.has-material")
-	})
 	// And it is a dwell, not a deadlock: the grip follows, and the job runs on
 	// to the tray.
 	f.eventually("the picker closes after the settle", func() bool { return f.bit("picker.0.close") })
@@ -1832,6 +1824,17 @@ func TestRemoveFromProcReleasesBeforeGrip(t *testing.T) {
 	if f.bit("proc.20.has-material") || f.bit("proc.20.release") {
 		t.Errorf("after the removal has-material=%v release=%v, want both low",
 			f.bit("proc.20.has-material"), f.bit("proc.20.release"))
+	}
+
+	// The dwell is wall-clock time, so it is measured in wall-clock time: from
+	// the released feedback the module saw to the close it commanded. A stall
+	// anywhere can only lengthen that span; without the dwell it is a cycle
+	// or two, far short of the settle, and a close before the release comes
+	// out negative.
+	settle := time.Duration(100 * float64(pollInterval))
+	if waited := f.sim.closedSince(0).Sub(f.sim.releasedSince(0)); waited < settle {
+		t.Errorf("the picker closed %v after the fixture released, want at least RELEASE_SETTLE %v",
+			waited, settle)
 	}
 }
 
@@ -1846,7 +1849,7 @@ func TestPlaceToProcClampsBeforeLift(t *testing.T) {
 	f.m.pins.releaseTime.Set(30 * pollInterval.Seconds())
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
@@ -1872,11 +1875,12 @@ func TestEstopDuringPlaceDwellKeepsRecords(t *testing.T) {
 	f := newJobFixture(t)
 	f.selectTray(1)
 	f.fillTray(0)
-	// A wide dwell so the estop lands inside it.
-	f.m.pins.releaseTime.Set(100 * pollInterval.Seconds())
+	// A dwell no test goroutine can sleep through, so the estop lands inside
+	// it however late it is sent; the estop ends the dwell (abortCheck).
+	f.m.pins.releaseTime.Set(3600)
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
@@ -2034,16 +2038,21 @@ func TestTrayResetDuringAJobIsNotLost(t *testing.T) {
 	f := newJobFixture(t)
 	f.selectTray(1)
 	f.fillTray(0)
-	f.mot.setMoveCycles(20)
+	// The job stands in its first move until the request has been seen.
+	f.mot.hold()
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.startJob.Set(true)
-	f.eventually("the job to start moving", func() bool { return f.bit("busy") })
+	f.eventually("the job to start moving", func() bool {
+		return f.bit("busy") && len(f.mot.moveList()) > 0
+	})
 
 	// Ask for the tray to be emptied while the job is running.
 	f.tray().setEmpty.Set(false)
 	f.tray().setEmpty.Set(true)
+	f.sampled()
+	f.mot.release()
 	f.eventually("the job to finish", func() bool { return !f.bit("start-job") })
 	f.m.pins.startJob.Set(false)
 	f.requireOK("job during which set-empty was pressed")
@@ -2072,9 +2081,9 @@ func TestJobPublishesPlanTime(t *testing.T) {
 	if plan <= 0 {
 		t.Errorf("plan-time = %v after a job that planned several legs, want > 0", plan)
 	}
-	if plan >= 0.1 {
-		t.Errorf("plan-time = %v s, over D13's 100 ms budget on a fixture scene", plan)
-	}
+	// Not judged against D13's budget here: this is one wall-clock run, which a
+	// preemption on a shared runner stretches. TestPlanWithinD13Budget is that
+	// check.
 
 	// A job refused before it plans anything reports no planning, rather than
 	// leaving the previous job's number standing for the PLC to read.
@@ -2136,11 +2145,11 @@ func TestJobGatedOnRestoredHeldVerification(t *testing.T) {
 			m.pins.releaseTime.Set(0)
 			m.pins.autoEnable.Set(true)
 		},
+		// The pre-armed miss judges the re-driven close as "gripped nothing":
+		// the part is gone.
+		sim: func(s *machineSim) { s.missesLeft = 1 },
 	})
-	// The pre-armed miss judges the re-driven close as "gripped nothing": the
-	// part is gone.
-	sim := newMachineSimOpts(f, func(s *machineSim) { s.missesLeft = 1 })
-	jf := &jobFixture{machineFixture: f, sim: sim}
+	jf := &jobFixture{machineFixture: f}
 	jf.homed()
 	jf.mot.setPos(100, 100, 60)
 
@@ -2177,7 +2186,7 @@ func TestJobPlansEachLegAgainstTheCurrentScene(t *testing.T) {
 	f.proc().busy.Set(true)
 
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
@@ -2304,7 +2313,7 @@ func TestHomePressDuringJobIsIgnored(t *testing.T) {
 	// press in, with the machine standing still.
 	f.proc().busy.Set(true)
 	f.m.pins.startJob.Set(false)
-	time.Sleep(levelHold)
+	f.sampled()
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)

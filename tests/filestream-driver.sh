@@ -73,6 +73,8 @@ fs_run() {
     fi
     halcmd stop
 
+    stmak_check_filestream filestream
+
     # Kill the server so filestream's Destroy flushes the final captures and
     # closes the output file before we read it.
     kill "$_FS_SRVPID" 2>/dev/null

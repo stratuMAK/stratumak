@@ -50,8 +50,10 @@ def halcmd(*args):
 
 
 def getp(name):
-    out = subprocess.check_output(["halcmd", "getp", name])
-    return float(out.split()[-1])
+    out = subprocess.check_output(["halcmd", "getp", name]).split()[-1]
+    if out in (b"TRUE", b"FALSE"):
+        return float(out == b"TRUE")
+    return float(out)
 
 
 PUSH = 5.0
@@ -91,20 +93,26 @@ drain_errors()
 errors.clear()
 
 # Phase 3: arm the watchdog, re-enable, and give the filter a full window
-# (30 cycles) plus margin to show any drain.
+# (30 cycles) plus margin to show any drain -- counted in servo cycles by
+# the watch comp, which also latches a fault that switches motion off
+# again, so neither depends on how fast this script gets to look.
+WINDOW = 100
 halcmd("sets", "j0-watch-arm", "1")
 c.state(STATE_ON)
-time.sleep(0.3)
+stmak_test.wait_until(
+    lambda: getp("watch.0.enabled-cycles") >= WINDOW or getp("watch.0.dropped"),
+    "%d enabled servo cycles after re-enable" % WINDOW,
+    detail=lambda: "enabled-cycles=%d" % getp("watch.0.enabled-cycles"))
 s.poll()
 drain_errors()
 
 max_step = getp("watch.0.max-step")
 
 ok = True
-if s.task_state != STATE_ON:
-    print("FAIL: machine did not stay ON after re-enable (task_state=%d) — "
-          "stale filter history commanded an excursion the following-error "
-          "check caught" % s.task_state)
+if getp("watch.0.dropped"):
+    print("FAIL: motion switched itself off again after re-enable — stale "
+          "filter history commanded an excursion the following-error check "
+          "caught")
     ok = False
 if errors:
     print("FAIL: operator errors on re-enable: %r" % errors)

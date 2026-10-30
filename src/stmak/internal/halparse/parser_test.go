@@ -1778,3 +1778,22 @@ func TestParseSaveTypes(t *testing.T) {
 		t.Error("save with an unknown type parsed; want a rejection")
 	}
 }
+
+// The runtime "load" command and the HAL-file parser share the instance
+// list syntax through SplitInstanceNames.
+func TestSplitInstanceNames(t *testing.T) {
+	names, rest, err := SplitInstanceNames([]string{"<a.b, c>", "x=1"})
+	if err != nil || len(names) != 2 || names[0] != "a.b" || names[1] != "c" ||
+		len(rest) != 1 || rest[0] != "x=1" {
+		t.Fatalf("got names=%q rest=%q err=%v", names, rest, err)
+	}
+	names, rest, err = SplitInstanceNames([]string{"x=1"})
+	if err != nil || names != nil || len(rest) != 1 {
+		t.Fatalf("no list: got names=%q rest=%q err=%v", names, rest, err)
+	}
+	for _, bad := range []string{"<>", "<a,,b>"} {
+		if _, _, err := SplitInstanceNames([]string{bad}); err == nil {
+			t.Fatalf("%s: want an error", bad)
+		}
+	}
+}

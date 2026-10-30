@@ -427,6 +427,7 @@ normalized to HAL-conventional dashes.
 | `busy` | bit | out | job executing |
 | `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset at the `start-job` edge (phase 7 — D13's budget, made observable) |
 | `wait-stops` | u32 | out | how often a `WAIT_DEADZONE` approach actually stopped at its derived wait point — the queue ran dry before the station cleared (D29). Not reset per job: the question it answers is a frequency over a shift, and it is what would justify building the conditional segment gate the streaming cannot replace |
+| `cycle-count` | u32 | out | advances once per control cycle, after its inputs were sampled and its outputs published; wraps. Two increments after writing an input prove the input was sampled — what the integration driver waits for instead of holding request pins for a fixed time |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |

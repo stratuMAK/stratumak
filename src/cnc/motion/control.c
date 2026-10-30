@@ -1745,6 +1745,23 @@ static inline int jerk_filter_flushed(motmod_inst_t *inst)
     return ws <= 0 || inst->jerk_filter.still >= ws;
 }
 
+/* In coord and teleop mode a joint's pos_cmd is the cubic interpolator's
+   output over coarse_pos, which trails the planner by a few cycles: the
+   joints still move after the planner is done.  Settled once every kins
+   joint's four support points are the same coarse position (stored copies,
+   so they compare exactly; the interpolated output itself carries rounding
+   and need not equal coarse_pos bit for bit). */
+static inline int cubics_settled(motmod_inst_t *inst)
+{
+    for (int joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
+        const CUBIC_STRUCT *c = &inst->joints[joint_num].cubic;
+        if (c->x0 != c->x1 || c->x1 != c->x2 || c->x2 != c->x3) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void get_pos_cmds(motmod_inst_t *inst, long period)
 {
     int joint_num, result;
@@ -2003,12 +2020,13 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    joint->pos_cmd = cubicInterpolate(&(joint->cubic), 0, &(joint->vel_cmd), &(joint->acc_cmd), 0);
 	}
 	/* report motion status -- in position only once the jerk filter has
-	   flushed as well: task's motion barriers (M-codes, I/O, end of MDI,
+	   flushed and the joints' cubics have caught up as well: task's motion barriers (M-codes, I/O, end of MDI,
 	   probe "finished without contact", mode switches) wait on INPOS, and
 	   the joints keep moving for up to a filter window after the planner
 	   is done (free mode holds free_tp.active the same way) */
 	SET_MOTION_INPOS_FLAG(0);
-	if (inst->tp_api->is_done(inst->tp_api->ctx) && jerk_filter_flushed(inst)) {
+	if (inst->tp_api->is_done(inst->tp_api->ctx) && jerk_filter_flushed(inst) &&
+	    cubics_settled(inst)) {
 	    SET_MOTION_INPOS_FLAG(1);
 	}
 	break;
@@ -2071,12 +2089,13 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 
 	/* END OF OUTPUT KINS */
 
-	/* report motion status -- in position once no axis jog is running and
-	   the jerk filter has flushed.  Left alone, INPOS kept whatever value it
+	/* report motion status -- in position once no axis jog is running (its
+	   deceleration included) and the jerk filter and the joints' cubics have
+	   caught up.  Left alone, INPOS kept whatever value it
 	   had when teleop was entered, so a switch out of teleop (which waits on
 	   INPOS) went through mid-jog -- or, had it been FALSE, never */
 	SET_MOTION_INPOS_FLAG(0);
-	if (!axis_jog_is_active(ai) && jerk_filter_flushed(inst)) {
+	if (!axis_jog_is_active(ai) && jerk_filter_flushed(inst) && cubics_settled(inst)) {
 	    SET_MOTION_INPOS_FLAG(1);
 	}
 

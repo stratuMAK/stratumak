@@ -29,6 +29,7 @@ halsampler \- sample data from HAL in realtime
 .SH SYNOPSIS
 .B halsampler
 .RI [ options ]
+.RI [ INSTANCE ]
 
 .SH DESCRIPTION
 .BR sampler (9)
@@ -36,21 +37,15 @@ and
 .B halsampler
 are used together to sample HAL data in real time and store it in a file.
 .B sampler
-is a realtime HAL component that exports HAL pins and creates a FIFO in shared memory.
-It then begins sampling data from the HAL and storing it to the FIFO.
+is a realtime HAL component that exports HAL pins and samples them into a ring
+buffer every time its function runs.
+.B stmakd
+streams the ring over a WebSocket, and
 .B halsampler
-is a non-realtime program that copies data from the FIFO to stdout, where it can
-be redirected to a file or piped to some other program.
+is a non-realtime program that copies the stream to stdout, where it can be
+redirected to a file or piped to some other program.
 
 .SH OPTIONS
-.TP
-.BI "\-c " CHAN
-instructs 
-.B halsampler
-to read from FIFO
-.IR CHAN .
-FIFOs are numbered from zero, and the default value is zero, so
-this option is not needed unless multiple FIFOs have been created.
 .TP
 .BI "\-n " COUNT
 instructs 
@@ -67,21 +62,46 @@ will read continuously until it is killed.
 instructs 
 .B halsampler
 to tag each line by printing the sample number in the first column.
+Numbers count the samples the sampler took since the first one printed, so
+they skip exactly the samples that were lost.
 .TP
-.B FILENAME
-instructs
+.BI "\-R " FILE
+creates
+.I FILE
+once the stream is subscribed.
+.B stmakd
+sends the stream header only after it has set this connection's read
+position, so every sample taken from then on reaches
+.BR halsampler .
+A script that starts
 .B halsampler
-to write to \fBFILENAME\fR instead of to stdout.
+in the background and then the HAL threads waits for
+.I FILE
+in between.
+.TP
+.B INSTANCE
+the
+.B sampler
+instance to read; the default is \fBsampler\fR.
+.SH ENVIRONMENT
+.TP
+.B STMAK_REST_URL
+base URL of
+.BR stmakd ;
+the default is http://127.0.0.1:5080.
 .SH USAGE
-A FIFO must first be created by loading 
+A
 .BR sampler (9)
-with 
+must first be loaded with
 .B halcmd loadrt
 or a
 .B loadrt
 command in a HAL file.  Then
 .B halsampler
-can be invoked to begin printing data from the FIFO to stdout.
+can be invoked to begin printing its data to stdout.  The stream starts with
+the samples taken after
+.B halsampler
+connected.
 .P
 Data is printed one line per sample.  If
 .B \-t
@@ -95,7 +115,7 @@ would look like:
 123.55 33.4 0 \-12
 .P
 .B halsampler
-prints data as fast as possible until the FIFO is empty, then it retries at regular intervals, until it is either killed or has printed
+prints data as it arrives until it is either terminated or has printed
 .I COUNT
 samples as requested by
 .BR \-n .
@@ -103,16 +123,19 @@ Usually, but not always, data printed by
 .B halsampler
 will be redirected to a file or piped to some other program.
 .P
-The FIFO size should be chosen to absorb samples captured during any momentary disruptions in the flow of data, such as disk seeks, terminal scrolling, or the processing limitations of subsequent program in a pipeline.  If the FIFO gets
-full and
-.B sampler
-is forced to overwrite old data,
-.B halsampler
-will print 'overrun' on a line by itself to mark each gap in the sampled
-data.  If
+The realtime sampler never waits for its readers.
+.B stmakd
+drains the ring independently of how fast the client reads and holds a
+backlog of a few MiB, but if the stream falls further behind than the ring's
+.B depth
+holds, the oldest samples are lost.  Choose
+.B depth
+to bridge momentary stalls of
+.BR stmakd .
+Every lost stretch is reported on stderr as it happens, naming the number of
+samples lost and the sample they preceded; with
 .B \-t
-was specified, gaps in the sequential sample numbers in the first column
-can be used to determine exactly how many samples were lost.
+the sample numbers skip them too.
 .P
 The data format for
 .B halsampler
@@ -131,15 +154,14 @@ If a problem is encountered during initialization,
 .B halsampler
 prints a message to stderr and returns failure.
 .P
-Upon printing
+It returns success when it has printed
 .I COUNT
 samples (if
 .B \-n
-was specified) it will shut down and return success.  If it is terminated
-before printing the specified number of samples, it returns failure.  This
-means that when
-.B \-n
-is not specified, it will always return failure when terminated.
+was specified), or when it is ended by SIGINT or SIGTERM, after writing out
+everything it received.  It returns failure if any samples were lost: the
+output then has a gap that a later reader cannot see without
+.BR \-t .
 
 .SH "SEE ALSO"
 .BR sampler (9)
