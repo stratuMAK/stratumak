@@ -1,17 +1,12 @@
+# How far X gets in each program run, measured in the servo thread. The test
+# holds x-max-reset high outside a run and reads x-max after the abort.
 
-# sample where motion tells us to go
+load minmax <max_x>
 
-load sampler depth=1000 cfg=fffffffff
+addf max_x                servo-thread
 
-addf sampler              servo-thread
+net Xpos => max_x.in
+net x-max-reset => max_x.reset
+net x-max <= max_x.max
 
-net Xpos => sampler.pin.0
-net Ypos => sampler.pin.1
-net Zpos => sampler.pin.2
-net Xvel => sampler.pin.3
-net Yvel => sampler.pin.4
-net Zvel => sampler.pin.5
-net Xacc => sampler.pin.6
-net Yacc => sampler.pin.7
-net Zacc => sampler.pin.8
-
+sets x-max-reset 1

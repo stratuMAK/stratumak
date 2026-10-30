@@ -9,6 +9,19 @@
 # barrier before advancing write_pos; poll_transmit reads write_pos with a paired
 # acquire barrier (see sampler.c).
 #
+# Wire format: after the "cfg:<types>" text header every WebSocket message is
+# one poll result, a segment: two little-endian uint32 -- the index of its
+# first sample and its sample count -- followed by that many samples of
+# len(types)*8 bytes each (hal_stream_common.h). Indices count every sample the
+# RT function took since the sampler was loaded and wrap at 2^32; the first
+# segment of a connection starts wherever the sampler was when the client
+# connected.
+#
+# The RT function never waits for a reader. A reader that falls further behind
+# than depth samples loses the oldest ones; the next segment then starts later
+# than the previous one ended, and the difference is the number lost. Clients
+# must check for that: halsampler reports it and exits non-zero.
+#
 # Usage:
 #   loadrt sampler name=sampler.0 cfg=uffb depth=1000
 
@@ -16,7 +29,7 @@
 @author "John Kasunich (sampler.c)"
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 1
+@version 2
 @prefix hal_sampler
 @rest_export false
 
