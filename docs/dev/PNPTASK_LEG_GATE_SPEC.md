@@ -131,6 +131,11 @@ legs; legs are starved at most for one stroke.
   during its Z strokes and the swap) is not a leg. The fixture's own position
   interlock (`deadzone.N.free`) keeps covering that, unchanged.
 - **Z strokes** are not legs: vertical, XY unchanged; covered as above.
+- **Only travel legs are gated.** The low shift between two places on a tray
+  (D38) and the Z strokes bypass the gate and rely on `deadzone.N.free`. That
+  assumes no tray or station a low move runs on lies in the movable region —
+  true on the coating machine (the trays are outside the strip); a machine
+  with a station inside a movable zone would need its low moves gated too.
 - **Manual jogs** are not gated; the position interlock covers them, as today.
 - **Homing** keeps its own rule on the coating machine (only with the sphere
   closed); not gated here.
