@@ -56,6 +56,12 @@ func (c *control) runPark() error {
 	if err := c.seedCmdPos(); err != nil {
 		return err
 	}
+	// A park goes up to MOVE_HEIGHT and away from wherever the head stayed
+	// low (D37/D38): forgotten here, not left to the Z check -- a PARK_Z
+	// equal to a station's NEAR_HEIGHT would have passed it, and the next
+	// job's first leg back would have run across at the station's height.
+	c.nearAt = 0
+	c.lowAt = 0
 	// The legs are planned for picker 0 with its offset added back, so the
 	// machine itself -- not a pick point -- ends up on PARK_X/PARK_Y.
 	j := &job{height: cfg.MoveHeight, travel: cfg.MoveHeight, pickedSlot: -1}

@@ -134,3 +134,51 @@ func TestParkOutsideTheMachineRefusedAtLoad(t *testing.T) {
 		t.Fatalf("factory error = %v, want the park position refused", err)
 	}
 }
+
+// TestParkForgetsTheNearHeight (D37): a park takes the head elsewhere, so the
+// next job's travel back to the station the head last stayed at runs at
+// MOVE_HEIGHT -- also when PARK_Z happens to equal that station's
+// NEAR_HEIGHT, which left the head "still at the near height" as far as the
+// Z check alone could tell, and sent the first leg from the park across at
+// the station's height.
+func TestParkForgetsTheNearHeight(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		tweak: parkTweak, // PARK_Z 20
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			m.world.trays[0].cfg.NearHeight, m.world.trays[0].cfg.HasNear = 20, true
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+
+	f.runJobNear(20, 10, 7, true) // ends at the tray's NEAR_HEIGHT, 20
+	f.requireOK("proc -> tray with stay-near")
+	f.press(f.m.pins.park)
+	f.eventually("parked", func() bool { return f.bit("parked") })
+	f.eventually("busy to clear", func() bool { return !f.bit("busy") })
+
+	f.mot.resetCalls()
+	f.runJobNear(10, 20, 7, false)
+	f.requireOK("tray -> proc after the park")
+	// The travel away from the park runs at the job's movement height (the
+	// 10 -> 20 route has one of its own), reached by a Z move at the park
+	// position first -- not across at the tray's NEAR_HEIGHT the head was
+	// left at by the park's PARK_Z.
+	want := f.m.ctl.moveHeight(10, 20)
+	moves := f.mot.moveList()
+	if len(moves) < 2 || moves[0].pos.X != 150 || moves[0].pos.Y != 160 || moves[0].pos.Z != want {
+		t.Fatalf("the first move after the park is %+v, want a Z move to the movement height %g at the park position", moves[0].pos, want)
+	}
+	for _, m := range moves[1:] {
+		if m.pos.X == 150 && m.pos.Y == 160 {
+			continue
+		}
+		if m.pos.Z != want {
+			t.Fatalf("the travel away from the park is at Z %g, want the movement height %g: %+v", m.pos.Z, want, moves)
+		}
+		break
+	}
+}
