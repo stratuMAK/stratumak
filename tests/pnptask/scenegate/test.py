@@ -10,6 +10,7 @@ next one waits.
 """
 
 import pnpdrv
+import stmak_test
 
 OPEN = 0                     # zones.dxf: the plate is not drawn, station 22 reachable
 
@@ -42,19 +43,40 @@ pnpdrv.check(s["proc.22.has-material"], "the station holds the part")
 pnpdrv.check(not s["scene-busy"], "scene-busy is down after the job")
 
 # ── a hold raised during a gated leg: that leg runs on, the next one waits ──
+#
+# The head stands at the station after the first job, so the gated leg here
+# is the one OUT of it: a real travel, long enough to raise the hold into.
+# (The leg into a station the head already stands at is zero-length; its lock
+# is held for a cycle or two, which a poll from here cannot be relied on to
+# see.)
 
 m.start_job(22, 10, deadzone=OPEN)
-m.wait(lambda s: s["scene-busy"], "the leg into the station takes the lock")
+# Under way, not merely taking the lock: scene-busy is up for the one cycle
+# in which the gate looks at scene-hold once more, and a hold raised into
+# that cycle wins (the leg yields and waits). The hold here must land on a
+# leg that is already moving.
+stmak_test.wait_until(
+    lambda: m.get("scene-busy") and not pnpdrv.raw_get("pnp.mot.motion.in-position"),
+    "the leg out of the station to be under way under the lock")
 m.set("scene-hold", True)
-m.wait_gripper(0, True)      # the leg in finished and the pick happened: not stopped
+pnpdrv.check_eq(m.await_job(), 0, "the leg already under the lock runs on to its end")
+s = m.snapshot()
+pnpdrv.check(not s["scene-busy"], "scene-busy dropped with the leg that ended")
+pnpdrv.check(not s["proc.22.has-material"], "the part was taken out of the station")
+
+m.start_job(10, 22, deadzone=OPEN)
+m.wait_gripper(0, True)      # the pick at the tray, clear of the plate
 m.wait_still()
 m.cycles(30)
 s = m.snapshot()
-pnpdrv.check(s["busy"], "the job waits before the leg out of the station")
-pnpdrv.check(not s["scene-busy"], "scene-busy dropped with the leg that ended")
-pnpdrv.check(not s["proc.22.has-material"], "the part was taken out of the station")
+pnpdrv.check(s["busy"] and not s["scene-busy"], "the next leg into the region waits at the gate")
+pnpdrv.check(not s["proc.22.has-material"], "nothing reached the station under the hold")
 m.set("scene-hold", False)
-pnpdrv.check_eq(m.await_job(), 0, "the leg out goes once the scene is free")
+pnpdrv.check_eq(m.await_job(), 0, "the leg in goes once the scene is free")
+
+# Back to the tray with the station clear, for the last scenario.
+m.start_job(22, 10, deadzone=OPEN)
+pnpdrv.check_eq(m.await_job(), 0, "the part comes back to the tray")
 
 # ── a gate wait given up ─────────────────────────────────────────────────────
 

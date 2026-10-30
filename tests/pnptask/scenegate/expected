@@ -5,10 +5,13 @@ PASS the head stands still while it waits
 PASS the job ends once the scene is free
 PASS the station holds the part
 PASS scene-busy is down after the job
-PASS the job waits before the leg out of the station
+PASS the leg already under the lock runs on to its end
 PASS scene-busy dropped with the leg that ended
 PASS the part was taken out of the station
-PASS the leg out goes once the scene is free
+PASS the next leg into the region waits at the gate
+PASS nothing reached the station under the hold
+PASS the leg in goes once the scene is free
+PASS the part comes back to the tray
 PASS wait-abort ends a gate wait with WAIT_ABORTED
 PASS scene-busy low after the abort
 PASS the picker keeps its material
