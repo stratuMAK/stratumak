@@ -898,3 +898,40 @@ func TestEstopClearsARetainedRecord(t *testing.T) {
 		t.Errorf("held record after an estop = %+v, want it cleared entirely", w.held[0])
 	}
 }
+
+// TestFreePickerOpenedBeforeAnyDescent: the picker that does NOT pick goes
+// down with the head on every stroke. Left commanded closed -- by a manual
+// close that gripped nothing (§8) -- its shut jaws would meet the part under
+// them on the first descent instead of straddling it. Every free picker is
+// opened before the job moves at all.
+func TestFreePickerOpenedBeforeAnyDescent(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			// A standing close on a free picker, as a manual close on nothing
+			// leaves it.
+			m.pins.pickers[1].close.Set(true)
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.eventually("the standing close published", func() bool { return f.bit("picker.1.close") })
+
+	f.mot.hold() // the first move stays in flight until released
+	f.m.pins.startJob.Set(false)
+	f.sampled()
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+	f.eventually("the first move to be dispatched", func() bool { return len(f.mot.moveList()) > 0 })
+	if f.bit("picker.1.close") {
+		t.Error("the free picker was still commanded closed when the head started moving")
+	}
+	f.mot.release()
+	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("a job with the other picker left closed")
+}

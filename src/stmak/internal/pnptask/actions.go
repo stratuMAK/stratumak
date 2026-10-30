@@ -96,9 +96,59 @@ func (c *control) openForPick(pk int) error {
 	if !c.m.pins.pickers[pk].close.Get() {
 		return nil
 	}
-	c.m.logger.Warn("pnptask: a picker counted free was still commanded closed, opening it before the pick",
+	c.m.logger.Warn("pnptask: a picker counted free was still commanded closed, opening it before the head goes down",
 		"picker", pk)
+	// Down in a tray (D38) the jaws would open next to the parts: up first.
+	if err := c.liftFromLow(); err != nil {
+		return err
+	}
 	return c.waitPickerOpen(pk)
+}
+
+// openFreePickers is openForPick for every picker the engine counts free,
+// before the job's first descent. The other picker goes down with the head
+// on every stroke, not only on its own pick, so a standing close on it -- a
+// manual close that gripped nothing leaves one on purpose (§8) -- would put
+// closed jaws down over a populated slot, meeting the part instead of
+// straddling it. A present record is a grip and is left alone; a retained
+// one never gets here (validateJob refuses the job, §8.1).
+func (c *control) openFreePickers() error {
+	for i := range c.m.pins.pickers {
+		if c.m.world.held[i].present {
+			continue
+		}
+		if err := c.openForPick(i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// liftFromLow takes the head up from where a stay-near place left it low on
+// a tray (D38) before a gripper is actuated down there: to the tray's
+// NEAR_HEIGHT, which the next travel then keeps (travelZ), or to MOVE_HEIGHT
+// if the tray has none. Nothing to do when the head is not low.
+func (c *control) liftFromLow() error {
+	if c.lowAt == 0 {
+		return nil
+	}
+	st := c.m.world.station(c.lowAt)
+	if st == nil || !c.isLowAt(st) {
+		c.lowAt = 0
+		return nil
+	}
+	c.lowAt = 0
+	near, ok := st.near()
+	if !ok {
+		near = c.m.cfg.MoveHeight
+	}
+	if err := c.zStroke(near); err != nil {
+		return err
+	}
+	if ok {
+		c.nearAt = st.id
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

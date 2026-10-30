@@ -203,3 +203,45 @@ func TestLowMoveOutsideTheWindow(t *testing.T) {
 		t.Errorf("first move %+v, want the lift to NEAR_HEIGHT 10", moves[0])
 	}
 }
+
+// TestLowMoveLiftsBeforeOpeningAClosedPicker (D38): the head is left down in
+// the tray after a stay-near place, and the next job finds the other picker
+// commanded closed. Its jaws may not open down there next to the parts: the
+// head goes up to the tray's NEAR_HEIGHT first, and only then is the picker
+// opened and the pick made.
+func TestLowMoveLiftsBeforeOpeningAClosedPicker(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			c := &m.world.trays[0].cfg
+			c.NearHeight, c.HasNear, c.LowMoveMax = 10, true, 1.5
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	f.runJobNear(20, 10, 7, true) // the head stays down at the place
+	f.requireOK("proc -> tray with stay-near")
+	moves := f.mot.moveList()
+	low := moves[len(moves)-1].pos
+	if low.Z != 2.5 {
+		t.Fatalf("the job ended at Z %g, want the head left at the stroke height 2.5", low.Z)
+	}
+
+	// The other picker is closed by hand on nothing and stays so (§8).
+	f.m.pins.pickers[1].close.Set(true)
+	f.sampled()
+
+	f.mot.resetCalls()
+	f.runJobNear(10, 20, 7, false) // the same part again, 0 mm away: a low move, were the pickers open
+	f.requireOK("tray -> proc after a low place")
+	moves = f.mot.moveList()
+	if len(moves) == 0 || moves[0].pos.Z != 10 || moves[0].pos.X != low.X || moves[0].pos.Y != low.Y {
+		t.Fatalf("first move %+v, want the lift to NEAR_HEIGHT 10 where the head stood (%g, %g) before anything else", moves[0].pos, low.X, low.Y)
+	}
+	if f.bit("picker.1.close") {
+		t.Error("the closed picker was not opened")
+	}
+}

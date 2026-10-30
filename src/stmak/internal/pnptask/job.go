@@ -196,6 +196,11 @@ func (c *control) runJob() error {
 	if err := c.seedCmdPos(); err != nil {
 		return err
 	}
+	// Every free picker open before the head goes down anywhere: see
+	// openFreePickers.
+	if err := c.openFreePickers(); err != nil {
+		return err
+	}
 	holder, err := c.runPick(j)
 	if err != nil {
 		return err
