@@ -22,6 +22,9 @@ type pumpConn struct {
 	fail  error
 	done  chan struct{}
 	reads [][]byte // returned by ReadBinary in order, then io.EOF
+
+	readClosed bool // CloseRead was called
+	readAfter  bool // ReadBinary was called after CloseRead
 }
 
 func newPumpConn() *pumpConn { return &pumpConn{done: make(chan struct{})} }
@@ -45,6 +48,9 @@ func (c *pumpConn) WriteBinary(data []byte) error {
 func (c *pumpConn) ReadBinary() ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.readClosed {
+		c.readAfter = true
+	}
 	if len(c.reads) == 0 {
 		return nil, io.EOF
 	}
@@ -54,6 +60,12 @@ func (c *pumpConn) ReadBinary() ([]byte, error) {
 }
 
 func (c *pumpConn) Done() <-chan struct{} { return c.done }
+
+func (c *pumpConn) CloseRead() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readClosed = true
+}
 
 func (c *pumpConn) unblock(fail error) {
 	c.mu.Lock()
@@ -118,6 +130,35 @@ func TestPumpTransmitDeliversInOrder(t *testing.T) {
 	p := &counterProducer{chunk: 100, limit: 1 << 20}
 	PumpTransmit(c, p.poll)
 	wantSequence(t, c.messages(), 100, 1<<20)
+}
+
+// A transmit stream reads nothing, and must say so: otherwise the client's
+// close frame is never answered and its close handshake times out.
+func TestPumpTransmitClosesRead(t *testing.T) {
+	c := newPumpConn()
+	readClosed := false
+	poll := func(buf []byte) int {
+		c.mu.Lock()
+		readClosed = c.readClosed
+		c.mu.Unlock()
+		return -1
+	}
+	PumpTransmit(c, poll)
+	if !readClosed {
+		t.Error("CloseRead was not called before the first poll")
+	}
+	if c.readAfter {
+		t.Error("ReadBinary called after CloseRead")
+	}
+}
+
+// A receive stream keeps reading, so it must not close its read side.
+func TestPumpReceiveKeepsRead(t *testing.T) {
+	c := newPumpConn()
+	PumpReceive(c, func([]byte) int { return 0 })
+	if c.readClosed {
+		t.Error("PumpReceive called CloseRead")
+	}
 }
 
 // The point of the pump: a client that stops reading must not stop the drain.

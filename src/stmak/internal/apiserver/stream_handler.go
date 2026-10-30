@@ -88,3 +88,12 @@ func (c *streamConn) ReadBinary() ([]byte, error) {
 func (c *streamConn) Done() <-chan struct{} {
 	return c.ctx.Done()
 }
+
+// CloseRead hands the connection's read side to the library, which answers
+// ping and close frames from then on; its context ends with the connection,
+// so a client that went away is seen without a write having to fail first.
+// Not safe against a concurrent WriteBinary or Done: PumpTransmit calls it
+// before it starts its goroutines.
+func (c *streamConn) CloseRead() {
+	c.ctx = c.conn.CloseRead(c.ctx)
+}

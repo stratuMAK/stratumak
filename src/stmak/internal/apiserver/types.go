@@ -76,6 +76,13 @@ type StreamConn interface {
 	ReadBinary() ([]byte, error)
 	// Done returns a channel that is closed when the connection should stop.
 	Done() <-chan struct{}
+	// CloseRead declares that no data message is expected from the client,
+	// and keeps the connection's control frames handled anyway: a WebSocket
+	// nobody reads from never sees the client's close frame, so a client that
+	// ends the stream waits out its close handshake. After it, ReadBinary must
+	// not be called, a data message from the client ends the connection, and
+	// Done also closes when the client goes away.
+	CloseRead()
 }
 
 // StreamServer is the interface that generated stream_server types implement.

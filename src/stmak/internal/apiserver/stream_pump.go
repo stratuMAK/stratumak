@@ -81,6 +81,11 @@ func (q *pumpQueue) release(msg []byte) {
 // typically a cgo call into a module, and the caller's return is what lets the
 // module be destroyed.
 func PumpTransmit(conn StreamConn, poll func(buf []byte) int) {
+	// Nothing reads from a transmit stream, so without this the client's
+	// close frame would go unanswered and its close handshake would time out
+	// (halsampler -n took 5 s longer than its samples).
+	conn.CloseRead()
+
 	q := &pumpQueue{ready: make(chan struct{}, 1)}
 	stop := make(chan struct{})
 	drained := make(chan struct{})
