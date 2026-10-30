@@ -3,7 +3,6 @@
 package pnptask
 
 import (
-	"errors"
 	"math"
 	"time"
 
@@ -281,67 +280,93 @@ func (c *control) notePlanTime(j *job, d time.Duration) {
 
 // travel moves picker pk to a target in the taught frame, at the job's movement
 // height, along a route planned around the dead zones, and returns once the
-// machine has arrived. Every leg but D29's first one wants that drain: a Z
-// stroke starts from a standstill, and the action sequences read gripper and
-// fixture feedback about a machine that has stopped moving.
+// machine has arrived. Every leg drains: a Z stroke starts from a standstill,
+// and the action sequences read gripper and fixture feedback about a machine
+// that has stopped moving.
+//
+// A leg whose route touches the movable region goes through the scene gate
+// first (D45): it starts only under the lock with whatever changes the scene,
+// waits for it standing, and is planned again after the lock is taken — the
+// scene may have changed while it waited, and a route planned before the wait
+// is not trusted.
 func (c *control) travel(j *job, pk int, target pnproute.Point) error {
-	if err := c.dispatchTravel(j, pk, target); err != nil {
+	wps, err := c.planLeg(j, pk, target)
+	if err != nil {
+		return err
+	}
+	if c.m.planners.touchesMovable(c.legPath(wps)) {
+		if err := c.acquireScene(target); err != nil {
+			return err
+		}
+		defer c.releaseScene()
+		if wps, err = c.planLeg(j, pk, target); err != nil {
+			return err
+		}
+		if !c.m.planners.touchesMovable(c.legPath(wps)) {
+			c.releaseScene()
+		}
+	}
+	if err := c.dispatchRoute(j, wps); err != nil {
 		return err
 	}
 	return c.waitMotionDone()
 }
 
-// dispatchTravel plans one leg and queues it, and returns with the machine
-// still moving.
-//
-// The route is planned here, immediately before the leg runs (§7.4), from where
-// the picker currently is: the planner's static graph is built once at load, so
-// this is the ~1 ms two-node insertion, comfortably inside D13's budget. The
-// segments go into the TP queue back to back under a parabolic blend, which is
-// what turns the planner's clearance-rounded corners into smooth constant-Z
-// travel — and why CLEARANCE > BLEND_TOLERANCE is enforced at load: the TP blends
-// corners *inward*, toward the zone the route was planned around.
-//
-// Leaving the queue running is what the two-leg approach to a WAIT_DEADZONE
-// station needs (D29): it is the one place with something useful to do while a
-// leg runs — poll the station's busy input, and queue the leg into the station
-// the moment it reads clear, so the trajectory planner blends the two instead
-// of stopping between them. cmdPos tracking is what makes that work, and it is
-// the same tracking that lets the segments of a single route be queued back to
-// back.
-func (c *control) dispatchTravel(j *job, pk int, target pnproute.Point) error {
-	return c.dispatchLeg(j, pk, target, false)
+// legPath is a leg's route as the scene gate judges it: from where the head
+// stands, through every waypoint.
+func (c *control) legPath(wps []pnproute.Point) []pnproute.Point {
+	path := make([]pnproute.Point, 0, len(wps)+1)
+	path = append(path, pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y})
+	return append(path, wps...)
 }
 
-// dispatchLeadingLeg is dispatchTravel for the first of two streamed legs: it
-// ends the route with a segment short enough to be a fresh one and long enough
-// to be entered at travel speed, so the leg queued behind it blends in instead
-// of stopping the head at the wait position.
-//
-// Why that is needed at all: a leg dispatched on its own is the last thing in
-// the queue, so the planner plans to stop at its end, and the second leg
-// arrives against a segment that is already part-driven. Every segment of a
-// route escapes this — a route is dispatched back to back, so each join is
-// judged against a segment at zero progress, which is why route corners and
-// G-code need nothing from us. D29's first leg is the one place pnptask queues
-// a segment behind a moving one; every other leg drains first.
-//
-// withTriangleTail sets the length and derives it from the planner's own
-// arithmetic. The split changes no geometry — the extra point lies ON the final
-// segment — so the driven path is identical and the only cost is one queue
-// entry.
-//
-// The termination condition needs no help: the planner promotes both joins to
-// tangent itself when they are straight, which they are here by construction.
-// Declaring TC_TERM_COND_TANGENT explicitly was tried and changed nothing.
-func (c *control) dispatchLeadingLeg(j *job, pk int, target pnproute.Point) error {
-	return c.dispatchLeg(j, pk, target, true)
-}
-
-func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail bool) error {
-	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
+// acquireScene takes the scene gate's lock for a leg that touches the movable
+// region (D45, spec §4.2): wait standing while scene-hold is up, raise
+// scene-busy, and look at scene-hold once more a control cycle later. Raised
+// meanwhile, the scene change wins — busy drops and the wait starts over — so
+// a leg and a scene change can never both start: the other side starts only
+// once busy has stayed low after it raised hold, and keeps hold up until it
+// is done. The wait ends like a station's (WAIT_ABORTED on auto-enable or
+// wait-abort, D15/D33).
+func (c *control) acquireScene(target pnproute.Point) error {
+	if err := c.waitMotionDone(); err != nil {
 		return err
 	}
+	for {
+		if c.in.sceneHold {
+			c.m.logger.Info("pnptask: leg waits for the scene", "x", target.X, "y", target.Y)
+		}
+		if err := c.waitStanding(func() bool { return !c.in.sceneHold }, "scene gate", nil); err != nil {
+			return err
+		}
+		c.m.pins.sceneBusy.Set(true)
+		if !c.tick() {
+			c.releaseScene()
+			return errStopping
+		}
+		if err := c.abortCheck(); err != nil {
+			c.releaseScene()
+			return err
+		}
+		if !c.in.sceneHold {
+			return nil
+		}
+		c.releaseScene()
+		c.m.logger.Debug("pnptask: leg yields to a scene change", "x", target.X, "y", target.Y)
+	}
+}
+
+// releaseScene drops scene-busy: the gated leg has drained, or never started.
+func (c *control) releaseScene() {
+	c.m.pins.sceneBusy.Set(false)
+}
+
+// planLeg plans one leg from where the picker currently is.
+//
+// The route is planned immediately before the leg runs (§7.4): the planner's
+// static graph is built once at load, so this is the ~1 ms two-node insertion,
+// comfortably inside D13's budget.
+func (c *control) planLeg(j *job, pk int, target pnproute.Point) ([]pnproute.Point, error) {
 	// The scene is read here, not at job start: deadzone-select describes the
 	// machine as it is right now, and a leg that begins after the machine
 	// changed (a sphere opened while the job waited out a busy station) has to
@@ -351,7 +376,7 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	// the next leg, not to the middle of this one.
 	planner, err := c.m.planners.at(c.in.deadzoneSelect)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	j.deadzone = c.in.deadzoneSelect
 
@@ -376,16 +401,24 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	route, err := planner.Plan(start, goal)
 	c.notePlanTime(j, time.Since(planStart))
 	if err != nil {
-		return faultf(errPlanningFailed,
+		return nil, faultf(errPlanningFailed,
 			"no route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) (station point (%.3f, %.3f) − offset (%g, %g)) in dead-zone file %d: %v",
 			pk, start.X, start.Y, goal.X, goal.Y, target.X, target.Y, off.X, off.Y, j.deadzone, err)
 	}
+	return route.Waypoints, nil
+}
+
+// dispatchRoute queues a planned leg. The segments go into the TP queue back
+// to back under a parabolic blend, which is what turns the planner's
+// clearance-rounded corners into smooth constant-Z travel — and why CLEARANCE >
+// BLEND_TOLERANCE is enforced at load: the TP blends corners *inward*, toward
+// the zone the route was planned around.
+func (c *control) dispatchRoute(j *job, waypoints []pnproute.Point) error {
+	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
+		return err
+	}
 	if err := c.m.mc.SetTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)
-	}
-	waypoints := route.Waypoints
-	if splitTail {
-		waypoints = c.withTriangleTail(waypoints, j.travel)
 	}
 	for i, wp := range waypoints {
 		// The last segment of a leg ends at a standstill, so it is queued as
@@ -394,9 +427,8 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 		// acceleration (tc.c, tcGetOverallMaxAccel) to leave room for a blend
 		// into the next one, even when nothing ever follows. The corner into
 		// it still blends -- the planner decides a join by the term cond of
-		// the segment BEFORE it, which stays parabolic. A leading leg (D29)
-		// keeps its parabolic end: the leg queued behind it blends in there.
-		if i == len(waypoints)-1 && !splitTail {
+		// the segment BEFORE it, which stays parabolic.
+		if i == len(waypoints)-1 {
 			if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
 				return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
 			}
@@ -411,145 +443,6 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 		}
 	}
 	return nil
-}
-
-// withTriangleTail returns the waypoints with a final segment split off long
-// enough that the leg queued behind it can be entered at full travel speed.
-//
-// The length is derived, not tuned. A segment's velocity ceiling in the
-// trajectory planner is its TRIANGLE VELOCITY — the fastest it can peak at if
-// it has to ramp up and back down within itself (tp.c,
-// tpCalculateOptimizationInitialVel):
-//
-//	v_max = sqrt(L * a_eff)
-//
-// and a_eff is half the commanded acceleration, because a segment joined by a
-// blend gets tc->maxaccel * 0.5 (tc.c, tcGetOverallMaxAccel — measured exactly
-// by tests/trajectory-planner/decel-rate). Setting that ceiling equal to the
-// speed the leg actually runs at and solving for L gives
-//
-//	L = v^2 / (a/2) = 2*v^2/a
-//
-// Any shorter and the ceiling binds: a tail of half this length caps the join
-// at 1/sqrt(2) of travel speed however early the second leg is queued, which
-// is a slowdown at a join that has no corner in it.
-//
-// This was a tuned constant first — a number of braking distances, found on a
-// machine by trying 2, 3 and 4. It was never a braking distance; v^2/2a was
-// the right scale only by accident and the factor was making up the difference
-// between that and a triangle length. Expressed properly it needs no constant
-// and it scales with speed and acceleration, which a fixed factor does not.
-//
-// Two cases are left alone: a final segment already shorter than the tail is
-// entirely inside it, so there is nothing to split off; and a route with no
-// real final segment has nothing to split.
-func (c *control) withTriangleTail(wps []pnproute.Point, height float64) []pnproute.Point {
-	if len(wps) < 2 {
-		return wps
-	}
-	a, b := wps[len(wps)-2], wps[len(wps)-1]
-	seg := math.Hypot(b.X-a.X, b.Y-a.Y)
-	if seg < moveFuzz {
-		return wps
-	}
-	from, to := c.cmdPos, c.cmdPos
-	from.X, from.Y, from.Z = a.X, a.Y, height
-	to.X, to.Y, to.Z = b.X, b.Y, height
-	// The coordinated values this segment will actually run at, not the INI
-	// ceilings: the blend against the per-axis limits differs with direction,
-	// and it is the real speed that sets the real length.
-	vel, acc, moved := c.moveLimits(from, to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc)
-	if !moved || vel <= 0 || acc <= 0 {
-		return wps
-	}
-	tail := 2 * vel * vel / acc
-	if tail <= moveFuzz || tail >= seg-moveFuzz {
-		return wps
-	}
-	f := (seg - tail) / seg
-	split := pnproute.Point{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f}
-	out := make([]pnproute.Point, 0, len(wps)+1)
-	out = append(out, wps[:len(wps)-1]...)
-	return append(out, split, b)
-}
-
-// waitPoint is where an approach to a busy station with a WAIT_DEADZONE has to
-// stop: the last point on the way in that is still clear of the zone the
-// station sits inside (D29).
-//
-// It is derived, not taught. A route is planned to the station in the drawing
-// that applies once the station CLEARS — the station is inside a zone in the
-// blocked drawing, so it is not a legal goal there and no route to it could be
-// planned at all — and the answer is where that route first meets the blocked
-// drawing's zone, pulled back by the blend tolerance.
-//
-// The two drawings are used for two different things and that is deliberate:
-// one supplies the geometry the head must stay out of, the other supplies a
-// scene the station can be routed to at all. Neither is necessarily the scene
-// of the moment; the LEG is planned against that, as always (see travel).
-//
-// The crossing is taken on the planner's OFFSET zone rather than the drawn one.
-// The offset zone is the drawn one grown by CLEARANCE, so a wait point one
-// blend tolerance outside it keeps a full CLEARANCE from the real obstacle even
-// after the trajectory planner rounds the corner there — which it rounds
-// inward, toward the zone, by up to that tolerance. Taking the crossing on the
-// drawn boundary instead would put the wait point CLEARANCE − BLEND_TOLERANCE
-// *inside* the offset zone, and the leg to it would be refused by its own plan.
-func (c *control) waitPoint(j *job, pk int, s *procState) (pnproute.Point, error) {
-	cleared, err := c.m.planners.at(s.cfg.WaitClearDeadzone)
-	if err != nil {
-		return pnproute.Point{}, err
-	}
-	blocked, err := c.m.planners.at(s.cfg.WaitDeadzone)
-	if err != nil {
-		return pnproute.Point{}, err
-	}
-
-	// Machine frame throughout, exactly as travel plans (D28): the route, the
-	// zones and the axis limits are all machine geometry, and the picker offset
-	// only decides the endpoint.
-	off := c.pickerOffset(pk)
-	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
-	goal := pnproute.Point{X: s.cfg.Pos.X - off.X, Y: s.cfg.Pos.Y - off.Y}
-	planStart := time.Now()
-	ref, err := cleared.Plan(start, goal)
-	c.notePlanTime(j, time.Since(planStart))
-	if err != nil {
-		return pnproute.Point{}, faultf(errPlanningFailed,
-			"station %d: no reference route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) in dead-zone file %d (WAIT_CLEAR_DEADZONE): %v",
-			s.cfg.ID, pk, start.X, start.Y, goal.X, goal.Y, s.cfg.WaitClearDeadzone, err)
-	}
-
-	zone := blocked.OffsetZones()[s.cfg.WaitZoneIdx]
-	wp, ok := pnproute.EntryPoint(ref.Waypoints, zone, c.m.cfg.BlendTolerance)
-	if !ok {
-		// Validation established that the station's machine point is inside
-		// the zone (checkWaitZone, at load and at start), so a route from
-		// outside has to cross it. Two things can still defeat that, and they
-		// need different people: the picker offsets are live params, and one
-		// changed since the validation can carry the goal out of the zone; or
-		// the machine is already in there — parked inside the enclosure by a
-		// jog or by an aborted job — and driving on from there is exactly what
-		// must not happen silently.
-		switch {
-		case !zone.Contains(goal):
-			return pnproute.Point{}, faultf(errPlanningFailed,
-				"station %d: with picker %d's offset (%g, %g) the station's machine point (%.3f, %.3f) is not inside zone %d of dead-zone file %d (WAIT_DEADZONE) — the picker offsets changed since the wait zone was validated, so there is no boundary to derive a wait point from",
-				s.cfg.ID, pk, off.X, off.Y, goal.X, goal.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
-		case zone.Contains(start):
-			return pnproute.Point{}, faultf(errPlanningFailed,
-				"station %d: the head at machine (%.3f, %.3f) is already inside zone %d of dead-zone file %d, so there is no point to wait at",
-				s.cfg.ID, start.X, start.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
-		default:
-			return pnproute.Point{}, faultf(errPlanningFailed,
-				"station %d: the reference route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) never crosses the boundary of zone %d of dead-zone file %d",
-				s.cfg.ID, pk, start.X, start.Y, goal.X, goal.Y, s.cfg.WaitZoneIdx, s.cfg.WaitDeadzone)
-		}
-	}
-	// Back into the taught frame: travel applies the offset again, from its own
-	// snapshot, and a point that went in through one conversion has to come out
-	// through the matching one.
-	return pnproute.Point{X: wp.X + off.X, Y: wp.Y + off.Y}, nil
 }
 
 // zStroke moves Z alone to an absolute height at the Z_VEL/Z_ACC limits, with the
@@ -584,31 +477,6 @@ func (c *control) retract(height float64) error {
 		return nil
 	}
 	return c.zStroke(height)
-}
-
-// abortLeg stops whatever this module has queued and waits for the machine to
-// come to rest — for a job that fails while a leg is still in flight, which
-// only D29's streamed approach can (every other leg drains before the next
-// thing that can fail). Best effort, like the release withdrawals on the error
-// paths: the job is already failing for another reason and that reason is the
-// one to report.
-//
-// Only while the machine is still enabled. The teardowns that disable it
-// (enterEstop, disable, the self-disable watchdog) abort motion themselves,
-// and a drain wait against a machine that is being disabled is not a wait
-// this module can bound. The drain wait still runs the abort check, so an
-// estop landing during the deceleration ends it like any other wait.
-func (c *control) abortLeg() {
-	if !c.enabled {
-		return
-	}
-	if err := c.m.mc.Abort(); err != nil {
-		c.m.logger.Warn("pnptask: aborting the leg in flight failed", "error", err)
-		return
-	}
-	if err := c.waitMotionDone(); err != nil && !errors.Is(err, errStopping) {
-		c.m.logger.Warn("pnptask: waiting for the aborted leg to stop", "error", err)
-	}
 }
 
 // ---------------------------------------------------------------------------

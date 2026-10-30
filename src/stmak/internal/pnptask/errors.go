@@ -45,11 +45,9 @@ const (
 	errPickerOpenFail  errorID = 23 // close withdrawn but opened never came back
 	errUnreachable     errorID = 24 // job accept: an endpoint − a candidate picker's offset is outside the scene or the axis limits
 
-	// errWaitSceneMismatch: a WAIT_DEADZONE station cleared, but deadzone-select
-	// does not name the drawing its WAIT_CLEAR_DEADZONE promised. The wait point
-	// was derived from a route planned in that drawing, so the last leg cannot be
-	// dispatched against a different one — and a PLANNING_FAILED would send the
-	// operator looking for a blocked route instead of a PLC sequencing bug.
+	// errWaitSceneMismatch was raised by D29's derived wait point, removed with
+	// D46. The id stays reserved — never raised, never reused — so a PLC table
+	// written against it does not change meaning.
 	errWaitSceneMismatch errorID = 25
 
 	errParkNotConfigured errorID = 26 // park requested, no [PNPTASK]PARK_X/Y/Z (D34)
