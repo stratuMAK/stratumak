@@ -113,12 +113,16 @@ func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
 			"move target (%v, %v, %v) is not finite — check the z-offset and picker offset inputs",
 			to.X, to.Y, to.Z)
 	}
-	if err := c.checkTargetInLimits(to); err != nil {
-		return err
-	}
 	vel, acc, moved := c.moveLimits(c.cmdPos, to, velReq, accReq)
 	if !moved {
+		// Nothing to dispatch -- typically a route's first waypoint, where
+		// the head already stands -- and so nothing to check: a head that
+		// homing or a jog left just outside a limit must not be refused the
+		// move that takes it away.
 		return nil
+	}
+	if err := c.checkMoveInLimits(c.cmdPos, to); err != nil {
+		return err
 	}
 	if vel <= 0 || acc <= 0 {
 		return faultf(errMotionError,
@@ -147,6 +151,28 @@ func isFinite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 // checkReach asks the same question for every endpoint and every picker at
 // job accept (D28); this per-dispatch check remains the backstop for what can
 // still drift afterwards — the offsets and z-offsets are live inputs.
+// checkMoveInLimits is checkTargetInLimits for a move from where the head is:
+// a target outside a limit is accepted on an axis where the head already
+// stands at least as far outside it, so a move that holds that axis or brings
+// it back in is not refused -- the way a jog back inside a soft limit is
+// allowed. Anything that goes further out is.
+func (c *control) checkMoveInLimits(from, to motctl.Pose) error {
+	vals := [3]float64{to.X, to.Y, to.Z}
+	starts := [3]float64{from.X, from.Y, from.Z}
+	for i, letter := range [3]string{"X", "Y", "Z"} {
+		min, max := c.m.limits.AxisMinPos[i], c.m.limits.AxisMaxPos[i]
+		v, s := vals[i], starts[i]
+		below := v < min-moveFuzz && v < s-moveFuzz
+		above := v > max+moveFuzz && v > s+moveFuzz
+		if below || above {
+			return faultf(errMotionError,
+				"move target %s = %.3f mm is outside the axis limits [%.3f, %.3f] — check the station coordinates against the picker x/y-offset params and the z-offset inputs",
+				letter, v, min, max)
+		}
+	}
+	return nil
+}
+
 func (c *control) checkTargetInLimits(to motctl.Pose) error {
 	vals := [3]float64{to.X, to.Y, to.Z}
 	for i, letter := range [3]string{"X", "Y", "Z"} {
@@ -359,11 +385,24 @@ func (c *control) dispatchLeg(j *job, pk int, target pnproute.Point, splitTail b
 	}
 	waypoints := route.Waypoints
 	if splitTail {
-		waypoints = c.withTriangleTail(waypoints, j.height)
+		waypoints = c.withTriangleTail(waypoints, j.travel)
 	}
-	for _, wp := range waypoints {
+	for i, wp := range waypoints {
+		// The last segment of a leg ends at a standstill, so it is queued as
+		// an exact stop. Left parabolic it would run at HALF of MOVE_ACC for
+		// its whole length: the planner halves a parabolic segment's
+		// acceleration (tc.c, tcGetOverallMaxAccel) to leave room for a blend
+		// into the next one, even when nothing ever follows. The corner into
+		// it still blends -- the planner decides a join by the term cond of
+		// the segment BEFORE it, which stays parabolic. A leading leg (D29)
+		// keeps its parabolic end: the leg queued behind it blends in there.
+		if i == len(waypoints)-1 && !splitTail {
+			if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+				return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+			}
+		}
 		to := c.cmdPos
-		to.X, to.Y, to.Z = wp.X, wp.Y, j.height
+		to.X, to.Y, to.Z = wp.X, wp.Y, j.travel
 		// The first waypoint is where the picker already is, so its line drops
 		// itself in moveLimits; a Z still off the movement height is corrected by
 		// it rather than left for the next leg to trip over.

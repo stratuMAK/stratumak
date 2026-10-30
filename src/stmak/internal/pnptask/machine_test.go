@@ -657,12 +657,23 @@ func (f *machineFixture) waitRestored(pk int, station uint32) {
 }
 
 // waitDropped is the other outcome: the close gripped nothing, so the record is
-// forgotten and the picker is commanded open again.
+// forgotten and the picker stays closed (the operator closed it; the next
+// pick's openForPick opens it). No pin tells a dropped record from a retained
+// one (holds is low for both), but the judgement is a countdown in control
+// cycles (settleTicks) that the close command starts, so once that many cycles
+// have passed since the gripper reported fully closed it is in. The caller
+// proves the record gone, by a job that runs or by the world model.
 func (f *machineFixture) waitDropped(pk int) {
 	f.t.Helper()
-	holds, close := fmt.Sprintf("picker.%d.holds", pk), fmt.Sprintf("picker.%d.close", pk)
-	f.eventually(fmt.Sprintf("picker %d's retained record judged gone", pk),
-		func() bool { return !f.bit(holds) && !f.bit(close) })
+	holds, close, closed := fmt.Sprintf("picker.%d.holds", pk),
+		fmt.Sprintf("picker.%d.close", pk), fmt.Sprintf("picker.%d.closed", pk)
+	f.eventually(fmt.Sprintf("picker %d to report fully closed", pk),
+		func() bool { return f.bit(closed) })
+	f.cycles(uint32(settleTicks(f.m.pins.pickSettleTime.Get())) + 2)
+	if !f.bit(close) || f.bit(holds) {
+		f.t.Fatalf("picker %d after the verdict: close=%v holds=%v, want it left closed and holding nothing",
+			pk, f.bit(close), f.bit(holds))
+	}
 }
 
 // consistently gives the loop a handful of cycles and then checks cond — for
@@ -1345,6 +1356,47 @@ func TestCheckTargetInLimits(t *testing.T) {
 		}
 		if !strings.Contains(pf.msg, tc.letter+" = ") {
 			t.Errorf("target %+v: message %q does not name axis %s", tc.pose, pf.msg, tc.letter)
+		}
+	}
+}
+
+// TestCheckMoveInLimits: a head left just outside a limit (homing to the drive
+// origin, a jog) is not refused the move away from there. A target outside a
+// limit passes only on an axis where the head already stands at least as far
+// out -- holding that axis or coming back in -- and is refused as soon as it
+// goes further out, or leaves the limits from inside.
+func TestCheckMoveInLimits(t *testing.T) {
+	limits := &motsetup.Result{}
+	limits.AxisMinPos = [motsetup.MaxAxes]float64{0, -10, 0}
+	limits.AxisMaxPos = [motsetup.MaxAxes]float64{600, 500, 80}
+	c := &control{m: &pnptaskModule{limits: limits}}
+
+	out := motctl.Pose{X: 300, Y: -10.06, Z: 30} // 0.06 below Y's minimum
+	for _, tc := range []struct {
+		to   motctl.Pose
+		what string
+	}{
+		{motctl.Pose{X: 300, Y: 100, Z: 30}, "back inside"},
+		{motctl.Pose{X: 300, Y: -10.06, Z: 80}, "Y held, a Z stroke"},
+		{motctl.Pose{X: 500, Y: -10.06, Z: 30}, "Y held, X travel"},
+		{motctl.Pose{X: 300, Y: -10.03, Z: 30}, "Y partly back"},
+	} {
+		if err := c.checkMoveInLimits(out, tc.to); err != nil {
+			t.Errorf("%s: refused: %v", tc.what, err)
+		}
+	}
+	for _, tc := range []struct {
+		from, to motctl.Pose
+		what     string
+	}{
+		{out, motctl.Pose{X: 300, Y: -11, Z: 30}, "further out"},
+		{out, motctl.Pose{X: 300, Y: -10.06, Z: 90}, "Y held, Z out"},
+		{motctl.Pose{X: 300, Y: 100, Z: 30}, motctl.Pose{X: 300, Y: -10.06, Z: 30}, "from inside to outside"},
+	} {
+		err := c.checkMoveInLimits(tc.from, tc.to)
+		var pf *pnpFault
+		if !errors.As(err, &pf) || pf.id != errMotionError {
+			t.Errorf("%s: fault = %v, want MOTION_ERROR", tc.what, err)
 		}
 	}
 }

@@ -335,8 +335,13 @@ One run:
 
 1. **Outputs.** The `reset` expression is evaluated first, so it sees the
    outputs as the previous run left them. Then every `outputs` entry is
-   written to its default (the helper behind `<fsm>_reset_outputs()`). This
-   happens in every run, including while reset or disabled.
+   written to its default. This happens in every run, including while reset
+   or disabled. An output *pin* is not written here: the machine's own code
+   (its blocks, conditions and run) works on a per-run copy of each output
+   pin, which takes the default now and is copied to the pin once, at the
+   end of the run (step 8). Output variables are written directly. On the
+   first run the copies are loaded from the pins before `reset` is
+   evaluated, so it sees the pins' declared initial values.
 2. **Reset / init.** On the first run, and in every run in which `reset` is
    true: state = initial, timer = 0, every `latched` entry written to its
    default, `on_enter` marked pending. `persistent` entries are written to
@@ -388,6 +393,14 @@ One run:
    cycle a transition fires. Nor may it read them: they hold their defaults
    there, as in a condition. Outputs carry no state; what a state remembers
    from one cycle to the next is a `latched` or `persistent` entry.
+8. **Publish.** Every output pin takes the value its copy holds. Until here
+   a reader in another thread, user code after `;;` and the other machines
+   see the previous run's values: a held output never shows the default of
+   step 1 as a pulse, and a level something takes edges from is no fresh
+   edge every run. `<fsm>_reset_outputs()` writes the defaults to the copies
+   and publishes at once. A C helper after `;;` that writes an output pin
+   and is called from a block writes the pin itself and is overwritten
+   here: an output is set in the block, not through a helper.
 
 So each run of a state is either entering it (`on_enter`: entry run or
 transition) or staying in it (`during`, then the decision), and the cycle a

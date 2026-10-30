@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -295,6 +296,135 @@ func TestAltSwapSequenceConstraint(t *testing.T) {
 	}
 }
 
+// newProbeFixture is newAltFixture with station 20 a PROBE_SWAP station (D32)
+// and picker 1 already holding tray material, so the job's pick is skipped and
+// the only close command of the job is the swap's.
+func newProbeFixture(t *testing.T, occupied bool) *jobFixture {
+	t.Helper()
+	f := newAltFixture(t, func(w *world) {
+		w.procs[0].cfg.ProbeSwap = true
+		w.procs[0].setHasMaterial(occupied)
+		w.setHeld(1, 10, false, 0, true)
+	})
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") == occupied })
+	f.sim.resetReleaseRises()
+	return f
+}
+
+// TestProbeSwapFindsTheStationEmpty: the model says empty and so does the
+// fixture. The swap goes in, closes on nothing and the place goes on -- no
+// error, no record, and so no swap obligation for the next job.
+func TestProbeSwapFindsTheStationEmpty(t *testing.T) {
+	f := newProbeFixture(t, false)
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a probing swap at an empty station")
+
+	// Both pickers sit at offset 0 here, so the probe and the place are two
+	// strokes down to Z_PICK at the same point.
+	strokes := 0
+	for _, z := range zAtXY(f.mot.moveList(), 300, 200) {
+		if z == 5.0 {
+			strokes++
+		}
+	}
+	if strokes != 2 {
+		t.Errorf("%d strokes into the station, want 2: the probe and the place", strokes)
+	}
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station reports empty although the job placed into it")
+	}
+	if n := f.sim.releaseRiseCount(0); n != 1 {
+		t.Errorf("the fixture was opened %d times, want 1", n)
+	}
+	if f.bit("picker.0.holds") || f.bit("picker.1.holds") {
+		t.Errorf("a picker reports material after the job: holds %v/%v",
+			f.bit("picker.0.holds"), f.bit("picker.1.holds"))
+	}
+	w := f.stopped()
+	if w.held[0].present || w.held[1].present {
+		t.Errorf("held records after an empty probe = %+v, want none", w.held)
+	}
+}
+
+// TestProbeSwapTakesOutAnUnknownPart: the model says empty, the fixture is
+// not -- a part put there by hand. The probing swap takes it out like any
+// swap, and the record carries the obligation (§8).
+func TestProbeSwapTakesOutAnUnknownPart(t *testing.T) {
+	f := newProbeFixture(t, false)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a probing swap at a hand-loaded station")
+
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station reports empty although the job placed into it")
+	}
+	if !f.bit("picker.0.holds") || f.get("picker.0.origin-id") != 20 {
+		t.Errorf("picker 0 reports holds=%v origin-id=%v; want the part of station 20",
+			f.bit("picker.0.holds"), f.get("picker.0.origin-id"))
+	}
+	w := f.stopped()
+	if !w.held[0].present || w.held[0].station != 20 || !w.held[0].swap {
+		t.Errorf("swap record = %+v, want the material of station 20, marked as a swap", w.held[0])
+	}
+}
+
+// TestSwapKeepsAPartTheModelKnows (D43): the model says occupied and the
+// closed sensor says the jaws met -- the machine's failure was a closed sensor
+// firing on a gripped part. The model wins on a probing station and a plain
+// one alike: the picker stays closed, the part is taken out as an ordinary
+// swap with its record and obligation, and the place goes on.
+func TestSwapKeepsAPartTheModelKnows(t *testing.T) {
+	for _, probe := range []bool{true, false} {
+		t.Run(fmt.Sprintf("probe=%v", probe), func(t *testing.T) {
+			f := newAltFixture(t, func(w *world) {
+				w.procs[0].cfg.ProbeSwap = probe
+				w.procs[0].setHasMaterial(true)
+				w.setHeld(1, 10, false, 0, true)
+			})
+			f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+			f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+
+			f.runJob(10, 20, 0)
+			f.requireOK("a swap whose grip read empty over a known part")
+			if !f.bit("proc.20.has-material") {
+				t.Error("the station reports empty although the job placed into it")
+			}
+			if !f.bit("picker.0.close") {
+				t.Error("the swap picker was opened on the empty reading")
+			}
+			if !f.bit("picker.0.holds") || f.get("picker.0.origin-id") != 20 {
+				t.Errorf("picker 0 reports holds=%v origin-id=%v; want the part of station 20",
+					f.bit("picker.0.holds"), f.get("picker.0.origin-id"))
+			}
+			w := f.stopped()
+			if !w.held[0].present || w.held[0].station != 20 || !w.held[0].swap {
+				t.Errorf("swap record = %+v, want the material of station 20, marked as a swap", w.held[0])
+			}
+		})
+	}
+}
+
+// TestRemoveKeepsAPartTheModelKnows (D43): the same reading on a plain
+// removal -- a job from the station to the tray -- carries the part on
+// instead of faulting PROC_NO_MATERIAL.
+func TestRemoveKeepsAPartTheModelKnows(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) { w.procs[0].setHasMaterial(true) })
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+
+	f.runJob(20, 10, 0)
+	f.requireOK("a removal whose grip read empty over a known part")
+	if f.bit("proc.20.has-material") {
+		t.Error("the station still reports material after the removal")
+	}
+	if got := f.get("tray.10.count"); got != 1 {
+		t.Errorf("tray count after the place = %v, want 1", got)
+	}
+}
+
 // TestAltSwapNeedsAFreePicker: a swap needs a picker of its own, on top of the
 // one carrying the job's material (§8). A picker left loaded by a manual
 // intervention is what this guards against, and the job is refused before the
@@ -462,15 +592,9 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 	// The next close runs all the way shut: there is nothing between the jaws.
 	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
 	f.press(f.m.pins.pickers[0].manualClose)
-	f.eventually("the picker to report fully closed", func() bool {
-		return f.m.pins.pickers[0].closed.Get()
-	})
-	// The verdict reopens the picker along with dropping the record: a free
-	// picker whose jaws stayed commanded shut would make the next job's
-	// closeAndCheck read "closed" whatever sits under the head.
-	f.eventually("the picker reopened with the verdict", func() bool {
-		return !f.bit("picker.0.close")
-	})
+	// The verdict drops the record and leaves the picker closed: the operator
+	// closed it, and the next pick's openForPick is what opens it again.
+	f.waitDropped(0)
 
 	w := f.stopped()
 	if w.held[0].present || w.held[0].retained {
@@ -478,13 +602,13 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 	}
 }
 
-// TestManualHandlingBlocksJobsUntilJudged (§8.1): a manual open puts the record
-// into retention — a manual intervention in progress, a reservation, not a mere
-// memory. Jobs are refused until a manual close judges the outcome; a close
-// that grips nothing clears the record, and only then is the picker the
-// engine's again. (Counting the picker free while retained was the settle-race
-// hole of the phase-6 review: a job could grab a picker whose part was about to
-// be re-gripped.)
+// TestManualHandlingBlocksJobsUntilJudged (§8.1, D44): a manual open puts the
+// record into retention — a manual intervention in progress, a reservation,
+// not a mere memory. Jobs are refused while the picker has not answered the
+// open; once it reports opened, automatic starting is the operator's verdict
+// (the part was taken out), and the picker is the engine's again. (Counting
+// the picker free while retained was the settle-race hole of the phase-6
+// review: a job could grab a picker whose part was about to be re-gripped.)
 func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 99, false, 0, true) })
 	f.selectTray(1)
@@ -495,28 +619,52 @@ func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f.requireError("a job with the only picker loaded", errNoFreePicker)
 	f.clearError()
 
-	// The operator opens the picker: retention. Jobs are still refused — the
-	// part is in the operator's hands and nothing is decided yet.
+	// The operator opens the picker, and it does not answer: the reservation
+	// survives automatic starting, and jobs are still refused.
+	f.sim.set(func(s *machineSim) { s.jammedOpen = true })
 	f.setBit(f.m.pins.autoEnable, false)
 	f.press(f.m.pins.pickers[0].manualOpen)
 	f.setBit(f.m.pins.autoEnable, true)
 	f.runJob(10, 20, 0)
-	f.requireError("a job while the picker is mid manual handling", errNoFreePicker)
+	f.requireError("a job while the picker has not opened", errNoFreePicker)
 	f.clearError()
 
-	// The operator keeps the part: a close onto nothing judges the record gone.
-	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+	// Opened, then automatic: the part is with the operator, the picker free.
 	f.setBit(f.m.pins.autoEnable, false)
-	f.press(f.m.pins.pickers[0].manualClose)
-	f.eventually("the record judged empty and cleared", func() bool {
-		return !f.bit("error") // no pin shows the record; the job below is the proof
-	})
-	f.waitDropped(0)
-	f.press(f.m.pins.pickers[0].manualOpen)
+	f.sim.set(func(s *machineSim) { s.jammedOpen = false })
+	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
 	f.setBit(f.m.pins.autoEnable, true)
-
 	f.runJob(10, 20, 0)
-	f.requireOK("a job after the manual handling was resolved")
+	f.requireOK("a job after automatic started with the picker opened")
+
+	w := f.stopped()
+	if w.held[0].retained {
+		t.Errorf("held record after the job = %+v, want the reservation gone", w.held[0])
+	}
+}
+
+// TestAutoStartKeepsAReservationBeingClosed (D44): a manual close still being
+// judged is not "opened by hand": its close output is high, and the
+// reservation stands until the judgement — even if automatic starts before
+// the gripper has left opened.
+func TestAutoStartKeepsAReservationBeingClosed(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) })
+	f.setBit(f.m.pins.autoEnable, false)
+	f.press(f.m.pins.pickers[0].manualOpen)
+	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
+
+	// A gripper that never leaves opened: the close stays commanded and
+	// unjudged while automatic starts.
+	f.sim.set(func(s *machineSim) { s.jammedClosed = true })
+	f.press(f.m.pins.pickers[0].manualClose)
+	f.eventually("the close to be commanded", func() bool { return f.bit("picker.0.close") })
+	f.setBit(f.m.pins.autoEnable, true)
+	f.consistently("the reservation kept", func() bool { return f.bit("picker.0.close") })
+
+	w := f.stopped()
+	if !w.held[0].retained || w.held[0].station != 10 {
+		t.Errorf("held record = %+v, want the reservation of station 10 kept", w.held[0])
+	}
 }
 
 // TestManualOpenTwiceKeepsRetained (§8.1): a second open press on an already
@@ -557,27 +705,23 @@ func TestRetainedRecordSurvivesRestart(t *testing.T) {
 	first.press(first.m.pins.pickers[1].manualOpen)
 	first.m.Stop()
 
+	// The restart comes up in manual mode, as the machine does: automatic
+	// starting would release the opened picker (D44).
+	restore := withPersist(persistName, ns, nil)
 	second := newJobFixtureOpts(t, fixtureOpts{
 		args: []string{"pickers=2"},
-		prep: withPersist(persistName, ns, nil),
+		prep: func(t *testing.T, m *pnptaskModule) {
+			restore(t, m)
+			m.pins.autoEnable.Set(false)
+		},
 	})
-	second.homed()
-	second.mot.setPos(100, 100, 60)
-	second.selectTray(1)
-	second.fillTray(0)
 
-	// Mid-handling: jobs are refused, and the close output was NOT re-driven
-	// (the part is in the operator's hands, not the picker).
-	if second.bit("picker.1.close") {
-		t.Error("a retained record re-drove the close output")
-	}
-	second.runJob(10, 20, 0)
-	second.requireError("a job while the restored handling is unresolved", errNoFreePicker)
+	// Mid-handling: the close output was NOT re-driven (the part is in the
+	// operator's hands, not the picker).
+	second.consistently("the close output left low", func() bool { return !second.bit("picker.1.close") })
 
 	// The operator closes onto the part: record, station and swap obligation
 	// are back.
-	second.clearError()
-	second.setBit(second.m.pins.autoEnable, false)
 	second.press(second.m.pins.pickers[1].manualClose)
 	second.waitRestored(1, 20)
 
@@ -631,7 +775,8 @@ func TestManualCloseOnEmptyPickerDoesNotEmptyTheTray(t *testing.T) {
 	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
 	f.press(f.m.pins.pickers[0].manualClose)
 	f.eventually("the picker to close", func() bool { return f.bit("picker.0.close") })
-	// The verdict: gripped nothing, and the picker is opened again.
+	// The verdict: gripped nothing. The picker stays closed, so the job below
+	// has to open it before its pick (openForPick) for the count to come out.
 	f.waitDropped(0)
 
 	f.setBit(f.m.pins.autoEnable, true)
@@ -669,20 +814,11 @@ func TestManualCloseOnEmptyPickerGrippingSomethingReservesIt(t *testing.T) {
 	f.requireError("a job with a picker loaded by hand", errNoFreePicker)
 	f.clearError()
 
-	// Open by hand: the material is let go, but the picker stays reserved until
-	// the next close judges what it finds (§8.1).
+	// Open by hand: the material is let go, the picker reserved (§8.1) until
+	// automatic starts with it opened (D44).
 	f.setBit(f.m.pins.autoEnable, false)
 	f.press(f.m.pins.pickers[0].manualOpen)
-	f.setBit(f.m.pins.autoEnable, true)
-	f.runJob(10, 20, 0)
-	f.requireError("a job mid manual handling", errNoFreePicker)
-	f.clearError()
-
-	// Closed on the emptied gripper: free again.
-	f.setBit(f.m.pins.autoEnable, false)
-	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
-	f.press(f.m.pins.pickers[0].manualClose)
-	f.waitDropped(0)
+	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
 	f.setBit(f.m.pins.autoEnable, true)
 	f.runJob(10, 20, 0)
 	f.requireOK("a job after the picker was emptied by hand")
@@ -761,4 +897,41 @@ func TestEstopClearsARetainedRecord(t *testing.T) {
 	if w.held[0] != (heldMaterial{}) {
 		t.Errorf("held record after an estop = %+v, want it cleared entirely", w.held[0])
 	}
+}
+
+// TestFreePickerOpenedBeforeAnyDescent: the picker that does NOT pick goes
+// down with the head on every stroke. Left commanded closed -- by a manual
+// close that gripped nothing (§8) -- its shut jaws would meet the part under
+// them on the first descent instead of straddling it. Every free picker is
+// opened before the job moves at all.
+func TestFreePickerOpenedBeforeAnyDescent(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			// A standing close on a free picker, as a manual close on nothing
+			// leaves it.
+			m.pins.pickers[1].close.Set(true)
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.eventually("the standing close published", func() bool { return f.bit("picker.1.close") })
+
+	f.mot.hold() // the first move stays in flight until released
+	f.m.pins.startJob.Set(false)
+	f.sampled()
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+	f.eventually("the first move to be dispatched", func() bool { return len(f.mot.moveList()) > 0 })
+	if f.bit("picker.1.close") {
+		t.Error("the free picker was still commanded closed when the head started moving")
+	}
+	f.mot.release()
+	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("a job with the other picker left closed")
 }

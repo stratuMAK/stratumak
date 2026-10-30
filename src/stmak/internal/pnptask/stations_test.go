@@ -829,6 +829,74 @@ func TestEstopClearsHeldRecords(t *testing.T) {
 	}
 }
 
+// TestEstopKeepsGrip (D39): with ESTOP_KEEPS_GRIP the estop aborts and
+// disables as ever but leaves the picker and its record alone, and once it
+// clears, a gripper still reading neither opened nor closed -- shut on a part
+// -- confirms the record.
+func TestEstopKeepsGrip(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{
+		args:  []string{"pickers=2"},
+		tweak: func(c *Config) { c.EstopKeepsGrip = true },
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.setHeld(1, 20, false, 0, true)
+			m.pins.pickers[1].close.Set(true)
+			// A short settle, so the wait for the check below has room
+			// under load.
+			m.pins.pickSettleTime.Set(0.01)
+		},
+	})
+	f.machineOn()
+	f.mot.resetCalls()
+	f.setBit(f.m.pins.estopOn, true)
+	f.eventually("machine off on estop", func() bool { return !f.bit("machine-is-on") })
+	if !f.mot.called("Abort") || !f.mot.called("Disable") {
+		t.Errorf("estop did not abort and disable motion: %v", f.mot.callList())
+	}
+	f.consistently("the picker stays closed through the estop", func() bool { return f.bit("picker.1.close") })
+
+	f.setBit(f.m.pins.estopOn, false)
+	// The check is a countdown in control cycles (heldVerify, settleTicks of
+	// the pick settle time) started when the estop clears: once that many
+	// cycles have passed, it has judged.
+	f.cycles(uint32(settleTicks(f.m.pins.pickSettleTime.Get())) + 2)
+	f.consistently("... and after it, the grip confirmed", func() bool { return f.bit("picker.1.close") })
+
+	w := f.stopped()
+	if !w.held[1].present || w.held[1].station != 20 {
+		t.Errorf("held record after the estop = %+v, want the part from station 20", w.held[1])
+	}
+	if w.restoredHeld[1] {
+		t.Error("the grip check after the estop never concluded")
+	}
+}
+
+// TestEstopKeepsGripPartLost (D39): the part slipped out while the estop had
+// the air off -- the gripper reads fully closed once it clears. The record goes,
+// with the close output, as for a restored record whose part is gone.
+func TestEstopKeepsGripPartLost(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{
+		args:  []string{"pickers=2"},
+		tweak: func(c *Config) { c.EstopKeepsGrip = true },
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.setHeld(1, 20, false, 0, true)
+			m.pins.pickers[1].close.Set(true)
+		},
+	})
+	f.machineOn()
+	f.setBit(f.m.pins.estopOn, true)
+	f.eventually("machine off on estop", func() bool { return !f.bit("machine-is-on") })
+	f.setBit(f.m.pins.pickers[1].closed, true)
+	f.consistently("closed feedback during the estop judges nothing", func() bool { return f.bit("picker.1.close") })
+
+	f.setBit(f.m.pins.estopOn, false)
+	f.eventually("the lost part's record and close output go", func() bool { return !f.bit("picker.1.close") })
+
+	w := f.stopped()
+	if w.held[1].present {
+		t.Errorf("held record after losing the part = %+v, want none", w.held[1])
+	}
+}
+
 // TestManualOpenClearsHeldRecord: an operator opening a picker by hand has taken
 // the material out of the machine's hands, so the record goes with it.
 func TestManualOpenClearsHeldRecord(t *testing.T) {

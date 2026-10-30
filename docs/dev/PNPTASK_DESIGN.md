@@ -48,6 +48,20 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D28 | Machine-frame planning + reachability at accept (2026-08-18) | Dead zones and the outer limit are **machine-position geometry**: the operator teaches them by driving the machine and noting machine positions into the DXF, so the outlines already embody the head's physical extent, both pickers included (picker offsets define pick *points*, never outlines). The route planner therefore runs **in machine coordinates per picker** — plan `cmdPos → target − offset` against the scene as-drawn, command the waypoints directly. (Planning in the pick-point frame and shifting the waypoints afterwards translated the polyline by the offset and let the machine cut a zone corner by up to \|offset\|.) On top of that, job **accept** validates every endpoint the job could command (every slot of an involved tray, proc position, wait point; travel height and station Z) minus every picker's offset against the **axis limits** — refusal is `TARGET_UNREACHABLE` (24), naming station, picker and limit, before any motion. The dead-zone *scene* is deliberately not part of that accept check: the selector describes the machine per leg (D15's enclosure workflow starts jobs whose destination is unreachable in the currently selected drawing), so scene reachability stays `PLANNING_FAILED` at leg time. |
 | D29 | Wait position derived from a dead zone (2026-08-28) | A process station may replace D15's taught `WAIT_X`/`WAIT_Y` with a pair of drawing indices, `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` (mutually exclusive with the taught pair). The approach is then planned as **two legs**: up to the last point on the way in that is still clear of the zone the station sits inside, and from there into the station — with the second leg queued into the TP **without draining the first**, the instant `busy` reads clear, so the two blend and the head does not stop. The wait point is where a reference route planned in the *clear* drawing (the station is not a legal goal in the blocked one, so no route to it exists there) first meets the *blocked* drawing's **offset** zone, pulled back by `BLEND_TOLERANCE`; taking the crossing on the offset zone rather than the drawn one is what leaves a full `CLEARANCE` after the TP rounds the corner inward. Leg 1 is replanned normally against the scene of the moment, so it is collision-free in the blocked drawing whatever the two drawings disagree about. Load time refuses a station that is not inside exactly one zone of `WAIT_DEADZONE` (a route in would never cross a boundary, so the head would drive straight through) or not reachable in `WAIT_CLEAR_DEADZONE` — asked in the frame and against the geometry the crossing itself uses (§13): the station's **machine point** (station minus picker offset, D28) against the **offset** zone, with no offset at load (the picker params do not exist yet) and again per picker at start, once the HAL file's `setp` lines have run; an offset changed afterwards that carries the point out of its zone is a `PLANNING_FAILED` naming the offset at leg time. Such a station also needs `BLEND_TOLERANCE > 0`: the wait point is the boundary pulled back by it, and at 0 it would sit exactly on the boundary, where the planner cannot say whether it is inside. Leg time refuses a selector that is not `WAIT_CLEAR_DEADZONE` when the station clears (`WAIT_SCENE_MISMATCH`, 25). This does **not** remove the velocity dip when the clear lands inside the braking ramp — that needs a conditional segment gate in motmod/TP and should not be built on a hunch — so the module publishes `wait-stops` instead: how often the queue really ran dry at the wait point, which is the frequency that would justify the change. A station that is **not busy** is driven to in one continuous leg, which for such a station is already the outcome the two legs exist to produce — but the scene check still runs, so a station reporting done in the wrong drawing is `WAIT_SCENE_MISMATCH` rather than a `PLANNING_FAILED` about an obstructed route. Splitting unconditionally was considered and rejected: two approaches legitimately BEGIN inside the nominated zone — the second job at the same station, and the placer after a §8 swap — and there is no boundary crossing to derive a wait point from in there. The placer after a swap is for the same reason not gated at all: the removal already served the gate and left the head at the station. The picker the second leg is planned for has to be the one going in, so `placeToProc` resolves the swap's remover **before** the gate rather than inside `swapOut` (D20's re-ask). The two legs are made to blend by ending the first with a segment long enough to be ENTERED at travel speed. That length is derived: a segment's velocity ceiling in the planner is its triangle velocity `sqrt(L * a_eff)` (`tpCalculateOptimizationInitialVel`), and `a_eff` is half the commanded acceleration because a blended segment gets `tc->maxaccel * 0.5` (`tcGetOverallMaxAccel`, measured exactly by `tests/trajectory-planner/decel-rate`). Setting the ceiling equal to the leg's own speed gives `L = v^2/(a/2) = 2*v^2/a`, with no constant in it and correct at any speed. It was a tuned number first — braking distances, found on a machine at 2, 3, 4 — which was the right scale by accident: at 50 mm/s the factor 4 happens to reproduce the triangle length, and at 250 mm/s it is half of what is needed. The termination condition needs no help: the planner already promotes both joins to tangent itself (`acc_scale 0`, `Kink acceleration within 0.1`), which is why declaring it changed nothing. |
 | D30 | DXF loops from LINE/ARC segments (2026-09-08) | The loader accepts, on both recognized layers, closed loops **chained from separate `LINE` and `ARC` entities** — the way CAD users draw an outline with fillets — next to the closed polylines, circles and ellipses it read before. Per layer every LINE/ARC is collected and joined by endpoint coincidence within **1e-3 drawing units** (`chainJoinEps`: far above the 1e-9 geometry epsilon because a hand-snapped join is off by 1e-6..1e-4, and three orders below any clearance that matters; the join keeps one point, so the ring carries no jog), in any order and direction — the walk reverses segments as needed. Every endpoint must meet exactly one other: a dangling end is an **open chain** and three or more meeting is a **branch**, both refused naming the coordinates, like a segment shorter than the tolerance, an ARC closing on itself (that is a CIRCLE) or a missing/malformed center, radius or angle. Arcs are discretized **circumscribed** like circles are (the ring contains the drawn arc; `WithArcSegments` per full circle scaled by the sweep, at least 4), with tangents at the endpoints so a tangential LINE joins collinearly; the chained ring then passes the same `dedupeRing`/`checkConvex` as a drawn polyline, so a loop that loads guards its area. The outer layer still has to resolve to exactly one loop, polyline or chained. Still unsupported, deliberately: `SPLINE`, and bulge segments inside a polyline. |
+| D31 | Place height (2026-10-27) | Every tray and process station takes an optional `Z_PLACE_OFFSET` (machine units, default 0): added to the **place** stroke only, on top of `Z_PICK` + `z-offset`. Positive is higher — the part is set down onto the fixture rather than pushed into it, the gripper's fingers clear of its seat. Pick and swap removal keep the pick height. Job accept checks the place height against the axis limits next to the pick height (D28). |
+| D32 | Probing swap (2026-10-27) | A process station with `PROBE_SWAP = 1` is swapped at on **every** place, whatever `has-material` says: the free picker goes in first and closes. A part there — one put in by hand, or left from before a model reset — comes out as an ordinary §8 swap (record, obligation). An empty grip is an answer, not `PROC_NO_MATERIAL`: the picker opens, `has-material` stays low, no record is written and the place goes on, so placing onto an occupant the model does not know about cannot happen. (The inverse, the model occupied and the grip empty, was covered the same way until D43: the model wins now.) A re-seat (a job from the station to itself with its own pick) needs no probe. Requires `pickers=2`; with one picker the load fails. |
+| D33 | Wait abort (2026-10-27) | A `wait-abort` input ends a busy-station wait (D15, D29's streamed approach included) exactly as `auto-enable` going low does — `WAIT_ABORTED`, the leg in flight stopped, the picker keeping its material — but **without leaving auto mode**, so the PLC can reset the error and send the next request (a park, the same material elsewhere) at once. A level, held until the job has ended; it touches nothing but a wait, so a job that never has to wait runs to its end with it high. Amends D16: besides estop and machine-off, a wait is the one place a job can be ended on request. |
+| D34 | Park (2026-10-27) | `[PNPTASK]PARK_X/PARK_Y/PARK_Z` (together or not at all) name a **machine** position, and a `park` input sends the head there: rising edge, auto mode only (in manual mode it is `AUTO_DISABLED`, like a job), refused while an error is latched. Not a job — no material, no station — but planned like one: retract to `MOVE_HEIGHT`, a route around the dead zones of the current scene, a Z stroke to `PARK_Z`. `busy` is high for its duration; `parked` rises when it has arrived and drops at the next motion of any kind (job, jog, homing) and with the machine. Without the keys a request is `PARK_NOT_CONFIGURED` (26). The point is checked at load against **every** drawing, not just one as a station is (§5.1): a head parked to be out of the way must be out of the way whatever the other scene is about to move. |
+| D35 | Moves from just outside a limit (2026-10-28) | The per-dispatch limit check (D28's backstop) skips a segment that does not move -- a route's first waypoint is where the head already stands -- and accepts a target outside an axis limit on an axis where the head already stands at least as far outside: holding that axis or coming back in, the way a jog back inside a soft limit is allowed. Further out, or out from inside, stays `MOTION_ERROR`. Before it, a head that homing to the drive origin left a few hundredths outside a limit at home was refused every move. Job accept still checks every station endpoint strictly. |
+| D36 | Fixture order at a process station (2026-10-28) | **Pick**: down to the pick height, the fixture **releases first** (`release` := 1, wait `released`), `RELEASE_SETTLE`, then the picker closes on a free part, then up; the fixture clamps again after the lift (not on a swap: the placer comes next). A picker closing on a part the fixture still clamps forces any position mismatch through the portal; closing on a free part it centres it. **Place**: the fixture opens during the approach (unchanged), down to the place height, the picker opens, `RELEASE_TIME`, then the fixture **clamps before the lift** (`release` := 0, wait `released` low), then up: a part left loose in an open fixture tips over as the picker leaves it. A grip that fails after the release leaves the error path to withdraw it (D19), which clamps the part where it stands. A probing swap (D32) that finds the station empty finds the fixture already open and places straight away. For every process station. |
+| D37 | Near height (2026-10-28) | A tray or process station may set `NEAR_HEIGHT` (absolute Z, above its strokes, not above `MOVE_HEIGHT`; checked at load): the height the head travels at while it **stays at that station** -- between the remover and the placer of a swap, between candidate slots of a tray and from pick to place of a tray-to-itself job. Across jobs a `stay-near` input, read when the job is taken, says the next job starts where this one ends: the job then ends at its destination's `NEAR_HEIGHT` instead of `MOVE_HEIGHT`, and the next job's first travel to that station stays at it. pnptask cannot know that itself, and a head left low is in the way of what moves under it (a tray lifted into it), so only the PLC that knows the next job may ask. Anything else -- another station, a park -- goes up to `MOVE_HEIGHT` first; the low position is only believed with the head still at exactly that Z, and a jog, a homing or the machine going off forget it. |
+| D38 | Low move on a tray (2026-10-28) | A tray station may set `LOW_MOVE_MAX` (mm, default 0 = off). A `stay-near` place (D37) on it then does not lift at all: the head stays down at the place height, both grippers open, and the next job's pick on that tray, if its target (slot minus the picking picker's offset) is within `LOW_MOVE_MAX` of where the head stands, is reached by an XY shift at that height and the normal stroke -- no lift, no travel. With the picker spacing close to a multiple of the tray pitch the next raw part is often right under the other picker (0.37 mm on the coating machine). Further away it lifts to the tray's `NEAR_HEIGHT` as before. During the shift one gripper's open jaws are still around the part just set down: `LOW_MOVE_MAX` has to stay inside their clearance. The low position is only believed while the commanded pose is still exactly the one the place left. |
+| D39 | Estop keeps the grip (2026-10-29) | `[PNPTASK]ESTOP_KEEPS_GRIP` (default 0). Set, estop aborts and disables motion as ever but leaves the picker `close` outputs and the held records alone instead of releasing them (D14). For grippers on bistable valves fed from an air supply the estop cuts: there the release never reaches the jaws -- no air to shift the valve, or no fieldbus to carry the pulse -- so the part stays gripped and D14 would only have lost its record. When the estop clears, every held record is checked against the feedback after the pick settle time, as a restored one is after a restart: fully closed clears it with a warning, still opened waits for the gripper, otherwise it stands. |
+| D40 | A leg ends in an exact stop (2026-10-29) | The last segment of a travel leg is queued under `TC_TERM_COND_STOP`, not the blend. Left parabolic it ran at **half** `MOVE_ACC` for its whole length: the planner halves a parabolic segment's acceleration (`tcGetOverallMaxAccel`) to leave room for a blend into the next one, and it does so even when nothing ever follows — and a leg is always followed by a drain (a Z stroke, a dwell, the end of the job). Found on the coating machine (siglog of a tray → coating-chuck job): the corners of a route are arc blends, whose segments are tangent and get the full acceleration, so the halving hit only the last segment — and a single-segment leg from start to end. The corner INTO the last segment still blends: the planner decides a join by the term cond of the segment before it (`prev_tc->term_cond`, tp.c `tpSetupTangent` and the blend-arc setup), which stays parabolic. A leading leg (D29) keeps its parabolic end — the leg queued behind it blends in there, and `withTriangleTail`'s `a/2` is for exactly that segment. Measured in the sim (tests/pnptask, path velocity per servo cycle): the final braking ramp goes from half to the full commanded value, the three legs of a 10 → 20 → 11 run from 1348/730/799 ms to 1181/534/599 ms, and the corner before the last segment still runs through at 112 mm/s. `TestJobMoveLimits` checks that the travel segment before every Z stroke is an exact stop. Fixing the planner instead (halve only where segments really overlap) was considered and left alone: it touches the blend arithmetic everything else is built on, for the same result here. |
+| D41 | A corner radius for routes (2026-10-29) | `[PNPTASK]CORNER_RADIUS` (default 0 = the clearance), `pnproute.WithCornerRadius`. A route turned around a zone corner on the offset zone's own corner arc, radius `CLEARANCE` — on the coating machine 5 mm, which the trajectory planner can take at only `sqrt(a * r)` ≈ 120 mm/s at 3000 mm/s². Raising `CLEARANCE`/`BLEND_TOLERANCE` instead does not get there: the arc is a chain of 11° steps a few mm long, which the planner blends one by one, so the radius stays the clearance; and the camera station between the sphere halves caps `CLEARANCE` at 8.5 mm anyway. Every polygon corner now gets a circle of `CORNER_RADIUS`, centred `CORNER_RADIUS − CLEARANCE` inward on the bisector, so it passes the corner at exactly the clearance and a route turning there turns on that radius. The circles are SHAPERS, not zones: they enter the visibility graph and nothing else — `CheckPoint`, `Zones`/`OffsetZones`, the realtime dead-zone check and the D29 wait points do not see them, so a route is never closer to a zone than before, and a station inside a circle stays legal (the circle is ignored for that query). Kept apart rather than merged into a convex hull with the zone: a hull lifts the whole edge between two corners, which on the coating machine closed the camera station's 47 mm gap. Corners within the clearance of the outer limit get none (nothing passes there; it took the park position). A straight start–goal line ignores them (no corner to widen). Where they leave no route — a passage narrower than a circle lets through — the route is planned without them: a radius can widen a route, never make it impossible. Checked offline on the coating machine's drawings (all legs between tray corners, stations, trash, park, both pickers, both drawings): at 50 mm all 1444 routes plan, all on 50 mm, closest approach ≥ 5.0 mm; from 75 mm about 10 % fall back. In the milltask sim at 900 mm/s, 3000 mm/s², queued as pnptask queues them: legs with corners 7–13 % shorter (tray → coating chuck 1374 → 1197 ms), the corner from 114 to 360 mm/s, straight legs unchanged. |
+| D42 | Corner radius sized per corner (2026-10-29) | D41 gave every corner the same circle and fell back to the plain route when the circles blocked one — at 100 mm about 10 % of the coating machine's routes went back to 5 mm corners. Now `CORNER_RADIUS` is the MAXIMUM: each corner's circle is sized once at build time to the largest radius that stays inside the eroded outer limit and clear of every other zone's offset, and — the tightest corners placed first, so a roomy corner gives way to a tight one — clear of the circles of other zones; corners buried in another zone get none. On the coating machine no route falls back any more (smallest radius 37 mm, median up to 117 mm, the room is used up from 150 on). What remains: a start or goal INSIDE a circle ignores it and enters with a kink, and the larger the maximum, the more stations end up inside one (tray's left column, the camera station). Checked over all 2118 cornered routes against 50 mm: at 75 mm 1868 faster, 42 slower; at 100 mm 350 slower. Sim at 4500 mm/s² over the sampled legs: 50 → −8 %, 75 → −10 %, 100 → −12 % but the camera legs worse. The machine runs 75. Shrinking the containing circle per query instead of ignoring it would remove the kink and let larger maxima pay — not done yet. |
+| D43 | The model wins over an empty grip at a process station (2026-10-29) | A removal from a process station — a job's pick or a swap, `PROBE_SWAP` or not — whose grip reads fully closed while `has-material` says a part is there takes the part as gripped: the picker stays closed, the record (and on a swap the obligation) is written, a warning names the station and the picker, and the job goes on. The coating machine's closed sensor fired on a gripped pin twice in about 20 swaps; D32 read that as "station empty", opened the picker over the chuck — dropping the pin back in — and the swap's place went down onto it (following error). Wrong the other way, the model occupied and the fixture really empty, a part that is not there travels on and an inspection further down rejects it: a lost part instead of a crash. `PROC_NO_MATERIAL` from the grip is gone with it; the validation of `has-material` before the job stays. An empty grip with `has-material` low is still D32's answer. |
+| D44 | Automatic starting releases an opened reservation (2026-10-29) | On the rising edge of `auto-enable` (also the first cycle after a start with it high), every retained record (§8.1) whose picker reports `opened` with its `close` output low is dropped, with a warning naming the picker and the station. The operator opened the picker, took the part out and started automatic: that is the verdict the manual close was waiting for. Before, the reservation outlived it and every job was refused with `NO_FREE_PICKER` until each picker had been closed and opened again by hand — on the coating machine, after a restart. A picker that has not answered the open, or whose close is still being judged, keeps its reservation. |
 
 ---
 
@@ -288,6 +302,8 @@ CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOL
                               #   only define the pick points, not outlines.
 BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel; must be
                               #   > 0 for a WAIT_DEADZONE station (D29)
+CORNER_RADIUS = 0             # radius a route turns on around a zone corner;
+                              #   0 = the clearance (D41)
 POS_TOLERANCE = 0.1           # how far a computed position may sit from a
                               #   taught one before the load fails (D24)
 MOVE_VEL = 0                  # XY travel vel/acc, PER AXIS; 0 = axis limits only
@@ -299,6 +315,11 @@ PICK_SETTLE_TIME = 0.1
 RELEASE_TIME = 0.1
 RELEASE_TIMEOUT = 5.0         # wait for proc-station 'released'; 0 = forever
 HOME_TIMEOUT = 30.0
+PARK_X = 50.0                 # optional park position (D34), machine
+PARK_Y = 50.0                 #   coordinates, all three or none; usable in
+PARK_Z = 20.0                 #   every dead-zone drawing
+ESTOP_KEEPS_GRIP = 0          # optional: estop leaves the pickers and their
+                              #   held records alone (D39); default 0 = D14
 DEADZONE_FILE = zones_a.dxf   # repeated key (GetAll); line order = selector value 0,1,…
 DEADZONE_FILE = zones_b.dxf
 
@@ -325,6 +346,13 @@ CAPACITY = 20                 # endless trays only: slots to count, all of them
 [PNPTASK_TRAY_0]              # tray *station* — no X/Y of its own (D17)
 ID = 10                       # station id — unique across trays and procs
 Z_PICK = 2.5                  # base pick Z (D10); z-offset pin adds to this
+Z_PLACE_OFFSET = 2.0          # optional: the place stops this much higher
+                              #   than the pick (D31); default 0
+NEAR_HEIGHT = 20.0            # optional: travel height while staying at this
+                              #   station (D37); default: MOVE_HEIGHT
+LOW_MOVE_MAX = 1.5            # optional, trays: shift this far down at the
+                              #   stroke height between a stay-near place and
+                              #   the next pick (D38); default 0 = off
 DEFAULT_TRAYDEF = 1           # optional: seeds the tray-id pin, for a station
                               #   that only ever holds this one geometry
 DEFAULT_STEP = 0              # optional: seeds the step pin — the process step
@@ -336,6 +364,9 @@ ID = 20
 X = 300.0
 Y = 200.0
 Z_PICK = 5.0
+Z_PLACE_OFFSET = 2.0          # optional, as on a tray station (D31)
+PROBE_SWAP = 1                # optional: swap at every place, also when the
+                              #   model says empty (D32); needs pickers=2
 RELEASE_SETTLE = 0.1          # dwell between this fixture confirming it
                               #   released and the lift out of it; its jaws
                               #   keep moving after the contact makes.  Per
@@ -383,6 +414,10 @@ normalized to HAL-conventional dashes.
 | `machine-on` | bit | in | request machine enable (level) |
 | `machine-is-on` | bit | out | motion enabled and not estopped |
 | `auto-enable` | bit | in | high = auto mode (jobs accepted); low = manual mode (§6.4) |
+| `wait-abort` | bit | in | level: ends a busy-station wait with `WAIT_ABORTED`, staying in auto mode (D33) |
+| `stay-near` | bit | in | read with `start-job`: the next job starts at this one's destination -- end at its `NEAR_HEIGHT` (D37) |
+| `park` | bit | in | rising edge, auto mode: drive to `PARK_X/Y/Z` (D34) |
+| `parked` | bit | out | standing at the park position; drops at the next motion and with the machine (D34) |
 | `jog-<a>-pos`, `jog-<a>-neg` | bit | in | per axis `a` ∈ COORDINATES (`jog-x-pos`, …); jog while high, manual mode only |
 | `jog-speed` | float | in | jog velocity, clamped to the axis MAX_VELOCITY; latched at jog start |
 | `process-step` | u32 | in | latched at `start-job` edge |
@@ -534,7 +569,8 @@ matching `--enable-pnptask-go` configure flag (default yes),
 LAST nor step widths, a route override must name
   known stations and may not repeat a pair, and `[TRAJ]COORDINATES` must carry
   at least X, Y and Z.
-- Defaults for the optional keys: `AUTOHOME` off, `BLEND_TOLERANCE` and all
+- Defaults for the optional keys: `AUTOHOME` off, `CORNER_RADIUS` 0 (the
+  clearance), `BLEND_TOLERANCE` and all
   three settle/release times 0, `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` 0
   (= no ceiling beyond the `[AXIS_*]` limits), `RELEASE_TIMEOUT` 5 s,
   `HOME_TIMEOUT` 30 s,
@@ -642,7 +678,9 @@ Ported ordering from `internal/task/commands.go` `SetState` (minus emcio):
 
 - `estop-on` high (any time): `Abort()`, `Disable()`, `machine-is-on` := 0;
   active job → error `ESTOP`; all picker `close` outputs := 0 (D14 — held
-  material is released, this is the intended safe state).
+  material is released, this is the intended safe state), unless
+  `ESTOP_KEEPS_GRIP` (D39): then they and the held records stand, and the
+  grip is checked against the feedback when the estop clears.
 - `machine-on` rising while `estop-on` low: `Enable()`, wait
   `MotionStatus.Enabled` (with the sequencer.go comm-failure watchdog
   pattern), `machine-is-on` := 1.
@@ -858,7 +896,7 @@ and saves travel time. `auto-enable` going low aborts the wait (error
 `WAIT_ABORTED`) — the picker keeps holding its material for manual handling.
 
 Sequences (normalized from the spec; all Z values = station `Z_PICK` +
-`z-offset` pin; "settle" = the respective param):
+`z-offset` pin, plus `Z_PLACE_OFFSET` on a place stroke (D31); "settle" = the respective param):
 
 **pick from tray** — validate tray has a matching slot; retract Z to movement
 height; route XY to candidate slot; Z down; pos-settle; `close` := 1;
@@ -867,14 +905,14 @@ high → slot physically empty: `close` := 0, wait `opened` (pick-settle
 timeout), Z up, next candidate per §7.1 probing; success → `missing` := 0,
 Z up.
 
-**pick from proc** — validate `has-material`; busy gating (see above);
-retract; route XY to station; Z down; pos-settle; `close` := 1; pick-settle;
-`opened` high → error `PICKER_CLOSE_FAILED`; `closed` high → material
-vanished, error `PROC_NO_MATERIAL`; `release` := 1, wait `released` high
-(RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`); `has-material` := 0;
-**RELEASE_SETTLE** (the fixture's jaws are still moving — lifting on the
-contact alone drags the part through a chuck that has not finished opening);
-Z up; `release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+**pick from proc** (D36) — validate `has-material`; busy gating (see
+above); retract; route XY to station; Z down; pos-settle; `release` := 1,
+wait `released` high (RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`);
+**RELEASE_SETTLE** (the fixture's jaws are still moving after the contact);
+`close` := 1; pick-settle; `opened` high → error `PICKER_CLOSE_FAILED`;
+`closed` high → taken as gripped, the model's `has-material` wins (D43);
+`has-material` := 0; Z up; `release` := 0, wait `released` low
+(RELEASE_TIMEOUT, D19).
 
 **place to tray** — validate free slot; retract; route XY to free slot;
 Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
@@ -883,12 +921,13 @@ confirmation — the physical commit point, since an open picker cannot take
 the part back; an abort during the dwell must find a world that already says
 where the part is); release-time dwell; Z up.
 
-**place to proc** — validate `!has-material` (single-picker mode; §8 for
-alternating); busy gating (see above); `release` := 1; route XY to station;
-wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle; `close` := 0;
-pick-settle; `opened` low → error `PLACE_FAILED`; **`has-material` := 1**
-(records at the `opened` confirmation, as above); release-time dwell; Z up;
-`release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+**place to proc** (D36) — validate `!has-material` (single-picker mode; §8
+for alternating); busy gating (see above); `release` := 1; route XY to
+station; wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle;
+`close` := 0; pick-settle; `opened` low → error `PLACE_FAILED`;
+**`has-material` := 1** (records at the `opened` confirmation, as above);
+release-time dwell; `release` := 0, wait `released` low (RELEASE_TIMEOUT,
+D19); Z up.
 
 **Release cleanup (phase 4/5 review):** no error path may leave a station's
 `release` request standing — every proc action withdraws it on the way out of
@@ -928,6 +967,7 @@ fixture never confirmed letting go, so the part belongs to the fixture and
 | 23 | `PICKER_OPEN_FAILED` | close withdrawn on the pick side but `opened` never came back (§12) |
 | 24 | `TARGET_UNREACHABLE` | job accept: an endpoint − a candidate picker's offset is outside the axis limits (D28) |
 | 25 | `WAIT_SCENE_MISMATCH` | a `WAIT_DEADZONE` station cleared while `deadzone-select` named a drawing other than its `WAIT_CLEAR_DEADZONE` (D29) |
+| 26 | `PARK_NOT_CONFIGURED` | `park` requested without `[PNPTASK]PARK_X/Y/Z` (D34) |
 
 ### 7.6 As built — the model (2026-08-11)
 
@@ -1207,15 +1247,16 @@ restoring a swap record.
   record is a manual intervention in progress: the part is in the operator's
   hands and the next close decides where it went. Until then the picker counts
   occupied, **every job is refused** (with a message naming the picker and the
-  pending close), the swap obligation stays armed, and the record — with its
+  pending close; automatic starting with the picker opened ends it, D44), the
+  swap obligation stays armed, and the record — with its
   station and swap flag — **persists across a restart** (restored retained,
   close output left low, the operator's close still judges). A second open
-  press is idempotent; a close that grips nothing clears the record AND
-  reopens the picker (phase-7 review — jaws left commanded shut on a free
-  picker would make the next job's grip check read "closed" whatever sits
-  under the head). The free-the-picker workflow is therefore three presses:
-  open, take the part, close on the empty gripper — the verdict opens it
-  again itself.
+  press is idempotent; a close that grips nothing clears the record and
+  leaves the picker closed, as the operator put it (2026-10-29 — reopening
+  it, the phase-7 answer to jaws left commanded shut on a free picker, undid
+  every manual close on an empty gripper; `openForPick` covers that hazard
+  at the pick itself). The free-the-picker workflow is therefore three
+  presses: open, take the part, close on the empty gripper.
 - **The sequence constraint accepts any standing swap obligation.** Normally
   one exists; a place that fails after its swap-out leaves two (both parts
   really are in pickers), and a job from either station is the recovery. A
@@ -1504,7 +1545,8 @@ fixed on the branch with unit tests; the integration scenarios under
   `closeAndCheck` read "closed" as an empty slot, and with `MAX_UNPOPULATED`
   at its default of 1 the tray was declared empty. Now every manual close on a
   picker without a present record reserves it (a retained record with no
-  station) and is judged: fully closed → dropped and reopened; in between →
+  station) and is judged: fully closed → dropped (the picker stays closed
+  since 2026-10-29, `openForPick` opens it for the next pick); in between →
   a present record of **unknown origin** (`holds` high, `origin-id` 0, §8)
   that counts the picker occupied until a manual open, since a job cannot
   place what it cannot name; still opened → re-armed with one warning. The

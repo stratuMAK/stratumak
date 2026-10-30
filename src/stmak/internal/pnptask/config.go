@@ -53,6 +53,12 @@ type Config struct {
 	Clearance      float64
 	BlendTolerance float64
 
+	// CornerRadius is the radius a route turns on around a dead zone's corner
+	// ([PNPTASK]CORNER_RADIUS, default 0 = the clearance), see
+	// pnproute.WithCornerRadius and D41. A wider turn is a faster one; the
+	// clearance is kept either way.
+	CornerRadius float64
+
 	// PosTolerance is how far a *computed* position may sit from the taught
 	// one it has to reproduce before the config is refused ([PNPTASK]
 	// POS_TOLERANCE, required). A tray grid is built from its step widths and
@@ -80,6 +86,21 @@ type Config struct {
 	// 0 means wait forever. HomeTimeout bounds autohoming.
 	ReleaseTimeout float64
 	HomeTimeout    float64
+
+	// Park is [PNPTASK]PARK_X/PARK_Y, a machine position, and ParkZ its
+	// PARK_Z (D34): where the park request sends the head. HasPark says the
+	// three keys were given; they come together or not at all.
+	Park    pnproute.Point
+	ParkZ   float64
+	HasPark bool
+
+	// EstopKeepsGrip is [PNPTASK]ESTOP_KEEPS_GRIP (D39): estop leaves the
+	// picker close outputs and the held records alone instead of releasing
+	// them (D14). For grippers on bistable valves fed from an air supply the
+	// estop cuts: there the release never reaches the jaws, so the part stays
+	// gripped and only the record would be lost. The grip is checked against
+	// the feedback once the estop clears.
+	EstopKeepsGrip bool
 
 	// DeadzoneFiles are the resolved absolute paths of the DXF files, in INI
 	// line order — that order is what the deadzone-select pin indexes.
@@ -171,6 +192,19 @@ type TrayStation struct {
 	ID      uint32
 	ZPick   float64
 
+	// ZPlaceOffset is Z_PLACE_OFFSET: added to the place stroke only (D31).
+	ZPlaceOffset float64
+
+	// NearHeight is NEAR_HEIGHT (D37): the Z the head may travel at while it
+	// stays at this station. HasNear says it was given.
+	NearHeight float64
+	HasNear    bool
+
+	// LowMoveMax is LOW_MOVE_MAX (D38): the largest XY distance the head is
+	// moved down at the stroke height, without lifting, from one job's place
+	// to the next job's pick on this tray. 0 (the default) is off.
+	LowMoveMax float64
+
 	// DefaultTrayDef is the TrayDef id the station's tray-id pin is seeded
 	// with, or 0 for none. A station that only ever holds one tray geometry
 	// has nothing to select at runtime, and without a seed its selector would
@@ -196,6 +230,21 @@ type ProcStation struct {
 	ID      uint32
 	Pos     pnproute.Point
 	ZPick   float64
+
+	// ZPlaceOffset is Z_PLACE_OFFSET: how much higher a place stops than a
+	// pick (D31), so a part is set down onto the fixture rather than pushed
+	// into it. 0 (the default) places at the pick height, as before.
+	ZPlaceOffset float64
+
+	// NearHeight is NEAR_HEIGHT, as on a tray station (D37).
+	NearHeight float64
+	HasNear    bool
+
+	// ProbeSwap is PROBE_SWAP (D32): a place here always swaps first, whatever
+	// has-material says, so a part the model does not know about is taken out
+	// rather than placed onto. An empty grip during that swap is not an error.
+	// Needs pickers=2.
+	ProbeSwap bool
 
 	// ReleaseSettle is how long to wait, after the fixture has confirmed it
 	// released, before lifting the part out of it. A chuck's jaws keep moving
@@ -334,6 +383,7 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
 	cfg.Clearance = r.lengthReq(sec, "CLEARANCE")
 	cfg.BlendTolerance = r.lengthNonNeg(sec, "BLEND_TOLERANCE", 0)
+	cfg.CornerRadius = r.lengthNonNeg(sec, "CORNER_RADIUS", 0)
 	// Required rather than defaulted: it decides which taught geometry the
 	// load accepts, and a default would be this module's guess at how well the
 	// machine it is running on can be taught.
@@ -347,6 +397,17 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
 	cfg.ReleaseTimeout = r.duration(sec, "RELEASE_TIMEOUT", defaultReleaseTimeout)
 	cfg.HomeTimeout = r.duration(sec, "HOME_TIMEOUT", defaultHomeTimeout)
+	cfg.EstopKeepsGrip = r.boolean(sec, "ESTOP_KEEPS_GRIP", false)
+	hasPX, hasPY, hasPZ := r.has(sec, "PARK_X"), r.has(sec, "PARK_Y"), r.has(sec, "PARK_Z")
+	if hasPX != hasPY || hasPX != hasPZ {
+		return nil, fmt.Errorf("[%s]: PARK_X, PARK_Y and PARK_Z must be given together", sec)
+	}
+	if hasPX {
+		cfg.HasPark = true
+		cfg.Park.X = r.lengthReq(sec, "PARK_X")
+		cfg.Park.Y = r.lengthReq(sec, "PARK_Y")
+		cfg.ParkZ = r.lengthReq(sec, "PARK_Z")
+	}
 	// [JOINT_n]HOME is otherwise motsetup's business; the X/Y values are read
 	// here too because the homed position is where the first job's route
 	// starts (see Config.Home). Absent keys default to 0, exactly as motmod
@@ -617,6 +678,21 @@ const gridMinPitch = 0.1
 // one namespace across both kinds: origin-id and dest-id name a station without
 // saying which kind it is, so a duplicate would make the action selection of
 // §7.4 ambiguous.
+// checkNear refuses a NEAR_HEIGHT (D37) that is not between the station's
+// strokes and the movement height: below a stroke it would travel through
+// what the station holds, above MOVE_HEIGHT it would be no reduction.
+func checkNear(sec string, has bool, near, zPick, zPlaceOffset, moveHeight float64) error {
+	if !has {
+		return nil
+	}
+	low := zPick + math.Max(0, zPlaceOffset)
+	if near <= low || near > moveHeight {
+		return fmt.Errorf("[%s]NEAR_HEIGHT = %g: must be above the station's strokes (%g) and not above MOVE_HEIGHT (%g)",
+			sec, near, low, moveHeight)
+	}
+	return nil
+}
+
 func loadStations(r *iniReader, cfg *Config) error {
 	seen := make(map[uint32]string)
 
@@ -636,6 +712,13 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s := TrayStation{Section: sec}
 		s.ID = r.stationID(sec, "ID")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
+		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
+		s.HasNear = r.has(sec, "NEAR_HEIGHT")
+		s.NearHeight = r.length(sec, "NEAR_HEIGHT", 0)
+		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
+			return err
+		}
+		s.LowMoveMax = r.lengthNonNeg(sec, "LOW_MOVE_MAX", 0)
 		if r.has(sec, "DEFAULT_TRAYDEF") {
 			// stationID's checks are the right ones: the key carries a
 			// TRAYDEF id, and 0 is as reserved here as it is there.
@@ -673,6 +756,13 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.Pos.X = r.lengthReq(sec, "X")
 		s.Pos.Y = r.lengthReq(sec, "Y")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
+		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
+		s.HasNear = r.has(sec, "NEAR_HEIGHT")
+		s.NearHeight = r.length(sec, "NEAR_HEIGHT", 0)
+		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
+			return err
+		}
+		s.ProbeSwap = r.boolean(sec, "PROBE_SWAP", false)
 		s.ReleaseSettle = r.duration(sec, "RELEASE_SETTLE", 0)
 		hasWaitX, hasWaitY := r.has(sec, "WAIT_X"), r.has(sec, "WAIT_Y")
 		if hasWaitX != hasWaitY {

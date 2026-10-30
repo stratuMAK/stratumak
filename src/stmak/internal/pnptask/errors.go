@@ -51,6 +51,8 @@ const (
 	// dispatched against a different one — and a PLANNING_FAILED would send the
 	// operator looking for a blocked route instead of a PLC sequencing bug.
 	errWaitSceneMismatch errorID = 25
+
+	errParkNotConfigured errorID = 26 // park requested, no [PNPTASK]PARK_X/Y/Z (D34)
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -82,6 +84,7 @@ var errorNames = map[errorID]string{
 	errPickerOpenFail:        "PICKER_OPEN_FAILED",
 	errUnreachable:           "TARGET_UNREACHABLE",
 	errWaitSceneMismatch:     "WAIT_SCENE_MISMATCH",
+	errParkNotConfigured:     "PARK_NOT_CONFIGURED",
 }
 
 func (id errorID) String() string {
@@ -111,3 +114,7 @@ func faultf(id errorID, format string, args ...any) *pnpFault {
 // gone, and latching an error on the way out would greet the next start with a
 // failure that never happened.
 var errStopping = fmt.Errorf("pnptask: control loop stopping")
+
+// errSwapEmpty is a probing swap's empty grip (D32): not a fault, so it never
+// leaves the place it is returned to.
+var errSwapEmpty = fmt.Errorf("pnptask: swap found the station empty")

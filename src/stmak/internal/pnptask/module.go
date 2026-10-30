@@ -203,6 +203,17 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	}
 	m.comp = comp
 
+	// A probing swap takes the occupant out with the free picker while the
+	// other carries the job's material: with one picker there is none.
+	if m.pickers < 2 {
+		for _, s := range cfg.Procs {
+			if s.ProbeSwap {
+				_ = comp.Exit()
+				return nil, fmt.Errorf("pnptask %q: [%s]PROBE_SWAP needs pickers=2", name, s.Section)
+			}
+		}
+	}
+
 	pins, err := newPins(comp, cfg, m.pickers)
 	if err != nil {
 		// The launcher only tears down modules whose factory returned one, so

@@ -3,9 +3,13 @@
 package pnptask
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"time"
 
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
@@ -79,8 +83,9 @@ func (c *control) waitPickerOpen(pk int) error {
 // openForPick makes sure a picker the engine counts free really is open before
 // it is sent down onto material (pre-merge review 2026-09-08). The record says
 // the picker holds nothing; it says nothing about the close output, and a
-// close left standing — by anything the judgements of machine.go did not
-// cover — turns closeAndCheck into a lie: jaws that are already shut read
+// close left standing — a manual close that gripped nothing leaves one on
+// purpose, so the picker stays as the operator put it — turns closeAndCheck
+// into a lie: jaws that are already shut read
 // "closed" whatever lies under the head, which is an empty verdict on a
 // populated slot and, at MAX_UNPOPULATED's default of 1, a whole tray declared
 // empty. Only a standing close is acted on: the output is dropped and the
@@ -91,9 +96,59 @@ func (c *control) openForPick(pk int) error {
 	if !c.m.pins.pickers[pk].close.Get() {
 		return nil
 	}
-	c.m.logger.Warn("pnptask: a picker counted free was still commanded closed, opening it before the pick",
+	c.m.logger.Warn("pnptask: a picker counted free was still commanded closed, opening it before the head goes down",
 		"picker", pk)
+	// Down in a tray (D38) the jaws would open next to the parts: up first.
+	if err := c.liftFromLow(); err != nil {
+		return err
+	}
 	return c.waitPickerOpen(pk)
+}
+
+// openFreePickers is openForPick for every picker the engine counts free,
+// before the job's first descent. The other picker goes down with the head
+// on every stroke, not only on its own pick, so a standing close on it -- a
+// manual close that gripped nothing leaves one on purpose (§8) -- would put
+// closed jaws down over a populated slot, meeting the part instead of
+// straddling it. A present record is a grip and is left alone; a retained
+// one never gets here (validateJob refuses the job, §8.1).
+func (c *control) openFreePickers() error {
+	for i := range c.m.pins.pickers {
+		if c.m.world.held[i].present {
+			continue
+		}
+		if err := c.openForPick(i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// liftFromLow takes the head up from where a stay-near place left it low on
+// a tray (D38) before a gripper is actuated down there: to the tray's
+// NEAR_HEIGHT, which the next travel then keeps (travelZ), or to MOVE_HEIGHT
+// if the tray has none. Nothing to do when the head is not low.
+func (c *control) liftFromLow() error {
+	if c.lowAt == 0 {
+		return nil
+	}
+	st := c.m.world.station(c.lowAt)
+	if st == nil || !c.isLowAt(st) {
+		c.lowAt = 0
+		return nil
+	}
+	c.lowAt = 0
+	near, ok := st.near()
+	if !ok {
+		near = c.m.cfg.MoveHeight
+	}
+	if err := c.zStroke(near); err != nil {
+		return err
+	}
+	if ok {
+		c.nearAt = st.id
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -144,8 +199,19 @@ func highLow(v bool) string {
 // z is evaluated by the caller at the call, which is where the z-offset pin
 // belongs: the offset is a correction (a height sensor, a tray shim) applied
 // to the approach that is about to happen, not latched with the job.
-func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) error {
-	if err := c.retract(j.height); err != nil {
+func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z float64) error {
+	// D38: down at this tray from the last job's place, and the target is
+	// within LOW_MOVE_MAX: shift there at this height, no lift.
+	if shifted, err := c.lowShift(pk, st, target); err != nil {
+		return err
+	} else if shifted {
+		if err := c.zStroke(z); err != nil {
+			return err
+		}
+		return c.dwell(c.m.pins.posSettleTime.Get())
+	}
+	j.travel = c.travelZ(j, st)
+	if err := c.retract(j.travel); err != nil {
 		return err
 	}
 	if err := c.travel(j, pk, target); err != nil {
@@ -205,7 +271,8 @@ func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) err
 // whose process is still running, which is what raising it before the gate
 // did (pre-merge review 2026-09-08).
 func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear func()) error {
-	if err := c.retract(j.height); err != nil {
+	j.travel = c.travelZ(j, c.m.world.station(s.cfg.ID))
+	if err := c.retract(j.travel); err != nil {
 		return err
 	}
 	if s.cfg.HasWaitZone {
@@ -318,6 +385,7 @@ func (c *control) checkClearScene(s *procState) error {
 //
 // auto-enable going low aborts the wait (D15): the operator wants the machine to
 // hand over to manual, and a job parked over a station forever is not a handover.
+// wait-abort does the same in auto mode (D33).
 // The picker keeps holding its material for exactly that manual handling. On the
 // streamed approach the abort can land while the first leg is still running;
 // streamedApproach stops that leg on the way out — nothing else would, the
@@ -352,6 +420,12 @@ func (c *control) awaitClear(s *procState, atWait bool) (stopped bool, err error
 		if !c.in.autoEnable {
 			return stopped, faultf(errWaitAborted,
 				"station %d: the wait was aborted by auto-enable going low", s.cfg.ID)
+		}
+		// D33: the same end, asked for without leaving auto mode -- so the
+		// PLC can send the machine somewhere else (park) right after.
+		if c.in.waitAbort {
+			return stopped, faultf(errWaitAborted,
+				"station %d: the wait was aborted by wait-abort", s.cfg.ID)
 		}
 		if !c.tick() {
 			return stopped, errStopping
@@ -394,7 +468,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		}
 		from = next
 
-		if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
+		if err := c.approach(j, pk, j.origin, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
 			return err
 		}
 		grip, err := c.closeAndCheck(pk)
@@ -408,7 +482,8 @@ func (c *control) pickFromTray(j *job, pk int) error {
 			c.m.world.setHeld(pk, j.origin.id, false, j.step, true)
 			c.m.logger.Debug("pnptask: picked from tray",
 				"station", t.cfg.ID, "slot", slot, "picker", pk)
-			return c.zStroke(j.height)
+			// A tray-to-itself job places on this same tray next (D37).
+			return c.up(j, j.origin, j.destID == j.originID)
 		}
 
 		// Nothing there. Correct the model, open up, lift, and go on.
@@ -418,7 +493,8 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		if err := c.waitPickerOpen(pk); err != nil {
 			return err
 		}
-		if err := c.zStroke(j.height); err != nil {
+		// The next candidate is on this same tray (D37).
+		if err := c.up(j, j.origin, !t.probedEmpty); err != nil {
 			return err
 		}
 		if t.probedEmpty {
@@ -474,31 +550,54 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
 		return err
 	}
+	// D36: the fixture lets go first, the picker closes after. A picker
+	// closing on a part the fixture still clamps forces any position mismatch
+	// through the portal; closing on a free part, it centres it instead.
+	// RELEASE_SETTLE covers the jaws still moving after the opened contact.
+	//
+	// The fixture is open from here on with nothing holding the part: any
+	// failure below leaves the caller to withdraw the release (D19), which
+	// clamps the part again where it stands.
+	if err := c.setRelease(s, true); err != nil {
+		return err
+	}
+	if err := c.dwell(s.pins.releaseSettle.Get()); err != nil {
+		return err
+	}
 	grip, err := c.closeAndCheck(pk)
 	if err != nil {
 		return err
 	}
+	if grip == gripEmpty && s.hasMaterial {
+		// D43: the model says a part is there, and the closed sensor says the
+		// jaws met. The model wins: the picker stays closed and the part is
+		// taken as gripped. A closed sensor that fires on a gripped part is
+		// the failure this guards against -- opening the picker on that
+		// verdict dropped the part back into the fixture, and the swap's place
+		// went down onto it. Trusting the model when the fixture really is
+		// empty costs a part that is not there travelling on, for an
+		// inspection further down to reject; the other way round cost a crash.
+		c.m.logger.Warn("pnptask: picker reports fully closed on a station the model says is occupied, kept as gripped -- check the closed sensor",
+			"station", s.cfg.ID, "picker", pk)
+		grip = gripHolding
+	}
 	if grip == gripEmpty {
-		// has-material said there was a part and there is not. Correcting the
-		// flag is the point: the next job must not be sent for it again.
-		s.setHasMaterial(false)
+		// Only reachable on a probing swap: every other removal is validated
+		// on has-material, and D43 takes an empty grip over a set one as held.
 		if err := c.waitPickerOpen(pk); err != nil {
 			return err
+		}
+		// D32: a probing swap asked whether anything is there, and nothing is
+		// an answer. The place goes on, the fixture already open; no record,
+		// so no swap obligation.
+		if swap && s.cfg.ProbeSwap {
+			c.m.logger.Info("pnptask: swap found the station empty", "station", s.cfg.ID, "picker", pk)
+			return errSwapEmpty
 		}
 		return faultf(errProcNoMaterial,
 			"station %d: the fixture is empty although has-material was set", s.cfg.ID)
 	}
 
-	if err := c.setRelease(s, true); err != nil {
-		// The picker is closed around a part the fixture never confirmed
-		// releasing: the part belongs to the fixture, so the picker lets go
-		// (best effort — no feedback wait on an error path) and has-material
-		// stays true. Leaving the picker clamped while the world called it
-		// free would send the next job's retract tearing the part out of a
-		// closed fixture.
-		c.m.pins.pickers[pk].close.Set(false)
-		return err
-	}
 	// The material is in the picker and out of the fixture's hands: both records
 	// move together, before the lift, so an abort during the retract leaves a
 	// world that says where the part is. has-material drops even on the swap
@@ -511,17 +610,8 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	// step the model never tracked — unknown, and exempt from the skipPick
 	// step check.
 	c.m.world.setHeld(pk, s.cfg.ID, swap, j.step, !swap)
-	// The fixture said it released; its jaws have not finished moving. Lifting
-	// on the contact alone drags the part out of a chuck that is still closing
-	// on it -- the place paths have waited here since they were written
-	// (release-time, after the gripper opens), and the removal never did.
-	//
-	// After the records move, like placeToTray's: an abort landing in the dwell
-	// has to find a world that already says where the part is.
-	if err := c.dwell(s.pins.releaseSettle.Get()); err != nil {
-		return err
-	}
-	if err := c.zStroke(j.height); err != nil {
+	// On a swap the placer goes in next, at this same station (D37).
+	if err := c.up(j, c.m.world.station(s.cfg.ID), swap); err != nil {
 		return err
 	}
 	if swap {
@@ -557,7 +647,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if !ok {
 		return faultf(errTrayFull, "station %d has no free slot besides the one this job emptied", t.cfg.ID)
 	}
-	if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
+	if err := c.approach(j, pk, j.dest, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()+t.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.openAndCheck(pk); err != nil {
@@ -578,7 +668,14 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
 		return err
 	}
-	return c.zStroke(j.height)
+	// D38: the next job picks on this tray; with LOW_MOVE_MAX it may start
+	// right here, so the head is not lifted at all.
+	if j.stayNear && t.cfg.LowMoveMax > 0 {
+		c.lowAt = j.destID
+		c.lowPos = c.cmdPos
+		return nil
+	}
+	return c.up(j, j.dest, j.stayNear)
 }
 
 // ---------------------------------------------------------------------------
@@ -614,13 +711,15 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	// ends at the station with the approaching picker's offset applied, and the
 	// remover is the one that goes in first. Asking afterwards would have driven
 	// the placer into the station and then moved over by the offset difference.
-	if s.hasMaterial {
+	if s.hasMaterial || j.probe {
 		rm, ok := c.m.world.freePicker()
 		if !ok {
 			return faultf(errNoFreePicker,
 				"station %d is occupied and no picker is free to take the part out", s.cfg.ID)
 		}
-		if err := c.swapOut(j, pk, rm, s, busy); err != nil {
+		// errSwapEmpty (D32): nothing came out, and the fixture was never
+		// asked to let go of anything -- the request below is its first.
+		if err := c.swapOut(j, pk, rm, s, busy); err != nil && !errors.Is(err, errSwapEmpty) {
 			return err
 		}
 		c.requestRelease(s, true)
@@ -631,7 +730,8 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		// offset to its own. Sending it back through the gate would ask for a
 		// wait point derived from a route that starts inside the very zone the
 		// wait point is supposed to keep it out of.
-		if err := c.retract(j.height); err != nil {
+		j.travel = c.travelZ(j, j.dest)
+		if err := c.retract(j.travel); err != nil {
 			return err
 		}
 		if err := c.travel(j, pk, s.cfg.Pos); err != nil {
@@ -649,7 +749,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	if err := c.waitReleased(s, true); err != nil {
 		return err
 	}
-	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get()); err != nil {
+	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get() + s.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
@@ -666,11 +766,13 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
 		return err
 	}
-	if err := c.zStroke(j.height); err != nil {
+	// D36: the fixture clamps before the picker lifts away: a part left
+	// standing loose in an open fixture tips over as the picker leaves it.
+	// Confirmed (D19), then up.
+	if err := c.setRelease(s, false); err != nil {
 		return err
 	}
-	// Clamp again and confirm it (D19) — the station now holds the part.
-	return c.setRelease(s, false)
+	return c.up(j, j.dest, j.stayNear)
 }
 
 // ---------------------------------------------------------------------------
@@ -694,4 +796,85 @@ func (c *control) swapOut(j *job, holder, pk int, s *procState, busy bool) error
 	// This removal's approach carries the busy gating for the whole job's
 	// business at this station: it is the first thing that goes in.
 	return c.removeFromProc(j, pk, s, true, busy)
+}
+
+// ---------------------------------------------------------------------------
+// Near height (D37)
+// ---------------------------------------------------------------------------
+
+// travelZ is the height a travel to station st runs at: its NEAR_HEIGHT if
+// the head was lifted to exactly that at this station and is still there,
+// the job's movement height otherwise. Anything else in between -- another
+// station, a park, a jog -- has taken the head up or forgotten it (nearAt).
+func (c *control) travelZ(j *job, st *station) float64 {
+	near, ok := st.near()
+	if ok && c.isLowAt(st) {
+		return near // down at it: up to its near height, not further
+	}
+	if ok && c.nearAt == st.id && math.Abs(c.cmdPos.Z-near) < moveFuzz {
+		return near
+	}
+	return j.height
+}
+
+// up lifts out of a stroke at station st: to its NEAR_HEIGHT when the next
+// move stays at st and it has one, to the movement height otherwise.
+func (c *control) up(j *job, st *station, stay bool) error {
+	if near, ok := st.near(); stay && ok {
+		if err := c.zStroke(near); err != nil {
+			return err
+		}
+		c.nearAt = st.id
+		return nil
+	}
+	return c.zStroke(j.height)
+}
+
+// ---------------------------------------------------------------------------
+// Low move (D38)
+// ---------------------------------------------------------------------------
+
+// isLowAt: the head is still where a stay-near place on tray st left it.
+func (c *control) isLowAt(st *station) bool {
+	return c.lowAt != 0 && c.lowAt == st.id && poseNear(c.cmdPos, c.lowPos)
+}
+
+func poseNear(a, b motctl.Pose) bool {
+	return math.Abs(a.X-b.X) < moveFuzz && math.Abs(a.Y-b.Y) < moveFuzz && math.Abs(a.Z-b.Z) < moveFuzz
+}
+
+// lowShift moves picker pk onto target at the current height if the head is
+// down at tray st (isLowAt) and the target is within its LOW_MOVE_MAX:
+// both grippers are down in the tray, open -- one around the part it has
+// just set down, the other over the next one -- so the shift has to stay
+// inside the jaws' clearance, which is what LOW_MOVE_MAX says. Reports
+// whether it did; false leaves the head as it is for the normal approach.
+func (c *control) lowShift(pk int, st *station, target pnproute.Point) (bool, error) {
+	if !st.isTray() || st.tray.cfg.LowMoveMax <= 0 || !c.isLowAt(st) {
+		return false, nil
+	}
+	off := c.pickerOffset(pk)
+	to := c.cmdPos
+	to.X, to.Y = target.X-off.X, target.Y-off.Y
+	if math.Hypot(to.X-c.cmdPos.X, to.Y-c.cmdPos.Y) > st.tray.cfg.LowMoveMax {
+		// too far: the normal approach, up to the tray's near height first
+		// (travelZ still sees the head down at it)
+		return false, nil
+	}
+	c.lowAt = 0
+	c.m.logger.Debug("pnptask: low move on the tray", "station", st.id, "picker", pk,
+		"dx", to.X-c.cmdPos.X, "dy", to.Y-c.cmdPos.Y)
+	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
+		return false, err
+	}
+	if err := c.waitMotionDone(); err != nil {
+		return false, err
+	}
+	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+		return false, faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+	}
+	if err := c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc); err != nil {
+		return false, err
+	}
+	return true, c.waitMotionDone()
 }

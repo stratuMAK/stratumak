@@ -41,6 +41,15 @@ type job struct {
 	dest   *station
 	height float64
 
+	// travel is the Z the next travel leg runs at: height, or a station's
+	// NEAR_HEIGHT while the head stays at it (D37). Set by the sequences
+	// before they travel.
+	travel float64
+
+	// stayNear is the stay-near input as the job was taken (D37): the next
+	// job starts where this one ends, so it ends at the dest's NEAR_HEIGHT.
+	stayNear bool
+
 	// originBusy is a pick-from-proc origin's busy state as sampled at job start
 	// (§7.4, R1). The dest's is sampled later, once the pick leg is done.
 	originBusy bool
@@ -58,6 +67,11 @@ type job struct {
 	// to come out first, with a second picker.
 	skipPick bool
 	swap     bool
+
+	// probe says the swap was planned because the station is PROBE_SWAP, not
+	// because the model says it is occupied (D32): finding it empty is then
+	// an answer, not a fault.
+	probe bool
 
 	// pickedSlot is the tray slot the job's own pick emptied, −1 until a tray
 	// pick succeeds. A tray-to-itself place excludes it (see placeToTray).
@@ -123,6 +137,7 @@ func (c *control) runJobHandshake() {
 	}
 
 	c.m.pins.busy.Set(true)
+	c.parked = false
 	err := c.runJob()
 
 	// The diagnosis is published *before* the handshake completes: busy going low
@@ -181,6 +196,11 @@ func (c *control) runJob() error {
 	if err := c.seedCmdPos(); err != nil {
 		return err
 	}
+	// Every free picker open before the head goes down anywhere: see
+	// openFreePickers.
+	if err := c.openFreePickers(); err != nil {
+		return err
+	}
 	holder, err := c.runPick(j)
 	if err != nil {
 		return err
@@ -202,6 +222,7 @@ func (c *control) latchJob() *job {
 		destID:     c.in.destID,
 		deadzone:   c.in.deadzoneSelect,
 		pickedSlot: -1,
+		stayNear:   c.in.stayNear,
 	}
 }
 
@@ -237,6 +258,7 @@ func (c *control) validateJob(j *job) error {
 		return err
 	}
 	j.height = c.moveHeight(j.originID, j.destID)
+	j.travel = j.height
 
 	// §8.1: a retained record is a manual intervention in progress — the part
 	// is out of the picker in an operator's hands, and the next manual close
@@ -321,7 +343,7 @@ func (c *control) checkReach(j *job) error {
 	type endpoint struct {
 		station uint32
 		pt      pnproute.Point
-		z       float64 // the deepest Z commanded there
+		z       float64 // a stroke Z commanded there (pick, and place if it differs)
 	}
 	var eps []endpoint
 	add := func(s *station) {
@@ -334,11 +356,20 @@ func (c *control) checkReach(j *job) error {
 			z := t.cfg.ZPick + t.pins.zOffset.Get()
 			for i := range t.slots {
 				eps = append(eps, endpoint{s.id, t.slotPos(i), z})
+				if t.cfg.ZPlaceOffset != 0 {
+					eps = append(eps, endpoint{s.id, t.slotPos(i), z + t.cfg.ZPlaceOffset})
+				}
 			}
 			return
 		}
 		p := s.proc
-		eps = append(eps, endpoint{s.id, p.cfg.Pos, p.cfg.ZPick + p.pins.zOffset.Get()})
+		z := p.cfg.ZPick + p.pins.zOffset.Get()
+		eps = append(eps, endpoint{s.id, p.cfg.Pos, z})
+		// The place stops at its own height (D31), which a negative offset
+		// puts below the pick's.
+		if p.cfg.ZPlaceOffset != 0 {
+			eps = append(eps, endpoint{s.id, p.cfg.Pos, z + p.cfg.ZPlaceOffset})
+		}
 		if p.cfg.HasWait {
 			eps = append(eps, endpoint{s.id, p.cfg.Wait, j.height})
 		}
@@ -438,6 +469,13 @@ func (c *control) checkDest(j *job) error {
 	}
 	s := j.dest.proc
 	if !s.hasMaterial {
+		// D32: a station that may hold a part nobody told the model about is
+		// swapped at anyway. A re-seat (pick from it, place back) has just
+		// emptied it with its own pick and needs no probe.
+		if s.cfg.ProbeSwap && !(!j.skipPick && j.originID == j.destID) {
+			j.swap = true
+			j.probe = true
+		}
 		return nil
 	}
 	// A job from a process station to itself takes the occupant out on the way

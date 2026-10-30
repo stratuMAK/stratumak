@@ -307,7 +307,7 @@ func TestPlanAroundChainedLoop(t *testing.T) {
 		t.Fatalf("route runs %v..%v, want %v..%v", r.Waypoints[0], r.Waypoints[len(r.Waypoints)-1], start, goal)
 	}
 	for i := 1; i < len(r.Waypoints); i++ {
-		if a, b := r.Waypoints[i-1], r.Waypoints[i]; !p.visible(a, b) {
+		if a, b := r.Waypoints[i-1], r.Waypoints[i]; !p.visible(a, b, nil) {
 			t.Fatalf("route leg %d (%v -> %v) is not collision-free", i, a, b)
 		}
 	}

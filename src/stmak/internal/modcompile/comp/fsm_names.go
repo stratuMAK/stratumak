@@ -119,6 +119,46 @@ func (f *fsmDecl) generatedNames() []genName {
 	return names
 }
 
+// shadowName is the hidden variable an output pin's shadow takes (fsm_lower.go):
+// <hidden>_o_<pin>, with _<index> for a pin-array element.
+func shadowName(hid string, d fsmDef) string {
+	name := hid + "_o_" + d.Name
+	if d.Kind == refPinElem {
+		name = fmt.Sprintf("%s_%d", name, d.Index)
+	}
+	return name
+}
+
+// outputNames are the names the output shadows and their helpers take
+// (fsm_lower.go): a shadow per output pin, the defaults, load and publish
+// helpers, and an accessor per pin array with elements among the outputs.
+// Registered with checkNames so that two outputs spelling the same shadow --
+// arr(1) and arr_1 in one fsm, o_x of fsm m and x of fsm m_o -- are refused
+// here, not by the C compiler as a duplicate member.
+func (f *fsmDecl) outputNames(syms map[string]*sym) []genName {
+	hid, n := f.hidden(), f.Name
+	names := []genName{
+		{hid + "_defaults", "the output defaults helper of fsm " + n, f.Pos, false},
+		{hid + "_load", "the output load helper of fsm " + n, f.Pos, false},
+		{hid + "_publish", "the output publish helper of fsm " + n, f.Pos, false},
+	}
+	arrays := map[string]bool{}
+	for _, d := range f.Outputs {
+		s := syms[d.Name]
+		if s == nil || s.Kind != symPin {
+			continue
+		}
+		names = append(names, genName{shadowName(hid, d),
+			fmt.Sprintf("the shadow of output %s of fsm %s", d.fsmRef.String(), n), f.Pos, false})
+		if d.Kind == refPinElem && !arrays[d.Name] {
+			arrays[d.Name] = true
+			names = append(names, genName{hid + "_oref_" + d.Name,
+				fmt.Sprintf("the output accessor of pin array %s of fsm %s", d.Name, n), f.Pos, false})
+		}
+	}
+	return names
+}
+
 // cKeywords are the C11/C23 keywords; a generated name may not be one.
 var cKeywords = strings.Fields(`auto break case char const continue default do double else
 	enum extern float for goto if inline int long register restrict return short signed
@@ -174,7 +214,7 @@ func (c *fsmChecker) checkNames(fsms []*fsmDecl) error {
 		if strings.HasPrefix(f.Name, "__") {
 			return fmt.Errorf("%s: fsm %s: names starting with __ are reserved", f.Pos, f.Name)
 		}
-		for _, g := range f.generatedNames() {
+		for _, g := range append(f.generatedNames(), f.outputNames(c.syms)...) {
 			for _, pfx := range reservedPrefixes {
 				if strings.HasPrefix(g.Name, pfx) {
 					return fmt.Errorf("%s: fsm %s: %s would be %s, but names starting with %s are reserved",

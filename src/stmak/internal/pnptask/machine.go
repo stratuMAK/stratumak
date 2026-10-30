@@ -123,6 +123,8 @@ type inputs struct {
 	estop      bool
 	machineOn  bool
 	autoEnable bool
+	waitAbort  bool
+	park       bool
 	home       bool
 	errorReset bool
 
@@ -135,6 +137,7 @@ type inputs struct {
 	destID         uint32
 	deadzoneSelect uint32
 	startJob       bool
+	stayNear       bool
 
 	pickerOpen  []bool
 	pickerClose []bool
@@ -228,6 +231,23 @@ type control struct {
 	// cycle and a released one aborts exactly once.
 	jogDir []int
 
+	// parked: the last motion this module commanded was a completed park
+	// (D34). Anything that moves the head again, or takes the machine off,
+	// clears it.
+	parked bool
+
+	// nearAt: the station the head was last lifted to the NEAR_HEIGHT of
+	// (D37), 0 for none. Only believed with the head still at that height
+	// (travelZ); a jog, a homing or the machine going off forget it, since
+	// the head may have been moved by hand meanwhile.
+	nearAt uint32
+
+	// lowAt/lowPos: a stay-near place on a LOW_MOVE_MAX tray left the head
+	// down at its stroke height there (D38). Only believed while the
+	// commanded position is still exactly lowPos.
+	lowAt  uint32
+	lowPos motctl.Pose
+
 	// cmdPos is the position the module has commanded so far, tracked so a
 	// route's segments can be dispatched back to back without waiting for status
 	// (see seedCmdPos). motionDispatched says whether anything has been commanded
@@ -263,6 +283,10 @@ type control struct {
 	// close request (the judgement re-arms until the gripper answers).
 	manualGrip       []int
 	manualGripWarned []bool
+
+	// autoLast is auto-enable as step last saw it, for the release of opened
+	// reservations when automatic starts (releaseOpenRetained).
+	autoLast bool
 }
 
 func newControl(m *pnptaskModule) *control {
@@ -487,6 +511,8 @@ func (c *control) sample() {
 	c.in.estop = p.estopOn.Get()
 	c.in.machineOn = p.machineOn.Get()
 	c.in.autoEnable = p.autoEnable.Get()
+	c.in.waitAbort = p.waitAbort.Get()
+	c.in.park = p.park.Get()
 	c.in.home = p.home.Get()
 	c.in.errorReset = p.errorReset.Get()
 	// start-job is read BEFORE the parameters it carries, and that order matters:
@@ -497,6 +523,7 @@ func (c *control) sample() {
 	// parameter reads that follow it, so the job is never latched with the
 	// parameters of the previous one.
 	c.in.startJob = p.startJob.Get()
+	c.in.stayNear = p.stayNear.Get()
 	c.in.processStep = p.processStep.Get()
 	c.in.originID = p.originID.Get()
 	c.in.destID = p.destID.Get()
@@ -558,6 +585,8 @@ func (c *control) sample() {
 	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn && !c.in.estop)
 	c.rise.home = c.rise.home ||
 		(c.in.home && !c.prev.home && !c.in.estop && !c.m.pins.busy.Get())
+	c.rise.park = c.rise.park ||
+		(c.in.park && !c.prev.park && !c.in.estop && !c.m.pins.busy.Get())
 	c.rise.errorReset = c.rise.errorReset ||
 		(c.in.errorReset && !c.prev.errorReset && c.m.pins.errorFlag.Get())
 	manualOK := !c.in.estop && !c.in.autoEnable
@@ -649,6 +678,7 @@ func (c *control) sample() {
 func (c *control) primeEdges() {
 	p := c.m.pins
 	c.in.home = p.home.Get()
+	c.in.park = p.park.Get()
 	c.in.errorReset = p.errorReset.Get()
 	for i := range p.pickers {
 		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
@@ -707,6 +737,11 @@ func (c *control) step() {
 		}
 	}
 
+	if c.in.autoEnable && !c.autoLast {
+		c.releaseOpenRetained()
+	}
+	c.autoLast = c.in.autoEnable
+
 	if c.in.autoEnable {
 		// Auto mode: the manual controls are inert, and a jog left running by
 		// the mode switch must not stay running (§6.4). Presses made IN auto
@@ -718,6 +753,9 @@ func (c *control) step() {
 		for i := range c.rise.pickerOpen {
 			c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 		}
+		if take(&c.rise.park) {
+			c.runParkRequest()
+		}
 		if c.jobRequest() {
 			// The job runs to completion inside this call, ticking this same
 			// loop: that is what makes an estop end it wherever it is (§6.5).
@@ -727,6 +765,9 @@ func (c *control) step() {
 	}
 	c.manualPickers()
 	c.jog()
+	if take(&c.rise.park) {
+		c.raise(faultf(errAutoDisabled, "park while auto-enable is low"))
+	}
 	if c.jobRequest() {
 		// §6.4: in manual mode a job request is refused, latched like any other
 		// error, and the handshake is completed so the PLC is not left waiting —
@@ -748,6 +789,7 @@ func (c *control) updateMachine() error {
 		// cycled. A level that is still high from before the estop is not a
 		// request to start moving again — the operator has to ask.
 		c.estopped = false
+		c.leaveEstop()
 		c.m.logger.Info("pnptask: estop cleared, machine-on must be cycled to enable")
 	}
 
@@ -789,6 +831,10 @@ func (c *control) enterEstop() {
 	// is valid in estop, and its gate (a fault was latched) still held.
 	c.rise.machineOn = false
 	c.rise.home = false
+	c.rise.park = false
+	c.parked = false
+	c.nearAt = 0
+	c.lowAt = 0
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -796,15 +842,21 @@ func (c *control) enterEstop() {
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
 	c.m.pins.machineIsOn.Set(false)
-	// D14: estop is the one event that drops held material. Everywhere else
-	// the close outputs keep their state so a part stays gripped.
-	for i := range c.m.pins.pickers {
-		c.m.pins.pickers[i].close.Set(false)
-	}
 	// The fixture release requests go low with it: a request an aborted action
 	// left standing would hold a station's clamp open indefinitely (D19).
 	for i := range c.m.pins.procs {
 		c.m.pins.procs[i].release.Set(false)
+	}
+	if c.m.cfg.EstopKeepsGrip {
+		// D39: the close outputs and the held records stand; the grip is
+		// checked against the feedback when the estop clears (leaveEstop).
+		c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers kept")
+		return
+	}
+	// D14: estop is the one event that drops held material. Everywhere else
+	// the close outputs keep their state so a part stays gripped.
+	for i := range c.m.pins.pickers {
+		c.m.pins.pickers[i].close.Set(false)
 	}
 	// The close outputs just went low, so whatever was gripped is on the table:
 	// the held-material records (D20) describe a world that no longer exists and
@@ -814,6 +866,29 @@ func (c *control) enterEstop() {
 	// record it judges is gone, so no clearing site owes it a manual zero.
 	c.m.world.clearAllHeld()
 	c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers released")
+}
+
+// leaveEstop schedules the grip check of D39: with ESTOP_KEEPS_GRIP the held
+// records outlived the estop, but the air behind the grippers may not have —
+// a part can have slipped out meanwhile. The check is the one a restored
+// record gets after a restart (verifyRestoredHeld): closed on nothing clears
+// the record with a warning, still opened waits for the gripper, anything
+// else confirms it. After the pick settle time, so the feedback has settled
+// on the returning air.
+func (c *control) leaveEstop() {
+	if !c.m.cfg.EstopKeepsGrip {
+		return
+	}
+	pending := false
+	for n := range c.m.world.held {
+		if c.m.world.held[n].present {
+			c.m.world.restoredHeld[n] = true
+			pending = true
+		}
+	}
+	if pending {
+		c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
+	}
 }
 
 // enable brings the machine up: Enable(), then wait for a published status that
@@ -847,6 +922,9 @@ func (c *control) enable() error {
 // under control instead of being cut loose mid-move. The picker outputs are
 // deliberately untouched (D14).
 func (c *control) disable(reason string) {
+	c.parked = false
+	c.nearAt = 0
+	c.lowAt = 0
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -894,6 +972,10 @@ func (c *control) motionLost() {
 	// clearing; error-reset survives for the same reason it survives there).
 	c.rise.machineOn = false
 	c.rise.home = false
+	c.rise.park = false
+	c.parked = false
+	c.nearAt = 0
+	c.lowAt = 0
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -967,6 +1049,7 @@ func (c *control) publish() {
 	p := c.m.pins
 	p.machineIsOn.Set(c.enabled && !c.estopped)
 	p.homed.Set(c.allHomed())
+	p.parked.Set(c.parked && c.enabled && !c.estopped)
 	// Each tray publishes against its OWN step, not the job request pin: a
 	// sequencer varies the job step from leg to leg, and outputs that followed
 	// it would change meaning in the middle of a cascade.
@@ -1068,6 +1151,9 @@ func (c *control) runHoming() error {
 	if err := c.setMotionMode(motstat.MOTION_FREE); err != nil {
 		return err
 	}
+	c.parked = false
+	c.nearAt = 0
+	c.lowAt = 0
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1198,6 +1284,9 @@ func (c *control) jog() {
 			}
 			return
 		}
+		c.parked = false
+		c.nearAt = 0
+		c.lowAt = 0
 		if err := c.m.mc.JogCont(j.axis.Index, float64(dir)*vel, 1); err != nil {
 			c.raise(faultf(errMotionError, "jogging axis %c: %v", j.axis.Letter, err))
 			return
@@ -1279,16 +1368,38 @@ func (c *control) manualPickers() {
 			// §8: whether that grip restores the retained record depends on what
 			// the gripper feedback says once it has settled, which is a few
 			// cycles from now — see updateManualGrip. A picker with no record
-			// is judged the same way (pre-merge review 2026-09-08): its close
-			// left standing over nothing would make the next job's grip check
-			// read "closed" whatever sits under the head, and a close that
-			// did grip something by hand is a loaded picker the engine must
-			// not count free.
+			// is judged the same way (pre-merge review 2026-09-08): a close
+			// that did grip something by hand is a loaded picker the engine
+			// must not count free.
 			c.m.world.reserveManualClose(i)
 			if c.m.world.held[i].retained {
 				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 				c.manualGripWarned[i] = false
 			}
+		}
+	}
+}
+
+// releaseOpenRetained ends the manual handling of §8.1 for every picker that
+// is open and empty when automatic starts (D44). A retained record is a
+// reservation until a manual close decides where the part went — but an
+// operator who opened a picker, took the part out and switched to automatic
+// has decided: the picker reports opened, its close output is low, there is
+// nothing in it. Waiting for a close nobody is going to press refused every
+// job with NO_FREE_PICKER, and the only way out was a close and an open on
+// each picker by hand. A picker that does not report opened, or whose close
+// is commanded (a manual close still being judged), keeps its reservation.
+func (c *control) releaseOpenRetained() {
+	for i := range c.m.world.held {
+		if !c.m.world.held[i].retained || !c.in.pickerOpened[i] ||
+			c.m.pins.pickers[i].close.Get() {
+			continue
+		}
+		if station, ok := c.m.world.dropRetained(i); ok {
+			c.manualGrip[i] = 0
+			c.manualGripWarned[i] = false
+			c.m.logger.Warn("pnptask: automatic started with a picker opened by hand, its part is taken as removed",
+				"picker", i, "station", station)
 		}
 	}
 }
@@ -1344,14 +1455,13 @@ func (c *control) updateManualGrip() {
 			c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
-				// The close output goes low with the record: leaving the jaws
-				// commanded shut on a picker the engine now counts free would
-				// send the next job's closeAndCheck against an already-closed
-				// gripper — which reads "closed" whatever sits under the head
-				// and falsely empties good slots (the same reconciliation
-				// verifyRestoredHeld does for a vanished restored part).
-				c.m.pins.pickers[i].close.Set(false)
-				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone and the picker reopened",
+				// The close output stays high: the operator closed the picker
+				// and it stays closed. Reopening it here undid every manual
+				// close on an empty gripper behind the operator's back. The
+				// shut jaws on a picker the engine now counts free are the
+				// pick sequence's business — openForPick opens them before
+				// any descent, so closeAndCheck never judges a standing close.
+				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone",
 					"picker", i, "station", station)
 			}
 		default:

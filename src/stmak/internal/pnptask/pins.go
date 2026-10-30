@@ -21,6 +21,9 @@ type pinSet struct {
 	machineOn   *hal.Pin[bool] // in:  request machine enable (level)
 	machineIsOn *hal.Pin[bool] // out: motion enabled and not estopped
 	autoEnable  *hal.Pin[bool] // in:  high = auto mode, low = manual mode
+	waitAbort   *hal.Pin[bool] // in:  level, ends a busy-station wait (D33)
+	park        *hal.Pin[bool] // in:  rising edge, auto mode: go to PARK_X/Y/Z (D34)
+	parked      *hal.Pin[bool] // out: standing at the park position (D34)
 	homed       *hal.Pin[bool] // out: all joints homed
 	// home is the operator's homing request (D25). Without it a machine with
 	// AUTOHOME = 0 could never be homed at all: jobs would refuse with
@@ -40,6 +43,7 @@ type pinSet struct {
 	// so the PLC sees the handshake complete. An external clear mid-job is
 	// ignored (D16).
 	startJob *hal.Pin[bool]
+	stayNear *hal.Pin[bool] // in:  the next job starts where this one ends: end at NEAR_HEIGHT (D37)
 	busy     *hal.Pin[bool]
 
 	// planTime is the slowest route plan of the current (or last) job, in
@@ -224,6 +228,9 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.machineOn = mkPin[bool](b, "machine-on", hal.In)
 	p.machineIsOn = mkPin[bool](b, "machine-is-on", hal.Out)
 	p.autoEnable = mkPin[bool](b, "auto-enable", hal.In)
+	p.waitAbort = mkPin[bool](b, "wait-abort", hal.In)
+	p.park = mkPin[bool](b, "park", hal.In)
+	p.parked = mkPin[bool](b, "parked", hal.Out)
 	p.homed = mkPin[bool](b, "homed", hal.Out)
 	p.home = mkPin[bool](b, "home", hal.In)
 
@@ -242,6 +249,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.destID = mkPin[uint32](b, "dest-id", hal.In)
 	p.deadzoneSelect = mkPin[uint32](b, "deadzone-select", hal.In)
 	p.startJob = mkPin[bool](b, "start-job", hal.IO)
+	p.stayNear = mkPin[bool](b, "stay-near", hal.In)
 	p.busy = mkPin[bool](b, "busy", hal.Out)
 	p.planTime = mkPin[float64](b, "plan-time", hal.Out)
 	p.waitStops = mkPin[uint32](b, "wait-stops", hal.Out)

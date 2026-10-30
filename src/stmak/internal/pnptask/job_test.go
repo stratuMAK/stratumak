@@ -43,6 +43,8 @@ type machineSim struct {
 	releaseRises []int
 	// releasedAt is when each station's released feedback last went high.
 	releasedAt []time.Time
+	// closedAt is when each picker's close command was last seen rising.
+	closedAt []time.Time
 
 	// missesLeft makes the next N close commands report "closed onto nothing",
 	// which is how an empty tray slot presents itself (§5.2).
@@ -53,6 +55,10 @@ type machineSim struct {
 	jammedClosed bool
 	// fixtureStuck: released never follows release.
 	fixtureStuck bool
+
+	// pending runs at the start of the next cycle, on the control goroutine
+	// (see inLoop).
+	pending []func()
 }
 
 // newMachineSim builds the sim and hooks it into the control loop. It has to
@@ -68,6 +74,7 @@ func newMachineSim(m *pnptaskModule, prep func(*machineSim)) *machineSim {
 		lastRelease:  make([]bool, len(m.pins.procs)),
 		releaseRises: make([]int, len(m.pins.procs)),
 		releasedAt:   make([]time.Time, len(m.pins.procs)),
+		closedAt:     make([]time.Time, n),
 	}
 	if prep != nil {
 		prep(s)
@@ -87,6 +94,10 @@ const pickSettleBudget = 50 * time.Millisecond
 func (s *machineSim) step() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, fn := range s.pending {
+		fn()
+	}
+	s.pending = nil
 	p := s.m.pins
 	for i := range p.pickers {
 		pk := &p.pickers[i]
@@ -94,6 +105,7 @@ func (s *machineSim) step() {
 		if closing != s.lastClose[i] {
 			s.lastClose[i] = closing
 			if closing {
+				s.closedAt[i] = time.Now()
 				// Decide once per close command whether this position holds
 				// anything: a gripper that finds nothing runs to fully closed.
 				s.gripMiss[i] = s.missesLeft > 0
@@ -144,6 +156,14 @@ func (s *machineSim) releasedSince(i int) time.Time {
 	return s.releasedAt[i]
 }
 
+// closedSince is when picker pk's close command was last seen rising; the
+// zero time if it never has.
+func (s *machineSim) closedSince(pk int) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closedAt[pk]
+}
+
 func (s *machineSim) resetReleaseRises() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,6 +176,23 @@ func (s *machineSim) set(f func(*machineSim)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f(s)
+}
+
+// inLoop runs fn on the control goroutine, at the start of the next cycle
+// before the inputs are sampled, and returns once it has run. The world model
+// belongs to that goroutine (see machineFixture.stopped): a test that has to
+// change it while the loop runs does it here, not from its own goroutine.
+func (s *machineSim) inLoop(t *testing.T, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.pending = append(s.pending, func() { fn(); close(done) })
+	s.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("inLoop: the control loop never ran the change")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +460,71 @@ func TestJobProcToTray(t *testing.T) {
 	f.consistently("avail ignores the job step", func() bool { return f.bit("tray.10.avail") })
 }
 
+// TestJobPlaceOffset: Z_PLACE_OFFSET lifts the place stroke and nothing else
+// (D31). The pick at either kind of station keeps Z_PICK + z-offset, the place
+// stops the offset above it, on top of the live z-offset pin.
+func TestJobPlaceOffset(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		// The world copies its station configs at load, so the offsets go
+		// there rather than through tweak.
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.trays[0].cfg.ZPlaceOffset = 1.5
+			m.world.procs[0].cfg.ZPlaceOffset = 2.0
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.proc().zOffset.Set(0.25)
+
+	// tray -> proc: pick at the tray's own height, place 2 mm above the
+	// station's (5.0 + 0.25).
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc")
+	moves := f.mot.moveList()
+	if zs := zAtXY(moves, 120, 430); len(zs) < 2 || zs[len(zs)-2] != 2.5 {
+		t.Errorf("tray pick Z sequence = %v, want ... 2.5 then the move height", zs)
+	}
+	if zs := zAtXY(moves, 300, 200); len(zs) < 2 || zs[len(zs)-2] != 7.25 {
+		t.Errorf("proc place Z sequence = %v, want ... 7.25 then the move height", zs)
+	}
+
+	// proc -> tray: pick at the station's height, place 1.5 mm above the
+	// tray's -- into the slot the first job emptied.
+	f.runJob(20, 10, 1)
+	f.requireOK("proc -> tray")
+	moves = f.mot.moveList()
+	if zs := zAtXY(moves, 300, 200); len(zs) < 2 || zs[len(zs)-2] != 5.25 {
+		t.Errorf("proc pick Z sequence = %v, want ... 5.25 then the move height", zs)
+	}
+	if zs := zAtXY(moves, 120, 430); len(zs) < 2 || zs[len(zs)-2] != 4.0 {
+		t.Errorf("tray place Z sequence = %v, want ... 4 then the move height", zs)
+	}
+}
+
+// TestJobStartsJustOutsideALimit: homing to the drive origin can leave the
+// head a few hundredths outside an axis limit that sits at home. The route's
+// first waypoint is where the head stands; checked as a target, it refused
+// every job from there with MOTION_ERROR (on the machine, 2026-10-28). The
+// move away from it is a move back inside and runs.
+func TestJobStartsJustOutsideALimit(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{})
+	// The limits are pushed at start; the machine parks at Y 100, 0.05 below
+	// this minimum.  Set before the first job reads them.
+	f.m.limits.AxisMinPos[1] = 100.05
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a job starting 0.05 mm outside the Y limit")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds nothing after the place")
+	}
+}
+
 // TestJobUsesTheHoldingPicker pins D20 on the single-picker engine: the place is
 // performed by the picker the world says holds the job's material, with that
 // picker's offsets — not by picker 0 by construction. Picker 1 is the only free
@@ -485,7 +587,12 @@ func TestJobMoveLimits(t *testing.T) {
 
 	prev := toMotctlPose(start)
 	var sawTravel, sawZ, sawDiagonal bool
-	for _, m := range f.mot.moveList() {
+	// The travel move just before the current one: the last segment of a leg
+	// has to end in an exact stop, or the planner runs it at half MOVE_ACC.
+	var lastTravel *moveCall
+	moves := f.mot.moveList()
+	for k := range moves {
+		m := &moves[k]
 		d := [3]float64{
 			math.Abs(m.pos.X - prev.X),
 			math.Abs(m.pos.Y - prev.Y),
@@ -500,12 +607,21 @@ func TestJobMoveLimits(t *testing.T) {
 
 		velCeil, accCeil := moveVel, moveAcc
 		what := "travel"
-		switch m.termCond {
-		case tpTermCondParabolic:
-			sawTravel = true
-		case tpTermCondStop:
+		// A Z stroke moves Z alone and stops exactly. A Z-only move under the
+		// blend is the travel height being corrected at the start of a leg.
+		isZ := d[0] == 0 && d[1] == 0 && m.termCond == tpTermCondStop
+		switch {
+		case isZ:
 			sawZ = true
 			velCeil, accCeil, what = zVel, zAcc, "Z stroke"
+			if lastTravel != nil && lastTravel.termCond != tpTermCondStop {
+				t.Errorf("the leg's last segment to %+v ends parabolic (%d), want an exact stop: the planner would halve its acceleration",
+					lastTravel.pos, lastTravel.termCond)
+			}
+			lastTravel = nil
+		case m.termCond == tpTermCondParabolic || m.termCond == tpTermCondStop:
+			sawTravel = true
+			lastTravel = m
 		default:
 			t.Errorf("move dispatched under termination condition %d", m.termCond)
 			continue
@@ -535,7 +651,7 @@ func TestJobMoveLimits(t *testing.T) {
 		// ceiling on the path: both axes cap at 500, so any diagonal has a path
 		// speed above it. Under the old path-feed reading this was the value
 		// that got clamped, and X gave up speed at every corner.
-		if m.termCond == tpTermCondParabolic && d[0] > 0 && d[1] > 0 {
+		if !isZ && d[0] > 0 && d[1] > 0 {
 			sawDiagonal = true
 			if m.vel <= moveVel {
 				t.Errorf("diagonal travel to %+v commanded at path vel %g, want more than MOVE_VEL = %g",
@@ -1399,6 +1515,85 @@ func TestJobWaitZoneAbortedByAutoEnable(t *testing.T) {
 	}
 }
 
+// TestJobBusyWaitAbortedByWaitAbort: wait-abort ends a wait at a taught wait
+// position the way auto-enable going low does (D33) -- WAIT_ABORTED, the
+// picker keeps its material -- but the machine stays in auto mode, so the
+// next job is taken at once.
+func TestJobBusyWaitAbortedByWaitAbort(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.setBit(f.proc().busy, true)
+
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.startJob.Set(true)
+	f.eventually("arrival at the wait position", func() bool {
+		return len(zAtXY(f.mot.moveList(), 250, 150)) > 0
+	})
+
+	f.setBit(f.m.pins.waitAbort, true)
+	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireError("wait-abort during the wait", errWaitAborted)
+	f.setBit(f.m.pins.waitAbort, false)
+
+	if !f.bit("picker.0.close") {
+		t.Error("the picker released its material when the wait was aborted")
+	}
+	if f.bit("proc.20.has-material") {
+		t.Error("the station reports material although the place never happened")
+	}
+
+	// Still in auto mode: after the reset the material goes on, its pick
+	// skipped, to the station that has cleared meanwhile.
+	f.clearError()
+	f.setBit(f.proc().busy, false)
+	f.runJob(10, 20, 0)
+	f.requireOK("the job after the abort")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the held material was not placed by the next job")
+	}
+}
+
+// TestJobWaitAbortIgnoredWithoutAWait: wait-abort only ends a wait. A job
+// that never has to wait runs to its end with the pin high.
+func TestJobWaitAbortIgnoredWithoutAWait(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.setBit(f.m.pins.waitAbort, true)
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a job with wait-abort high and nothing to wait for")
+	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds nothing after the place")
+	}
+}
+
+// TestJobWaitZoneAbortedByWaitAbort: the streamed approach (D29) ends the leg
+// in flight on wait-abort too, without going near the station.
+func TestJobWaitZoneAbortedByWaitAbort(t *testing.T) {
+	f := newWaitZoneFixture(t)
+	f.mot.setMoveCycles(40)
+	startCamPick(f)
+
+	f.eventually("the first leg to be dispatched", func() bool {
+		return atWaitZone(f.mot.moveList())
+	})
+	f.setBit(f.m.pins.waitAbort, true)
+	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireError("wait-abort during the streamed wait", errWaitAborted)
+
+	if len(zAtXY(f.mot.moveList(), procCamX, procCamY)) > 0 {
+		t.Error("the head drove into the station after the wait was aborted")
+	}
+	if !f.mot.called("Abort") {
+		t.Error("the leg in flight was not aborted when the wait was")
+	}
+}
+
 // waitZoneEdgeSections is waitZoneSections with the station 5 mm inside the
 // zone's drawn edge (x = 450): inside for the picker at no offset, and carried
 // out of even the clearance-grown zone (x = 440) by a 40 mm x-offset.
@@ -1596,14 +1791,11 @@ func TestPickFromProcReleaseFailureKeepsWorldTruthful(t *testing.T) {
 	}
 }
 
-// TestRemoveFromProcSettlesBeforeLift: a fixture's jaws keep moving after its
-// released contact makes, so the lift out of it waits RELEASE_SETTLE first.
-// Without the dwell the retract starts into a chuck that is open on the wire
-// and not yet clear of the part, and drags the part up through it.
-//
-// The place paths have waited here since they were written (release-time, after
-// the gripper opens); the removal never did.
-func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
+// TestRemoveFromProcReleasesBeforeGrip pins D36's pick: the fixture lets go
+// first and the picker closes after RELEASE_SETTLE, on a free part. A picker
+// closing on a part the fixture still clamps forces any position mismatch
+// through the portal.
+func TestRemoveFromProcReleasesBeforeGrip(t *testing.T) {
 	f := newJobFixtureOpts(t, fixtureOpts{
 		prep: func(_ *testing.T, m *pnptaskModule) {
 			m.pins.trays[0].trayID.Set(1)
@@ -1612,7 +1804,7 @@ func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
 	})
 	f.homed()
 	f.mot.setPos(100, 100, 60)
-	// A wide dwell, so the lift cannot slip through it unnoticed.
+	// A wide dwell, so a close cannot slip through it unnoticed.
 	f.proc().releaseSettle.Set(100 * pollInterval.Seconds())
 
 	// Started by hand rather than with runJob, which waits the job out: what
@@ -1624,31 +1816,55 @@ func TestRemoveFromProcSettlesBeforeLift(t *testing.T) {
 	f.m.pins.processStep.Set(0)
 	f.m.pins.startJob.Set(true)
 
-	// has-material drops the moment the fixture confirms it released, which is
-	// where the dwell begins.
-	f.eventually("the fixture confirmed it released", func() bool {
-		return !f.bit("proc.20.has-material")
-	})
-	moves := len(f.mot.moveList())
-
-	// And it is a dwell, not a deadlock: the lift out of the station follows,
-	// and the job runs on to the tray.
-	f.eventually("the lift follows the dwell", func() bool {
-		return len(f.mot.moveList()) > moves
-	})
+	// And it is a dwell, not a deadlock: the grip follows, and the job runs on
+	// to the tray.
+	f.eventually("the picker closes after the settle", func() bool { return f.bit("picker.0.close") })
 	f.eventually("the job finishes", func() bool { return !f.bit("busy") })
-	f.requireOK("a removal that waited for the fixture")
+	f.requireOK("a removal that let go first")
+	if f.bit("proc.20.has-material") || f.bit("proc.20.release") {
+		t.Errorf("after the removal has-material=%v release=%v, want both low",
+			f.bit("proc.20.has-material"), f.bit("proc.20.release"))
+	}
 
 	// The dwell is wall-clock time, so it is measured in wall-clock time: from
-	// the released feedback the module saw to the lift it issued. A stall
+	// the released feedback the module saw to the close it commanded. A stall
 	// anywhere can only lengthen that span; without the dwell it is a cycle
-	// or two, far short of the settle.
+	// or two, far short of the settle, and a close before the release comes
+	// out negative.
 	settle := time.Duration(100 * float64(pollInterval))
-	lift := f.mot.moveList()[moves].at
-	if waited := lift.Sub(f.sim.releasedSince(0)); waited < settle {
-		t.Errorf("the lift left %v after the fixture released, want at least RELEASE_SETTLE %v",
+	if waited := f.sim.closedSince(0).Sub(f.sim.releasedSince(0)); waited < settle {
+		t.Errorf("the picker closed %v after the fixture released, want at least RELEASE_SETTLE %v",
 			waited, settle)
 	}
+}
+
+// TestPlaceToProcClampsBeforeLift pins D36's place: the fixture clamps the
+// part before the picker lifts away from it -- a part left loose in an open
+// fixture tips over as the picker leaves.
+func TestPlaceToProcClampsBeforeLift(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	// A wide release-time dwell, so the order is visible.
+	f.m.pins.releaseTime.Set(30 * pollInterval.Seconds())
+
+	f.m.pins.startJob.Set(false)
+	f.sampled()
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+
+	f.eventually("the part is placed", func() bool { return f.bit("proc.20.has-material") })
+	// The fixture is slow to report itself clamped: the lift has to wait for it.
+	f.sim.set(func(s *machineSim) { s.fixtureStuck = true })
+	moves := len(f.mot.moveList())
+	f.eventually("the fixture is told to clamp", func() bool { return !f.bit("proc.20.release") })
+	f.consistently("no lift until it has", func() bool { return len(f.mot.moveList()) == moves })
+	f.sim.set(func(s *machineSim) { s.fixtureStuck = false })
+	f.eventually("clamped: then the lift", func() bool { return len(f.mot.moveList()) > moves })
+	f.eventually("the job finishes", func() bool { return !f.bit("busy") })
+	f.requireOK("a place that clamped first")
 }
 
 // TestEstopDuringPlaceDwellKeepsRecords: the records commit the moment "opened"

@@ -1,0 +1,247 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package pnptask
+
+import (
+	"strings"
+	"testing"
+)
+
+// NEAR_HEIGHT (D37): a station's travel height while the head stays at it --
+// between the remover and the placer of a swap, between tray slots, and from
+// one job into the next when stay-near says the next one starts here.
+
+func TestLoadConfigNearHeight(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	if cfg.Trays[0].HasNear || cfg.Procs[0].HasNear {
+		t.Error("a NEAR_HEIGHT without the key")
+	}
+	with := func(tray, proc string) string {
+		s := strings.Replace(stationSections, "Z_PICK = 2.5\n", "Z_PICK = 2.5\n"+tray, 1)
+		s = strings.Replace(s, "Z_PICK = 5.0\n", "Z_PICK = 5.0\n"+proc, 1)
+		return trajSection + pnptaskSection + s
+	}
+	cfg = mustLoad(t, with("NEAR_HEIGHT = 10\n", "NEAR_HEIGHT = 12\n"))
+	if !cfg.Trays[0].HasNear || cfg.Trays[0].NearHeight != 10 || !cfg.Procs[0].HasNear || cfg.Procs[0].NearHeight != 12 {
+		t.Errorf("NEAR_HEIGHT = %+v / %+v, want 10 / 12", cfg.Trays[0], cfg.Procs[0])
+	}
+	for _, tc := range []struct{ tray, what string }{
+		{"NEAR_HEIGHT = 2.5\n", "at the pick height"},
+		{"NEAR_HEIGHT = 1\n", "below the pick height"},
+		{"NEAR_HEIGHT = 40\n", "above MOVE_HEIGHT"},
+	} {
+		if _, err := loadTestConfig(t, with(tc.tray, ""), "pnp.task"); err == nil || !strings.Contains(err.Error(), "NEAR_HEIGHT") {
+			t.Errorf("NEAR_HEIGHT %s: err = %v, want a refusal", tc.what, err)
+		}
+	}
+}
+
+// TestNearHeightSwap: the remover comes up to the station's NEAR_HEIGHT and
+// the placer travels in at it -- no trip to the movement height for the
+// sideways shift between the two pickers.
+func TestNearHeightSwap(t *testing.T) {
+	f := newAltFixture(t, func(w *world) {
+		w.procs[0].setHasMaterial(true)
+		w.procs[0].cfg.NearHeight, w.procs[0].cfg.HasNear = 12, true
+	})
+	f.m.pins.pickers[1].xOffset.Set(40)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+
+	f.runJob(10, 20, 0)
+	f.requireOK("a swap at a station with NEAR_HEIGHT")
+
+	moves := f.mot.moveList()
+	removed, placed := -1, -1
+	for i, m := range moves {
+		if m.pos.Z == 5 && m.pos.X == 260 && m.pos.Y == 200 && removed < 0 {
+			removed = i // the remover (picker 1, offset 40) down in the station
+		}
+		if m.pos.Z == 5 && m.pos.X == 300 && m.pos.Y == 200 {
+			placed = i // the placer (picker 0) down in the station
+		}
+	}
+	if removed < 0 || placed < removed {
+		t.Fatalf("no remover stroke before the placer stroke: %+v", moves)
+	}
+	for _, m := range moves[removed+1 : placed] {
+		if m.pos.Z != 12 && m.pos.Z != 5 {
+			t.Errorf("between the remover and the placer a move at Z %g, want only NEAR_HEIGHT 12: %+v", m.pos.Z, m)
+		}
+	}
+}
+
+// startJob starts one job and waits for it, with stay-near as given.
+func (f *jobFixture) runJobNear(origin, dest, step uint32, stay bool) {
+	f.t.Helper()
+	f.m.pins.stayNear.Set(stay)
+	f.runJob(origin, dest, step)
+	f.sampled() // the level has been seen before it is withdrawn
+	f.m.pins.stayNear.Set(false)
+}
+
+// TestNearHeightAcrossJobs: a job told stay-near ends at its destination's
+// NEAR_HEIGHT, and the next job, starting there, travels to its pick at it.
+// Leaving the station it goes up to the movement height as always.
+func TestNearHeightAcrossJobs(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			m.world.trays[0].cfg.NearHeight, m.world.trays[0].cfg.HasNear = 10, true
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+
+	f.runJobNear(20, 10, 7, true) // the part back to the tray; the next job starts there
+	f.requireOK("proc -> tray with stay-near")
+	moves := f.mot.moveList()
+	if z := moves[len(moves)-1].pos.Z; z != 10 {
+		t.Fatalf("the job ended at Z %g, want the tray's NEAR_HEIGHT 10", z)
+	}
+
+	f.runJobNear(10, 20, 7, false) // and the next one picks from the tray
+	f.requireOK("tray -> proc after a stay-near")
+	moves = f.mot.moveList()
+	pick := -1
+	for i, m := range moves {
+		if m.pos.Z == 2.5 {
+			pick = i
+			break
+		}
+	}
+	if pick < 0 {
+		t.Fatalf("no pick stroke at the tray: %+v", moves)
+	}
+	for _, m := range moves[:pick] {
+		if m.pos.Z != 10 {
+			t.Errorf("before the pick a move at Z %g, want only the tray's NEAR_HEIGHT 10: %+v", m.pos.Z, m)
+		}
+	}
+	if zs := zAtXY(moves, 300, 200); len(zs) == 0 || zs[0] != 15 {
+		t.Errorf("arrival at the station at Z %v, want the movement height 15 first", zs)
+	}
+}
+
+// TestNearHeightWithoutStay: without stay-near a job ends at the movement
+// height, NEAR_HEIGHT or not -- the head is not left low where something may
+// move under it (a tray lifted into it).
+func TestNearHeightWithoutStay(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			m.world.trays[0].cfg.NearHeight, m.world.trays[0].cfg.HasNear = 10, true
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+
+	f.runJobNear(20, 10, 7, false)
+	f.requireOK("proc -> tray without stay-near")
+	moves := f.mot.moveList()
+	if z := moves[len(moves)-1].pos.Z; z != 30 {
+		t.Errorf("the job ended at Z %g, want the movement height 30", z)
+	}
+}
+
+// lowFixture: tray 10 with NEAR_HEIGHT 10 and LOW_MOVE_MAX as given, a part
+// in station 20 to bring back to it.
+func lowFixture(t *testing.T, lowMax float64) *jobFixture {
+	t.Helper()
+	f := newJobFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			c := &m.world.trays[0].cfg
+			c.NearHeight, c.HasNear, c.LowMoveMax = 10, true, lowMax
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	return f
+}
+
+// TestLowMove: a stay-near place on a LOW_MOVE_MAX tray leaves the head down
+// at the place height, and the next job's pick within the window starts from
+// there -- no lift, no travel at height (D38).
+func TestLowMove(t *testing.T) {
+	f := lowFixture(t, 1.5)
+	f.runJobNear(20, 10, 7, true) // placed into slot 0, (120, 430)
+	f.requireOK("proc -> tray with stay-near")
+	moves := f.mot.moveList()
+	if last := moves[len(moves)-1].pos; last.Z != 2.5 {
+		t.Fatalf("the job ended at Z %g, want down at the place height 2.5", last.Z)
+	}
+
+	f.runJobNear(10, 20, 7, false) // the same part picked again: 0 mm away
+	f.requireOK("tray -> proc from down at the tray")
+	moves = f.mot.moveList()
+	if len(moves) == 0 || moves[0].pos.Z != 15 || moves[0].pos.X != 120 || moves[0].pos.Y != 430 {
+		t.Errorf("first move %+v, want the lift out of the slot after the pick (120, 430, 15): no lift before it", moves[0])
+	}
+}
+
+// TestLowMoveOutsideTheWindow: a target further than LOW_MOVE_MAX lifts to
+// the tray's NEAR_HEIGHT and travels as before.
+func TestLowMoveOutsideTheWindow(t *testing.T) {
+	f := lowFixture(t, 1.5)
+	f.m.pins.trays[0].step.Set(0)
+	f.runJobNear(20, 10, 7, true)
+	f.requireOK("proc -> tray with stay-near")
+	// A step-0 part to pick, one slot (10 mm) along: outside the window.
+	f.sim.inLoop(t, func() { f.m.world.trays[0].slots[1] = 0 })
+
+	f.runJobNear(10, 20, 0, false)
+	f.requireOK("tray -> proc, the target 10 mm away")
+	moves := f.mot.moveList()
+	if len(moves) == 0 || moves[0].pos.Z != 10 {
+		t.Errorf("first move %+v, want the lift to NEAR_HEIGHT 10", moves[0])
+	}
+}
+
+// TestLowMoveLiftsBeforeOpeningAClosedPicker (D38): the head is left down in
+// the tray after a stay-near place, and the next job finds the other picker
+// commanded closed. Its jaws may not open down there next to the parts: the
+// head goes up to the tray's NEAR_HEIGHT first, and only then is the picker
+// opened and the pick made.
+func TestLowMoveLiftsBeforeOpeningAClosedPicker(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.world.procs[0].setHasMaterial(true)
+			c := &m.world.trays[0].cfg
+			c.NearHeight, c.HasNear, c.LowMoveMax = 10, true, 1.5
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	f.runJobNear(20, 10, 7, true) // the head stays down at the place
+	f.requireOK("proc -> tray with stay-near")
+	moves := f.mot.moveList()
+	low := moves[len(moves)-1].pos
+	if low.Z != 2.5 {
+		t.Fatalf("the job ended at Z %g, want the head left at the stroke height 2.5", low.Z)
+	}
+
+	// The other picker is closed by hand on nothing and stays so (§8).
+	f.m.pins.pickers[1].close.Set(true)
+	f.sampled()
+
+	f.mot.resetCalls()
+	f.runJobNear(10, 20, 7, false) // the same part again, 0 mm away: a low move, were the pickers open
+	f.requireOK("tray -> proc after a low place")
+	moves = f.mot.moveList()
+	if len(moves) == 0 || moves[0].pos.Z != 10 || moves[0].pos.X != low.X || moves[0].pos.Y != low.Y {
+		t.Fatalf("first move %+v, want the lift to NEAR_HEIGHT 10 where the head stood (%g, %g) before anything else", moves[0].pos, low.X, low.Y)
+	}
+	if f.bit("picker.1.close") {
+		t.Error("the closed picker was not opened")
+	}
+}

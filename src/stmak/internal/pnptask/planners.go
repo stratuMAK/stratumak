@@ -49,7 +49,7 @@ func newPlanners(cfg *Config) (*plannerSet, error) {
 			return nil, fmt.Errorf("dead-zone file %d (%s): %w", i, path, err)
 		}
 		scaleScene(scene, machineToMMFactor(cfg.LinearUnits))
-		pl, err := pnproute.NewPlanner(scene, cfg.Clearance)
+		pl, err := pnproute.NewPlanner(scene, cfg.Clearance, pnproute.WithCornerRadius(cfg.CornerRadius))
 		if err != nil {
 			return nil, fmt.Errorf("dead-zone file %d (%s): %w", i, path, err)
 		}
@@ -155,6 +155,19 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 		}
 		return fmt.Errorf("%s: (%.3f, %.3f) is usable in none of the %d dead-zone drawing(s); in %s: %w",
 			what, pt.X, pt.Y, len(s.planners), s.files[0], first)
+	}
+
+	// The park position (D34) is where the head goes to be out of the way,
+	// whatever the machine is doing meanwhile, so it has to be clear in EVERY
+	// drawing, not in one: a park inside a zone that only the other scene
+	// draws is a head standing where something is about to move.
+	if cfg.HasPark {
+		for n, pl := range s.planners {
+			if err := pl.CheckPoint(cfg.Park); err != nil {
+				return fmt.Errorf("[PNPTASK]PARK_X/PARK_Y: (%.3f, %.3f) is not usable in %s: %w",
+					cfg.Park.X, cfg.Park.Y, s.files[n], err)
+			}
+		}
 	}
 
 	for i := range cfg.Procs {

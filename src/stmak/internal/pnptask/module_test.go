@@ -317,6 +317,12 @@ func TestFactoryErrors(t *testing.T) {
 		{name: "three pickers", ini: good, args: []string{"pickers=3"}, want: "must be 1 or 2"},
 		{name: "non-numeric pickers", ini: good, args: []string{"pickers=both"}, want: "must be 1 or 2"},
 		{name: "empty motion instance", ini: good, args: []string{"motion_instance="}, want: "empty instance name"},
+		{
+			// A probing swap needs a free picker next to the placer (D32).
+			name: "probe swap with one picker",
+			ini:  strings.Replace(good, "RELEASE_SETTLE = 0.4\n", "RELEASE_SETTLE = 0.4\nPROBE_SWAP = 1\n", 1),
+			want: "PROBE_SWAP needs pickers=2",
+		},
 		{name: "bad config", ini: trajSection + pnptaskSection, want: "no stations configured"},
 		{
 			// The geometric validation runs at load too, so a station taught

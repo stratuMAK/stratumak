@@ -595,6 +595,14 @@ type station struct {
 
 func (s *station) isTray() bool { return s.tray != nil }
 
+// near is the station's NEAR_HEIGHT (D37), if it has one.
+func (s *station) near() (float64, bool) {
+	if s.isTray() {
+		return s.tray.cfg.NearHeight, s.tray.cfg.HasNear
+	}
+	return s.proc.cfg.NearHeight, s.proc.cfg.HasNear
+}
+
 // heldMaterial is one picker's held-material record (D20). Roles are not fixed:
 // the free picker performs the next pick, the picker holding the job's material
 // performs the place, so "which picker" is a question the engine has to ask
@@ -647,7 +655,8 @@ type world struct {
 	// restored record's grip through it (see world.restore). restoredHeld
 	// marks the records that came from storage — the only ones the one-shot
 	// grip validation (verifyRestoredHeld) may judge, because only they had
-	// their close output re-driven from the record.
+	// their close output re-driven from the record -- and, with
+	// ESTOP_KEEPS_GRIP, the records an estop left standing (D39).
 	held         []heldMaterial
 	heldDirty    bool
 	pickerClose  []*hal.Pin[bool]
@@ -849,9 +858,9 @@ func (w *world) releaseHeld(n int) {
 // for (§8.1, pre-merge review 2026-09-08): what the jaws are closing on is
 // unknown, so the picker is reserved — a retained record with no station —
 // until the grip judgement says whether they found anything. Judged like every
-// other retained record: gripped nothing → dropped and reopened; gripped
-// something → a present record of unknown origin (station 0) that counts the
-// picker occupied until a manual open lets the material go. Only an empty
+// other retained record: gripped nothing → dropped, the picker left closed;
+// gripped something → a present record of unknown origin (station 0) that
+// counts the picker occupied until a manual open lets the material go. Only an empty
 // record is reserved: a present one describes a grip the close does not
 // change, and a retained one is already waiting for the same judgement.
 func (w *world) reserveManualClose(n int) {

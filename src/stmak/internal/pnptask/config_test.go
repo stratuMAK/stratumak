@@ -142,6 +142,35 @@ func mustLoad(t *testing.T, text string) *Config {
 	return cfg
 }
 
+// TestLoadConfigPlaceOffset: Z_PLACE_OFFSET is read per tray and per process
+// station, in machine units like Z_PICK, and defaults to 0 (D31); PROBE_SWAP
+// (D32) is off unless asked for.
+func TestLoadConfigPlaceOffset(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	if cfg.Trays[0].ZPlaceOffset != 0 || cfg.Procs[0].ZPlaceOffset != 0 {
+		t.Errorf("Z_PLACE_OFFSET without the key = %g/%g, want 0/0",
+			cfg.Trays[0].ZPlaceOffset, cfg.Procs[0].ZPlaceOffset)
+	}
+
+	text := strings.Replace(stationSections, "Z_PICK = 2.5\n", "Z_PICK = 2.5\nZ_PLACE_OFFSET = 1.5\n", 1)
+	text = strings.Replace(text, "Z_PICK = 5.0\n", "Z_PICK = 5.0\nZ_PLACE_OFFSET = -0.5\n", 1)
+	cfg = mustLoad(t, trajSection+pnptaskSection+text)
+	if cfg.Procs[0].ProbeSwap {
+		t.Error("PROBE_SWAP is on without the key, want off by default")
+	}
+	cfg = mustLoad(t, trajSection+pnptaskSection+strings.Replace(stationSections,
+		"RELEASE_SETTLE = 0.4\n", "RELEASE_SETTLE = 0.4\nPROBE_SWAP = 1\n", 1))
+	if !cfg.Procs[0].ProbeSwap {
+		t.Error("PROBE_SWAP = 1 did not switch the probing swap on")
+	}
+	cfg = mustLoad(t, trajSection+pnptaskSection+text)
+	if cfg.Trays[0].ZPlaceOffset != 1.5 || cfg.Procs[0].ZPlaceOffset != -0.5 {
+		t.Errorf("Z_PLACE_OFFSET = %g/%g, want 1.5/-0.5",
+			cfg.Trays[0].ZPlaceOffset, cfg.Procs[0].ZPlaceOffset)
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
@@ -343,6 +372,19 @@ func TestBlendToleranceZeroWithoutWaitZone(t *testing.T) {
 	}
 }
 
+// TestCornerRadius: CORNER_RADIUS is optional, 0 (the clearance) by default,
+// and reaches the config as a length.
+func TestCornerRadius(t *testing.T) {
+	setupPaths(t)
+	if cfg := mustLoad(t, trajSection+pnptaskSection+stationSections); cfg.CornerRadius != 0 {
+		t.Errorf("default CORNER_RADIUS = %g, want 0", cfg.CornerRadius)
+	}
+	cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 2.0\nCORNER_RADIUS = 50", 1)+stationSections)
+	if cfg.CornerRadius != 50 {
+		t.Errorf("CORNER_RADIUS = %g, want 50", cfg.CornerRadius)
+	}
+}
+
 // TestLoadConfigDefaultTrayDef checks the optional tray-id seed: present it is
 // the TRAYDEF id it names, absent it is 0, which is what tells the pin builder
 // to leave the selector alone.
@@ -443,6 +485,9 @@ Z_PICK = 2.5
 `)
 	if cfg.AutoHome {
 		t.Error("AUTOHOME defaults on; it must be opt-in")
+	}
+	if cfg.EstopKeepsGrip {
+		t.Error("ESTOP_KEEPS_GRIP defaults on; estop releases the pickers unless asked (D14, D39)")
 	}
 	if cfg.BlendTolerance != 0 || cfg.MoveVel != 0 || cfg.MoveAcc != 0 || cfg.ZVel != 0 || cfg.ZAcc != 0 {
 		t.Errorf("optional limits default non-zero: %+v", cfg)
@@ -711,6 +756,11 @@ func TestLoadConfigErrors(t *testing.T) {
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = -8\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "BLEND_TOLERANCE = -8: must not be negative",
+	}, {
+		name: "negative corner radius",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nCORNER_RADIUS = -5\n" +
+			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
+		want: "CORNER_RADIUS = -5: must not be negative",
 	}, {
 		name: "negative velocity",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nMOVE_VEL = -500\n" +
@@ -1192,5 +1242,17 @@ MOVE_HEIGHT = 20.0
 				t.Errorf("error = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// ESTOP_KEEPS_GRIP (D39) is read as a boolean, and anything else is refused.
+func TestLoadConfigEstopKeepsGrip(t *testing.T) {
+	setupPaths(t)
+	base := trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nDEADZONE_FILE = zones_a.dxf\nESTOP_KEEPS_GRIP = %s\n\n[PNPTASK_TRAY_0]\nID = 10\nZ_PICK = 2.5\n"
+	if cfg := mustLoad(t, strings.ReplaceAll(base, "%s", "1")); !cfg.EstopKeepsGrip {
+		t.Error("ESTOP_KEEPS_GRIP = 1 not taken")
+	}
+	if _, err := loadTestConfig(t, strings.ReplaceAll(base, "%s", "maybe"), "pnp.task"); err == nil {
+		t.Error("ESTOP_KEEPS_GRIP = maybe accepted")
 	}
 }
