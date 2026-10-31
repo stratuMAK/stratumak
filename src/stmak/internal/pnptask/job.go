@@ -156,6 +156,12 @@ func (c *control) runJobHandshake() {
 		c.raise(err)
 	}
 
+	// ... and so is what the job left behind. The job's last action changed
+	// the world inside this cycle's step, after tick had published; without
+	// this the PLC would find busy low next to the pickers, the stations and
+	// the trays as they were before that action, one cycle stale, and would
+	// have to guess how long to wait for the cycle that corrects them.
+	c.publish()
 	c.m.pins.busy.Set(false)
 	c.m.pins.startJob.Set(false)
 }
