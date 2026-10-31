@@ -60,6 +60,17 @@ type Config struct {
 	// teaching noise rather than a wrong config.
 	PosTolerance float64
 
+	// SmoothPaths drives a smooth curve through each leg's route where the TP
+	// model says it is faster ([PNPTASK]PATH_SHAPER = spline, D47/D50); off
+	// (PATH_SHAPER = route, the default) the route's polyline is driven, its
+	// corners blended within BLEND_TOLERANCE.
+	SmoothPaths bool
+
+	// ServoPeriod is the motion controller's period in seconds
+	// ([EMCMOT]SERVO_PERIOD, ns, default 1 ms), for the TP model's minimum
+	// segment duration.
+	ServoPeriod float64
+
 	// MoveVel/MoveAcc are the XY travel limits, ZVel/ZAcc the ones for the
 	// approach/retract strokes. All four are PER-AXIS ceilings, not path feeds:
 	// the coordinated path value is what the blend makes of them, so a diagonal
@@ -358,6 +369,17 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
 	cfg.Clearance = r.lengthReq(sec, "CLEARANCE")
 	cfg.BlendTolerance = r.lengthNonNeg(sec, "BLEND_TOLERANCE", 0)
+	switch v := strings.ToLower(r.str(sec, "PATH_SHAPER")); v {
+	case "", "route":
+	case "spline":
+		cfg.SmoothPaths = true
+	default:
+		return nil, fmt.Errorf("[%s]PATH_SHAPER = %q: expected route or spline", sec, r.str(sec, "PATH_SHAPER"))
+	}
+	cfg.ServoPeriod = r.float("EMCMOT", "SERVO_PERIOD", 1e6) / 1e9
+	if !(cfg.ServoPeriod > 0) {
+		return nil, fmt.Errorf("[EMCMOT]SERVO_PERIOD = %q: must be positive", r.str("EMCMOT", "SERVO_PERIOD"))
+	}
 	// D51: the corner circles are gone. Refused rather than ignored: a
 	// config that still sets it expects wide corners, and the curve shaper
 	// is what gives them now.

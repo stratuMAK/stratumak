@@ -1239,7 +1239,14 @@ Z_PICK = 5.0
 // stations 21 and 22 holding material, the machine at (100, 100).
 func newSceneFixture(t *testing.T) *jobFixture {
 	t.Helper()
+	return newSceneFixtureWith(t, nil)
+}
+
+// newSceneFixtureWith is newSceneFixture with a configuration tweak.
+func newSceneFixtureWith(t *testing.T, tweak func(*Config)) *jobFixture {
+	t.Helper()
 	f := newJobFixtureOpts(t, fixtureOpts{
+		tweak: tweak,
 		ini:   sceneSections,
 		files: map[string]string{zonesA: fixtureOpen, zonesB: fixtureClear},
 		prep: func(_ *testing.T, m *pnptaskModule) {
@@ -1292,7 +1299,17 @@ func inZone(moves []moveCall) bool {
 // and goes once the hold drops, with scene-busy up while it runs and down when
 // the job is over.
 func TestSceneGateHoldsALegThatTouchesTheRegion(t *testing.T) {
-	f := newSceneFixture(t)
+	testSceneGateHolds(t, nil)
+}
+
+// TestSceneGateHoldsASmoothedLeg: the same with PATH_SHAPER = spline, the
+// gate judging the commanded geometry (D45, D47).
+func TestSceneGateHoldsASmoothedLeg(t *testing.T) {
+	testSceneGateHolds(t, func(c *Config) { c.SmoothPaths = true })
+}
+
+func testSceneGateHolds(t *testing.T, tweak func(*Config)) {
+	f := newSceneFixtureWith(t, tweak)
 	f.mot.setMoveCycles(20)
 	f.setBit(f.m.pins.sceneHold, true)
 
@@ -2076,6 +2093,86 @@ func TestTravelPlansInMachineFrame(t *testing.T) {
 				prev.X, prev.Y, cur.X, cur.Y)
 		}
 		prev = cur
+	}
+}
+
+// TestTravelSmoothPath (D47-D50): with PATH_SHAPER = spline a leg around a
+// zone is queued as a tangent chain of arcs and lines at the movement
+// height, clear of the zone, at the arc limits canon would give (min of the
+// axes) with the requested speed as ini_maxvel (D49), and ends in an exact
+// stop on a line (D48's closing line).
+func TestTravelSmoothPath(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		files: map[string]string{zonesA: "zones_between.dxf", zonesB: fixtureClear},
+		tweak: func(c *Config) { c.SmoothPaths = true },
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("a job on smoothed paths")
+
+	moves := f.mot.moveList()
+	arcs := 0
+	prev := pnproute.Point{X: 100, Y: 100}
+	prevZ := 60.0
+	for i, m := range moves {
+		cur := pnproute.Point{X: m.pos.X, Y: m.pos.Y}
+		if !m.arc {
+			if segmentCrossesRect(prev, cur, 100, 250, 135, 350) {
+				t.Errorf("line (%.1f, %.1f) -> (%.1f, %.1f) crosses the dead zone", prev.X, prev.Y, cur.X, cur.Y)
+			}
+			prev, prevZ = cur, m.pos.Z
+			continue
+		}
+		arcs++
+		if m.pos.Z != prevZ || m.center.Z != m.pos.Z || m.normal != (motctl.Cartesian{Z: 1}) {
+			t.Fatalf("arc %d is not a constant-Z XY arc: %+v from Z %.3f", i, m, prevZ)
+		}
+		if m.turn != 0 && m.turn != -1 {
+			t.Fatalf("arc %d has turn %d", i, m.turn)
+		}
+		c := pnproute.Point{X: m.center.X, Y: m.center.Y}
+		r := math.Hypot(prev.X-c.X, prev.Y-c.Y)
+		if math.Abs(math.Hypot(cur.X-c.X, cur.Y-c.Y)-r) > 1e-6*r {
+			t.Fatalf("arc %d does not end on its circle", i)
+		}
+		if m.acc != 2000 || !(m.vel > 0) || m.vel > 500 || m.iniMaxvel > m.vel+1e-9 ||
+			m.iniMaxvel < math.Min(m.vel, math.Sqrt(math.Sqrt(0.75)*2000*r))-1e-9 {
+			t.Errorf("arc %d: vel %g, ini_maxvel %g, acc %g at R %.1f", i, m.vel, m.iniMaxvel, m.acc, r)
+		}
+		if m.termCond != tpTermCondParabolic {
+			t.Errorf("arc %d queued with term cond %d", i, m.termCond)
+		}
+		// The arc itself stays out of the zone, sampled along its sweep.
+		a0 := math.Atan2(prev.Y-c.Y, prev.X-c.X)
+		sweep := math.Atan2(cur.Y-c.Y, cur.X-c.X) - a0
+		if m.turn == 0 && sweep < 0 {
+			sweep += 2 * math.Pi
+		} else if m.turn == -1 && sweep > 0 {
+			sweep -= 2 * math.Pi
+		}
+		q := prev
+		for k := 1; k <= 16; k++ {
+			ang := a0 + sweep*float64(k)/16
+			p := pnproute.Point{X: c.X + r*math.Cos(ang), Y: c.Y + r*math.Sin(ang)}
+			if segmentCrossesRect(q, p, 100, 250, 135, 350) {
+				t.Errorf("arc %d enters the dead zone", i)
+			}
+			q = p
+		}
+		prev = cur
+	}
+	if arcs == 0 {
+		t.Fatal("no arcs: the leg around the zone was not smoothed")
+	}
+	// Every leg ends on a line under an exact stop, never on an arc.
+	for i, m := range moves {
+		if m.arc && m.termCond == tpTermCondStop {
+			t.Errorf("move %d: an arc queued as an exact stop", i)
+		}
 	}
 }
 

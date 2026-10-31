@@ -332,6 +332,26 @@ func TestBlendToleranceZero(t *testing.T) {
 	}
 }
 
+// TestPathShaper: PATH_SHAPER is route by default, spline turns the curve
+// shapers on, anything else is refused; SERVO_PERIOD is read in ns.
+func TestPathShaper(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	if cfg.SmoothPaths || cfg.ServoPeriod != 0.001 {
+		t.Errorf("defaults: smooth %v, servo period %g", cfg.SmoothPaths, cfg.ServoPeriod)
+	}
+	for v, want := range map[string]bool{"route": false, "spline": true, "Spline": true} {
+		cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 2.0\nPATH_SHAPER = "+v, 1)+stationSections)
+		if cfg.SmoothPaths != want {
+			t.Errorf("PATH_SHAPER = %s: smooth %v", v, cfg.SmoothPaths)
+		}
+	}
+	cfg = mustLoad(t, trajSection+"[EMCMOT]\nSERVO_PERIOD = 500000\n"+pnptaskSection+stationSections)
+	if cfg.ServoPeriod != 0.0005 {
+		t.Errorf("SERVO_PERIOD 500000: %g s", cfg.ServoPeriod)
+	}
+}
+
 // TestLoadConfigDefaultTrayDef checks the optional tray-id seed: present it is
 // the TRAYDEF id it names, absent it is 0, which is what tells the pin builder
 // to leave the selector alone.
@@ -703,6 +723,11 @@ func TestLoadConfigErrors(t *testing.T) {
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = -8\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "BLEND_TOLERANCE = -8: must not be negative",
+	}, {
+		name: "unknown path shaper",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nPATH_SHAPER = bezier\n" +
+			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
+		want: `PATH_SHAPER = "bezier": expected route or spline`,
 	}, {
 		// D51: the corner circles are gone, and a config still setting the
 		// radius is refused rather than silently running without it.
