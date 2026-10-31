@@ -81,7 +81,7 @@ func TestCoatCalibration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	n := 0
 	for sc.Scan() {
