@@ -144,6 +144,8 @@ The scenario directories
     softlimit/  a joint pushed past its soft limit with the amps off
     spline/     a smoothed leg in the real TP (PATH_SHAPER = spline,
                 D47-D50), on its own variant of the config
+    zarcs/      lift, travel and descent as one stream (Z_CORNER_RADIUS,
+                D52), on its own variant of the config
 
 A related test lives outside this directory because it needs its own config
 and a realtime instrument rather than the shared simulation:

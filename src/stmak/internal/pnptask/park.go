@@ -73,8 +73,7 @@ func (c *control) runPark() error {
 	if err := c.retract(j.height); err != nil {
 		return err
 	}
-	if err := c.travel(j, 0, pnproute.Point{X: cfg.Park.X + off.X, Y: cfg.Park.Y + off.Y}); err != nil {
-		return err
-	}
-	return c.zStroke(cfg.ParkZ)
+	// Down to PARK_Z as part of the leg (D52), with the global corner radius;
+	// a PARK_Z above the movement height is a stroke of its own after it.
+	return c.travel(j, 0, pnproute.Point{X: cfg.Park.X + off.X, Y: cfg.Park.Y + off.Y}, down(cfg.ParkZ, cfg.ZCornerRadius))
 }

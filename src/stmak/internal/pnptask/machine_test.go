@@ -54,6 +54,10 @@ type fakeMotion struct {
 	held     bool
 	holdWhen func() bool
 
+	// onMove, if set, sees every dispatched move (f.mu held): for the cases
+	// that need the module's state at the moment a move was commanded.
+	onMove func(moveCall)
+
 	// homingGapFrom/homingGapLen script a HOME_SEQUENCE group handover: for
 	// homingGapLen status reads, starting when the countdown reaches
 	// homingGapFrom, no joint reports Homing although the sequence is still
@@ -276,6 +280,9 @@ func (f *fakeMotion) dispatch(mc moveCall) {
 	}
 	mc.at = time.Now()
 	f.moves = append(f.moves, mc)
+	if f.onMove != nil {
+		f.onMove(mc)
+	}
 	f.posCmd = motstat.Pose{X: pos.X, Y: pos.Y, Z: pos.Z}
 	f.posFb = f.posCmd
 	if f.holdWhen != nil && f.holdWhen() {

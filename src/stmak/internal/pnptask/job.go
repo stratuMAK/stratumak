@@ -208,10 +208,33 @@ func (c *control) runJob() error {
 		return err
 	}
 	holder, err := c.runPick(j)
+	if err == nil {
+		err = c.runPlace(j, holder)
+	}
 	if err != nil {
+		c.liftAfterError()
 		return err
 	}
-	return c.runPlace(j, holder)
+	// A job ends with the head up: a lift its last action deferred (D52)
+	// runs now.
+	return c.flushLift()
+}
+
+// liftAfterError runs a lift up() deferred (D52) when a job fails between
+// that lift and the travel it was waiting for: the head would have been up by
+// then before, and is not left down at a station. Not on a machine that is
+// off or in estop -- there is nothing to command, and the record is dropped.
+func (c *control) liftAfterError() {
+	if !c.lift.on {
+		return
+	}
+	if !c.enabled || c.estopped {
+		c.lift = pendingLift{}
+		return
+	}
+	if err := c.flushLift(); err != nil {
+		c.m.logger.Warn("pnptask: the lift after a failed job did not complete", "error", err)
+	}
 }
 
 // latchJob captures the request pins. The values come from this cycle's input

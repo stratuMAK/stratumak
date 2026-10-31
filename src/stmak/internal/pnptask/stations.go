@@ -596,6 +596,14 @@ type station struct {
 func (s *station) isTray() bool { return s.tray != nil }
 
 // near is the station's NEAR_HEIGHT (D37), if it has one.
+// zCornerRadius is the radius of the Z corner arcs at this station (D52).
+func (s *station) zCornerRadius() float64 {
+	if s.isTray() {
+		return s.tray.cfg.ZCornerRadius
+	}
+	return s.proc.cfg.ZCornerRadius
+}
+
 func (s *station) near() (float64, bool) {
 	if s.isTray() {
 		return s.tray.cfg.NearHeight, s.tray.cfg.HasNear

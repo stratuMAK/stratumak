@@ -166,7 +166,10 @@ type chainPiece struct {
 // chord leaves the curve's direction at both ends by less than arcLineKink.
 // With endLine > 0 the chain ends in a straight line of that length in the
 // curve's end direction, the arcs leading into its start (see ArcEndLine).
-func arcChain(sm []sample, pieceLen, endLine float64) []chainPiece {
+// With startLine > 0 it likewise starts with a straight line in the curve's
+// start direction: what a Z corner arc turns into (D52). Either line is left
+// out where the curve is not long enough for it (3× the lines together).
+func arcChain(sm []sample, pieceLen, startLine, endLine float64) []chainPiece {
 	b := curvePieces(sm, pieceLen)
 	dir := func(i int) Point { return Point{math.Cos(sm[i].phi), math.Sin(sm[i].phi)} }
 	n := len(sm) - 1
@@ -188,6 +191,16 @@ func arcChain(sm []sample, pieceLen, endLine float64) []chainPiece {
 		}
 		nodes[len(nodes)-1] = node{lineStart, tEnd, total - endLine}
 		nodes = append(nodes, node{sm[n].p, tEnd, total})
+	}
+	if startLine > 0 && total > 3*(startLine+endLine) {
+		// The first piece starts where the line ends, in the line's
+		// direction.
+		t0 := dir(0)
+		lineEnd := sm[0].p.add(t0.scale(startLine))
+		for len(nodes) > 2 && nodes[1].s < startLine+math.Min(arcMinPiece, pieceLen/2) {
+			nodes = append(nodes[:1], nodes[2:]...)
+		}
+		nodes = append(nodes[:1], append([]node{{lineEnd, t0, startLine}}, nodes[1:]...)...)
 	}
 	var out []chainPiece
 	for k := 0; k+1 < len(nodes); k++ {

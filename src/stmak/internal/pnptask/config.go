@@ -66,6 +66,13 @@ type Config struct {
 	// corners blended within BLEND_TOLERANCE.
 	SmoothPaths bool
 
+	// ZCornerRadius is [PNPTASK]Z_CORNER_RADIUS (D52): the radius of the arcs
+	// that join a Z stroke and the travel, so lift, travel and descent run as
+	// one stream. 0 (the default) keeps them separate moves with a stop
+	// between. A station may set its own (TrayStation/ProcStation
+	// ZCornerRadius, resolved against this at load).
+	ZCornerRadius float64
+
 	// ServoPeriod is the motion controller's period in seconds
 	// ([EMCMOT]SERVO_PERIOD, ns, default 1 ms), for the TP model's minimum
 	// segment duration.
@@ -205,6 +212,10 @@ type TrayStation struct {
 	NearHeight float64
 	HasNear    bool
 
+	// ZCornerRadius is Z_CORNER_RADIUS (D52) for the strokes at this station,
+	// [PNPTASK]Z_CORNER_RADIUS where not given.
+	ZCornerRadius float64
+
 	// LowMoveMax is LOW_MOVE_MAX (D38): the largest XY distance the head is
 	// moved down at the stroke height, without lifting, from one job's place
 	// to the next job's pick on this tray. 0 (the default) is off.
@@ -244,6 +255,9 @@ type ProcStation struct {
 	// NearHeight is NEAR_HEIGHT, as on a tray station (D37).
 	NearHeight float64
 	HasNear    bool
+
+	// ZCornerRadius is Z_CORNER_RADIUS, as on a tray station (D52).
+	ZCornerRadius float64
 
 	// ProbeSwap is PROBE_SWAP (D32): a place here always swaps first, whatever
 	// has-material says, so a part the model does not know about is taken out
@@ -376,6 +390,7 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	default:
 		return nil, fmt.Errorf("[%s]PATH_SHAPER = %q: expected route or spline", sec, r.str(sec, "PATH_SHAPER"))
 	}
+	cfg.ZCornerRadius = r.lengthNonNeg(sec, "Z_CORNER_RADIUS", 0)
 	cfg.ServoPeriod = r.float("EMCMOT", "SERVO_PERIOD", 1e6) / 1e9
 	if !(cfg.ServoPeriod > 0) {
 		return nil, fmt.Errorf("[EMCMOT]SERVO_PERIOD = %q: must be positive", r.str("EMCMOT", "SERVO_PERIOD"))
@@ -711,6 +726,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
 		s.HasNear = r.has(sec, "NEAR_HEIGHT")
 		s.NearHeight = r.length(sec, "NEAR_HEIGHT", 0)
+		s.ZCornerRadius = r.lengthNonNeg(sec, "Z_CORNER_RADIUS", cfg.ZCornerRadius)
 		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
 			return err
 		}
@@ -755,6 +771,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s.ZPlaceOffset = r.length(sec, "Z_PLACE_OFFSET", 0)
 		s.HasNear = r.has(sec, "NEAR_HEIGHT")
 		s.NearHeight = r.length(sec, "NEAR_HEIGHT", 0)
+		s.ZCornerRadius = r.lengthNonNeg(sec, "Z_CORNER_RADIUS", cfg.ZCornerRadius)
 		if err := checkNear(sec, s.HasNear, s.NearHeight, s.ZPick, s.ZPlaceOffset, cfg.MoveHeight); err != nil {
 			return err
 		}

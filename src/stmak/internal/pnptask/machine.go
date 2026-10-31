@@ -246,6 +246,15 @@ type control struct {
 	// the head may have been moved by hand meanwhile.
 	nearAt uint32
 
+	// lift is a lift out of a station that up() deferred (D52), so the next
+	// travel can queue it as one stream with the leg; anything that needs the
+	// machine standing runs it first (flushLift).
+	lift pendingLift
+
+	// queued are the segments the current leg has dispatched, for the
+	// distance left in the TP queue (queueDistance, D52).
+	queued []queuedSeg
+
 	// lowAt/lowPos: a stay-near place on a LOW_MOVE_MAX tray left the head
 	// down at its stroke height there (D38). Only believed while the
 	// commanded position is still exactly lowPos.
@@ -837,6 +846,7 @@ func (c *control) enterEstop() {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.lift = pendingLift{}
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -927,6 +937,7 @@ func (c *control) disable(reason string) {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.lift = pendingLift{}
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -978,6 +989,7 @@ func (c *control) motionLost() {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.lift = pendingLift{}
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -1156,6 +1168,7 @@ func (c *control) runHoming() error {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.lift = pendingLift{}
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1289,6 +1302,7 @@ func (c *control) jog() {
 		c.parked = false
 		c.nearAt = 0
 		c.lowAt = 0
+		c.lift = pendingLift{}
 		if err := c.m.mc.JogCont(j.axis.Index, float64(dir)*vel, 1); err != nil {
 			c.raise(faultf(errMotionError, "jogging axis %c: %v", j.axis.Letter, err))
 			return

@@ -69,7 +69,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D49 | Arcs queued with `ini_maxvel` = the requested speed (2026-10-31, measured, implemented, §14) | tpmod splits an arc's acceleration between turning and speeding up by the segment's **`ini_maxvel`**, not its requested speed (`pmCircleActualMaxVel`). milltask's canon passes the arc's own centripetal cap, which puts every arc below R = v²/(0.87·a) — 374 mm on the coating machine — on the fixed split of half the acceleration along the path. pnptask has no feed override to leave headroom for and **passes the requested speed** as `ini_maxvel` of its arcs (capped by the arc's centripetal limit). Measured in the TP sim (milltask with a temporary switch in canon's `arcLimits`, which gives the TP exactly what pnptask's `SetCircle` will; 30 random legs on each coating-machine drawing, against circles R75): the faster of natural spline and Catmull-Rom takes 0.990/0.966 of the time instead of 0.993/0.974, the legs slower than circles drop from 4 (worst +8.1 %) to 2 (+3.1 %, +2.5 %, none on the open drawing), Catmull-Rom's median on cornered legs from 1.127 to 1.002; the TP model (D50) holds in this mode (median −0.4/−0.6 %). Cost: a feed override above 100 % cannot speed the arcs up — pnptask has none; slower machine settings lower the limits instead. |
 | D50 | The shaper chooses by a TP model (2026-10-31, implemented, §14) | Of the natural spline and the Catmull-Rom curve (and the route, D47), the one the **model of the TP** says is fastest is driven. The model reproduces tpmod's rules (per-axis line limits as `moveLimits`; blend arcs sized as `blendComputeParameters` at √(0.87·a·R) and half the acceleration; arcs per `pmCircleActualMaxVel` with D49's `ini_maxvel`; the last-segment rule) and was checked against reality: 8 legs measured on the coating machine within 0.5 %, 60 random legs in the TP sim at a median of −0.5 % (worst −4.6 %). It is the only TP-specific part of the shaper — with a better TP (`pnp-route-test/docs/TP_DESIGN.md`) that TP's model replaces it. A few ms per variant, well inside D13. Choosing by the time-optimal profile instead (theory, no TP knowledge) was tried: it picks curves that tpmod runs up to 14 % slower than the circles. |
 | D51 | Corner circles removed (2026-10-31, implemented, §14) | **Supersedes D41/D42.** `CORNER_RADIUS` is gone (not refused: no config in the field to protect), the per-corner sizing and the shapers in the visibility graph go, and `coat.ini` drops the key in the same deploy. The circles approximate at the corners what the curve does properly — spreading the curvature — and left open what radius is right (D42's per-corner sizing, the kink of a station inside a circle, the fallback). Where circles still beat a curve, the reason is tpmod's arc rules (D49) and its Z blending (D52), not the geometry. Measured cost while tpmod stays as it is, on the coating machine's cycle legs: about +80 ms per cycle without Z blending, about +130 ms with it — 2–3.5 % of the travel time, to be won back by D49, D52 and a better TP. |
-| D52 | Z corner arcs (2026-10-31, planned, §14 phase 2) | Lift, travel and descent run as **one stream**: the drain stays where feedback is read (at the bottom, around the gripper and the fixture), not between the strokes and the travel. pnptask itself inserts an arc of radius `Z_CORNER_RADIUS` (INI) at each Z corner, in the vertical plane of the XY start (end) direction (`SetCircle` with a horizontal normal), tangent to the stroke and to the curve — so the TP never blends there. Its radius is reduced per leg (no larger than the stroke, a fraction of the XY length, none for the short moves inside a station), and the XY curve starts at the arc's end, station + R·start direction. The geometry near a station is exact, which turns the clearance there into a check — against a station free volume still to be defined (§14, open). With the descent as the last segment, D48's closing line is no longer needed. Measured in the TP sim against tpmod's own blending (G64 P b, equivalent radius b/(√2−1)): straight leg identical where the TP has room (1072 vs 1071 ms) and better where it caps its blend at half the stroke (968 vs 1033 ms at R 48 mm); into a curve the TP picks a parabolic blend that halves the whole lift and the first XY segment (blended slower than with exact stops), the explicit arcs run at full acceleration: −15 % (R 24) / −23 % (R 48) against exact stops. On the cycle legs with polylines Z blending brings −7…−16 % per leg. |
+| D52 | Z corner arcs (2026-10-31, implemented, §14 phase 2, §14.6) | Lift, travel and descent run as **one stream**: the drain stays where feedback is read (at the bottom, around the gripper and the fixture), not between the strokes and the travel. pnptask itself inserts an arc of radius `Z_CORNER_RADIUS` (INI) at each Z corner, in the vertical plane of the XY start (end) direction (`SetCircle` with a horizontal normal), tangent to the stroke and to the curve — so the TP never blends there. Its radius is reduced per leg (no larger than the stroke, a fraction of the XY length, none for the short moves inside a station), and the XY curve starts at the arc's end, station + R·start direction. Near a station nothing is checked beyond the XY clearance of the arcs' horizontal halves (decided 2026-10-31): the head moves sideways only in the top R of a stroke, so travel height, radius and drawing are chosen so that nothing stands above travel height − R within R of a station. `Z_CORNER_RADIUS` is global with a per-station override. With the descent as the last segment, D48's closing line is no longer needed. Measured in the TP sim against tpmod's own blending (G64 P b, equivalent radius b/(√2−1)): straight leg identical where the TP has room (1072 vs 1071 ms) and better where it caps its blend at half the stroke (968 vs 1033 ms at R 48 mm); into a curve the TP picks a parabolic blend that halves the whole lift and the first XY segment (blended slower than with exact stops), the explicit arcs run at full acceleration: −15 % (R 24) / −23 % (R 48) against exact stops. On the cycle legs with polylines Z blending brings −7…−16 % per leg. |
 
 ---
 
@@ -312,6 +312,10 @@ BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel
 PATH_SHAPER = route           # route: drive the route's polyline, corners
                               #   blended; spline: a smooth curve through it
                               #   where the TP model says faster (D47-D50).
+Z_CORNER_RADIUS = 0           # arc joining a Z stroke and the travel, so lift,
+                              #   travel and descent are one stream (D52);
+                              #   0 = separate strokes. A station section may
+                              #   set its own.
 POS_TOLERANCE = 0.1           # how far a computed position may sit from a
                               #   taught one before the load fails (D24)
 MOVE_VEL = 0                  # XY travel vel/acc, PER AXIS; 0 = axis limits only
@@ -1629,10 +1633,10 @@ not only the derived wait point — a corner can be rounded deeper than
 `CLEARANCE` toward the zone. Worth a decision (a required positive tolerance,
 or a documented minimum) before the first machine runs with the default.
 
-## 14. Path planner rework (2026-10-31; phase 1 built, phase 2 planned)
+## 14. Path planner rework (2026-10-31; built, machine trial open)
 
-Decisions D47–D52. Phase 1 (D47–D51) is built, steps 2–6 below (§14.5 as
-built); its machine trial (step 7) and phase 2 are open.
+Decisions D47–D52. Phase 1 (D47–D51, §14.5) and phase 2 (D52, §14.6) are
+built and checked in the sim; the machine trial (step 7) is open.
 Evidence and prototype: `~/source/pnp-route-test`, branch `playground`
 (README; the TP model in `profile.go`/`arcs.go`, the TP sim harness in
 `tpsim/`). The TP itself is a separate project
@@ -1677,8 +1681,8 @@ arcs) adds 7–16 % per leg on top.
    drains move to where feedback is read.
 2. The corner arcs and their per-leg radius; the XY curve starting and
    ending at the arcs.
-3. The clearance rule near a station: the station free volume (open), the
-   exact check of the arcs against it.
+3. The clearance rule near a station: none beyond the XY check (decided
+   2026-10-31, D52); travel height, radius and drawing are chosen to fit.
 4. Tests in the sim for arbitrary XY directions (G-code can only express
    arcs in the principal planes, pnptask's `SetCircle` any plane).
 
@@ -1686,12 +1690,8 @@ arcs) adds 7–16 % per leg on top.
 
 - `PATH_SHAPER` default: built as `route` until the machine trial; `coat.ini`
   sets `spline` for the trial (and drops `CORNER_RADIUS`, which is gone).
-- The station free volume for D52: a height above which a station's
-  surroundings are clear, a box, or the drawing's zones extruded; and
-  `Z_CORNER_RADIUS` global or per station.
-- Outside pnptask: the coating machine's PLC waits its `rearm_time` twice
-  between jobs (`coat_pnp_main.comp`, job FSM SETTLE + IDLE) — ~100 ms per
-  job; a CoatV2conf change.
+- `Z_CORNER_RADIUS` on the coating machine: 10 mm to start (CoatV2conf);
+  the sim leg below was fastest at 24 mm.
 
 ### 14.5 As built (2026-10-31, phase 1)
 
@@ -1741,3 +1741,61 @@ arcs) adds 7–16 % per leg on top.
   the model (the closing-line entry), route and straight legs −0.4…+0.2 %;
   over the whole run no axis above 600 mm/s, the path up to the 800 mm/s cap,
   axis acceleration ≤ 3000 mm/s².
+
+### 14.6 As built (2026-10-31, phase 2)
+
+- **Config**: `[PNPTASK]Z_CORNER_RADIUS` (default 0 = separate strokes, the
+  behaviour before), overridable per tray/process station section.
+- **Deferred lift**: `up()` at a station with a radius only notes the lift
+  (`pendingLift`). The next `travel` takes it into its stream; anything that
+  needs the machine standing first runs it as a stroke of its own
+  (`flushLift`): `waitMotionDone`, `zStroke`, `dwell`, a wait at a busy
+  station (`waitStanding`), the end of a job, and a failed job (unless the
+  machine is off or in estop). The scene gate's lock (D45) only drains what
+  is queued (`waitDrained`): with the scene free the lift stays in the leg,
+  and a wait for the scene lifts first. The lock covers the leg: a descent
+  joined to it by an arc is part of it, a separate descent stroke runs after
+  the lock is released, as before. Estop, disable, homing and jog drop a
+  deferred lift with `nearAt`/`lowAt`.
+- **The leg** (`dispatchLeg`): the straight lift to travel − r0, a quarter
+  arc in the vertical plane of the leg's start direction (`SetCircle`,
+  normal z × dir, turn 0), the path from there, a quarter arc down in the
+  plane of its end direction, and the straight descent as the exact-stop
+  last segment — one drain at the bottom. Per leg r0/r1 are the station's
+  radius, at most the stroke (the descent keeps 1 mm of straight stroke, so
+  its arc is never the never-finalized last segment), and at most a quarter
+  of the leg's straight length; below 0.5 mm none. The arcs' horizontal
+  halves are the path's first/last r mm: a route gives at most half its
+  first/last line, a curve's chain starts and ends in lines of exactly r
+  (`PathOptions.StartLine/EndLine`, the chain's `startLine` from the
+  playground), checked against the zones with the rest. Arc speed:
+  min(vx/|dir.x|, vy/|dir.y|, vz) under MOVE_VEL/Z_VEL and the path cap;
+  acceleration the smallest of the moving axes under MOVE_ACC/Z_ACC;
+  `ini_maxvel` capped by the centripetal limit. `approach`, the gated
+  removal from a process station and the park end in their descent.
+- **Place into a process station**: its descent may only start with the
+  fixture open, and the release is requested only as the leg in starts (at
+  the gate), so whether it joins the leg is decided on the way
+  (`placeDescent`, `awaitDescent`): the leg is queued without its last line,
+  and the arc and the descent are added as soon as `released` is high --
+  unless the head is first within braking distance (current speed,
+  min(ax, ay)) plus two control cycles and 2 mm of the end of what is
+  queued; then the last line is queued as the exact stop and the descent is a
+  stroke after `waitReleased`. The distance left is motion's `distance_to_go`
+  of the running segment plus the lengths of the leg's segments behind it
+  (status `id`). `waitReleased` confirms released with the head down either
+  way. The swap (§8, `PROBE_SWAP` — every place on the coating machine) is
+  the case that matters there: the remover lifts only to `NEAR_HEIGHT`, the
+  fixture stays open, so the place's descent is decided at once, and the
+  shift by the picker offset (29.7 mm there) runs as lift arc, line and
+  descent arc, each arc capped at a quarter of the shift (~7.4 mm).
+- **Runtest** `tests/pnptask/zarcs` (spline config, `Z_CORNER_RADIUS = 10`):
+  station 21 → tray 11, bottom to bottom: no stop between the strokes,
+  sideways only above travel − R (within 1e-3 mm: motion's cubic
+  interpolator rounds the join by ~1e-4 mm; the TP runs it tangent — the
+  lift accelerates at the full Z_ACC, which a blended join would halve),
+  never above the travel height, clearance kept, every axis inside its
+  limits, 1500 ms against 1551 ms with separate strokes (24 mm: 1436,
+  48 mm: 1465 — capped by Z_VEL/Z_ACC); the place before it (tray →
+  station 21) runs its descent arc too, the sim fixture opening while the
+  head is on its way. Passes under full CPU load.
