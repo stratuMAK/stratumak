@@ -81,6 +81,7 @@ type Route struct {
 	Curv      []float64 // per-point curvature (1/radius) of Path, 0 at the ends; set by [Planner.Metrics]
 	MinRadius float64   // smallest turn radius, the speed bottleneck; Inf if straight; set by [Planner.Metrics]
 	MinClear  float64   // closest Path comes to any dead zone; Inf if there are none; set by [Planner.Metrics]
+	Time      float64   // the TP model's time for the leg, s; set by [Planner.PlanPath] when it chose between shapes
 
 	sm     []sample     // the curve's samples with arc length, direction, curvature
 	pieces [][2]float64 // per segment: the stretch of the curve (arc length) its piece replaces

@@ -213,7 +213,7 @@ func (p *Planner) pointClearance(pt Point, limit float64) (float64, Point) {
 		best = -best
 	}
 	for _, z := range p.drawn {
-		if z.bounds.distTo(pt) > math.Min(best, limit) {
+		if z.bounds.farFrom(pt, math.Min(best, limit)) {
 			continue
 		}
 		d, q := nearestOnRing(pt, z.edge)
@@ -242,11 +242,11 @@ func nearestOnRing(pt Point, ring Polygon) (float64, Point) {
 	return best, at
 }
 
-// distTo is the distance from pt to the box, 0 inside it.
-func (b box) distTo(pt Point) float64 {
-	dx := math.Max(math.Max(b.minX-pt.X, pt.X-b.maxX), 0)
-	dy := math.Max(math.Max(b.minY-pt.Y, pt.Y-b.maxY), 0)
-	return math.Hypot(dx, dy)
+// farFrom reports whether pt is farther than d from the box.
+func (b box) farFrom(pt Point, d float64) bool {
+	dx := max(b.minX-pt.X, pt.X-b.maxX, 0)
+	dy := max(b.minY-pt.Y, pt.Y-b.maxY, 0)
+	return dx > d || dy > d || dx*dx+dy*dy > d*d
 }
 
 func polyLength(pts []Point) float64 {
