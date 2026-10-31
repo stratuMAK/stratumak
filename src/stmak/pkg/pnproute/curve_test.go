@@ -182,7 +182,7 @@ func TestPushOut(t *testing.T) {
 		if d, _, _ := p.curveClearance(raw, math.Inf(1)); d >= clearance {
 			t.Fatalf("the raw curve keeps %.2f already; the test needs one that cuts the zone", d)
 		}
-		sc, ok := p.pushOut(append([]Point(nil), keys...), interp)
+		sc, ok := p.pushOut(append([]Point(nil), keys...), interp, 0, ArcEndLine)
 		if !ok {
 			t.Fatal("push-out found no clear curve")
 		}
@@ -362,5 +362,39 @@ func TestFilletRadius(t *testing.T) {
 	}
 	if pr := filletize([]Point{{0, 0}, {4, 0}, {4, 100}}, 0); len(pr) != 3 || pr[1].kind != primStop {
 		t.Errorf("tolerance 0: %+v, want a stop", pr)
+	}
+}
+
+// With StartLine/EndLine a chosen curve's chain starts and ends in straight
+// lines that long (what the Z corner arcs turn into, D52), stays tangent and
+// keeps the clearance.
+func TestPlanPathStartEndLines(t *testing.T) {
+	p := mustPlanner(t, rectScene(rect(400, 0, 600, 300)), 5)
+	o := PathOptions{Smooth: true, Limits: testLimits(), BlendTolerance: 3, StartLine: 10, EndLine: 8}
+	a, b := Point{300, 100}, Point{700, 100}
+	r, err := p.PlanPath(a, b, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Shape == ShaperRoute {
+		t.Fatal("the route was chosen; the test needs a curve")
+	}
+	segs := r.Segments
+	first, last := segs[0], segs[len(segs)-1]
+	if first.Kind != SegmentLine || math.Abs(first.Length()-10) > 1e-9 || first.Start != a {
+		t.Errorf("chain starts with %+v, want a 10 mm line from %v", first, a)
+	}
+	if last.Kind != SegmentLine || math.Abs(last.Length()-8) > 1e-9 || last.End != b {
+		t.Errorf("chain ends with %+v, want an 8 mm line into %v", last, b)
+	}
+	prims := make([]prim, len(segs))
+	for i, sg := range segs {
+		prims[i] = sg.prim()
+	}
+	if k := chainKink(prims); k > 1e-7 {
+		t.Errorf("chain kinks by %.3g rad", k)
+	}
+	if d, _, _ := p.curveClearance(r.Path(), math.Inf(1)); d < p.clearance-1e-9 {
+		t.Errorf("chain keeps %.3f", d)
 	}
 }

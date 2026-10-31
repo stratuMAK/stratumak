@@ -83,6 +83,11 @@ const (
 // A straight route is returned as it is (Shape [ShaperRoute]): it has no
 // corner to smooth. ShaperRoute returns r itself.
 func (p *Planner) Smooth(r *Route, sh Shaper) (*Route, error) {
+	return p.smooth(r, sh, 0, ArcEndLine)
+}
+
+// smooth is Smooth with the chain's start and end lines given (see arcChain).
+func (p *Planner) smooth(r *Route, sh Shaper, startLine, endLine float64) (*Route, error) {
 	var interp func([]Point, float64) []Point
 	switch sh {
 	case ShaperRoute:
@@ -97,7 +102,7 @@ func (p *Planner) Smooth(r *Route, sh Shaper) (*Route, error) {
 	if len(r.Waypoints) <= 2 {
 		return r, nil
 	}
-	c, ok := p.pushOut(simplifyDP(r.Waypoints, p.clearance), interp)
+	c, ok := p.pushOut(simplifyDP(r.Waypoints, p.clearance), interp, startLine, endLine)
 	if !ok {
 		return nil, fmt.Errorf("pnproute: %v: %w", sh, ErrNoCurve)
 	}
@@ -122,7 +127,7 @@ type shapedCurve struct {
 // from the curve keeps the clearance. The curve is checked first, being
 // cheaper; the chain departs from it by hundredths of a millimetre, which
 // can still be the difference at the clearance.
-func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point) (shapedCurve, bool) {
+func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point, startLine, endLine float64) (shapedCurve, bool) {
 	c := p.clearance
 	for iter := 0; iter < maxPushes; iter++ {
 		pts := interp(keys, curveStep)
@@ -134,7 +139,7 @@ func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point) (
 		var sBad float64
 		if d >= c-1e-9 {
 			sc := shapedCurve{curve: pts, sm: samplePrims(filletize(pts, -1), curveStep)}
-			sc.chain = arcChain(sc.sm, ArcPieceLength, ArcEndLine)
+			sc.chain = arcChain(sc.sm, ArcPieceLength, startLine, endLine)
 			csm := samplePrims(chainPrims(sc.chain), curveStep)
 			sc.driven = samplePoints(csm)
 			var ci int

@@ -22,6 +22,11 @@ type PathOptions struct {
 	// by the trajectory planner (pnptask's BLEND_TOLERANCE), for the model of
 	// the route.
 	BlendTolerance float64
+	// StartLine, if positive, makes a curve's arc chain start with a straight
+	// line that long in its start direction: what a Z corner arc turns into
+	// (D52). EndLine likewise for its end; 0 is the closing line ArcEndLine.
+	// A curve too short for them gets neither (see Route.Segments).
+	StartLine, EndLine float64
 }
 
 // PlanPath plans a leg from start to goal and shapes it (D47, D50): of the
@@ -53,7 +58,11 @@ func (p *Planner) PlanPath(start, goal Point, o PathOptions) (*Route, error) {
 	}
 	best := r
 	for _, sh := range []Shaper{ShaperNatural, ShaperCatmullRom} {
-		c, err := p.Smooth(r, sh)
+		endLine := o.EndLine
+		if endLine <= 0 {
+			endLine = ArcEndLine
+		}
+		c, err := p.smooth(r, sh, math.Max(o.StartLine, 0), endLine)
 		if errors.Is(err, ErrNoCurve) {
 			continue
 		}
