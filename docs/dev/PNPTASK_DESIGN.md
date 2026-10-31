@@ -1784,7 +1784,11 @@ arcs) adds 7–16 % per leg on top.
   stroke after `waitReleased`. The distance left is motion's `distance_to_go`
   of the running segment plus the lengths of the leg's segments behind it
   (status `id`). `waitReleased` confirms released with the head down either
-  way.
+  way. The swap (§8, `PROBE_SWAP` — every place on the coating machine) is
+  the case that matters there: the remover lifts only to `NEAR_HEIGHT`, the
+  fixture stays open, so the place's descent is decided at once, and the
+  shift by the picker offset (29.7 mm there) runs as lift arc, line and
+  descent arc, each arc capped at a quarter of the shift (~7.4 mm).
 - **Runtest** `tests/pnptask/zarcs` (spline config, `Z_CORNER_RADIUS = 10`):
   station 21 → tray 11, bottom to bottom: no stop between the strokes,
   sideways only above travel − R (within 1e-3 mm: motion's cubic

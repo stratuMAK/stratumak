@@ -343,3 +343,62 @@ func TestZCornerArcLiftAfterAFailedJob(t *testing.T) {
 		t.Errorf("the failed job ended with %+v, want the lift at the tray slot to the travel height", last)
 	}
 }
+
+// TestZCornerArcSwap: the place of a swap (§8, PROBE_SWAP on the coating
+// machine) runs as one stream too. The remover lifts out of the station only
+// to its NEAR_HEIGHT, the fixture stays open, and the shift by the picker
+// offset turns into the lift and into the placer's descent on corner arcs --
+// the descent's at once, the fixture already reporting released. The arcs are
+// capped by the strokes and by a quarter of the 30 mm shift.
+func TestZCornerArcSwap(t *testing.T) {
+	o := zCornerOpts(10, nil, func(m *pnptaskModule) {
+		m.world.procs[0].setHasMaterial(true)
+		m.world.procs[0].cfg.NearHeight, m.world.procs[0].cfg.HasNear = 12, true
+	})
+	o.args = []string{"pickers=2"}
+	o.ini = secondProcSection
+	f := newJobFixtureOpts(t, o)
+	f.homed()
+	f.m.pins.pickers[1].yOffset.Set(-30)
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> occupied station, swapped, with Z corner arcs")
+
+	// Picker 1 takes the occupant out with the machine at (300, 230); picker
+	// 0 places with it at (300, 200). Near height 12, station Z_PICK 5.
+	moves := f.mot.moveList()
+	var lift, desc = -1, -1
+	for i := 1; i < len(moves); i++ {
+		m, p := moves[i], moves[i-1].pos
+		if !m.arc || m.normal.Z != 0 {
+			continue
+		}
+		if p.X == 300 && p.Y == 230 && p.Z == 5 && m.pos.Z == 12 && m.pos.Y == 223 {
+			lift = i // straight from the bottom: the stroke (7) leaves no line
+		}
+		if m.pos.X == 300 && m.pos.Y == 200 && m.pos.Z < p.Z {
+			desc = i
+		}
+	}
+	// Lift: min(10, stroke 12 - 5 = 7, 30/4 = 7.5) = 7 -- hence from Z 5.
+	if lift < 0 {
+		t.Fatalf("no 7 mm lift arc out of the removal at (300, 230): %+v", moves)
+	}
+	// Descent: min(10, stroke 12 - 5 - 1 = 6, 7.5) = 6.
+	if desc < 0 || moves[desc].pos.Z != 6 || moves[desc+1].pos.Z != 5 || moves[desc+1].termCond != tpTermCondStop {
+		t.Fatalf("no 6 mm descent arc into the station at (300, 200), then the stroke: %+v", moves)
+	}
+	for i := lift; i < desc; i++ {
+		if moves[i].termCond == tpTermCondStop {
+			t.Errorf("move %d stops between the swap's lift and the place's descent: %+v", i, moves[i])
+		}
+	}
+	// The fixture opened once, for the removal, and stayed open for the place.
+	if n := f.sim.releaseRiseCount(0); n != 1 {
+		t.Errorf("the fixture was opened %d times, want 1", n)
+	}
+}
