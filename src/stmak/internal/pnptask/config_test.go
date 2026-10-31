@@ -729,13 +729,6 @@ func TestLoadConfigErrors(t *testing.T) {
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: `PATH_SHAPER = "bezier": expected route or spline`,
 	}, {
-		// D51: the corner circles are gone, and a config still setting the
-		// radius is refused rather than silently running without it.
-		name: "corner radius (D51)",
-		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nCORNER_RADIUS = 50\n" +
-			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
-		want: "CORNER_RADIUS is no longer supported (D51)",
-	}, {
 		name: "negative velocity",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nMOVE_VEL = -500\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,

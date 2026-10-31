@@ -380,12 +380,6 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	if !(cfg.ServoPeriod > 0) {
 		return nil, fmt.Errorf("[EMCMOT]SERVO_PERIOD = %q: must be positive", r.str("EMCMOT", "SERVO_PERIOD"))
 	}
-	// D51: the corner circles are gone. Refused rather than ignored: a
-	// config that still sets it expects wide corners, and the curve shaper
-	// is what gives them now.
-	if r.has(sec, "CORNER_RADIUS") {
-		return nil, fmt.Errorf("[%s]CORNER_RADIUS is no longer supported (D51) — remove it; the path shaper smooths the corners", sec)
-	}
 	// Required rather than defaulted: it decides which taught geometry the
 	// load accepts, and a default would be this module's guess at how well the
 	// machine it is running on can be taught.
