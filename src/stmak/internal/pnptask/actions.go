@@ -214,10 +214,7 @@ func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z
 	if err := c.retract(j.travel); err != nil {
 		return err
 	}
-	if err := c.travel(j, pk, target); err != nil {
-		return err
-	}
-	if err := c.zStroke(z); err != nil {
+	if err := c.travel(j, pk, target, down(z, st.zCornerRadius())); err != nil {
 		return err
 	}
 	return c.dwell(c.m.pins.posSettleTime.Get())
@@ -229,7 +226,8 @@ func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z
 
 // gatedTravel keeps the head out of a busy process station's area on the way
 // in: it brings picker pk to the station and returns with the machine drained
-// at movement height, having waited out the station's busy input on the way.
+// there, having waited out the station's busy input on the way. The leg in
+// ends in d (at the movement height for noDescent).
 //
 // busy is passed in rather than read here because §7.4 specifies *when* it is
 // sampled — at job start for a pick-from-proc, after the pick leg for a
@@ -259,14 +257,14 @@ func (c *control) approach(j *job, pk int, st *station, target pnproute.Point, z
 // arrival finds the fixture already open, but it must not reach a fixture
 // whose process is still running, which is what raising it before the gate
 // did (pre-merge review 2026-09-08).
-func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear func()) error {
+func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear func(), d descent) error {
 	j.travel = c.travelZ(j, c.m.world.station(s.cfg.ID))
 	if err := c.retract(j.travel); err != nil {
 		return err
 	}
 	if busy {
 		if s.cfg.HasWait {
-			if err := c.travel(j, pk, s.cfg.Wait); err != nil {
+			if err := c.travel(j, pk, s.cfg.Wait, noDescent); err != nil {
 				return err
 			}
 		}
@@ -277,7 +275,7 @@ func (c *control) gatedTravel(j *job, pk int, s *procState, busy bool, onClear f
 	if onClear != nil {
 		onClear()
 	}
-	return c.travel(j, pk, s.cfg.Pos)
+	return c.travel(j, pk, s.cfg.Pos, d)
 }
 
 // awaitClear holds, standing, until a process station's busy input goes low.
@@ -315,6 +313,11 @@ func (c *control) waitStanding(done func() bool, what string, cleared func()) er
 		// PLC can send the machine somewhere else (park) right after.
 		if c.in.waitAbort {
 			return faultf(errWaitAborted, "%s: the wait was aborted by wait-abort", what)
+		}
+		// The head waits up, not down at the station it came from: a lift
+		// deferred for the next travel (D52) runs now.
+		if err := c.flushLift(); err != nil {
+			return err
 		}
 		if !c.tick() {
 			return errStopping
@@ -427,10 +430,8 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	if err := c.openForPick(pk); err != nil {
 		return err
 	}
-	if err := c.gatedTravel(j, pk, s, busy, nil); err != nil {
-		return err
-	}
-	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get()); err != nil {
+	st := c.m.world.station(s.cfg.ID)
+	if err := c.gatedTravel(j, pk, s, busy, nil, down(s.cfg.ZPick+s.pins.zOffset.Get(), st.zCornerRadius())); err != nil {
 		return err
 	}
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
@@ -620,7 +621,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		if err := c.retract(j.travel); err != nil {
 			return err
 		}
-		if err := c.travel(j, pk, s.cfg.Pos); err != nil {
+		if err := c.travel(j, pk, s.cfg.Pos, noDescent); err != nil {
 			return err
 		}
 	} else {
@@ -628,7 +629,9 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		// busy gating, then release): a fixture whose process is still running
 		// must not be told to unclamp, and every error path below withdraws
 		// the request for exactly that reason.
-		if err := c.gatedTravel(j, pk, s, busy, func() { c.requestRelease(s, true) }); err != nil {
+		// The descent waits for the fixture's released below, so it is a
+		// stroke of its own, not part of the leg (D52).
+		if err := c.gatedTravel(j, pk, s, busy, func() { c.requestRelease(s, true) }, noDescent); err != nil {
 			return err
 		}
 	}
@@ -697,23 +700,29 @@ func (c *control) travelZ(j *job, st *station) float64 {
 	if ok && c.isLowAt(st) {
 		return near // down at it: up to its near height, not further
 	}
-	if ok && c.nearAt == st.id && math.Abs(c.cmdPos.Z-near) < moveFuzz {
+	if ok && c.nearAt == st.id && math.Abs(c.effectiveZ()-near) < moveFuzz {
 		return near
 	}
 	return j.height
 }
 
 // up lifts out of a stroke at station st: to its NEAR_HEIGHT when the next
-// move stays at st and it has one, to the movement height otherwise.
+// move stays at st and it has one, to the movement height otherwise. With a
+// Z corner radius at st (D52) the lift is only noted (pendingLift): the next
+// travel queues it with the leg, joined by a corner arc, and anything that
+// needs the machine standing before that runs it on its own (flushLift).
 func (c *control) up(j *job, st *station, stay bool) error {
-	if near, ok := st.near(); stay && ok {
-		if err := c.zStroke(near); err != nil {
-			return err
-		}
+	to := j.height
+	near, ok := st.near()
+	if stay && ok {
+		to = near
 		c.nearAt = st.id
+	}
+	if r := st.zCornerRadius(); r > 0 && c.cmdPos.Z < to-moveFuzz {
+		c.lift = pendingLift{on: true, to: to, r: r}
 		return nil
 	}
-	return c.zStroke(j.height)
+	return c.zStroke(to)
 }
 
 // ---------------------------------------------------------------------------

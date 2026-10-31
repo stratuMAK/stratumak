@@ -298,28 +298,89 @@ func (c *control) notePlanTime(j *job, d time.Duration) {
 // waits for it standing, and is planned again after the lock is taken — the
 // scene may have changed while it waited, and a route planned before the wait
 // is not trusted.
-func (c *control) travel(j *job, pk int, target pnproute.Point) error {
-	route, err := c.planLeg(j, pk, target)
+func (c *control) travel(j *job, pk int, target pnproute.Point, d descent) error {
+	lg, err := c.travelLeg(j, pk, target, d)
 	if err != nil {
 		return err
 	}
-	if c.m.planners.touchesMovable(c.legPath(route)) {
+	if d.on && lg.r1 == 0 {
+		// A descent with no corner arc is a stroke of its own, after the
+		// leg -- and after the scene gate's lock, which covers the leg, as
+		// it did before the descent was part of a travel.
+		return c.zStroke(d.z)
+	}
+	return nil
+}
+
+// travelLeg plans, gates and runs the leg of a travel, and returns once the
+// machine has arrived; a descent joined to it by a corner arc arrives with it.
+func (c *control) travelLeg(j *job, pk int, target pnproute.Point, d descent) (*leg, error) {
+	lg, err := c.planLeg(j, pk, target, d)
+	if err != nil {
+		return nil, err
+	}
+	if c.m.planners.touchesMovable(c.legPath(lg.route)) {
+		// The scene may have changed while the gate waited: the leg is
+		// planned again under the lock.
 		if err := c.acquireScene(target); err != nil {
-			return err
+			return nil, err
 		}
 		defer c.releaseScene()
-		if route, err = c.planLeg(j, pk, target); err != nil {
-			return err
+		if lg, err = c.planLeg(j, pk, target, d); err != nil {
+			return nil, err
 		}
-		if !c.m.planners.touchesMovable(c.legPath(route)) {
+		if !c.m.planners.touchesMovable(c.legPath(lg.route)) {
 			c.releaseScene()
 		}
 	}
-	if err := c.dispatchRoute(j, route); err != nil {
-		return err
+	if c.lift.on && lg.r0 == 0 {
+		// No room for a corner arc on this leg: the lift runs on its own.
+		if err := c.flushLift(); err != nil {
+			return nil, err
+		}
 	}
-	return c.waitMotionDone()
+	if err := c.dispatchLeg(j, lg, d); err != nil {
+		return nil, err
+	}
+	return lg, c.waitMotionDone()
 }
+
+// descent is the stroke a travel ends in (D52): down to z at the target, with
+// a corner arc of radius r joining it to the travel (0: a stroke of its own,
+// after the travel has stopped). on false: the travel ends at its height.
+type descent struct {
+	on   bool
+	z, r float64
+}
+
+func down(z, r float64) descent { return descent{on: true, z: z, r: r} }
+
+// noDescent is a travel that ends at its height.
+var noDescent = descent{}
+
+// pendingLift is a lift out of a station that up() deferred (D52): to Z `to`,
+// joined to the next travel by a corner arc of radius up to r.
+type pendingLift struct {
+	on    bool
+	to, r float64
+}
+
+// leg is a planned travel: the route, and the radii of the Z corner arcs at
+// its start (r0, the lift) and end (r1, the descent); 0 is none.
+type leg struct {
+	route  *pnproute.Route
+	r0, r1 float64
+}
+
+// minZCornerRadius is the smallest Z corner arc worth queueing, mm: below it
+// the strokes are separate moves.
+const minZCornerRadius = 0.5
+
+// minDescentLine is how much of a descent stays a straight vertical line
+// below its corner arc, mm: the leg's last segment is that line, queued as
+// an exact stop -- never the arc, which tpmod would run at half the
+// acceleration as the never-finalized last segment (D48).
+const minDescentLine = 1.0
 
 // legPath is a leg as the scene gate judges it: from where the head stands,
 // along the geometry commanded -- the route's waypoints, or a smoothed
@@ -340,7 +401,11 @@ func (c *control) legPath(route *pnproute.Route) []pnproute.Point {
 // is done. The wait ends like a station's (WAIT_ABORTED on auto-enable or
 // wait-abort, D15/D33).
 func (c *control) acquireScene(target pnproute.Point) error {
-	if err := c.waitMotionDone(); err != nil {
+	// Standing, but a lift deferred for this leg (D52) stays deferred: it has
+	// not been dispatched, so the head stands at the bottom, and the leg can
+	// still take it in its stream. A wait below runs it first (waitStanding):
+	// the head waits up.
+	if err := c.waitDrained(); err != nil {
 		return err
 	}
 	for {
@@ -380,7 +445,7 @@ func (c *control) releaseScene() {
 // (D47/D50): two curves through it and the TP model's choice between them and
 // the route, ~10 ms on the coating machine, ~50 ms where neither curve comes
 // clear.
-func (c *control) planLeg(j *job, pk int, target pnproute.Point) (*pnproute.Route, error) {
+func (c *control) planLeg(j *job, pk int, target pnproute.Point, d descent) (*leg, error) {
 	// The scene is read here, not at job start: deadzone-select describes the
 	// machine as it is right now, and a leg that begins after the machine
 	// changed (a sphere opened while the job waited out a busy station) has to
@@ -411,11 +476,27 @@ func (c *control) planLeg(j *job, pk int, target pnproute.Point) (*pnproute.Rout
 	off := c.pickerOffset(pk)
 	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
 	goal := pnproute.Point{X: target.X - off.X, Y: target.Y - off.Y}
+	// The Z corner arcs (D52): a deferred lift into this travel, a descent out
+	// of it. Each is at most the station's radius, no longer than its stroke
+	// (the descent keeps minDescentLine of straight stroke below it), and
+	// together they take at most half the leg's straight length, so the short
+	// moves inside a station get small arcs or none.
+	length := math.Hypot(goal.X-start.X, goal.Y-start.Y)
+	r0, r1 := 0.0, 0.0
+	if c.lift.on && c.lift.r > 0 && math.Abs(c.lift.to-j.travel) < moveFuzz {
+		r0 = math.Min(c.lift.r, math.Min(c.lift.to-c.cmdPos.Z, length/4))
+	}
+	if d.on && d.r > 0 && d.z < j.travel-moveFuzz {
+		r1 = math.Min(d.r, math.Min(j.travel-d.z-minDescentLine, length/4))
+	}
+	r0, r1 = cornerFloor(r0), cornerFloor(r1)
 	planStart := time.Now()
 	route, err := planner.PlanPath(start, goal, pnproute.PathOptions{
 		Smooth:         c.m.cfg.SmoothPaths,
 		Limits:         c.pathLimits(),
 		BlendTolerance: c.m.cfg.BlendTolerance,
+		StartLine:      r0,
+		EndLine:        r1,
 	})
 	c.notePlanTime(j, time.Since(planStart))
 	if err != nil {
@@ -423,7 +504,43 @@ func (c *control) planLeg(j *job, pk int, target pnproute.Point) (*pnproute.Rout
 			"no route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) (station point (%.3f, %.3f) − offset (%g, %g)) in dead-zone file %d: %v",
 			pk, start.X, start.Y, goal.X, goal.Y, target.X, target.Y, off.X, off.Y, j.deadzone, err)
 	}
-	return route, nil
+	r0, r1 = fitCorners(route, r0, r1)
+	return &leg{route: route, r0: r0, r1: r1}, nil
+}
+
+func cornerFloor(r float64) float64 {
+	if r < minZCornerRadius {
+		return 0
+	}
+	return r
+}
+
+// fitCorners fits the Z corner arcs to the planned path: an arc's horizontal
+// half is a straight stretch of the path at its end. A route's first and last
+// lines give at most half their length (the TP blends their other end); a
+// curve's chain starts and ends in lines of exactly the asked length, or --
+// where the curve was too short for them -- has none, and gets no arc.
+func fitCorners(route *pnproute.Route, r0, r1 float64) (float64, float64) {
+	if segs := route.Segments; segs != nil {
+		isLine := func(sg pnproute.Segment, r float64) bool {
+			return sg.Kind == pnproute.SegmentLine && math.Abs(sg.Length()-r) < 1e-6
+		}
+		if r0 > 0 && !isLine(segs[0], r0) {
+			r0 = 0
+		}
+		if r1 > 0 && (len(segs) < 2 || !isLine(segs[len(segs)-1], r1)) {
+			r1 = 0
+		}
+		return r0, r1
+	}
+	w := route.Waypoints
+	n := len(w)
+	if n < 2 {
+		return 0, 0 // a leg that does not move
+	}
+	r0 = cornerFloor(math.Min(r0, math.Hypot(w[1].X-w[0].X, w[1].Y-w[0].Y)/2))
+	r1 = cornerFloor(math.Min(r1, math.Hypot(w[n-1].X-w[n-2].X, w[n-1].Y-w[n-2].Y)/2))
+	return r0, r1
 }
 
 // pathLimits are the XY travel limits as the path planner's TP model sees
@@ -440,14 +557,24 @@ func (c *control) pathLimits() pnproute.Limits {
 	}
 }
 
-// dispatchRoute queues a planned leg. The segments go into the TP queue back
-// to back under a parabolic blend: a route's corners are blended within
+// dispatchLeg queues a planned leg. The segments go into the TP queue back to
+// back under a parabolic blend: a route's corners are blended within
 // BLEND_TOLERANCE -- which is what turns the planner's clearance-rounded
 // corners into smooth constant-Z travel, and why CLEARANCE > BLEND_TOLERANCE
 // is enforced at load: the TP blends corners *inward*, toward the zone the
 // route was planned around -- and a smoothed path's chain joins tangentially,
 // which the TP finds by itself and runs without a blend (D48).
-func (c *control) dispatchRoute(j *job, route *pnproute.Route) error {
+//
+// With Z corner arcs (D52) the leg is one stream from the bottom of the lift
+// to the bottom of the descent: the lift's straight stroke up to
+// travel − r0, an arc in the vertical plane of the leg's start direction onto
+// the travel height, the path from there, an arc down in the vertical plane
+// of its end direction, and the descent's straight stroke. Every join is
+// tangent, so the TP blends none of them. The arcs' horizontal halves are the
+// path's first and last r0/r1 mm, which the planner checked against the zones
+// with the rest; that the head only moves sideways in the top r of a stroke is
+// what the travel height has to leave room for.
+func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
@@ -467,50 +594,166 @@ func (c *control) dispatchRoute(j *job, route *pnproute.Route) error {
 		}
 		return nil
 	}
+	route := lg.route
+	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
+	lineDir := func(a, b pnproute.Point) pnproute.Point {
+		l := math.Hypot(b.X-a.X, b.Y-a.Y)
+		return pnproute.Point{X: (b.X - a.X) / l, Y: (b.Y - a.Y) / l}
+	}
+	// The path's start and end directions, where an arc needs them (fitCorners
+	// left an arc only where the path has a line there).
+	var d0, d1 pnproute.Point
+	if segs := route.Segments; segs != nil {
+		d0 = lineDir(segs[0].Start, segs[0].End)
+		last := segs[len(segs)-1]
+		d1 = lineDir(last.Start, last.End)
+	} else if w := route.Waypoints; len(w) >= 2 {
+		d0 = lineDir(w[0], w[1])
+		d1 = lineDir(w[len(w)-2], w[len(w)-1])
+	}
+
+	if c.lift.on {
+		// planLeg gave the deferred lift its arc (travel ran it on its own
+		// otherwise): the straight stroke up, then the arc onto the travel.
+		c.lift = pendingLift{}
+		to := c.cmdPos
+		to.Z = j.travel - lg.r0
+		if err := c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc); err != nil {
+			return err
+		}
+		if err := c.zArc(start, d0, lg.r0, true); err != nil {
+			return err
+		}
+	} else {
+		// A Z still off the movement height is corrected first, rather than
+		// left for the next leg to trip over; at the height it drops itself
+		// in moveLimits.
+		to := c.cmdPos
+		to.Z = j.travel
+		if err := c.line(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc); err != nil {
+			return err
+		}
+	}
+
+	goal := route.Waypoints[len(route.Waypoints)-1]
+	descend := d.on && lg.r1 > 0
 	if route.Segments == nil {
-		for i, wp := range route.Waypoints {
-			if i == len(route.Waypoints)-1 {
+		pts := append([]pnproute.Point(nil), route.Waypoints[1:]...)
+		if len(pts) == 0 {
+			return lastStop() // nothing to move: the head is there
+		}
+		if descend {
+			pts[len(pts)-1] = pnproute.Point{X: goal.X - lg.r1*d1.X, Y: goal.Y - lg.r1*d1.Y}
+		}
+		for i, wp := range pts {
+			if i == len(pts)-1 && !descend {
 				if err := lastStop(); err != nil {
 					return err
 				}
 			}
 			to := c.cmdPos
 			to.X, to.Y, to.Z = wp.X, wp.Y, j.travel
-			// The first waypoint is where the picker already is, so its line
-			// drops itself in moveLimits; a Z still off the movement height is
-			// corrected by it rather than left for the next leg to trip over.
 			if err := c.line(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc); err != nil {
 				return err
 			}
 		}
-		return nil
-	}
-	// A smoothed path starts where the picker stands; a Z still off the
-	// movement height is corrected first, as for a route.
-	to := c.cmdPos
-	to.Z = j.travel
-	if err := c.line(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc); err != nil {
-		return err
-	}
-	lim := c.pathLimits()
-	for i, sg := range route.Segments {
-		if i == len(route.Segments)-1 {
-			if err := lastStop(); err != nil {
+	} else {
+		segs := route.Segments
+		if lg.r0 > 0 {
+			segs = segs[1:] // the lift arc's horizontal half
+		}
+		if descend {
+			segs = segs[:len(segs)-1] // the descent arc's
+		}
+		lim := c.pathLimits()
+		for i, sg := range segs {
+			if i == len(segs)-1 && !descend {
+				if err := lastStop(); err != nil {
+					return err
+				}
+			}
+			to := c.cmdPos
+			to.X, to.Y, to.Z = sg.End.X, sg.End.Y, j.travel
+			var err error
+			if sg.Kind == pnproute.SegmentArc {
+				err = c.arc(to, sg, lim)
+			} else {
+				err = c.lineCapped(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc, sg.Vel)
+			}
+			if err != nil {
 				return err
 			}
 		}
-		to := c.cmdPos
-		to.X, to.Y, to.Z = sg.End.X, sg.End.Y, j.travel
-		var err error
-		if sg.Kind == pnproute.SegmentArc {
-			err = c.arc(to, sg, lim)
-		} else {
-			err = c.lineCapped(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc, sg.Vel)
-		}
-		if err != nil {
-			return err
+	}
+	if !descend {
+		return nil
+	}
+	if err := c.zArc(pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}, d1, lg.r1, false); err != nil {
+		return err
+	}
+	if err := lastStop(); err != nil {
+		return err
+	}
+	to := c.cmdPos
+	to.Z = d.z
+	return c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc)
+}
+
+// zArc queues a Z corner arc of radius r (D52) from the tracked commanded
+// position, at XY `at`, in the vertical plane of the horizontal direction
+// dir: up (from a vertical stroke onto the travel height, ending r further
+// along dir and r higher) or down (from the travel onto a vertical stroke,
+// ending r further along dir and r lower). Both turn counter-clockwise about
+// the horizontal normal z × dir.
+//
+// Its speed keeps every axis inside its limit over the quarter turn --
+// min(vx/|dir.x|, vy/|dir.y|, vz) under the MOVE_VEL and Z_VEL ceilings and
+// the path cap -- and its acceleration is the smallest of the axes it moves,
+// under MOVE_ACC and Z_ACC; ini_maxvel is that speed capped by the
+// centripetal limit (D49).
+func (c *control) zArc(at, dir pnproute.Point, r float64, up bool) error {
+	z0 := c.cmdPos.Z
+	to := c.cmdPos
+	to.X, to.Y = at.X+r*dir.X, at.Y+r*dir.Y
+	center := motctl.Cartesian{X: to.X, Y: to.Y, Z: z0}
+	to.Z = z0 + r
+	if !up {
+		center = motctl.Cartesian{X: at.X, Y: at.Y, Z: z0 - r}
+		to.Z = z0 - r
+	}
+	if !isFinite(to.X) || !isFinite(to.Y) || !isFinite(to.Z) {
+		return faultf(errMotionError, "Z corner arc to (%v, %v, %v) is not finite", to.X, to.Y, to.Z)
+	}
+	if err := c.checkMoveInLimits(c.cmdPos, to); err != nil {
+		return err
+	}
+	vxy := cappedAxisLimits(c.m.limits.AxisMaxVel[:], c.m.cfg.MoveVel)
+	axy := cappedAxisLimits(c.m.limits.AxisMaxAcc[:], c.m.cfg.MoveAcc)
+	vz := cappedAxisLimits(c.m.limits.AxisMaxVel[:], c.m.cfg.ZVel)[2]
+	acc := cappedAxisLimits(c.m.limits.AxisMaxAcc[:], c.m.cfg.ZAcc)[2]
+	vel := vz
+	if c.m.limits.MaxVelocity > 0 {
+		vel = math.Min(vel, c.m.limits.MaxVelocity)
+	}
+	for i, u := range [2]float64{dir.X, dir.Y} {
+		if math.Abs(u) > 1e-9 {
+			vel = math.Min(vel, vxy[i]/math.Abs(u))
+			acc = math.Min(acc, axy[i])
 		}
 	}
+	if !(vel > 0) || !(acc > 0) {
+		return faultf(errMotionError,
+			"no usable velocity/acceleration for the Z corner arc to (%.3f, %.3f, %.3f) — check [AXIS_*]MAX_VELOCITY/MAX_ACCELERATION",
+			to.X, to.Y, to.Z)
+	}
+	iniMaxvel := math.Min(vel, math.Sqrt(math.Sqrt(0.75)*acc*r))
+	c.moveID++
+	normal := motctl.Cartesian{X: -dir.Y, Y: dir.X}
+	if err := c.m.mc.SetCircle(to, center, normal, 0, vel, iniMaxvel, acc, motionTypeTraverse, c.moveID, 0); err != nil {
+		return faultf(errMotionError, "commanding a Z corner arc to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
+	}
+	c.cmdPos = to
+	c.motionDispatched = true
 	return nil
 }
 
@@ -572,6 +815,9 @@ func (c *control) arc(to motctl.Pose, sg pnproute.Segment, lim pnproute.Limits) 
 // queue drained on both sides (§7.3): a pick or a place starts and ends from a
 // full stop, so the approach cannot be blended into the travel that preceded it.
 func (c *control) zStroke(z float64) error {
+	if err := c.flushLift(); err != nil {
+		return err
+	}
 	if math.Abs(z-c.cmdPos.Z) < moveFuzz {
 		return nil
 	}
@@ -596,6 +842,11 @@ func (c *control) zStroke(z float64) error {
 // there already; one that does not is the aftermath of an aborted job, which left
 // the head down at a station (§7.3).
 func (c *control) retract(height float64) error {
+	if c.lift.on {
+		// A deferred lift (D52) goes at least this high, still deferred.
+		c.lift.to = math.Max(c.lift.to, height)
+		return nil
+	}
 	if c.cmdPos.Z >= height-moveFuzz {
 		return nil
 	}
@@ -617,6 +868,16 @@ func (c *control) motionDrained() bool {
 // and every cycle of the wait still runs the abort check, so an estop or a
 // machine-off ends it (§6.5).
 func (c *control) waitMotionDone() error {
+	if c.lift.on {
+		// A deferred lift (D52) is motion that has to have happened: run it.
+		return c.flushLift()
+	}
+	return c.waitDrained()
+}
+
+// waitDrained is waitMotionDone for what has been dispatched, leaving a
+// deferred lift deferred.
+func (c *control) waitDrained() error {
 	if !c.motionDispatched {
 		// Nothing was commanded since the last drain, so a machine that already
 		// reads drained is drained — a back-to-back barrier (the drain before a
@@ -661,6 +922,9 @@ func (c *control) waitMotionDone() error {
 // machine with the settle times left at 0 would fail every pick with
 // PICKER_CLOSE_FAILED.
 func (c *control) dwell(seconds float64) error {
+	if err := c.flushLift(); err != nil {
+		return err
+	}
 	deadline := time.Now().Add(time.Duration(seconds * float64(time.Second)))
 	for {
 		if !c.tick() {
@@ -685,4 +949,25 @@ func settleTimeout(seconds float64) time.Duration {
 		return d
 	}
 	return pollInterval
+}
+
+// flushLift runs a lift up() deferred (D52) as a stroke of its own, drained:
+// for whatever needs the machine standing at the top -- a wait, a dwell, the
+// end of a job, a travel with no room for a corner arc.
+func (c *control) flushLift() error {
+	if !c.lift.on {
+		return nil
+	}
+	to := c.lift.to
+	c.lift = pendingLift{}
+	return c.zStroke(to)
+}
+
+// effectiveZ is the Z the head is at for the next decision: a deferred
+// lift's target, else the commanded Z.
+func (c *control) effectiveZ() float64 {
+	if c.lift.on {
+		return c.lift.to
+	}
+	return c.cmdPos.Z
 }

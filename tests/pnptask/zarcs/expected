@@ -1,0 +1,11 @@
+PASS the tray -> station 21 job completed without an error
+PASS the station 21 -> tray 11 job completed without an error
+PASS the capture lost no servo cycle
+PASS the head went from the bottom of station 21 to the bottom of tray 11
+PASS the head never stops between the two strokes
+PASS below travel height - radius the head only moves vertically
+PASS the head never goes above the travel height
+PASS the path keeps the clearance from both zones
+PASS no axis exceeds its velocity or acceleration
+PASS the stream is faster than separate strokes
+ALL OK
