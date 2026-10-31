@@ -1104,31 +1104,6 @@ WAIT_X = 4.0
 `,
 		want: "WAIT_X and WAIT_Y must be given together",
 	}, {
-		// D46: the derived wait position is gone, and a config still naming
-		// it is refused rather than silently waiting somewhere else.
-		name: "dead-zone wait position (D46)",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_DEADZONE = 1
-WAIT_CLEAR_DEADZONE = 0
-`,
-		want: "WAIT_DEADZONE / WAIT_CLEAR_DEADZONE are no longer supported (D46)",
-	}, {
-		name: "half a dead-zone wait position (D46)",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_CLEAR_DEADZONE = 0
-`,
-		want: "no longer supported (D46)",
-	}, {
 		name: "route to unknown station",
 		ini: trajSection + pnptaskSection + stationSections + `
 [PNPTASK_ROUTE_1]

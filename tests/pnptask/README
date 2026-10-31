@@ -135,26 +135,23 @@ The scenario directories
     probing/    empty slots corrected by the gripper, up to TRAY_EMPTY (D9)
     homing/     the home request and manual jog (D18, D25)
     busy/       busy gating, the wait position, the auto-enable abort (D15)
-    waitzone/   the wait position derived from a dead zone, streamed (D29)
+    scenegate/  legs through the movable region wait for the scene (D45)
     errors/     the error ids of §7.5 and the error-reset that clears them
     estop/      an estop mid-job and the way back to a running machine (D14)
     persist/    the tracked world surviving a restart (D6)
     altpicker/  the alternating-picker reference flow of §8
     manual/     the manual-handling retention round trip of §8.1
+    softlimit/  a joint pushed past its soft limit with the amps off
+    spline/     a smoothed leg in the real TP (PATH_SHAPER = spline,
+                D47-D50), on its own variant of the config
 
-Two related tests live outside this directory because they need their own
-config and a realtime instrument rather than the shared simulation:
+A related test lives outside this directory because it needs its own config
+and a realtime instrument rather than the shared simulation:
 
-    ../pnptask-blend/                 whether the second leg of a streamed
-                                      approach blends into the first (D29).
-                                      Release and capture are both in the servo
-                                      thread — driving either from a script over
-                                      REST puts a non-realtime latency in series
-                                      with a realtime effect and the answer then
-                                      depends on the latency.
     ../trajectory-planner/decel-rate/ the deceleration the TP actually applies
-                                      at the end of the queue, which is what
-                                      sets the length of that leg's tail.
+                                      at the end of the queue, and that a
+                                      blended segment gets half of it: why a
+                                      leg ends in an exact stop (D40).
 
 Each is a `runtests` test: a test.sh that starts stmakd on this config and a
 Python driver that commands jobs over the handshake pins and asserts what came

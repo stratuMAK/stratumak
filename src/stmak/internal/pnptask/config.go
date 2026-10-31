@@ -769,13 +769,6 @@ func loadStations(r *iniReader, cfg *Config) error {
 			s.Wait.X = r.lengthReq(sec, "WAIT_X")
 			s.Wait.Y = r.lengthReq(sec, "WAIT_Y")
 		}
-		// D46: the dead-zone-derived wait position (D29) is gone. Refused
-		// rather than ignored: a config that still names it expects the head
-		// to drive on and stop at a zone boundary, and would instead see it
-		// wait where it stands.
-		if r.has(sec, "WAIT_DEADZONE") || r.has(sec, "WAIT_CLEAR_DEADZONE") {
-			return fmt.Errorf("[%s]: WAIT_DEADZONE / WAIT_CLEAR_DEADZONE are no longer supported (D46) — remove them; a busy station without WAIT_X/WAIT_Y is waited for where the head stands, and the scene gate (D45) keeps legs out of a changing scene", sec)
-		}
 		if err := r.err; err != nil {
 			return err
 		}
