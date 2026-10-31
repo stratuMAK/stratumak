@@ -8,4 +8,6 @@ PASS the head never goes above the travel height
 PASS the path keeps the clearance from both zones
 PASS no axis exceeds its velocity or acceleration
 PASS the stream is faster than separate strokes
+PASS the head went from the bottom of the tray slot to the bottom of station 21
+PASS the place runs its descent as part of the leg, without a stop
 ALL OK

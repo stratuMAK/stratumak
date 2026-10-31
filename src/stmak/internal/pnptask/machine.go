@@ -251,6 +251,10 @@ type control struct {
 	// machine standing runs it first (flushLift).
 	lift pendingLift
 
+	// queued are the segments the current leg has dispatched, for the
+	// distance left in the TP queue (queueDistance, D52).
+	queued []queuedSeg
+
 	// lowAt/lowPos: a stay-near place on a LOW_MOVE_MAX tray left the head
 	// down at its stroke height there (D38). Only believed while the
 	// commanded position is still exactly lowPos.

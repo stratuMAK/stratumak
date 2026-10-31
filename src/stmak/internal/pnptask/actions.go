@@ -621,7 +621,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		if err := c.retract(j.travel); err != nil {
 			return err
 		}
-		if err := c.travel(j, pk, s.cfg.Pos, noDescent); err != nil {
+		if err := c.travel(j, pk, s.cfg.Pos, c.placeDescent(s)); err != nil {
 			return err
 		}
 	} else {
@@ -629,16 +629,13 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		// busy gating, then release): a fixture whose process is still running
 		// must not be told to unclamp, and every error path below withdraws
 		// the request for exactly that reason.
-		// The descent waits for the fixture's released below, so it is a
-		// stroke of its own, not part of the leg (D52).
-		if err := c.gatedTravel(j, pk, s, busy, func() { c.requestRelease(s, true) }, noDescent); err != nil {
+		if err := c.gatedTravel(j, pk, s, busy, func() { c.requestRelease(s, true) }, c.placeDescent(s)); err != nil {
 			return err
 		}
 	}
+	// The descent came with the leg, or as a stroke once released was high
+	// (placeDescent); released is confirmed with the head down either way.
 	if err := c.waitReleased(s, true); err != nil {
-		return err
-	}
-	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get() + s.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
@@ -662,6 +659,19 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 		return err
 	}
 	return c.up(j, j.dest, j.stayNear)
+}
+
+// placeDescent is the descent into process station s for a place: it may
+// only start with the fixture open, so it joins the leg (D52) only if the
+// fixture reports released while the head is on its way, early enough to
+// queue the arc; otherwise it is a stroke of its own after waitReleased. The
+// z-offset is read now, at the approach, like every stroke's.
+func (c *control) placeDescent(s *procState) descent {
+	st := c.m.world.station(s.cfg.ID)
+	z := s.cfg.ZPick + s.pins.zOffset.Get() + s.cfg.ZPlaceOffset
+	return downWhen(z, st.zCornerRadius(),
+		func() bool { return c.in.procReleased[s.idx] },
+		func() error { return c.waitReleased(s, true) })
 }
 
 // ---------------------------------------------------------------------------

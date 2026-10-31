@@ -143,6 +143,7 @@ func (c *control) lineCapped(to motctl.Pose, velReq, accReq, pathVel float64) er
 	if err := c.m.mc.SetLine(to, vel, vel, acc, motionTypeTraverse, c.moveID, 0, -1); err != nil {
 		return faultf(errMotionError, "commanding a move to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
 	}
+	c.noteQueued(math.Sqrt((to.X-c.cmdPos.X)*(to.X-c.cmdPos.X) + (to.Y-c.cmdPos.Y)*(to.Y-c.cmdPos.Y) + (to.Z-c.cmdPos.Z)*(to.Z-c.cmdPos.Z)))
 	c.cmdPos = to
 	c.motionDispatched = true
 	return nil
@@ -307,6 +308,11 @@ func (c *control) travel(j *job, pk int, target pnproute.Point, d descent) error
 		// A descent with no corner arc is a stroke of its own, after the
 		// leg -- and after the scene gate's lock, which covers the leg, as
 		// it did before the descent was part of a travel.
+		if d.wait != nil {
+			if err := d.wait(); err != nil {
+				return err
+			}
+		}
 		return c.zStroke(d.z)
 	}
 	return nil
@@ -342,21 +348,137 @@ func (c *control) travelLeg(j *job, pk int, target pnproute.Point, d descent) (*
 	if err := c.dispatchLeg(j, lg, d); err != nil {
 		return nil, err
 	}
+	if d.on && lg.r1 > 0 && d.ready != nil {
+		// The tail was held back: decide on the way.
+		descend, err := c.awaitDescent(d)
+		if err != nil {
+			return nil, err
+		}
+		if descend {
+			err = c.queueDescent(lg, d)
+		} else {
+			err = c.queueTail(j, lg)
+			lg.r1 = 0
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 	return lg, c.waitMotionDone()
+}
+
+// awaitDescent decides a held-back descent while the head travels (D52): true
+// as soon as d.ready holds, false once the head is so near the end of the
+// queued segments that the TP would start braking for it -- the braking
+// distance at the current speed under min(ax, ay), plus what the speed covers
+// in two control cycles and the dispatch, plus 2 mm. A queue that has run out
+// decides at once. Status right after a dispatch still describes the machine
+// before it, so the distance is only trusted after dispatchSettleTicks good
+// reads.
+func (c *control) awaitDescent(d descent) (bool, error) {
+	lim := c.pathLimits()
+	brake := math.Min(lim.AccX, lim.AccY)
+	settled := 0
+	for {
+		if d.ready() {
+			return true, nil
+		}
+		if settled >= dispatchSettleTicks {
+			v := math.Max(c.status.CurrentVel, 0)
+			margin := v*(2*pollInterval.Seconds()+0.005) + 2
+			if c.queueDistance() <= v*v/(2*brake)+margin {
+				return d.ready(), nil
+			}
+		}
+		if !c.tick() {
+			return false, errStopping
+		}
+		if err := c.abortCheck(); err != nil {
+			return false, err
+		}
+		if c.commErrors == 0 {
+			settled++
+		}
+	}
+}
+
+// queueDistance is how far the machine still has to go along what is queued:
+// the running segment's distance to go and every queued segment behind it.
+func (c *control) queueDistance() float64 {
+	if !c.statusOK || (c.status.Inpos != 0 && c.status.QueueDepth == 0) {
+		return 0
+	}
+	rem := c.status.DistanceToGo
+	for _, q := range c.queued {
+		if q.id > c.status.Id {
+			rem += q.length
+		}
+	}
+	return rem
+}
+
+// queueDescent adds a held-back descent to its leg: the arc down from the
+// queued end, then the straight descent as the exact-stop last segment.
+func (c *control) queueDescent(lg *leg, d descent) error {
+	if err := c.zArc(pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}, lg.d1, lg.r1, false); err != nil {
+		return err
+	}
+	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+		return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+	}
+	to := c.cmdPos
+	to.Z = d.z
+	return c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc)
+}
+
+// queueTail ends a leg whose held-back descent did not come: the last line
+// to the target at the travel height, as the exact-stop last segment.
+func (c *control) queueTail(j *job, lg *leg) error {
+	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+		return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+	}
+	goal := lg.route.Waypoints[len(lg.route.Waypoints)-1]
+	to := c.cmdPos
+	to.X, to.Y, to.Z = goal.X, goal.Y, j.travel
+	return c.lineCapped(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc, lg.tailVel)
+}
+
+// queuedSeg is one segment a leg queued, for queueDistance.
+type queuedSeg struct {
+	id     int32
+	length float64
+}
+
+// noteQueued records a dispatched segment for queueDistance.
+func (c *control) noteQueued(length float64) {
+	c.queued = append(c.queued, queuedSeg{id: c.moveID, length: length})
 }
 
 // descent is the stroke a travel ends in (D52): down to z at the target, with
 // a corner arc of radius r joining it to the travel (0: a stroke of its own,
 // after the travel has stopped). on false: the travel ends at its height.
+//
+// ready, if set, is a condition the descent waits for (a fixture's released):
+// the leg is queued without its last stretch, and the arc is added while the
+// head is on its way if ready comes true before it gets near the end of what
+// is queued; otherwise the leg ends at its height and the descent is a stroke
+// of its own once wait has returned.
 type descent struct {
-	on   bool
-	z, r float64
+	on    bool
+	z, r  float64
+	ready func() bool
+	wait  func() error
 }
 
 func down(z, r float64) descent { return descent{on: true, z: z, r: r} }
 
 // noDescent is a travel that ends at its height.
 var noDescent = descent{}
+
+// downWhen is down, waiting for ready (see descent).
+func downWhen(z, r float64, ready func() bool, wait func() error) descent {
+	return descent{on: true, z: z, r: r, ready: ready, wait: wait}
+}
 
 // pendingLift is a lift out of a station that up() deferred (D52): to Z `to`,
 // joined to the next travel by a corner arc of radius up to r.
@@ -366,10 +488,14 @@ type pendingLift struct {
 }
 
 // leg is a planned travel: the route, and the radii of the Z corner arcs at
-// its start (r0, the lift) and end (r1, the descent); 0 is none.
+// its start (r0, the lift) and end (r1, the descent); 0 is none. dispatchLeg
+// fills in what a held-back tail needs: the end direction d1 and the
+// requested speed of the last line (0: the line's own limits).
 type leg struct {
-	route  *pnproute.Route
-	r0, r1 float64
+	route   *pnproute.Route
+	r0, r1  float64
+	d1      pnproute.Point
+	tailVel float64
 }
 
 // minZCornerRadius is the smallest Z corner arc worth queueing, mm: below it
@@ -594,6 +720,7 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 		}
 		return nil
 	}
+	c.queued = c.queued[:0]
 	route := lg.route
 	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
 	lineDir := func(a, b pnproute.Point) pnproute.Point {
@@ -610,6 +737,10 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	} else if w := route.Waypoints; len(w) >= 2 {
 		d0 = lineDir(w[0], w[1])
 		d1 = lineDir(w[len(w)-2], w[len(w)-1])
+	}
+	lg.d1 = d1
+	if segs := route.Segments; segs != nil {
+		lg.tailVel = segs[len(segs)-1].Vel
 	}
 
 	if c.lift.on {
@@ -685,18 +816,10 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 			}
 		}
 	}
-	if !descend {
-		return nil
+	if !descend || d.ready != nil {
+		return nil // a held-back descent is decided on the way (travelLeg)
 	}
-	if err := c.zArc(pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}, d1, lg.r1, false); err != nil {
-		return err
-	}
-	if err := lastStop(); err != nil {
-		return err
-	}
-	to := c.cmdPos
-	to.Z = d.z
-	return c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc)
+	return c.queueDescent(lg, d)
 }
 
 // zArc queues a Z corner arc of radius r (D52) from the tracked commanded
@@ -752,6 +875,7 @@ func (c *control) zArc(at, dir pnproute.Point, r float64, up bool) error {
 	if err := c.m.mc.SetCircle(to, center, normal, 0, vel, iniMaxvel, acc, motionTypeTraverse, c.moveID, 0); err != nil {
 		return faultf(errMotionError, "commanding a Z corner arc to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
 	}
+	c.noteQueued(r * math.Pi / 2)
 	c.cmdPos = to
 	c.motionDispatched = true
 	return nil
@@ -806,6 +930,7 @@ func (c *control) arc(to motctl.Pose, sg pnproute.Segment, lim pnproute.Limits) 
 		vel, pnproute.ArcMaxVel(sg.Radius, vel, lim), acc, motionTypeTraverse, c.moveID, 0); err != nil {
 		return faultf(errMotionError, "commanding an arc to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
 	}
+	c.noteQueued(sg.Length())
 	c.cmdPos = to
 	c.motionDispatched = true
 	return nil

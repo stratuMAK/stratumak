@@ -104,10 +104,10 @@ func zArcCheck(t *testing.T, moves []moveCall, start motctl.Pose, height float64
 func sq(v float64) float64 { return v * v }
 
 // TestZCornerArcs: with Z_CORNER_RADIUS a tray -> proc job runs the descent
-// into the tray slot and the lift out of it as corner arcs of the legs, with
-// no stop between the lift and the travel; the place into the process station
-// keeps its separate descent (it waits for the fixture's released first), and
-// the job ends with the head up.
+// into the tray slot, the lift out of it and the descent into the process
+// station as corner arcs of the legs, with no stop between the lift and the
+// travel -- the place's descent too, since the simulated fixture reports
+// released while the head is on its way -- and the job ends with the head up.
 func TestZCornerArcs(t *testing.T) {
 	for _, smooth := range []bool{false, true} {
 		f := newJobFixtureOpts(t, zCornerOpts(10, func(c *Config) { c.SmoothPaths = smooth }, nil))
@@ -123,16 +123,23 @@ func TestZCornerArcs(t *testing.T) {
 		// [PNPTASK_ROUTE_0]: the movement height for 10 -> 20 is 15 mm.
 		const height = 15.0
 		lifts, descents := zArcCheck(t, moves, motctl.Pose{X: 100, Y: 100, Z: 60}, height)
-		if lifts != 1 || descents != 1 {
-			t.Errorf("smooth %v: %d lift and %d descent arcs, want one each (tray slot)", smooth, lifts, descents)
+		if lifts != 1 || descents != 2 {
+			t.Errorf("smooth %v: %d lift and %d descent arcs, want one lift (tray slot) and two descents (slot, station)", smooth, lifts, descents)
 		}
 		// The descent into the slot: the tray's stroke is 15 - 2.5 = 12.5 mm,
-		// so the arc keeps its 10 mm and the stroke below it 2.5 mm.
+		// so the arc keeps its 10 mm and the stroke below it 2.5 mm. Into the
+		// station: 15 - 5 = 10 mm, so the arc gets 9 and the stroke 1 mm.
 		for i, m := range moves {
-			if m.arc && m.normal.Z == 0 && m.pos.Z < moves[i-1].pos.Z {
-				if math.Abs(m.pos.Z-(height-10)) > 1e-9 || moves[i+1].pos.Z != 2.5 {
-					t.Errorf("smooth %v: descent arc to Z %.3f, stroke to %.3f; want 5 and 2.5", smooth, m.pos.Z, moves[i+1].pos.Z)
-				}
+			if !m.arc || m.normal.Z != 0 || m.pos.Z >= moves[i-1].pos.Z {
+				continue
+			}
+			wantArc, wantStroke := height-10, 2.5
+			if m.pos.X == 300 && m.pos.Y == 200 {
+				wantArc, wantStroke = height-9, 5
+			}
+			if math.Abs(m.pos.Z-wantArc) > 1e-9 || moves[i+1].pos.Z != wantStroke {
+				t.Errorf("smooth %v: descent arc at (%g, %g) to Z %.3f, stroke to %.3f; want %g and %g",
+					smooth, m.pos.X, m.pos.Y, m.pos.Z, moves[i+1].pos.Z, wantArc, wantStroke)
 			}
 		}
 		last := moves[len(moves)-1]
@@ -270,5 +277,69 @@ func TestSeparateDescentOutsideTheSceneLock(t *testing.T) {
 	}
 	if descents != 1 {
 		t.Fatalf("%d descents into station 21, want 1: %+v", descents, moves)
+	}
+}
+
+// TestZCornerArcPlaceWaitsForReleased: the descent into a process station may
+// only start with the fixture open. A fixture that reports released only
+// after the head has arrived gets no descent arc: the leg ends at the travel
+// height, and the descent is a stroke of its own, dispatched after released
+// came.
+func TestZCornerArcPlaceWaitsForReleased(t *testing.T) {
+	o := zCornerOpts(10, nil, nil)
+	o.sim = func(s *machineSim) { s.fixtureLag = 40 }
+	f := newJobFixtureOpts(t, o)
+	f.homed()
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.setPos(100, 100, 60)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc with a slow fixture")
+	moves := f.mot.moveList()
+	_, descents := zArcCheck(t, moves, motctl.Pose{X: 100, Y: 100, Z: 60}, 15)
+	if descents != 1 {
+		t.Errorf("%d descent arcs, want only the tray slot's", descents)
+	}
+	f.sim.mu.Lock()
+	released := f.sim.releasedAt[0]
+	f.sim.mu.Unlock()
+	found := false
+	for i, m := range moves {
+		if m.pos.X == 300 && m.pos.Y == 200 && m.pos.Z == 5 {
+			found = true
+			prev := moves[i-1]
+			if m.arc || prev.pos.Z != 15 || prev.termCond != tpTermCondStop || prev.arc {
+				t.Errorf("descent into the station %+v after %+v, want a stroke after an exact stop at the travel height", m, prev)
+			}
+			if m.at.Before(released) {
+				t.Errorf("the descent was dispatched %v before released came", released.Sub(m.at))
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no descent into the station: %+v", moves)
+	}
+}
+
+// TestZCornerArcLiftAfterAFailedJob: a job that fails between a deferred lift
+// and the travel it was waiting for still takes the head up -- here wait-abort
+// is already raised when the job reaches the busy station's gate, after the
+// pick at the tray.
+func TestZCornerArcLiftAfterAFailedJob(t *testing.T) {
+	f := newJobFixtureOpts(t, zCornerOpts(10, nil, func(m *pnptaskModule) { m.world.procs[0].cfg.HasWait = false }))
+	f.homed()
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.setPos(100, 100, 60)
+	f.setBit(f.m.pins.procs[0].busy, true)
+	f.setBit(f.m.pins.waitAbort, true)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireError("wait-abort at the gate", errWaitAborted)
+	moves := f.mot.moveList()
+	last := moves[len(moves)-1]
+	if last.arc || last.pos.X != 120 || last.pos.Y != 430 || last.pos.Z != 15 || last.termCond != tpTermCondStop {
+		t.Errorf("the failed job ended with %+v, want the lift at the tray slot to the travel height", last)
 	}
 }

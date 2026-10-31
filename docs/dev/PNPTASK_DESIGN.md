@@ -1692,9 +1692,6 @@ arcs) adds 7–16 % per leg on top.
   sets `spline` for the trial (and drops `CORNER_RADIUS`, which is gone).
 - `Z_CORNER_RADIUS` on the coating machine: 10 mm to start (CoatV2conf);
   the sim leg below was fastest at 24 mm.
-- The place into a process station keeps its descent as a separate stroke:
-  it waits for the fixture's `released` first, which the leg cannot know at
-  dispatch.
 
 ### 14.5 As built (2026-10-31, phase 1)
 
@@ -1775,8 +1772,19 @@ arcs) adds 7–16 % per leg on top.
   min(vx/|dir.x|, vy/|dir.y|, vz) under MOVE_VEL/Z_VEL and the path cap;
   acceleration the smallest of the moving axes under MOVE_ACC/Z_ACC;
   `ini_maxvel` capped by the centripetal limit. `approach`, the gated
-  removal from a process station and the park end in their descent; the
-  place into a process station does not (see §14.4).
+  removal from a process station and the park end in their descent.
+- **Place into a process station**: its descent may only start with the
+  fixture open, and the release is requested only as the leg in starts (at
+  the gate), so whether it joins the leg is decided on the way
+  (`placeDescent`, `awaitDescent`): the leg is queued without its last line,
+  and the arc and the descent are added as soon as `released` is high --
+  unless the head is first within braking distance (current speed,
+  min(ax, ay)) plus two control cycles and 2 mm of the end of what is
+  queued; then the last line is queued as the exact stop and the descent is a
+  stroke after `waitReleased`. The distance left is motion's `distance_to_go`
+  of the running segment plus the lengths of the leg's segments behind it
+  (status `id`). `waitReleased` confirms released with the head down either
+  way.
 - **Runtest** `tests/pnptask/zarcs` (spline config, `Z_CORNER_RADIUS = 10`):
   station 21 → tray 11, bottom to bottom: no stop between the strokes,
   sideways only above travel − R (within 1e-3 mm: motion's cubic
@@ -1784,4 +1792,6 @@ arcs) adds 7–16 % per leg on top.
   lift accelerates at the full Z_ACC, which a blended join would halve),
   never above the travel height, clearance kept, every axis inside its
   limits, 1500 ms against 1551 ms with separate strokes (24 mm: 1436,
-  48 mm: 1465 — capped by Z_VEL/Z_ACC). Passes under full CPU load.
+  48 mm: 1465 — capped by Z_VEL/Z_ACC); the place before it (tray →
+  station 21) runs its descent arc too, the sim fixture opening while the
+  head is on its way. Passes under full CPU load.

@@ -19,7 +19,10 @@ from the bottom of the station to the bottom of the tray:
     Z Z_VEL 200 mm/s and Z_ACC 2000 mm/s²;
   - it is faster than the same leg with separate strokes (stop at the top of
     the lift and before the descent): 1551 ms there, measured with
-    Z_CORNER_RADIUS = 0 (1500 ms with 10 mm, 1436 with 24, 1465 with 48).
+    Z_CORNER_RADIUS = 0 (1500 ms with 10 mm, 1436 with 24, 1465 with 48);
+  - the place before it, tray -> station 21, gets its descent arc too: the
+    descent waits for the fixture's released, which the simulated fixture
+    reports while the head is still on its way.
 
 The times are counted in servo cycles (the capture's tags).
 """
@@ -122,5 +125,22 @@ pnpdrv.check(all(v <= 1 + 1e-6 and a <= 1.05 for v, a, *_ in worst), "no axis ex
 ms = (leg[-1][0] - leg[0][0]) * CYCLE * 1000
 pnpdrv.check(ms <= 0.98 * SEPARATE_MS, "the stream is faster than separate strokes",
              lambda: "%.0f ms, separate strokes %.0f ms" % (ms, SEPARATE_MS))
+
+# ── the place into station 21: its descent waits for the fixture ────────────
+#
+# The descent into a process station may only start with the fixture open;
+# the simulated fixture opens as soon as it is asked, while the head is still
+# on its way, so the place too runs from the bottom of the tray slot to the
+# bottom of the station without a stop.
+
+T = (100.0, 380.0, 2.5)    # tray 10, first slot, bottom
+k0 = max(i for i in range(i0) if at(rows[i], T))
+k1 = next((i for i in range(k0, i0 + 1) if at(rows[i], A)), None)
+pnpdrv.check(k1 is not None, "the head went from the bottom of the tray slot to the bottom of station 21")
+place = rows[k0:k1 + 1]
+pspeed = [math.dist(a[1:], b[1:]) / CYCLE for a, b in zip(place, place[1:])]
+pinner = pspeed[len(pspeed) // 20: -len(pspeed) // 20]
+pnpdrv.check(min(pinner) > 0.1 * max(pspeed), "the place runs its descent as part of the leg, without a stop",
+             lambda: "slowest %.1f mm/s, peak %.1f" % (min(pinner), max(pspeed)))
 
 pnpdrv.done()
