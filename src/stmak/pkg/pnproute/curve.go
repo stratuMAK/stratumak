@@ -68,15 +68,17 @@ const (
 
 // Smooth shapes r -- a route from this planner -- into a smooth curve with
 // sh and returns it as a new Route: the same Waypoints, Shape sh, Curve the
-// curve sampled every [curveStep] mm from start to goal, Length its length.
+// curve sampled every [curveStep] mm from start to goal, Segments the arc
+// chain the trajectory planner gets for it (D48), Length the chain's length.
 //
 // The curve's keys are the route's corner points (Douglas-Peucker at the
-// clearance). Where the curve falls short of the clearance -- measured to the
-// zones AS DRAWN and to the drawn outer limit, the margin it really keeps --
-// the key nearest the shortfall is pushed away from the obstacle (or, far
-// from any key, a key is added there) and the curve refitted. If that never
-// comes clear, Smooth returns [ErrNoCurve]: the route is the safety net, and
-// a curve may improve a leg, never make it impossible.
+// clearance). Where the commanded geometry -- the arc chain, not only the
+// curve it replaces -- falls short of the clearance, measured to the zones AS
+// DRAWN and to the drawn outer limit, the key nearest the shortfall is pushed
+// away from the obstacle (or, far from any key, a key is added there) and the
+// curve refitted. If that never comes clear, Smooth returns [ErrNoCurve]: the
+// route is the safety net, and a curve may improve a leg, never make it
+// impossible.
 //
 // A straight route is returned as it is (Shape [ShaperRoute]): it has no
 // corner to smooth. ShaperRoute returns r itself.
@@ -95,27 +97,54 @@ func (p *Planner) Smooth(r *Route, sh Shaper) (*Route, error) {
 	if len(r.Waypoints) <= 2 {
 		return r, nil
 	}
-	curve, ok := p.pushOut(simplifyDP(r.Waypoints, p.clearance), interp)
+	c, ok := p.pushOut(simplifyDP(r.Waypoints, p.clearance), interp)
 	if !ok {
 		return nil, fmt.Errorf("pnproute: %v: %w", sh, ErrNoCurve)
 	}
-	return &Route{Waypoints: r.Waypoints, Shape: sh, Curve: curve, Length: polyLength(curve)}, nil
+	out := &Route{Waypoints: r.Waypoints, Shape: sh, Curve: c.curve, sm: c.sm, driven: c.driven}
+	for _, cp := range c.chain {
+		out.Segments = append(out.Segments, segmentOf(cp.p))
+		out.pieces = append(out.pieces, [2]float64{cp.s0, cp.s1})
+		out.Length += cp.p.length()
+	}
+	return out, nil
 }
 
-// pushOut fits interp through keys and moves keys until the curve keeps the
-// clearance. It returns the clear curve, or false.
-func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point) ([]Point, bool) {
+// shapedCurve is a clear curve and what was built from it on the way.
+type shapedCurve struct {
+	curve  []Point      // the curve's samples
+	sm     []sample     // the same with arc length, direction and curvature
+	chain  []chainPiece // the arc chain
+	driven []Point      // the arc chain, sampled
+}
+
+// pushOut fits interp through keys and moves keys until the arc chain built
+// from the curve keeps the clearance. The curve is checked first, being
+// cheaper; the chain departs from it by hundredths of a millimetre, which
+// can still be the difference at the clearance.
+func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point) (shapedCurve, bool) {
 	c := p.clearance
 	for iter := 0; iter < maxPushes; iter++ {
 		pts := interp(keys, curveStep)
-		if !finitePoints(pts) {
-			return nil, false
+		if !finitePoints(pts) || len(pts) < 2 {
+			return shapedCurve{}, false
 		}
 		d, idx, q := p.curveClearance(pts, c)
+		var bad Point
+		var sBad float64
 		if d >= c-1e-9 {
-			return pts, true
+			sc := shapedCurve{curve: pts, sm: samplePrims(filletize(pts, -1), curveStep)}
+			sc.chain = arcChain(sc.sm, ArcPieceLength, ArcEndLine)
+			csm := samplePrims(chainPrims(sc.chain), curveStep)
+			sc.driven = samplePoints(csm)
+			var ci int
+			if d, ci, q = p.curveClearance(sc.driven, c); d >= c-1e-9 {
+				return sc, true
+			}
+			bad, sBad = sc.driven[ci], csm[ci].s
+		} else {
+			bad, sBad = pts[idx], polyLength(pts[:idx+1])
 		}
-		bad := pts[idx]
 		away := unit(bad.sub(q))
 		if d < 0 {
 			away = away.scale(-1) // inside an obstacle: its nearest boundary point is ahead
@@ -123,7 +152,6 @@ func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point) (
 		push := c - d + pushMargin
 		// The interior key whose position along the key polygon is nearest
 		// to the shortfall's position along the curve.
-		sBad := polyLength(pts[:idx+1])
 		best, bestDS := -1, math.Inf(1)
 		acc := 0.0
 		for k := 1; k < len(keys)-1; k++ {
@@ -150,7 +178,15 @@ func (p *Planner) pushOut(keys []Point, interp func([]Point, float64) []Point) (
 		}
 		keys[best] = keys[best].add(away.scale(push))
 	}
-	return nil, false
+	return shapedCurve{}, false
+}
+
+func chainPrims(chain []chainPiece) []prim {
+	out := make([]prim, len(chain))
+	for i, cp := range chain {
+		out[i] = cp.p
+	}
+	return out
 }
 
 // curveClearance is the smallest clearance over pts, the index where it

@@ -35,7 +35,10 @@ the machine carries.
 The route decides which side of each dead zone a leg passes; [Planner.Smooth]
 shapes it into a smooth curve through its corner points (a natural cubic
 spline or a centripetal Catmull-Rom curve), pushing keys out where the curve
-falls short of the clearance. The clearance is measured to the zones as drawn.
+falls short of the clearance. A curve is commanded as a chain of tangent arcs
+([Segment], two arcs per piece of about [ArcPieceLength] mm, ending in a
+[ArcEndLine] straight line), and the clearance is checked on that chain, the
+geometry actually driven, measured to the zones as drawn.
 Where no curve comes clear, the route itself is driven: it is clear by
 construction, so a curve may improve a leg, never make it impossible.
 

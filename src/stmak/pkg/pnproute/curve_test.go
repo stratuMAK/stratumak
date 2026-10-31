@@ -64,15 +64,72 @@ func assertCurve(t *testing.T, p *Planner, r, c *Route, sh Shaper) {
 			t.Fatalf("%v: curve samples %d..%d are %.4f apart", sh, i-1, i, d)
 		}
 	}
-	if math.Abs(c.Length-polyLength(c.Curve)) > 1e-9 {
-		t.Errorf("%v: length %.6f is not the curve's %.6f", sh, c.Length, polyLength(c.Curve))
-	}
-	if d, _, _ := p.curveClearance(c.Curve, math.Inf(1)); d < p.clearance-1e-9 {
-		t.Errorf("%v: curve keeps %.4f, want the clearance %g", sh, d, p.clearance)
+	assertChain(t, c, start, goal)
+	if d, _, _ := p.curveClearance(c.Path(), math.Inf(1)); d < p.clearance-1e-9 {
+		t.Errorf("%v: arc chain keeps %.4f, want the clearance %g", sh, d, p.clearance)
 	}
 	p.Metrics(c)
 	if c.MinClear < p.clearance-1e-6 {
 		t.Errorf("%v: Metrics finds %.4f to a dead zone, want the clearance %g", sh, c.MinClear, p.clearance)
+	}
+}
+
+// assertChain checks a curve's arc chain: from start to goal, joined end to
+// end and tangent at every join, ending in the closing line, close to the
+// curve, and as long as it says.
+func assertChain(t *testing.T, c *Route, start, goal Point) {
+	t.Helper()
+	segs := c.Segments
+	if len(segs) == 0 {
+		t.Fatal("no segments")
+	}
+	if segs[0].Start != start || segs[len(segs)-1].End != goal {
+		t.Fatalf("chain runs %v..%v, want %v..%v", segs[0].Start, segs[len(segs)-1].End, start, goal)
+	}
+	prims := make([]prim, len(segs))
+	sum := 0.0
+	for i, sg := range segs {
+		prims[i] = sg.prim()
+		sum += sg.Length()
+		if i > 0 && segs[i-1].End.dist(sg.Start) > 1e-9 {
+			t.Fatalf("segments %d and %d do not join: %v / %v", i-1, i, segs[i-1].End, sg.Start)
+		}
+		if sg.Kind == SegmentArc {
+			if d := math.Abs(sg.Center.dist(sg.Start) - sg.Radius); d > 1e-6*sg.Radius+1e-9 {
+				t.Fatalf("segment %d starts %.3g off its circle", i, d)
+			}
+			if d := math.Abs(sg.Center.dist(sg.End) - sg.Radius); d > 1e-6*sg.Radius+1e-9 {
+				t.Fatalf("segment %d ends %.3g off its circle", i, d)
+			}
+		}
+	}
+	if k := chainKink(prims); k > 1e-7 {
+		t.Errorf("arc chain kinks by %.3g rad; the TP would blend that join", k)
+	}
+	if last := segs[len(segs)-1]; c.Length > 3*ArcEndLine && (last.Kind != SegmentLine || math.Abs(last.Length()-ArcEndLine) > 1e-9) {
+		t.Errorf("chain does not end in a %g mm line: %+v", ArcEndLine, last)
+	}
+	if math.Abs(sum-c.Length) > 1e-9 {
+		t.Errorf("length %.6f, segments add up to %.6f", c.Length, sum)
+	}
+	// Close to the curve, bar the closing line's cut of the curve's end.
+	// Both run from start to goal, so the nearest curve segment is searched
+	// in a window around the last one.
+	worst, at := 0.0, 1
+	for _, q := range c.Path() {
+		if q.dist(goal) < 2*ArcEndLine {
+			continue
+		}
+		best, bestAt := math.Inf(1), at
+		for i := max(1, at-40); i < min(len(c.Curve), at+40); i++ {
+			if d := pointSegDistance(q, c.Curve[i-1], c.Curve[i]); d < best {
+				best, bestAt = d, i
+			}
+		}
+		worst, at = math.Max(worst, best), bestAt
+	}
+	if worst > 0.1 {
+		t.Errorf("arc chain departs %.3f mm from the curve", worst)
 	}
 }
 
@@ -125,12 +182,13 @@ func TestPushOut(t *testing.T) {
 		if d, _, _ := p.curveClearance(raw, math.Inf(1)); d >= clearance {
 			t.Fatalf("the raw curve keeps %.2f already; the test needs one that cuts the zone", d)
 		}
-		pts, ok := p.pushOut(append([]Point(nil), keys...), interp)
+		sc, ok := p.pushOut(append([]Point(nil), keys...), interp)
 		if !ok {
 			t.Fatal("push-out found no clear curve")
 		}
-		if d, _, _ := p.curveClearance(pts, math.Inf(1)); d < clearance-1e-9 {
-			t.Errorf("pushed curve keeps %.3f", d)
+		pts := sc.curve
+		if d, _, _ := p.curveClearance(sc.driven, math.Inf(1)); d < clearance-1e-9 {
+			t.Errorf("pushed arc chain keeps %.3f", d)
 		}
 		if pts[0] != keys[0] || pts[len(pts)-1] != keys[2] {
 			t.Errorf("push-out moved the ends: %v..%v", pts[0], pts[len(pts)-1])
@@ -246,3 +304,63 @@ func coatDir() string {
 
 func (b box) min() Point { return Point{b.minX, b.minY} }
 func (b box) max() Point { return Point{b.maxX, b.maxY} }
+
+// A biarc matches position and direction at both ends, and turns smoothly.
+func TestBiarc(t *testing.T) {
+	a, b := Point{0, 0}, Point{10, 3}
+	ta, tb := unit(Point{1, 1}), unit(Point{1, -0.5})
+	ps := biarc(a, ta, b, tb)
+	if len(ps) != 2 || ps[0].a.dist(a) > 1e-9 || ps[1].b.dist(b) > 1e-9 || ps[0].b.dist(ps[1].a) > 1e-9 {
+		t.Fatalf("biarc does not join a to b: %+v", ps)
+	}
+	sm := samplePrims(ps, 0.01)
+	if d := math.Abs(math.Remainder(sm[0].phi-math.Atan2(ta.Y, ta.X), 2*math.Pi)); d > 1e-6 {
+		t.Errorf("start direction off by %.3g rad", d)
+	}
+	if d := math.Abs(math.Remainder(sm[len(sm)-1].phi-math.Atan2(tb.Y, tb.X), 2*math.Pi)); d > 1e-6 {
+		t.Errorf("end direction off by %.3g rad", d)
+	}
+	if k := chainKink(ps); k > 1e-9 {
+		t.Errorf("the two arcs kink by %.3g rad", k)
+	}
+	// Parallel directions, and a target straight ahead.
+	if ps := biarc(a, Point{1, 0}, Point{10, 2}, Point{1, 0}); chainKink(ps) > 1e-9 || ps[len(ps)-1].b.dist(Point{10, 2}) > 1e-9 {
+		t.Errorf("S-biarc: %+v", ps)
+	}
+	for _, p := range biarc(a, Point{1, 0}, Point{10, 0}, Point{1, 0}) {
+		if p.kind != primLine {
+			t.Errorf("straight ahead: %+v, want lines", p)
+		}
+	}
+}
+
+// A curve whose curvature changes continuously is not cut into sample-sized
+// TP pieces (each would be held back by the minimum segment duration).
+func TestCurvePiecesHaveMinimumLength(t *testing.T) {
+	keys := []Point{{0, 0}, {40, 30}, {90, 35}, {130, 0}}
+	sm := samplePrims(filletize(centripetalCR(keys, curveStep), -1), curveStep)
+	b := curvePieces(sm, ArcPieceLength)
+	for k := 0; k+2 < len(b); k++ {
+		if l := sm[b[k+1]].s - sm[b[k]].s; l < arcMinPiece-1e-9 || l > ArcPieceLength+curveStep {
+			t.Errorf("piece %d is %.2f mm long", k, l)
+		}
+	}
+}
+
+// A blend arc takes the largest radius within the tolerance and half the
+// shorter adjacent segment (blendmath.c blendComputeParameters).
+func TestFilletRadius(t *testing.T) {
+	pr := filletize([]Point{{0, 0}, {100, 0}, {100, 100}}, 3)
+	if len(pr) != 3 || pr[1].kind != primArc {
+		t.Fatalf("want line, arc, line; got %+v", pr)
+	}
+	if want := 3 / (math.Sqrt2 - 1); math.Abs(pr[1].r-want) > 1e-9 {
+		t.Errorf("tolerance-bound R = %g, want %g", pr[1].r, want)
+	}
+	if r := filletize([]Point{{0, 0}, {4, 0}, {4, 100}}, 3)[1].r; math.Abs(r-2) > 1e-9 {
+		t.Errorf("length-bound R = %g, want 2", r) // tan(45°) = 1, half of 4
+	}
+	if pr := filletize([]Point{{0, 0}, {4, 0}, {4, 100}}, 0); len(pr) != 3 || pr[1].kind != primStop {
+		t.Errorf("tolerance 0: %+v, want a stop", pr)
+	}
+}

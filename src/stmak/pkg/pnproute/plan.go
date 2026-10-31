@@ -66,26 +66,32 @@ func WithOffsetArcStep(rad float64) Option {
 
 // Route is a planned path between two points. [Planner.Plan] returns the
 // visibility route: Waypoints and Length. [Planner.Smooth] shapes it into a
-// curve through its corners (D47): Shape names the shaper and Curve holds the
-// curve, sampled densely; Length is then the curve's. The diagnostic metrics
-// (Curv, MinRadius, MinClear) stay zero until [Planner.Metrics] computes them:
-// the clearance scan behind them costs far more than the plan itself, so it is
-// paid only where the numbers are actually read.
+// curve through its corners (D47): Shape names the shaper, Curve holds the
+// curve sampled densely and Segments the tangent arc chain the trajectory
+// planner is sent for it (D48); Length is then the chain's. The diagnostic
+// metrics (Curv, MinRadius, MinClear) stay zero until [Planner.Metrics]
+// computes them: the clearance scan behind them costs far more than the plan
+// itself, so it is paid only where the numbers are actually read.
 type Route struct {
 	Waypoints []Point   // the visibility route, start to goal, both included
-	Length    float64   // arc length of what is driven: the polyline, or the curve
-	Shape     Shaper    // ShaperRoute: the polyline is driven; otherwise Curve is
+	Length    float64   // arc length of what is driven: the polyline, or the arc chain
+	Shape     Shaper    // ShaperRoute: the polyline is driven; otherwise Segments are
 	Curve     []Point   // the smooth curve, sampled from start to goal; nil for ShaperRoute
-	Curv      []float64 // per-point curvature (1/radius) of the driven path, 0 at the ends; set by [Planner.Metrics]
+	Segments  []Segment // the commanded geometry of a curve; nil for ShaperRoute
+	Curv      []float64 // per-point curvature (1/radius) of Path, 0 at the ends; set by [Planner.Metrics]
 	MinRadius float64   // smallest turn radius, the speed bottleneck; Inf if straight; set by [Planner.Metrics]
-	MinClear  float64   // closest the driven path comes to any dead zone; Inf if there are none; set by [Planner.Metrics]
+	MinClear  float64   // closest Path comes to any dead zone; Inf if there are none; set by [Planner.Metrics]
+
+	sm     []sample     // the curve's samples with arc length, direction, curvature
+	pieces [][2]float64 // per segment: the stretch of the curve (arc length) its piece replaces
+	driven []Point      // Segments, sampled every curveStep
 }
 
-// Path is the polyline that is driven: the curve's samples for a smoothed
-// route, the waypoints otherwise.
+// Path is the commanded geometry as a polyline: the arc chain sampled every
+// fraction of a millimetre for a curve, the waypoints for the route.
 func (r *Route) Path() []Point {
-	if r.Curve != nil {
-		return r.Curve
+	if r.driven != nil {
+		return r.driven
 	}
 	return r.Waypoints
 }
