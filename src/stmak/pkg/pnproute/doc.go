@@ -30,6 +30,21 @@ get that is to teach them in machine coordinates, driving the machine along
 the relevant edges, so the outlines embody the physical extent of whatever
 the machine carries.
 
+# Smooth paths
+
+The route decides which side of each dead zone a leg passes; [Planner.Smooth]
+shapes it into a smooth curve through its corner points (a natural cubic
+spline or a centripetal Catmull-Rom curve), pushing keys out where the curve
+falls short of the clearance. A curve is commanded as a chain of tangent arcs
+([Segment], two arcs per piece of about [ArcPieceLength] mm, ending in a
+[ArcEndLine] straight line), and the clearance is checked on that chain, the
+geometry actually driven, measured to the zones as drawn. [Planner.PlanPath]
+plans and shapes a leg in one call: of the route and the two curves it drives
+the one a model of the trajectory planner says is fastest, and gives the
+curve's segments their requested speeds.
+Where no curve comes clear, the route itself is driven: it is clear by
+construction, so a curve may improve a leg, never make it impossible.
+
 # Cost split
 
 [NewPlanner] does the expensive work once: offsetting the shapes, discarding
@@ -67,8 +82,6 @@ graph size and planning time.
     hull.
   - Dead zones that appear, move or vanish at runtime. A Planner is built from a
     fixed scene; a changed world means a new Planner.
-  - Arc output primitives. Routes are polylines only; corner rounding lives in
-    the offset geometry and in the trajectory planner's blending.
   - SPLINE entities and bulge (arc) segments inside a polyline. Draw the
     outline as a closed polyline of straight segments, or as LINE and ARC
     entities that meet end to end.

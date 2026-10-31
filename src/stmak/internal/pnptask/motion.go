@@ -104,6 +104,12 @@ func toMotctlPose(p motstat.Pose) motctl.Pose {
 // silently skipped Z stroke runs the pick at travel height, grips nothing, and
 // marks good slots empty one after another.
 func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
+	return c.lineCapped(to, velReq, accReq, 0)
+}
+
+// lineCapped is line with the path velocity additionally capped at pathVel
+// (0 = no cap): a line of a smoothed path runs at its requested speed (D48).
+func (c *control) lineCapped(to motctl.Pose, velReq, accReq, pathVel float64) error {
 	if !isFinite(to.X) || !isFinite(to.Y) || !isFinite(to.Z) {
 		// A NaN/Inf target reaches this point through the float input pins
 		// (a z-offset wired to a broken sensor value, say); motion must never
@@ -113,6 +119,9 @@ func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
 			to.X, to.Y, to.Z)
 	}
 	vel, acc, moved := c.moveLimits(c.cmdPos, to, velReq, accReq)
+	if pathVel > 0 && vel > pathVel {
+		vel = pathVel
+	}
 	if !moved {
 		// Nothing to dispatch -- typically a route's first waypoint, where
 		// the head already stands -- and so nothing to check: a head that
@@ -290,31 +299,33 @@ func (c *control) notePlanTime(j *job, d time.Duration) {
 // scene may have changed while it waited, and a route planned before the wait
 // is not trusted.
 func (c *control) travel(j *job, pk int, target pnproute.Point) error {
-	wps, err := c.planLeg(j, pk, target)
+	route, err := c.planLeg(j, pk, target)
 	if err != nil {
 		return err
 	}
-	if c.m.planners.touchesMovable(c.legPath(wps)) {
+	if c.m.planners.touchesMovable(c.legPath(route)) {
 		if err := c.acquireScene(target); err != nil {
 			return err
 		}
 		defer c.releaseScene()
-		if wps, err = c.planLeg(j, pk, target); err != nil {
+		if route, err = c.planLeg(j, pk, target); err != nil {
 			return err
 		}
-		if !c.m.planners.touchesMovable(c.legPath(wps)) {
+		if !c.m.planners.touchesMovable(c.legPath(route)) {
 			c.releaseScene()
 		}
 	}
-	if err := c.dispatchRoute(j, wps); err != nil {
+	if err := c.dispatchRoute(j, route); err != nil {
 		return err
 	}
 	return c.waitMotionDone()
 }
 
-// legPath is a leg's route as the scene gate judges it: from where the head
-// stands, through every waypoint.
-func (c *control) legPath(wps []pnproute.Point) []pnproute.Point {
+// legPath is a leg as the scene gate judges it: from where the head stands,
+// along the geometry commanded -- the route's waypoints, or a smoothed
+// path's arc chain (D45, D47).
+func (c *control) legPath(route *pnproute.Route) []pnproute.Point {
+	wps := route.Path()
 	path := make([]pnproute.Point, 0, len(wps)+1)
 	path = append(path, pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y})
 	return append(path, wps...)
@@ -365,8 +376,11 @@ func (c *control) releaseScene() {
 //
 // The route is planned immediately before the leg runs (§7.4): the planner's
 // static graph is built once at load, so this is the ~1 ms two-node insertion,
-// comfortably inside D13's budget.
-func (c *control) planLeg(j *job, pk int, target pnproute.Point) ([]pnproute.Point, error) {
+// comfortably inside D13's budget. With PATH_SHAPER = spline it is then shaped
+// (D47/D50): two curves through it and the TP model's choice between them and
+// the route, ~10 ms on the coating machine, ~50 ms where neither curve comes
+// clear.
+func (c *control) planLeg(j *job, pk int, target pnproute.Point) (*pnproute.Route, error) {
 	// The scene is read here, not at job start: deadzone-select describes the
 	// machine as it is right now, and a leg that begins after the machine
 	// changed (a sphere opened while the job waited out a busy station) has to
@@ -398,50 +412,159 @@ func (c *control) planLeg(j *job, pk int, target pnproute.Point) ([]pnproute.Poi
 	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
 	goal := pnproute.Point{X: target.X - off.X, Y: target.Y - off.Y}
 	planStart := time.Now()
-	route, err := planner.Plan(start, goal)
+	route, err := planner.PlanPath(start, goal, pnproute.PathOptions{
+		Smooth:         c.m.cfg.SmoothPaths,
+		Limits:         c.pathLimits(),
+		BlendTolerance: c.m.cfg.BlendTolerance,
+	})
 	c.notePlanTime(j, time.Since(planStart))
 	if err != nil {
 		return nil, faultf(errPlanningFailed,
 			"no route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) (station point (%.3f, %.3f) − offset (%g, %g)) in dead-zone file %d: %v",
 			pk, start.X, start.Y, goal.X, goal.Y, target.X, target.Y, off.X, off.Y, j.deadzone, err)
 	}
-	return route.Waypoints, nil
+	return route, nil
+}
+
+// pathLimits are the XY travel limits as the path planner's TP model sees
+// them: the per-axis maxima under the MOVE_VEL/MOVE_ACC ceilings, the TP's
+// path cap and the servo period.
+func (c *control) pathLimits() pnproute.Limits {
+	vel := cappedAxisLimits(c.m.limits.AxisMaxVel[:], c.m.cfg.MoveVel)
+	acc := cappedAxisLimits(c.m.limits.AxisMaxAcc[:], c.m.cfg.MoveAcc)
+	return pnproute.Limits{
+		AccX: acc[0], AccY: acc[1],
+		VelX: vel[0], VelY: vel[1],
+		VelMax: c.m.limits.MaxVelocity,
+		Cycle:  c.m.cfg.ServoPeriod,
+	}
 }
 
 // dispatchRoute queues a planned leg. The segments go into the TP queue back
-// to back under a parabolic blend, which is what turns the planner's
-// clearance-rounded corners into smooth constant-Z travel — and why CLEARANCE >
-// BLEND_TOLERANCE is enforced at load: the TP blends corners *inward*, toward
-// the zone the route was planned around.
-func (c *control) dispatchRoute(j *job, waypoints []pnproute.Point) error {
+// to back under a parabolic blend: a route's corners are blended within
+// BLEND_TOLERANCE -- which is what turns the planner's clearance-rounded
+// corners into smooth constant-Z travel, and why CLEARANCE > BLEND_TOLERANCE
+// is enforced at load: the TP blends corners *inward*, toward the zone the
+// route was planned around -- and a smoothed path's chain joins tangentially,
+// which the TP finds by itself and runs without a blend (D48).
+func (c *control) dispatchRoute(j *job, route *pnproute.Route) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
 	if err := c.m.mc.SetTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)
 	}
-	for i, wp := range waypoints {
-		// The last segment of a leg ends at a standstill, so it is queued as
-		// an exact stop. Left parabolic it would run at HALF of MOVE_ACC for
-		// its whole length: the planner halves a parabolic segment's
-		// acceleration (tc.c, tcGetOverallMaxAccel) to leave room for a blend
-		// into the next one, even when nothing ever follows. The corner into
-		// it still blends -- the planner decides a join by the term cond of
-		// the segment BEFORE it, which stays parabolic.
-		if i == len(waypoints)-1 {
-			if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
-				return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+	// The last segment of a leg ends at a standstill, so it is queued as an
+	// exact stop. Left parabolic it would run at HALF of MOVE_ACC for its
+	// whole length: the planner halves a parabolic segment's acceleration
+	// (tc.c, tcGetOverallMaxAccel) to leave room for a blend into the next
+	// one, even when nothing ever follows. The corner into it still blends --
+	// the planner decides a join by the term cond of the segment BEFORE it,
+	// which stays parabolic.
+	lastStop := func() error {
+		if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+			return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
+		}
+		return nil
+	}
+	if route.Segments == nil {
+		for i, wp := range route.Waypoints {
+			if i == len(route.Waypoints)-1 {
+				if err := lastStop(); err != nil {
+					return err
+				}
+			}
+			to := c.cmdPos
+			to.X, to.Y, to.Z = wp.X, wp.Y, j.travel
+			// The first waypoint is where the picker already is, so its line
+			// drops itself in moveLimits; a Z still off the movement height is
+			// corrected by it rather than left for the next leg to trip over.
+			if err := c.line(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	// A smoothed path starts where the picker stands; a Z still off the
+	// movement height is corrected first, as for a route.
+	to := c.cmdPos
+	to.Z = j.travel
+	if err := c.line(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc); err != nil {
+		return err
+	}
+	lim := c.pathLimits()
+	for i, sg := range route.Segments {
+		if i == len(route.Segments)-1 {
+			if err := lastStop(); err != nil {
+				return err
 			}
 		}
 		to := c.cmdPos
-		to.X, to.Y, to.Z = wp.X, wp.Y, j.travel
-		// The first waypoint is where the picker already is, so its line drops
-		// itself in moveLimits; a Z still off the movement height is corrected by
-		// it rather than left for the next leg to trip over.
-		if err := c.line(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc); err != nil {
+		to.X, to.Y, to.Z = sg.End.X, sg.End.Y, j.travel
+		var err error
+		if sg.Kind == pnproute.SegmentArc {
+			err = c.arc(to, sg, lim)
+		} else {
+			err = c.lineCapped(to, c.m.cfg.MoveVel, c.m.cfg.MoveAcc, sg.Vel)
+		}
+		if err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// arc commands one XY arc of a smoothed path at constant Z, from the tracked
+// commanded position to `to` (D48, D49). It runs at the segment's requested
+// speed, capped so every axis stays inside its velocity limit over the
+// directions the arc sweeps (pnproute.ArcVel), with min(ax, ay) as its
+// acceleration, and is queued with that speed as its ini_maxvel,
+// capped by the arc's centripetal limit (pnproute.ArcMaxVel): the TP splits an
+// arc's acceleration between turning and speeding up by ini_maxvel, and there
+// is no feed override here to leave headroom for.
+func (c *control) arc(to motctl.Pose, sg pnproute.Segment, lim pnproute.Limits) error {
+	if !isFinite(to.X) || !isFinite(to.Y) || !isFinite(to.Z) || !isFinite(sg.Center.X) || !isFinite(sg.Center.Y) {
+		return faultf(errMotionError, "arc to (%v, %v, %v) is not finite", to.X, to.Y, to.Z)
+	}
+	if math.Abs(to.Z-c.cmdPos.Z) >= moveFuzz {
+		return faultf(errMotionError, "arc to (%.3f, %.3f) changes Z from %.3f to %.3f", to.X, to.Y, c.cmdPos.Z, to.Z)
+	}
+	// The whole arc, not only its end, must stay inside the axis limits: the
+	// four quadrant points it passes and its end.
+	a0 := math.Atan2(c.cmdPos.Y-sg.Center.Y, c.cmdPos.X-sg.Center.X)
+	for k := -4; k <= 4; k++ {
+		ang := float64(k) * math.Pi / 2
+		if d := (ang - a0) * math.Copysign(1, sg.Sweep); d <= 0 || d >= math.Abs(sg.Sweep) {
+			continue
+		}
+		pt := to
+		pt.X, pt.Y = sg.Center.X+sg.Radius*math.Cos(ang), sg.Center.Y+sg.Radius*math.Sin(ang)
+		if err := c.checkMoveInLimits(c.cmdPos, pt); err != nil {
+			return err
+		}
+	}
+	if err := c.checkMoveInLimits(c.cmdPos, to); err != nil {
+		return err
+	}
+	vel := math.Min(sg.Vel, pnproute.ArcVel(sg, lim))
+	acc := math.Min(lim.AccX, lim.AccY)
+	if !(vel > 0) || !(acc > 0) {
+		return faultf(errMotionError,
+			"no usable velocity/acceleration for the arc to (%.3f, %.3f) (requested %g mm/s) — check [AXIS_*]MAX_VELOCITY/MAX_ACCELERATION",
+			to.X, to.Y, sg.Vel)
+	}
+	turn := int32(0) // counter-clockwise about +Z
+	if sg.Sweep < 0 {
+		turn = -1 // clockwise, as canon passes a G2
+	}
+	c.moveID++
+	center := motctl.Cartesian{X: sg.Center.X, Y: sg.Center.Y, Z: to.Z}
+	if err := c.m.mc.SetCircle(to, center, motctl.Cartesian{Z: 1}, turn,
+		vel, pnproute.ArcMaxVel(sg.Radius, vel, lim), acc, motionTypeTraverse, c.moveID, 0); err != nil {
+		return faultf(errMotionError, "commanding an arc to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
+	}
+	c.cmdPos = to
+	c.motionDispatched = true
 	return nil
 }
 
