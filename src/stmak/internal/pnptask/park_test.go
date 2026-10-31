@@ -4,6 +4,7 @@ package pnptask
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -48,6 +49,34 @@ func TestParkMovesToTheParkPosition(t *testing.T) {
 	last := moves[len(moves)-1].pos
 	if last.X != 150 || last.Y != 160 || last.Z != 20 {
 		t.Errorf("last move = %+v, want (150, 160, 20)", last)
+	}
+}
+
+// TestParkedPublishedBeforeBusyFalls: a park's busy falls with parked
+// already up, as a job's falls with its outcome published.
+func TestParkedPublishedBeforeBusyFalls(t *testing.T) {
+	f := newParkFixture(t, parkTweak)
+	var mu sync.Mutex
+	seen, parked := false, false
+	f.sim.inLoop(t, func() {
+		f.sim.onBusyFall = func() {
+			mu.Lock()
+			defer mu.Unlock()
+			seen, parked = true, f.m.pins.parked.Get()
+		}
+	})
+	f.press(f.m.pins.park)
+	f.eventually("parked", func() bool { return f.bit("parked") })
+	f.eventually("busy to clear", func() bool { return !f.bit("busy") })
+	f.sampled()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !seen {
+		t.Fatal("the fall of busy was never observed")
+	}
+	if !parked {
+		t.Error("busy fell with parked still low")
 	}
 }
 

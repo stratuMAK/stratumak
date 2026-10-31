@@ -36,6 +36,10 @@ func (c *control) runParkRequest() {
 	default:
 		c.raise(err)
 	}
+	// parked is published before busy falls, as a job's outcome is
+	// (runJobHandshake): busy low with parked still low would read as a park
+	// that did not arrive.
+	c.publish()
 	c.m.pins.busy.Set(false)
 }
 
