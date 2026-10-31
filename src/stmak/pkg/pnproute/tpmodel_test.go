@@ -69,9 +69,36 @@ func TestCircleLimits(t *testing.T) {
 	L := testLimits()
 	near(t, "ini_maxvel = requested", ArcMaxVel(100, 300, L), 300, 1e-12)
 	near(t, "ini_maxvel capped", ArcMaxVel(10, 900, L), math.Sqrt(math.Sqrt(0.75)*3000*10), 1e-12)
-	near(t, "ini_maxvel axis cap", ArcMaxVel(1e6, 2000, L), 900, 1e-12)
 	_, at = circleLimits(100, 300, ArcMaxVel(100, 300, L), 3000)
 	near(t, "a_t with ini_maxvel = feed", at, 3000*math.Sqrt(1-0.09), 1e-12)
+}
+
+// An arc's speed bound keeps every axis inside its limit over the directions
+// it sweeps: along an axis that axis' limit, on a diagonal up to √2 more
+// (capped by the path limit), and an arc passing an axis direction gets that
+// axis' limit.
+func TestArcVel(t *testing.T) {
+	L := Limits{AccX: 3000, AccY: 3000, VelX: 600, VelY: 400, VelMax: 2000}
+	arc := func(dirDeg, sweepDeg float64) Segment {
+		// a unit-radius arc whose tangent starts at dirDeg, counter-clockwise
+		// for a positive sweep
+		th := dirDeg * math.Pi / 180
+		n := math.Copysign(1, sweepDeg)
+		c := Point{-n * math.Sin(th), n * math.Cos(th)} // centre seen from the start (0,0)
+		a0 := math.Atan2(-c.Y, -c.X)
+		sw := sweepDeg * math.Pi / 180
+		return Segment{Kind: SegmentArc, Start: Point{0, 0}, Center: c, Radius: 1, Sweep: sw,
+			End: Point{c.X + math.Cos(a0+sw), c.Y + math.Sin(a0+sw)}}
+	}
+	near(t, "along X", ArcVel(arc(0, 1), L), 600, 1e-12)
+	near(t, "45° small sweep", ArcVel(arc(44, 2), L), 400/math.Sin(46*math.Pi/180), 1e-9)
+	near(t, "through 90°", ArcVel(arc(80, 20), L), 400, 1e-12)
+	near(t, "through 180° clockwise", ArcVel(arc(190, -20), L), 600, 1e-12)
+	L.VelMax = 500
+	near(t, "path cap", ArcVel(arc(44, 2), L), 500, 1e-12)
+	line := Segment{Kind: SegmentLine, Start: Point{0, 0}, End: Point{1, 1}}
+	lv, _ := lineLimits(unit(Point{1, 1}), L)
+	near(t, "line", ArcVel(line, L), lv, 1e-12)
 }
 
 // The polyline model reproduces the legs measured on the coating machine

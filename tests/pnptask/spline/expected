@@ -6,6 +6,8 @@ PASS the leg runs at the movement height
 PASS the head keeps the clearance from both zones
 PASS the head never stops on the way
 PASS no axis exceeds MOVE_ACC
+PASS no axis exceeds MOVE_VEL
+PASS the path runs faster than MOVE_VEL on the diagonal
 PASS the head turns on the spline's wide radii
 PASS the leg takes the TP model's time (D50)
 ALL OK

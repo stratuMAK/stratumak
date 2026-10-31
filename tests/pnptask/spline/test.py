@@ -14,10 +14,12 @@ What this checks on the commanded position, captured every servo cycle:
     is tangent, so the TP blends none of them;
   - it turns on wide radii (the spline's tightest arc is 80 mm; the route's
     blended corners would be a few mm), and no axis exceeds MOVE_ACC;
-  - the leg takes what pnproute's TP model predicts for it (D50): 874 ms at
+  - no axis exceeds MOVE_VEL, while the path runs faster than that on the
+    diagonal arcs (each arc's speed is bounded per axis over its sweep);
+  - the leg takes what pnproute's TP model predicts for it (D50): 855 ms at
     MOVE_VEL 600, MOVE_ACC 3000, [TRAJ]MAX_LINEAR_VELOCITY 800 -- the route
-    would take 1044 ms. Within 3 %: the model was checked against tpmod to a
-    median of -0.5 %.
+    would take 1044 ms. Within 3 %: on curved legs tpmod runs 2 % slower
+    than the model (it enters the closing line later).
 
 The times are counted in servo cycles (the capture's tags), so a slow,
 non-realtime host gives the same numbers.
@@ -34,8 +36,9 @@ ZONES = [(340.0, 300.0, 420.0, 370.0), (500.0, 60.0, 560.0, 140.0)]
 START = (100.0, 380.0)
 GOAL = (470.0, 320.0)
 TRAVEL_Z = 40.0
-MODEL_MS = 874.4
+MODEL_MS = 855.3
 MOVE_ACC = 3000.0
+MOVE_VEL = 600.0
 CYCLE = 0.001
 
 
@@ -107,6 +110,12 @@ for a, b, c in zip(leg, leg[1:], leg[2:]):
         acc = max(acc, abs(c[k] - 2 * b[k] + a[k]) / CYCLE ** 2)
 pnpdrv.check(acc <= 1.05 * MOVE_ACC, "no axis exceeds MOVE_ACC",
              lambda: "peak axis acceleration %.0f mm/s^2" % acc)
+
+vax = max(abs(b[k] - a[k]) / CYCLE for a, b in zip(leg, leg[1:]) for k in (1, 2))
+pnpdrv.check(vax <= MOVE_VEL + 1e-3, "no axis exceeds MOVE_VEL",
+             lambda: "peak axis speed %.1f mm/s" % vax)
+pnpdrv.check(peak > 1.1 * MOVE_VEL, "the path runs faster than MOVE_VEL on the diagonal",
+             lambda: "peak path speed %.1f mm/s" % peak)
 
 # The tightest turn, from points about 5 mm apart along the path.
 pts, along = [leg[0]], 0.0

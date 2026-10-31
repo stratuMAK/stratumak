@@ -16,7 +16,8 @@ import "math"
 //     the arc. Lines get their per-axis limits in full (pnptask's
 //     moveLimits); the last line is an exact stop (D40).
 //   - A curve is queued as its arc chain (D48). Lines get their per-axis
-//     limits, arcs min(ax, ay) and min(vx, vy), and the tangential/normal
+//     limits, arcs min(ax, ay) and the per-axis speed bound over their sweep
+//     ([ArcVel]), and the tangential/normal
 //     split of blendmath.c pmCircleActualMaxVel, which is decided by the
 //     segment's ini_maxvel: pnptask passes the requested speed there (D49).
 //     A last arc keeps the initial ratio 0.5 (never finalized), which is why
@@ -176,16 +177,55 @@ func circleLimits(r, feed, maxvel, acc float64) (vel, at float64) {
 	return math.Min(feed, maxvel), acc * math.Sqrt(1-(an/acc)*(an/acc))
 }
 
+// ArcVel is the fastest an arc segment may run with every axis inside its
+// velocity limit: at tangent direction θ the path speed v puts v·|cos θ| on X
+// and v·|sin θ| on Y, so the bound is min(vx / max|cos θ|, vy / max|sin θ|)
+// over the directions the arc sweeps, capped by the path limit. A biarc piece
+// sweeps a few degrees, so on a diagonal this is up to √2 above min(vx, vy),
+// the direction-blind value canon passes for an arc. For a line (no sweep) it
+// is the line's own limit.
+func ArcVel(s Segment, L Limits) float64 {
+	th0 := primDir(s.prim(), false)
+	c, sn := maxAbsCosSin(th0, s.Sweep)
+	if s.Kind == SegmentLine {
+		c, sn = maxAbsCosSin(th0, 0)
+	}
+	v := L.vmax()
+	if c > 1e-12 {
+		v = math.Min(v, L.VelX/c)
+	}
+	if sn > 1e-12 {
+		v = math.Min(v, L.VelY/sn)
+	}
+	return v
+}
+
+// maxAbsCosSin is the largest |cos θ| and |sin θ| for θ from th0 over sweep.
+func maxAbsCosSin(th0, sweep float64) (c, s float64) {
+	lo, hi := th0, th0+sweep
+	if hi < lo {
+		lo, hi = hi, lo
+	}
+	c = math.Max(math.Abs(math.Cos(lo)), math.Abs(math.Cos(hi)))
+	s = math.Max(math.Abs(math.Sin(lo)), math.Abs(math.Sin(hi)))
+	if math.Floor(hi/math.Pi) > math.Floor(lo/math.Pi) {
+		c = 1 // passes a multiple of π: running along X
+	}
+	if math.Floor((hi-math.Pi/2)/math.Pi) > math.Floor((lo-math.Pi/2)/math.Pi) {
+		s = 1 // passes π/2 + a multiple of π: running along Y
+	}
+	return c, s
+}
+
 // ArcMaxVel is the ini_maxvel an arc of radius r requested at speed vel is
-// queued with (D49): the requested speed, capped by the arc's own limit
-// min(sqrt(0.87·a·r), min(vx, vy)) with a = min(ax, ay) -- the value canon
-// would pass. pnptask has no feed override to leave room for, and the
-// requested speed puts the TP on the split that speed needs instead of the
-// fixed 0.5 of every arc below R = v²/(0.87·a).
+// queued with (D49): the requested speed, capped by the arc's centripetal
+// limit sqrt(0.87·a·r), a = min(ax, ay). pnptask has no feed override to
+// leave room for, and the requested speed puts the TP on the split that speed
+// needs instead of the fixed 0.5 of every arc below R = v²/(0.87·a). vel is
+// already within [ArcVel].
 func ArcMaxVel(r, vel float64, L Limits) float64 {
 	a := math.Min(L.AccX, L.AccY)
-	canon := math.Min(math.Sqrt(math.Sqrt(0.75)*a*r), math.Min(L.VelX, L.VelY))
-	return math.Min(vel, canon)
+	return math.Min(vel, math.Sqrt(math.Sqrt(0.75)*a*r))
 }
 
 // minSegVel is the TP's floor on segment duration (TP_MIN_SEGMENT_CYCLES):
@@ -241,7 +281,7 @@ func tpChain(segs []Segment, L Limits) profile {
 			v, a := lineLimits(unit(sg.End.sub(sg.Start)), L)
 			pv[i], pa[i] = math.Min(sg.Vel, v), a
 		case SegmentArc:
-			f := math.Min(sg.Vel, math.Min(L.VelX, L.VelY))
+			f := math.Min(sg.Vel, ArcVel(sg, L))
 			acc := math.Min(L.AccX, L.AccY)
 			maxvel := ArcMaxVel(sg.Radius, f, L)
 			if i == len(segs)-1 {

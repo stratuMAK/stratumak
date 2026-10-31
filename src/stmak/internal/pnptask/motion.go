@@ -516,8 +516,9 @@ func (c *control) dispatchRoute(j *job, route *pnproute.Route) error {
 
 // arc commands one XY arc of a smoothed path at constant Z, from the tracked
 // commanded position to `to` (D48, D49). It runs at the segment's requested
-// speed under the arc limits canon gives an arc -- min(vx, vy) and
-// min(ax, ay) -- and is queued with the requested speed as its ini_maxvel,
+// speed, capped so every axis stays inside its velocity limit over the
+// directions the arc sweeps (pnproute.ArcVel), with min(ax, ay) as its
+// acceleration, and is queued with that speed as its ini_maxvel,
 // capped by the arc's centripetal limit (pnproute.ArcMaxVel): the TP splits an
 // arc's acceleration between turning and speeding up by ini_maxvel, and there
 // is no feed override here to leave headroom for.
@@ -545,7 +546,7 @@ func (c *control) arc(to motctl.Pose, sg pnproute.Segment, lim pnproute.Limits) 
 	if err := c.checkMoveInLimits(c.cmdPos, to); err != nil {
 		return err
 	}
-	vel := math.Min(sg.Vel, math.Min(lim.VelX, lim.VelY))
+	vel := math.Min(sg.Vel, pnproute.ArcVel(sg, lim))
 	acc := math.Min(lim.AccX, lim.AccY)
 	if !(vel > 0) || !(acc > 0) {
 		return faultf(errMotionError,

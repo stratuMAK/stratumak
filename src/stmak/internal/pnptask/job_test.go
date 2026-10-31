@@ -2098,9 +2098,9 @@ func TestTravelPlansInMachineFrame(t *testing.T) {
 
 // TestTravelSmoothPath (D47-D50): with PATH_SHAPER = spline a leg around a
 // zone is queued as a tangent chain of arcs and lines at the movement
-// height, clear of the zone, at the arc limits canon would give (min of the
-// axes) with the requested speed as ini_maxvel (D49), and ends in an exact
-// stop on a line (D48's closing line).
+// height, clear of the zone, at a speed that keeps each axis inside MOVE_VEL
+// over the arc's sweep and min(ax, ay), with that speed as ini_maxvel (D49),
+// and ends in an exact stop on a line (D48's closing line).
 func TestTravelSmoothPath(t *testing.T) {
 	f := newJobFixtureOpts(t, fixtureOpts{
 		files: map[string]string{zonesA: "zones_between.dxf", zonesB: fixtureClear},
@@ -2139,7 +2139,7 @@ func TestTravelSmoothPath(t *testing.T) {
 		if math.Abs(math.Hypot(cur.X-c.X, cur.Y-c.Y)-r) > 1e-6*r {
 			t.Fatalf("arc %d does not end on its circle", i)
 		}
-		if m.acc != 2000 || !(m.vel > 0) || m.vel > 500 || m.iniMaxvel > m.vel+1e-9 ||
+		if m.acc != 2000 || !(m.vel > 0) || m.vel > 500*math.Sqrt2+1e-9 || m.iniMaxvel > m.vel+1e-9 ||
 			m.iniMaxvel < math.Min(m.vel, math.Sqrt(math.Sqrt(0.75)*2000*r))-1e-9 {
 			t.Errorf("arc %d: vel %g, ini_maxvel %g, acc %g at R %.1f", i, m.vel, m.iniMaxvel, m.acc, r)
 		}
@@ -2157,6 +2157,11 @@ func TestTravelSmoothPath(t *testing.T) {
 		q := prev
 		for k := 1; k <= 16; k++ {
 			ang := a0 + sweep*float64(k)/16
+			// The tangent there is perpendicular to the radius: each axis's
+			// share of the arc's speed stays inside MOVE_VEL.
+			if vx, vy := m.vel*math.Abs(math.Sin(ang)), m.vel*math.Abs(math.Cos(ang)); vx > 500+1e-6 || vy > 500+1e-6 {
+				t.Errorf("arc %d drives X at %.1f, Y at %.1f mm/s", i, vx, vy)
+			}
 			p := pnproute.Point{X: c.X + r*math.Cos(ang), Y: c.Y + r*math.Sin(ang)}
 			if segmentCrossesRect(q, p, 100, 250, 135, 350) {
 				t.Errorf("arc %d enters the dead zone", i)

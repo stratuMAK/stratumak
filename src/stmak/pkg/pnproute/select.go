@@ -32,13 +32,13 @@ type PathOptions struct {
 // profile along the stretch of the curve each piece replaces.
 //
 // Without o.Smooth, or for a straight leg, it returns the route ([Planner.Plan]).
-// The returned Route's Time is the model's time for it.
+// With o.Smooth the returned Route's Time is the model's time for it.
 func (p *Planner) PlanPath(start, goal Point, o PathOptions) (*Route, error) {
 	r, err := p.Plan(start, goal)
 	if err != nil {
 		return nil, err
 	}
-	if !o.Smooth || len(r.Waypoints) <= 2 {
+	if !o.Smooth {
 		return r, nil
 	}
 	if !o.Limits.valid() {
@@ -47,8 +47,11 @@ func (p *Planner) PlanPath(start, goal Point, o PathOptions) (*Route, error) {
 	if o.BlendTolerance < 0 {
 		return nil, fmt.Errorf("pnproute: blend tolerance %v is negative", o.BlendTolerance)
 	}
-	best := r
 	r.Time = tpPolyline(r.Waypoints, o.BlendTolerance, o.Limits).T
+	if len(r.Waypoints) <= 2 {
+		return r, nil
+	}
+	best := r
 	for _, sh := range []Shaper{ShaperNatural, ShaperCatmullRom} {
 		c, err := p.Smooth(r, sh)
 		if errors.Is(err, ErrNoCurve) {
