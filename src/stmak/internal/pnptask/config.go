@@ -53,12 +53,6 @@ type Config struct {
 	Clearance      float64
 	BlendTolerance float64
 
-	// CornerRadius is the radius a route turns on around a dead zone's corner
-	// ([PNPTASK]CORNER_RADIUS, default 0 = the clearance), see
-	// pnproute.WithCornerRadius and D41. A wider turn is a faster one; the
-	// clearance is kept either way.
-	CornerRadius float64
-
 	// PosTolerance is how far a *computed* position may sit from the taught
 	// one it has to reproduce before the config is refused ([PNPTASK]
 	// POS_TOLERANCE, required). A tray grid is built from its step widths and
@@ -364,7 +358,12 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
 	cfg.Clearance = r.lengthReq(sec, "CLEARANCE")
 	cfg.BlendTolerance = r.lengthNonNeg(sec, "BLEND_TOLERANCE", 0)
-	cfg.CornerRadius = r.lengthNonNeg(sec, "CORNER_RADIUS", 0)
+	// D51: the corner circles are gone. Refused rather than ignored: a
+	// config that still sets it expects wide corners, and the curve shaper
+	// is what gives them now.
+	if r.has(sec, "CORNER_RADIUS") {
+		return nil, fmt.Errorf("[%s]CORNER_RADIUS is no longer supported (D51) — remove it; the path shaper smooths the corners", sec)
+	}
 	// Required rather than defaulted: it decides which taught geometry the
 	// load accepts, and a default would be this module's guess at how well the
 	// machine it is running on can be taught.
