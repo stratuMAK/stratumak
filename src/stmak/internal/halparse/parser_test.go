@@ -1797,3 +1797,22 @@ func TestSplitInstanceNames(t *testing.T) {
 		}
 	}
 }
+
+// FunctThread answers from the parsed addf commands, before anything runs.
+func TestParseResult_FunctThread(t *testing.T) {
+	res, err := NewSingleFileParser(nil, nil).ParseContent("test.hal", strings.Join([]string{
+		"newthread servo-thread 1000000",
+		"addf ethercat.read-all servo-thread",
+		"addf motion-controller servo-thread",
+		"addf ethercat.write-all servo-thread",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th, ok := res.FunctThread("ethercat.read-all"); !ok || th != "servo-thread" {
+		t.Errorf("FunctThread(ethercat.read-all) = %q, %v; want servo-thread", th, ok)
+	}
+	if _, ok := res.FunctThread("ethercat.0.read"); ok {
+		t.Error("FunctThread found a function no addf names")
+	}
+}

@@ -305,7 +305,10 @@ semantics (`T?`) and the `@rc_error` shape are documented in
 
 A `.so` in `cmod/`, `dlopen`ed by the launcher. It exports `New()` and receives
 a `cmod_env_t` (`src/stmak/pkg/cmodule/stmak_env.h`) containing vtables for
-log, INI, HAL, RTAPI, dynamic APIs and path resolution. A module has **no
+log, INI, HAL, RTAPI, dynamic APIs, path resolution and scheduling queries
+(`stmak_sched.h`: the CPU of the thread a function will run in, known before
+the threads exist because the launcher reserves every `newthread`'s CPU while
+parsing the HAL files). A module has **no
 direct symbol dependency** on the server or on other modules — everything
 arrives through that structure.
 

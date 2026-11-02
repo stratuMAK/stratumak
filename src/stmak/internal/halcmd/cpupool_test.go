@@ -17,6 +17,8 @@ func setPool(t *testing.T, avail []int, posixRT bool) {
 	pool.lastAssigned = -1
 	pool.logger = nil
 	pool.posixRT = posixRT
+	pool.reserved = nil
+	pool.threadCPU = nil
 	pool.mu.Unlock()
 }
 
@@ -199,5 +201,62 @@ func TestAcquireCPU_ExplicitThenAutoCoLocate(t *testing.T) {
 	// Pool now exhausted: auto co-locates onto the last one assigned (3).
 	if got := mustAcquire(t, "t3", -1); got != 3 {
 		t.Fatalf("auto overflow: got %d, want 3 (co-located on last assigned)", got)
+	}
+}
+
+// Reserving for the parsed newthread commands hands out the CPUs the threads
+// would have taken when created in that order, and creation then uses them:
+// the answer a module got before the threads existed holds.
+func TestReserveThreadCPU_SameAsCreationOrder(t *testing.T) {
+	setPool(t, []int{3, 2}, true)
+	servo, err := ReserveThreadCPU("servo-thread", -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := ReserveThreadCPU("base-thread", -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servo != 3 || base != 2 {
+		t.Fatalf("reserved servo=%d base=%d, want 3 and 2", servo, base)
+	}
+	if cpu, ok := ThreadCPU("servo-thread"); !ok || cpu != 3 {
+		t.Errorf("ThreadCPU(servo-thread) before creation = %d, %v; want 3, true", cpu, ok)
+	}
+	if _, ok := ThreadCPU("other-thread"); ok {
+		t.Error("ThreadCPU knows a thread that is neither reserved nor created")
+	}
+
+	// The creation of servo-thread takes its reservation, not a new CPU: the
+	// pool is already empty, so a fresh acquisition would co-locate on 2.
+	lease, ok := takeReservation("servo-thread", -1)
+	if !ok || lease.cpu != 3 {
+		t.Fatalf("takeReservation(servo-thread) = %+v, %v; want CPU 3", lease, ok)
+	}
+	recordThreadCPU("servo-thread", lease.cpu)
+	if cpu, ok := ThreadCPU("servo-thread"); !ok || cpu != 3 {
+		t.Errorf("ThreadCPU(servo-thread) after creation = %d, %v; want 3, true", cpu, ok)
+	}
+	if _, ok := takeReservation("servo-thread", -1); ok {
+		t.Error("a reservation was handed out twice")
+	}
+	forgetThreadCPU("servo-thread")
+	if _, ok := ThreadCPU("servo-thread"); ok {
+		t.Error("ThreadCPU still knows a deleted thread")
+	}
+}
+
+// A newthread whose cpu argument differs from the reserved one (a different
+// command of the same name) does not take that reservation.
+func TestTakeReservation_MatchesRequestedCPU(t *testing.T) {
+	setPool(t, []int{3, 2}, true)
+	if _, err := ReserveThreadCPU("servo-thread", 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := takeReservation("servo-thread", -1); ok {
+		t.Error("a cpu=-1 newthread took the reservation made for cpu=2")
+	}
+	if lease, ok := takeReservation("servo-thread", 2); !ok || lease.cpu != 2 {
+		t.Errorf("takeReservation(servo-thread, 2) = %+v, %v; want CPU 2", lease, ok)
 	}
 }

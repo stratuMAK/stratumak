@@ -130,6 +130,32 @@ func (r *ParseResult) Execute() error {
 	return nil
 }
 
+// ReserveThreadCPUs takes the CPU of every "newthread" in the remaining HAL
+// commands now, in command order (halcmd.ReserveThreadCPU), so a module can
+// learn where a thread will run before Execute() creates it.  Call it after
+// the CPU pool is initialized and before the modules are loaded.
+func (r *ParseResult) ReserveThreadCPUs() error {
+	for _, tok := range r.HALCmd {
+		if d, ok := tok.Data.(*NewThreadToken); ok {
+			if _, err := halcmd.ReserveThreadCPU(d.Name, d.CPU); err != nil {
+				return &ExecutionError{Loc: tok.Location, Err: err}
+			}
+		}
+	}
+	return nil
+}
+
+// FunctThread returns the thread the remaining HAL commands add funct to (the
+// first "addf" of it), and whether there is one.
+func (r *ParseResult) FunctThread(funct string) (string, bool) {
+	for _, tok := range r.HALCmd {
+		if d, ok := tok.Data.(*AddFToken); ok && d.Funct == funct {
+			return d.Thread, true
+		}
+	}
+	return "", false
+}
+
 // IterLoads calls fn once for each instance described by "load" command tokens
 // in ParseResult.Loads, passing the module path, instance name, and argument
 // slice.
