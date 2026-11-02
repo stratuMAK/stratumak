@@ -1543,6 +1543,9 @@ func TestJobPickerFaults(t *testing.T) {
 
 		f.runJob(10, 20, 0)
 		f.requireError("a picker that never opens", errPlaceFailed)
+		if got := f.get("error-station"); got != 0 {
+			t.Errorf("error-station = %v for a fault about no station, want 0", got)
+		}
 		if f.bit("proc.20.has-material") {
 			t.Error("the station reports material although the place failed")
 		}
@@ -1563,11 +1566,19 @@ func TestJobReleaseTimeout(t *testing.T) {
 
 	jf.runJob(10, 20, 0)
 	jf.requireError("a fixture that never reports released", errReleaseTimeout)
+	// error-station names whose fixture stuck: the job touched two stations.
+	if got := jf.get("error-station"); got != 20 {
+		t.Errorf("error-station = %v, want 20", got)
+	}
 	// The failed action withdrew its release request: no error path may leave
 	// the fixture commanded open (D19).
 	jf.consistently("release withdrawn after the fault", func() bool {
 		return !jf.bit("proc.20.release")
 	})
+	jf.clearError()
+	if got := jf.get("error-station"); got != 0 {
+		t.Errorf("error-station = %v after error-reset, want 0", got)
+	}
 }
 
 // TestPickFromProcReleaseFailureKeepsWorldTruthful: a release wait that fails
@@ -1588,6 +1599,9 @@ func TestPickFromProcReleaseFailureKeepsWorldTruthful(t *testing.T) {
 
 	jf.runJob(20, 10, 0) // pick from the proc station, place into the tray
 	jf.requireError("fixture held the part through the release wait", errReleaseTimeout)
+	if got := jf.get("error-station"); got != 20 {
+		t.Errorf("error-station = %v, want 20", got)
+	}
 
 	jf.consistently("release withdrawn and picker open", func() bool {
 		return !jf.bit("proc.20.release") && !jf.bit("picker.0.close")

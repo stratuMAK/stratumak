@@ -98,6 +98,9 @@ func (id errorID) String() string {
 type pnpFault struct {
 	id  errorID
 	msg string
+	// station is the TRAYDEF/PROCDEF id the fault is about, published on
+	// error-station; 0 when it is about no one station.
+	station uint32
 }
 
 func (f *pnpFault) Error() string { return fmt.Sprintf("%s: %s", f.id, f.msg) }
@@ -105,6 +108,11 @@ func (f *pnpFault) Error() string { return fmt.Sprintf("%s: %s", f.id, f.msg) }
 // faultf builds a pnpFault. The message is for the log; the id is for the pin.
 func faultf(id errorID, format string, args ...any) *pnpFault {
 	return &pnpFault{id: id, msg: fmt.Sprintf(format, args...)}
+}
+
+// atStation names the station a fault is about, for error-station.
+func (f *pnpFault) atStation(id uint32) {
+	f.station = id
 }
 
 // errStopping ends a wait because the module is shutting down. It is not a

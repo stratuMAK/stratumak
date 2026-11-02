@@ -173,8 +173,13 @@ func (c *control) requestRelease(s *procState, want bool) {
 func (c *control) waitReleased(s *procState, want bool) error {
 	timeout := time.Duration(c.m.cfg.ReleaseTimeout * float64(time.Second))
 	what := fmt.Sprintf("station %d released to go %s", s.cfg.ID, highLow(want))
-	return c.waitUntil(errReleaseTimeout, timeout, what,
+	err := c.waitUntil(errReleaseTimeout, timeout, what,
 		func() bool { return c.in.procReleased[s.idx] == want })
+	var f *pnpFault
+	if errors.As(err, &f) && f.id == errReleaseTimeout {
+		f.atStation(uint32(s.cfg.ID))
+	}
+	return err
 }
 
 // setRelease is request + wait, for the paths that have nothing to overlap.

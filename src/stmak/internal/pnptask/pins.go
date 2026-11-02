@@ -74,6 +74,12 @@ type pinSet struct {
 	errorID    *hal.Pin[uint32] // out, 0 = none
 	errorReset *hal.Pin[bool]   // in, rising edge clears (D11)
 
+	// errorStation is the station the latched fault is about (a TRAYDEF or
+	// PROCDEF id), 0 when it is about none: error-id says what went wrong,
+	// this says where -- RELEASE_TIMEOUT alone cannot tell the PLC whose
+	// fixture stuck when a job touches two.
+	errorStation *hal.Pin[uint32] // out, 0 = none
+
 	// Tuning knobs. Params rather than pins because they are adjusted with
 	// halcmd setp and never wired (D2); the INI only seeds them.
 	posSettleTime *hal.Param[float64]
@@ -250,6 +256,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 
 	p.errorFlag = mkPin[bool](b, "error", hal.Out)
 	p.errorID = mkPin[uint32](b, "error-id", hal.Out)
+	p.errorStation = mkPin[uint32](b, "error-station", hal.Out)
 	p.errorReset = mkPin[bool](b, "error-reset", hal.In)
 
 	p.posSettleTime = mkParam[float64](b, "pos-settle-time", hal.RW)
