@@ -402,3 +402,99 @@ func TestZCornerArcSwap(t *testing.T) {
 		t.Errorf("the fixture was opened %d times, want 1", n)
 	}
 }
+
+// pickClampFixture starts a job out of station 20 (at (300, 200), Z_PICK 5,
+// occupied) into tray 10 with Z_CORNER_RADIUS 6 and travel height 30, and
+// holds motion from the lift out of the station on -- the line up to Z 24,
+// before the arc -- with status reporting it running. It returns once the leg
+// is queued, with the lift's id and whether release was still high when the
+// lift was dispatched.
+func pickClampFixture(t *testing.T) (f *jobFixture, lift int32, releaseAtLift bool) {
+	t.Helper()
+	o := zCornerOpts(6, nil, func(m *pnptaskModule) { m.world.procs[0].setHasMaterial(true) })
+	f = newJobFixtureOpts(t, o)
+	f.homed()
+	f.selectTray(1)
+	f.mot.setPos(100, 100, 60)
+	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
+
+	var mu sync.Mutex
+	f.mot.mu.Lock()
+	f.mot.onMove = func(mc moveCall) {
+		if !mc.arc && mc.pos.X == 300 && mc.pos.Y == 200 && mc.pos.Z == 24 {
+			mu.Lock()
+			lift = mc.id
+			releaseAtLift = f.m.pins.procs[0].release.Get()
+			mu.Unlock()
+		}
+	}
+	f.mot.mu.Unlock()
+	f.mot.holdFrom(func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return lift != 0
+	})
+	f.mot.resetCalls()
+	startJobTo(f, 20, 10)
+	f.eventually("the leg to the tray queued behind the held lift", func() bool {
+		ms := f.mot.moveList()
+		return len(ms) > 0 && ms[len(ms)-1].pos.X == 120 && ms[len(ms)-1].pos.Y == 430
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	return f, lift, releaseAtLift
+}
+
+// TestZCornerArcPickClampsAfterTheLift (D53): a pick out of a process station
+// that no place follows there clamps the fixture again only with the part
+// out of it. The lift is the next leg's corner arc, so the clamp is not
+// requested at the bottom (the part would stay clamped in the fixture and be
+// pulled out of the picker): it waits until motion runs past the straight
+// lift, while the leg still runs, and the job confirms it before it ends.
+func TestZCornerArcPickClampsAfterTheLift(t *testing.T) {
+	f, lift, atLift := pickClampFixture(t)
+	if !atLift {
+		t.Fatal("the fixture was told to clamp before the lift out of it was dispatched")
+	}
+	f.sampled()
+	f.sampled()
+	if !f.bit("proc.20.release") {
+		t.Fatal("the fixture was told to clamp while motion still runs the straight lift")
+	}
+	if f.mot.runningID() != lift {
+		t.Fatalf("status reports segment %d running, want the held lift %d", f.mot.runningID(), lift)
+	}
+
+	// The lift is done, the arc runs: the clamp comes with the leg still held.
+	f.mot.advance()
+	f.eventually("the clamp request once motion is past the lift", func() bool { return !f.bit("proc.20.release") })
+	if f.jobDone() {
+		t.Fatal("the job ended before its leg ran")
+	}
+	f.mot.release()
+	f.awaitJob()
+	f.requireOK("pick out of the station, clamped after the lift")
+	if f.bit("proc.20.released") {
+		t.Error("the job ended with the fixture still reporting released")
+	}
+	lifts, _ := zArcCheck(t, f.mot.moveList(), motctl.Pose{X: 100, Y: 100, Z: 60}, 30)
+	if lifts != 1 {
+		t.Errorf("%d lift arcs, want the one out of the station", lifts)
+	}
+}
+
+// TestZCornerArcPickClampOnMachineOff (D53, D19): the machine going off
+// while the clamp still waits for the lift does not lose it: the fixture is
+// told to clamp, as every error path does. (An estop clears every release
+// request on its own; machine-off has only this.)
+func TestZCornerArcPickClampOnMachineOff(t *testing.T) {
+	f, _, _ := pickClampFixture(t)
+	if !f.bit("proc.20.release") {
+		t.Fatal("the fixture was told to clamp while motion still runs the straight lift")
+	}
+	f.setBit(f.m.pins.machineOn, false)
+	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireError("machine-on dropped during the leg", errMachineOff)
+	f.eventually("the clamp request after the machine went off", func() bool { return !f.bit("proc.20.release") })
+}

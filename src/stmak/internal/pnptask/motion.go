@@ -481,10 +481,20 @@ func downWhen(z, r float64, ready func() bool, wait func() error) descent {
 }
 
 // pendingLift is a lift out of a station that up() deferred (D52): to Z `to`,
-// joined to the next travel by a corner arc of radius up to r.
+// joined to the next travel by a corner arc of radius up to r. after is what
+// has to wait until the head is out of the station (afterLift, D53).
 type pendingLift struct {
 	on    bool
 	to, r float64
+	after func()
+}
+
+// liftWatch is an after hook (D53) whose lift went out with a leg: it fires
+// once motion reports a segment beyond id running -- id is the straight lift
+// up to the arc, or the arc itself if the lift has no straight part.
+type liftWatch struct {
+	id    int32
+	after func()
 }
 
 // leg is a planned travel: the route, and the radii of the Z corner arcs at
@@ -746,15 +756,28 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	if c.lift.on {
 		// planLeg gave the deferred lift its arc (travel ran it on its own
 		// otherwise): the straight stroke up, then the arc onto the travel.
+		after := c.lift.after
 		c.lift = pendingLift{}
+		// Its after hook (D53) waits for the head to be out of the station:
+		// past the straight stroke, where the sideways part begins. Until
+		// that segment's id is known, only a drain or an error path fires it.
+		c.watchLift(after, math.MaxInt32)
+		before := c.moveID
 		to := c.cmdPos
 		to.Z = j.travel - lg.r0
 		if err := c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc); err != nil {
 			return err
 		}
+		lift := c.moveID
 		if err := c.zArc(start, d0, lg.r0, true); err != nil {
 			return err
 		}
+		if lift == before {
+			// No straight stroke (the arc is the whole lift): out of the
+			// station only once the arc has run.
+			lift = c.moveID
+		}
+		c.watch.id = lift
 	} else {
 		// A Z still off the movement height is corrected first, rather than
 		// left for the next leg to trip over; at the height it drops itself
@@ -1034,6 +1057,8 @@ func (c *control) waitDrained() error {
 		return err
 	}
 	c.motionDispatched = false
+	// Everything dispatched has run, a watched lift (D53) with it.
+	c.fireLiftWatch()
 	return nil
 }
 
@@ -1083,9 +1108,89 @@ func (c *control) flushLift() error {
 	if !c.lift.on {
 		return nil
 	}
-	to := c.lift.to
+	to, after := c.lift.to, c.lift.after
 	c.lift = pendingLift{}
-	return c.zStroke(to)
+	err := c.zStroke(to)
+	if after != nil {
+		// Up, or failed on the way: either way the hook runs -- it is a
+		// fixture's clamp (D19), which an error path requests anyway.
+		after()
+	}
+	return err
+}
+
+// dropLift forgets a deferred lift without running it (machine off, estop,
+// homing, a jog, a new job). Its after hook and a watched one still run: they
+// are clamp requests (D19), which no path may lose.
+func (c *control) dropLift() {
+	after := c.lift.after
+	c.lift = pendingLift{}
+	if after != nil {
+		after()
+	}
+	c.fireLiftWatch()
+}
+
+// afterLift has fire run once the head is out of the station it is lifting
+// from (D53), and confirm before the job is done. With the lift done, at
+// once, confirm included -- the order every action had before D52. With the
+// lift deferred, fire goes with it: after its stroke if it runs on its own
+// (flushLift), or while the leg runs if it is the leg's corner arc, once
+// motion is past the straight lift (liftWatch). A pick out of a fixture is
+// the case: the fixture may only clamp again with the part out of it, and
+// the lift has to stay one stream with the travel.
+//
+// The observation lags the head by up to a control cycle, which only makes
+// fire later, never earlier.
+func (c *control) afterLift(fire func(), confirm func() error) error {
+	if !c.lift.on {
+		fire()
+		return confirm()
+	}
+	if prev := c.lift.after; prev != nil {
+		c.lift.after = func() { prev(); fire() }
+	} else {
+		c.lift.after = fire
+	}
+	c.confirms = append(c.confirms, confirm)
+	return nil
+}
+
+// watchLift has after wait for motion to run past segment id (liftWatch).
+func (c *control) watchLift(after func(), id int32) {
+	c.fireLiftWatch() // never two at once; an older one is long past
+	if after != nil {
+		c.watch = liftWatch{id: id, after: after}
+	}
+}
+
+// checkLiftWatch fires a watched after hook once a fresh status shows motion
+// running a segment beyond the watched one. Motion ids only grow, so a status
+// from before the dispatch can only make it wait.
+func (c *control) checkLiftWatch() {
+	if c.watch.after != nil && c.commErrors == 0 && c.status.Id > c.watch.id {
+		c.fireLiftWatch()
+	}
+}
+
+// fireLiftWatch runs a watched after hook now, if there is one.
+func (c *control) fireLiftWatch() {
+	if f := c.watch.after; f != nil {
+		c.watch = liftWatch{}
+		f()
+	}
+}
+
+// runConfirms waits for what afterLift deferred to be confirmed.
+func (c *control) runConfirms() error {
+	for len(c.confirms) > 0 {
+		w := c.confirms[0]
+		c.confirms = c.confirms[1:]
+		if err := w(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // effectiveZ is the Z the head is at for the next decision: a deferred

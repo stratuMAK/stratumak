@@ -508,7 +508,11 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 		// time and one more chance for the fixture to fail.
 		return nil
 	}
-	return c.setRelease(s, false)
+	// The fixture clamps again with the part out of it: after the lift, which
+	// may be the next leg's corner arc (D53), and confirmed before the job is
+	// done (D19).
+	return c.afterLift(func() { c.requestRelease(s, false) },
+		func() error { return c.waitReleased(s, false) })
 }
 
 // ---------------------------------------------------------------------------

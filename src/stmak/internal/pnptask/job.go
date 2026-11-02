@@ -216,8 +216,12 @@ func (c *control) runJob() error {
 		return err
 	}
 	// A job ends with the head up: a lift its last action deferred (D52)
-	// runs now.
-	return c.flushLift()
+	// runs now. A fixture that clamped after a lift (D53) is confirmed.
+	if err := c.flushLift(); err != nil {
+		return err
+	}
+	c.fireLiftWatch()
+	return c.runConfirms()
 }
 
 // liftAfterError runs a lift up() deferred (D52) when a job fails between
@@ -225,11 +229,15 @@ func (c *control) runJob() error {
 // then before, and is not left down at a station. Not on a machine that is
 // off or in estop -- there is nothing to command, and the record is dropped.
 func (c *control) liftAfterError() {
+	// A clamp waiting for a lift that went out with an aborted leg is
+	// requested now (D19); nothing is confirmed on an error path.
+	c.fireLiftWatch()
+	c.confirms = nil
 	if !c.lift.on {
 		return
 	}
 	if !c.enabled || c.estopped {
-		c.lift = pendingLift{}
+		c.dropLift()
 		return
 	}
 	if err := c.flushLift(); err != nil {
@@ -245,6 +253,7 @@ func (c *control) latchJob() *job {
 	// plan-time describes one job (see pins.go), so the previous job's worst
 	// case goes with the previous job.
 	c.m.pins.planTime.Set(0)
+	c.confirms = nil
 	return &job{
 		step:       int64(c.in.processStep),
 		originID:   c.in.originID,

@@ -54,6 +54,11 @@ type fakeMotion struct {
 	held     bool
 	holdWhen func() bool
 
+	// inflight are the ids of the dispatched moves not yet done, oldest
+	// first; status Id is the oldest's (the one running), the last one's
+	// once drained. advance() finishes the running one by hand.
+	inflight []int32
+
 	// onMove, if set, sees every dispatched move (f.mu held): for the cases
 	// that need the module's state at the moment a move was commanded.
 	onMove func(moveCall)
@@ -129,6 +134,10 @@ func (f *fakeMotion) GetStatus() (motstat.MotionStatus, error) {
 		f.moving--
 		if f.moving == 0 {
 			f.st.Inpos, f.st.QueueDepth = 1, 0
+			if n := len(f.inflight); n > 0 {
+				f.st.Id = f.inflight[n-1]
+			}
+			f.inflight = nil
 		}
 	}
 	if f.homingCycles > 0 {
@@ -178,6 +187,7 @@ func (f *fakeMotion) Abort() error {
 	// is over.
 	f.moving, f.held, f.holdWhen = 0, false, nil
 	f.st.Inpos, f.st.QueueDepth = 1, 0
+	f.inflight = nil
 	return nil
 }
 
@@ -291,9 +301,31 @@ func (f *fakeMotion) dispatch(mc moveCall) {
 	if f.moveCycles > 0 || f.held {
 		f.moving = max(f.moveCycles, 1)
 		f.st.Inpos, f.st.QueueDepth = 0, 1
+		f.inflight = append(f.inflight, mc.id)
+		f.st.Id = f.inflight[0]
 	} else {
 		f.st.Inpos, f.st.QueueDepth = 1, 0
+		f.inflight = nil
+		f.st.Id = mc.id
 	}
+}
+
+// advance finishes the running move of a held queue: status Id moves on to
+// the next one.
+func (f *fakeMotion) advance() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.inflight) > 1 {
+		f.inflight = f.inflight[1:]
+		f.st.Id = f.inflight[0]
+	}
+}
+
+// runningID is the id status reports running.
+func (f *fakeMotion) runningID() int32 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.st.Id
 }
 
 func (f *fakeMotion) JogAbort(num int32, _ int32) error {
