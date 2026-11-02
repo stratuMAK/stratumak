@@ -246,6 +246,21 @@ type control struct {
 	// the head may have been moved by hand meanwhile.
 	nearAt uint32
 
+	// lift is a lift out of a station that up() deferred (D52), so the next
+	// travel can queue it as one stream with the leg; anything that needs the
+	// machine standing runs it first (flushLift).
+	lift pendingLift
+
+	// watch is an after hook of a lift that went out with a leg, waiting
+	// for motion to pass it (D53); confirms are what afterLift left to be
+	// confirmed before the job is done.
+	watch    liftWatch
+	confirms []func() error
+
+	// queued are the segments the current leg has dispatched, for the
+	// distance left in the TP queue (queueDistance, D52).
+	queued []queuedSeg
+
 	// lowAt/lowPos: a stay-near place on a LOW_MOVE_MAX tray left the head
 	// down at its stroke height there (D38). Only believed while the
 	// commanded position is still exactly lowPos.
@@ -480,6 +495,7 @@ func (c *control) tick() bool {
 		}
 		c.sampledAt = time.Now()
 		c.sample()
+		c.checkLiftWatch()
 		c.publish()
 		// Persisting from here rather than from step() is what keeps the state
 		// of a long action durable: the actions of a job tick through this
@@ -837,6 +853,7 @@ func (c *control) enterEstop() {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.dropLift()
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -927,6 +944,7 @@ func (c *control) disable(reason string) {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.dropLift()
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -978,6 +996,7 @@ func (c *control) motionLost() {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.dropLift()
 	for i := range c.rise.pickerOpen {
 		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 	}
@@ -1156,6 +1175,7 @@ func (c *control) runHoming() error {
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
+	c.dropLift()
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1289,6 +1309,7 @@ func (c *control) jog() {
 		c.parked = false
 		c.nearAt = 0
 		c.lowAt = 0
+		c.dropLift()
 		if err := c.m.mc.JogCont(j.axis.Index, float64(dir)*vel, 1); err != nil {
 			c.raise(faultf(errMotionError, "jogging axis %c: %v", j.axis.Letter, err))
 			return

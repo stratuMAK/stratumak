@@ -1,0 +1,8 @@
+# The commanded joint positions every servo cycle, tagged with the cycle
+# number: a sample the I/O thread drops leaves a gap in the tags, not a
+# shorter leg.
+load filestream <pnp.cap> sample_cfg=fff outfile=path.txt depth=16384 tag
+net pnp-x-cmd => pnp.cap.sample.0
+net pnp-y-cmd => pnp.cap.sample.1
+net pnp-z-cmd => pnp.cap.sample.2
+addf pnp.cap.read servo-thread

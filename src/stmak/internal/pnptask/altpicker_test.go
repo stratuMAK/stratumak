@@ -566,6 +566,10 @@ func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f.setBit(f.m.pins.autoEnable, false)
 	f.sim.set(func(s *machineSim) { s.jammedOpen = false })
 	f.eventually("the picker to report opened", func() bool { return f.bit("picker.0.opened") })
+	// The sim sets opened in the tick hook, before that cycle's sample: let
+	// the loop see automatic low with the picker opened, or the start below
+	// may be no edge for it at all.
+	f.sampled()
 	f.setBit(f.m.pins.autoEnable, true)
 	f.runJob(10, 20, 0)
 	f.requireOK("a job after automatic started with the picker opened")

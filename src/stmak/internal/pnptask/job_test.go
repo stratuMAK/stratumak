@@ -55,6 +55,10 @@ type machineSim struct {
 	jammedClosed bool
 	// fixtureStuck: released never follows release.
 	fixtureStuck bool
+	// fixtureLag: released follows a rising release only this many control
+	// cycles later (0: in the same cycle).
+	fixtureLag int
+	lagLeft    []int
 
 	// pending runs at the start of the next cycle, on the control goroutine
 	// (see inLoop).
@@ -80,6 +84,7 @@ func newMachineSim(m *pnptaskModule, prep func(*machineSim)) *machineSim {
 		lastRelease:  make([]bool, len(m.pins.procs)),
 		releaseRises: make([]int, len(m.pins.procs)),
 		releasedAt:   make([]time.Time, len(m.pins.procs)),
+		lagLeft:      make([]int, len(m.pins.procs)),
 		closedAt:     make([]time.Time, n),
 	}
 	if prep != nil {
@@ -141,9 +146,14 @@ func (s *machineSim) step() {
 		want := p.procs[i].release.Get()
 		if want && !s.lastRelease[i] {
 			s.releaseRises[i]++
+			s.lagLeft[i] = s.fixtureLag
 		}
 		s.lastRelease[i] = want
 		if s.fixtureStuck {
+			continue
+		}
+		if want && s.lagLeft[i] > 0 {
+			s.lagLeft[i]--
 			continue
 		}
 		if want && !p.procs[i].released.Get() {
