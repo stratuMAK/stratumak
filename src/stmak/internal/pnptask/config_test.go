@@ -332,16 +332,23 @@ func TestBlendToleranceZero(t *testing.T) {
 	}
 }
 
-// TestCornerRadius: CORNER_RADIUS is optional, 0 (the clearance) by default,
-// and reaches the config as a length.
-func TestCornerRadius(t *testing.T) {
+// TestPathShaper: PATH_SHAPER is route by default, spline turns the curve
+// shapers on, anything else is refused; SERVO_PERIOD is read in ns.
+func TestPathShaper(t *testing.T) {
 	setupPaths(t)
-	if cfg := mustLoad(t, trajSection+pnptaskSection+stationSections); cfg.CornerRadius != 0 {
-		t.Errorf("default CORNER_RADIUS = %g, want 0", cfg.CornerRadius)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	if cfg.SmoothPaths || cfg.ServoPeriod != 0.001 {
+		t.Errorf("defaults: smooth %v, servo period %g", cfg.SmoothPaths, cfg.ServoPeriod)
 	}
-	cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 2.0\nCORNER_RADIUS = 50", 1)+stationSections)
-	if cfg.CornerRadius != 50 {
-		t.Errorf("CORNER_RADIUS = %g, want 50", cfg.CornerRadius)
+	for v, want := range map[string]bool{"route": false, "spline": true, "Spline": true} {
+		cfg := mustLoad(t, trajSection+strings.Replace(pnptaskSection, "BLEND_TOLERANCE = 2.0", "BLEND_TOLERANCE = 2.0\nPATH_SHAPER = "+v, 1)+stationSections)
+		if cfg.SmoothPaths != want {
+			t.Errorf("PATH_SHAPER = %s: smooth %v", v, cfg.SmoothPaths)
+		}
+	}
+	cfg = mustLoad(t, trajSection+"[EMCMOT]\nSERVO_PERIOD = 500000\n"+pnptaskSection+stationSections)
+	if cfg.ServoPeriod != 0.0005 {
+		t.Errorf("SERVO_PERIOD 500000: %g s", cfg.ServoPeriod)
 	}
 }
 
@@ -717,10 +724,10 @@ func TestLoadConfigErrors(t *testing.T) {
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "BLEND_TOLERANCE = -8: must not be negative",
 	}, {
-		name: "negative corner radius",
-		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nCORNER_RADIUS = -5\n" +
+		name: "unknown path shaper",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nPATH_SHAPER = bezier\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
-		want: "CORNER_RADIUS = -5: must not be negative",
+		want: `PATH_SHAPER = "bezier": expected route or spline`,
 	}, {
 		name: "negative velocity",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nMOVE_VEL = -500\n" +
@@ -1096,31 +1103,6 @@ Z_PICK = 3.0
 WAIT_X = 4.0
 `,
 		want: "WAIT_X and WAIT_Y must be given together",
-	}, {
-		// D46: the derived wait position is gone, and a config still naming
-		// it is refused rather than silently waiting somewhere else.
-		name: "dead-zone wait position (D46)",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_DEADZONE = 1
-WAIT_CLEAR_DEADZONE = 0
-`,
-		want: "WAIT_DEADZONE / WAIT_CLEAR_DEADZONE are no longer supported (D46)",
-	}, {
-		name: "half a dead-zone wait position (D46)",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_PROC_0]
-ID = 20
-X = 1.0
-Y = 2.0
-Z_PICK = 3.0
-WAIT_CLEAR_DEADZONE = 0
-`,
-		want: "no longer supported (D46)",
 	}, {
 		name: "route to unknown station",
 		ini: trajSection + pnptaskSection + stationSections + `

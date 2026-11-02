@@ -225,7 +225,7 @@ func assertRoute(t *testing.T, p *Planner, start, goal Point, r *Route) {
 		if a.dist(b) < 1e-9 {
 			t.Fatalf("route repeats waypoint %d (%v)", i, a)
 		}
-		if !p.visible(a, b, nil) {
+		if !p.visible(a, b) {
 			t.Fatalf("route leg %d (%v -> %v) is not collision-free", i, a, b)
 		}
 		sum += a.dist(b)
@@ -296,7 +296,7 @@ func referenceLength(p *Planner, start, goal Point) float64 {
 			break
 		}
 		for v := 0; v < n; v++ {
-			if v == u || done[v] || !p.visible(nodes[u], nodes[v], nil) {
+			if v == u || done[v] || !p.visible(nodes[u], nodes[v]) {
 				continue
 			}
 			if nd := dist[u] + nodes[u].dist(nodes[v]); nd < dist[v] {

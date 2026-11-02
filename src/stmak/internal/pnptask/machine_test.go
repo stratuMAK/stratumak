@@ -75,11 +75,19 @@ type jogCall struct {
 	stop bool
 }
 
-// moveCall is one dispatched SetLine: where to and under which limits.
+// moveCall is one dispatched SetLine or SetCircle: where to and under which
+// limits.
 type moveCall struct {
-	pos      motctl.Pose
-	vel      float64
-	acc      float64
+	pos       motctl.Pose
+	vel       float64
+	iniMaxvel float64
+	acc       float64
+	// arc: a SetCircle about center, counter-clockwise for turn 0 and
+	// clockwise for turn -1, with normal.
+	arc      bool
+	center   motctl.Cartesian
+	normal   motctl.Cartesian
+	turn     int32
 	id       int32
 	termCond int32
 	// at is when the module issued the move, for the cases that measure a
@@ -241,15 +249,33 @@ func (f *fakeMotion) SetTermCond(cond int32, tolerance float64) error {
 // once — what these cases are about is which moves a job makes, in which order and
 // under which limits, not how the machine gets there; moveCycles is for the one
 // case that needs a move still in flight.
-func (f *fakeMotion) SetLine(pos motctl.Pose, vel, _, acc float64, _, id int32, _ float64, _ int32) error {
+func (f *fakeMotion) SetLine(pos motctl.Pose, vel, iniMaxvel, acc float64, _, id int32, _ float64, _ int32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record("SetLine")
-	term := int32(-1)
+	f.dispatch(moveCall{pos: pos, vel: vel, iniMaxvel: iniMaxvel, acc: acc, id: id})
+	return nil
+}
+
+// SetCircle is SetLine for an arc: the end pose is applied at once.
+func (f *fakeMotion) SetCircle(pos motctl.Pose, center, normal motctl.Cartesian, turn int32, vel, iniMaxvel, acc float64, _, id int32, _ float64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("SetCircle")
+	f.dispatch(moveCall{pos: pos, vel: vel, iniMaxvel: iniMaxvel, acc: acc, id: id,
+		arc: true, center: center, normal: normal, turn: turn})
+	return nil
+}
+
+// dispatch records a move and applies it; f.mu is held.
+func (f *fakeMotion) dispatch(mc moveCall) {
+	pos := mc.pos
+	mc.termCond = -1
 	if n := len(f.termConds); n > 0 {
-		term = f.termConds[n-1].cond
+		mc.termCond = f.termConds[n-1].cond
 	}
-	f.moves = append(f.moves, moveCall{pos: pos, vel: vel, acc: acc, id: id, termCond: term, at: time.Now()})
+	mc.at = time.Now()
+	f.moves = append(f.moves, mc)
 	f.posCmd = motstat.Pose{X: pos.X, Y: pos.Y, Z: pos.Z}
 	f.posFb = f.posCmd
 	if f.holdWhen != nil && f.holdWhen() {
@@ -261,7 +287,6 @@ func (f *fakeMotion) SetLine(pos motctl.Pose, vel, _, acc float64, _, id int32, 
 	} else {
 		f.st.Inpos, f.st.QueueDepth = 1, 0
 	}
-	return nil
 }
 
 func (f *fakeMotion) JogAbort(num int32, _ int32) error {

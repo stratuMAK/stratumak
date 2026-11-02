@@ -53,18 +53,23 @@ type Config struct {
 	Clearance      float64
 	BlendTolerance float64
 
-	// CornerRadius is the radius a route turns on around a dead zone's corner
-	// ([PNPTASK]CORNER_RADIUS, default 0 = the clearance), see
-	// pnproute.WithCornerRadius and D41. A wider turn is a faster one; the
-	// clearance is kept either way.
-	CornerRadius float64
-
 	// PosTolerance is how far a *computed* position may sit from the taught
 	// one it has to reproduce before the config is refused ([PNPTASK]
 	// POS_TOLERANCE, required). A tray grid is built from its step widths and
 	// tilted onto its taught LAST (D24); this is how much of the leftover is
 	// teaching noise rather than a wrong config.
 	PosTolerance float64
+
+	// SmoothPaths drives a smooth curve through each leg's route where the TP
+	// model says it is faster ([PNPTASK]PATH_SHAPER = spline, D47/D50); off
+	// (PATH_SHAPER = route, the default) the route's polyline is driven, its
+	// corners blended within BLEND_TOLERANCE.
+	SmoothPaths bool
+
+	// ServoPeriod is the motion controller's period in seconds
+	// ([EMCMOT]SERVO_PERIOD, ns, default 1 ms), for the TP model's minimum
+	// segment duration.
+	ServoPeriod float64
 
 	// MoveVel/MoveAcc are the XY travel limits, ZVel/ZAcc the ones for the
 	// approach/retract strokes. All four are PER-AXIS ceilings, not path feeds:
@@ -364,7 +369,17 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
 	cfg.Clearance = r.lengthReq(sec, "CLEARANCE")
 	cfg.BlendTolerance = r.lengthNonNeg(sec, "BLEND_TOLERANCE", 0)
-	cfg.CornerRadius = r.lengthNonNeg(sec, "CORNER_RADIUS", 0)
+	switch v := strings.ToLower(r.str(sec, "PATH_SHAPER")); v {
+	case "", "route":
+	case "spline":
+		cfg.SmoothPaths = true
+	default:
+		return nil, fmt.Errorf("[%s]PATH_SHAPER = %q: expected route or spline", sec, r.str(sec, "PATH_SHAPER"))
+	}
+	cfg.ServoPeriod = r.float("EMCMOT", "SERVO_PERIOD", 1e6) / 1e9
+	if !(cfg.ServoPeriod > 0) {
+		return nil, fmt.Errorf("[EMCMOT]SERVO_PERIOD = %q: must be positive", r.str("EMCMOT", "SERVO_PERIOD"))
+	}
 	// Required rather than defaulted: it decides which taught geometry the
 	// load accepts, and a default would be this module's guess at how well the
 	// machine it is running on can be taught.
@@ -753,13 +768,6 @@ func loadStations(r *iniReader, cfg *Config) error {
 			s.HasWait = true
 			s.Wait.X = r.lengthReq(sec, "WAIT_X")
 			s.Wait.Y = r.lengthReq(sec, "WAIT_Y")
-		}
-		// D46: the dead-zone-derived wait position (D29) is gone. Refused
-		// rather than ignored: a config that still names it expects the head
-		// to drive on and stop at a zone boundary, and would instead see it
-		// wait where it stands.
-		if r.has(sec, "WAIT_DEADZONE") || r.has(sec, "WAIT_CLEAR_DEADZONE") {
-			return fmt.Errorf("[%s]: WAIT_DEADZONE / WAIT_CLEAR_DEADZONE are no longer supported (D46) — remove them; a busy station without WAIT_X/WAIT_Y is waited for where the head stands, and the scene gate (D45) keeps legs out of a changing scene", sec)
 		}
 		if err := r.err; err != nil {
 			return err

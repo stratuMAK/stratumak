@@ -31,24 +31,29 @@ pnp_wipe_state() {
     rm -rf "$PNP_DIR/db"
 }
 
-# pnp_start [--keep-state] [--log FILE]
+# pnp_start [--keep-state] [--log FILE] [--ini FILE]
 #
 # Start stmakd on the shared config and block until pnptask has the machine on.
 # Wipes the persisted state first unless --keep-state is given — which is what
-# the persistence scenario uses for its second start.
+# the persistence scenario uses for its second start. --ini runs a scenario's
+# own variant of the config instead (its db/ then lands next to that file).
 pnp_start() {
-    local wipe=1 log=()
+    local wipe=1 log=() ini="$PNP_INI"
     PNP_LOG="server.log"
     while true; do
         case "$1" in
             --keep-state) wipe=0; shift ;;
             --log) log=(--log "$2"); PNP_LOG="$2"; shift 2 ;;
+            --ini) ini="$2"; shift 2 ;;
             *) break ;;
         esac
     done
-    [ "$wipe" -eq 1 ] && pnp_wipe_state
+    if [ "$wipe" -eq 1 ]; then
+        pnp_wipe_state
+        rm -rf "$(cd "$(dirname "$ini")" && pwd)/db"
+    fi
 
-    stmak_start_server "${log[@]}" "$PNP_INI"
+    stmak_start_server "${log[@]}" "$ini"
     pnp_wait_ready
 }
 

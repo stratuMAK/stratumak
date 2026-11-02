@@ -89,11 +89,14 @@ type motionControl interface {
 	JogCont(num int32, vel float64, isTeleop int32) error
 	JogAbort(num int32, isTeleop int32) error
 
-	// Job motion (§7.3). Every move is a straight line: there are no arcs to
-	// command, the planner's corners are rounded by the TP's blending.
+	// Job motion (§7.3). A route is queued as straight lines, its corners
+	// rounded by the TP's blending; a smoothed path (D47/D48) as a tangent
+	// chain of lines and arcs in the XY plane.
 	SetTermCond(cond int32, tolerance float64) error
 	SetLine(pos motctl.Pose, vel, iniMaxvel, acc float64,
 		motionType, id int32, feedMmPerMin float64, indexerJnum int32) error
+	SetCircle(pos motctl.Pose, center, normal motctl.Cartesian, turn int32,
+		vel, iniMaxvel, acc float64, motionType, id int32, feedMmPerMin float64) error
 }
 
 // motionStatus is the motstat subset this module reads.
