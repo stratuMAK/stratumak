@@ -1572,10 +1572,14 @@ func (c *control) raise(err error) {
 			"error_id", uint32(fault.id), "error", fault.id.String(), "detail", fault.msg)
 		return
 	}
+	// The detail pins before the flag: a PLC that reacts to error rising
+	// reads them in the same cycle.
+	c.m.pins.errorStation.Set(fault.station)
 	c.m.pins.errorID.Set(uint32(fault.id))
 	c.m.pins.errorFlag.Set(true)
 	c.m.logger.Error("pnptask: fault",
-		"error_id", uint32(fault.id), "error", fault.id.String(), "detail", fault.msg)
+		"error_id", uint32(fault.id), "error", fault.id.String(),
+		"station", fault.station, "detail", fault.msg)
 }
 
 // clearError is the error-reset edge (D11). It also clears the per-picker
@@ -1584,6 +1588,7 @@ func (c *control) raise(err error) {
 func (c *control) clearError() {
 	c.m.pins.errorFlag.Set(false)
 	c.m.pins.errorID.Set(uint32(errNone))
+	c.m.pins.errorStation.Set(0)
 	for i := range c.m.pins.pickers {
 		c.m.pins.pickers[i].missing.Set(false)
 	}

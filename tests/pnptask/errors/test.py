@@ -40,6 +40,8 @@ pnpdrv.check_eq(m.run_job(10, 20), 17,
                 "a fixture that never reports released raises RELEASE_TIMEOUT")
 
 s = m.snapshot()
+pnpdrv.check_eq(s["error-station"], 20,
+                "error-station names the fixture that stuck, not the tray")
 pnpdrv.check(not s["proc.20.release"],
              "the failed action withdrew its release request (D19)")
 pnpdrv.check(not s["proc.20.has-material"], "the station is not credited with the part")
@@ -50,6 +52,7 @@ pnpdrv.check(s["picker.0.close"] and m.holding(0),
 # same job re-commanded finishes it — no second pick (§8's first rule).
 m.stick_fixture(0, False)
 m.clear_error()
+pnpdrv.check_eq(m.get("error-station"), 0, "error-reset clears error-station")
 pnpdrv.check_eq(m.run_job(10, 20), 0, "with the fixture working the job completes")
 pnpdrv.check_eq(m.run_job(20, 11), 0, "and the part moves on to the output tray")
 

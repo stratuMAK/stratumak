@@ -442,7 +442,8 @@ normalized to HAL-conventional dashes.
 | `scene-busy` | bit | out | a leg that touches the movable region is in flight, or taking the lock (D45) |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
-| `error-reset` | bit | in | rising edge clears error/error-id (D11) |
+| `error-station` | u32 | out | the TRAYDEF/PROCDEF id the latched fault is about, 0 = none; set with `error-id`, before `error` rises. Only `RELEASE_TIMEOUT` names one so far: a job touches two stations, and the PLC has to say whose fixture stuck |
+| `error-reset` | bit | in | rising edge clears error/error-id/error-station (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
 | `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The module's only realtime output — computed every servo cycle by `deadzone-check` (§2.1) from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
