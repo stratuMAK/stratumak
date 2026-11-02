@@ -59,6 +59,12 @@ type machineSim struct {
 	// pending runs at the start of the next cycle, on the control goroutine
 	// (see inLoop).
 	pending []func()
+
+	// onBusyFall runs in the first cycle that finds busy low after it was
+	// high, before that cycle publishes anything: the pins as a PLC reading
+	// them on the fall of busy sees them.
+	onBusyFall func()
+	lastBusy   bool
 }
 
 // newMachineSim builds the sim and hooks it into the control loop. It has to
@@ -99,6 +105,11 @@ func (s *machineSim) step() {
 	}
 	s.pending = nil
 	p := s.m.pins
+	busy := p.busy.Get()
+	if !busy && s.lastBusy && s.onBusyFall != nil {
+		s.onBusyFall()
+	}
+	s.lastBusy = busy
 	for i := range p.pickers {
 		pk := &p.pickers[i]
 		closing := pk.close.Get()
@@ -425,6 +436,50 @@ func TestJobTrayToProc(t *testing.T) {
 	if zs := zAtXY(f.mot.moveList(), 130, 430); len(zs) == 0 {
 		t.Errorf("the second job did not visit the second slot (130, 430): moves %+v",
 			f.mot.moveList())
+	}
+}
+
+// TestJobOutcomePublishedBeforeBusyFalls: busy low is the PLC's cue to read
+// what the job left behind, so the pins must already describe it then -- not
+// one cycle later, when tick publishes again.
+func TestJobOutcomePublishedBeforeBusyFalls(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	type snap struct{ seen, procHas, holds, avail bool }
+	var mu sync.Mutex
+	var got snap
+	f.sim.inLoop(t, func() {
+		f.sim.onBusyFall = func() {
+			mu.Lock()
+			defer mu.Unlock()
+			got = snap{
+				seen:    true,
+				procHas: f.m.pins.procs[0].hasMaterial.Get(),
+				holds:   f.m.pins.pickers[0].holds.Get(),
+				avail:   f.m.pins.trays[0].avail.Get(),
+			}
+		}
+	})
+
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc")
+	f.sampled()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !got.seen {
+		t.Fatal("the fall of busy was never observed")
+	}
+	if !got.procHas {
+		t.Error("busy fell with proc.20.has-material still low: the place was not published yet")
+	}
+	if got.holds {
+		t.Error("busy fell with picker.0.holds still high: the release was not published yet")
+	}
+	if !got.avail {
+		t.Error("busy fell with tray.10.avail low although 39 raw slots are left")
 	}
 }
 
