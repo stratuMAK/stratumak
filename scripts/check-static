@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-static [shell|c|all]
+# check-static [shell|c|manpages|all]
 #
 # Scoped, ENFORCING static analysis for the code this fork owns.
 #
@@ -17,6 +17,11 @@
 #   c:     cppcheck over the stmak-owned C paths.  Gate = cppcheck
 #          errors/warnings; style is not enabled.  Inherited 2.9 C is
 #          deliberately NOT gated.
+#   manpages: every program the debs install to usr/bin has a section 1
+#          man page, and the package's .manpages list ships it.  This is
+#          lintian's no-manual-page, which package-gate (lintian --fail-on
+#          warning) enforces only after the merge, from a 20-minute package
+#          build; here it fails the PR in a second.
 #
 # Compiler warnings are NOT gated here: every CI build job configures with
 # --enable-werror, so the compiler itself fails on one, in every path, without
@@ -63,6 +68,30 @@ if [ "$MODE" = c ] || [ "$MODE" = all ]; then
         echo "check-static: cppcheck findings (gate)" >&2
         rc=1
     fi
+fi
+
+if [ "$MODE" = manpages ] || [ "$MODE" = all ]; then
+    echo "== man pages for usr/bin (gate: lintian no-manual-page) =="
+    # Symlinks onto another binary: lintian does not ask a symlink for its
+    # own man page, so neither does this check.  Keep in step with the
+    # symlink targets in the Submakefiles.
+    NOMAN_SYMLINKS="classicladder"
+    for inst in debian/*.install debian/*.install.in; do
+        pkg=$(basename "$inst"); pkg=${pkg%.in}; pkg=${pkg%.install}
+        lists=$(ls debian/"$pkg".manpages debian/"$pkg".manpages.in 2>/dev/null)
+        for prog in $(sed -n 's|^usr/bin/\([^ /]*\).*|\1|p' "$inst"); do
+            case " $NOMAN_SYMLINKS " in *" $prog "*) continue ;; esac
+            if [ ! -f "docs/man/man1/$prog.1" ] &&
+               [ ! -f "docs/src/man/man1/$prog.1.adoc" ]; then
+                echo "check-static: $inst installs usr/bin/$prog, but there is no docs/man/man1/$prog.1" >&2
+                rc=1
+            elif [ -z "$lists" ] ||
+                 ! grep -qx "usr/share/man/man1/$prog.1" $lists; then
+                echo "check-static: usr/share/man/man1/$prog.1 is missing from debian/$pkg.manpages(.in)" >&2
+                rc=1
+            fi
+        done
+    done
 fi
 
 exit $rc

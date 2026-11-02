@@ -599,7 +599,7 @@ rationale are in [EXTERNAL_MODULE_INSTALL_DESIGN.md](EXTERNAL_MODULE_INSTALL_DES
 | Race detector | `make stmak-test-race` | nightly |
 | Go lint / format | `make stmak-lint`, `stmak-fmt-check` | pinned golangci-lint v2.12.2, standard linter set |
 | C warnings | `./configure --enable-werror` (every CI build job); `-Werror` is unconditional for modules `modcompile` compiles | the whole tree, the .comp-derived modules, and every external/user module |
-| Static checks | `scripts/check-static` | shell + C analyzers |
+| Static checks | `scripts/check-static` | shell + C analyzers, man page per usr/bin program |
 | RT effects | `make rt-effects-check` | clang function-effects over the RT path (§7) |
 | Web apps | `scripts/check-webapps.sh` | lint + type-check + unit tests |
 | Packaging | `scripts/package-gate.sh` | deb contents, lintian, install, smoke, external-module compile |

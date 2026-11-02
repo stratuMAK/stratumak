@@ -412,7 +412,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends cppcheck shellcheck
-    - name: Static checks (stmak-owned shell + C)
+    - name: Static checks (stmak-owned shell + C, man pages)
       run: ./scripts/check-static
 
   htmldocs:

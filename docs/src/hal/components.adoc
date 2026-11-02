@@ -135,6 +135,7 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/halcmd.1.html[halcmd] |Manipulate the LinuxCNC HAL from the command line ||
 | link:../man/man1/halreport.1.html[halreport] |Creates a report on the status of the HAL ||
 | link:../man/man1/halsampler.1.html[halsampler] |Sample data from HAL in realtime ||
+| link:../man/man1/siglog-decode.1.html[siglog-decode] |Decode a HAL signal change log written by the siglog cmod ||
 | link:../man/man1/halscope.1.html[halscope] |Software oscilloscope for viewing real time waveforms of HAL pins and signals ||
 | link:../man/man1/halshow.1.html[halshow]  |Show HAL parameters, pins and signals ||
 | link:../man/man1/halstreamer.1.html[halstreamer] |Stream file data into HAL in real time ||
