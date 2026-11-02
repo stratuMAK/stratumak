@@ -658,7 +658,40 @@ ETHERCAT_LIBS += -Wl,-rpath,$(ECMASTER_PREFIX)/lib
 endif
 
 .PHONY: ecmaster-check ecmaster-bootstrap ecmaster-configure ecmaster-build \
-        ecmaster-install ecmaster-clean ecmaster-distclean
+        ecmaster-install ecmaster-clean ecmaster-distclean ecmaster-head-force
+
+# The stamps below record what was done once; they must not outlive the state
+# they describe.  Two ways they did (2026-11-02):
+#   - the submodule moved to another commit (a pull, a branch switch) and the
+#     old master stayed installed: the plugin compiled against the old ecrt.h;
+#   - the master tree lost its generated files (a fresh checkout, git clean)
+#     while the stamps stayed: "make -C" found no Makefile.
+# So the submodule's commit is a prerequisite (.head, rewritten only when it
+# changes), and a stamp whose product is gone is dropped here, before make
+# decides anything.
+ECMASTER_HEAD_STAMP := $(ECMASTER_STAMPDIR)/.head
+ifeq ($(wildcard $(ECMASTER_DIR)/configure),)
+$(shell rm -f $(ECMASTER_STAMPDIR)/.bootstrapped $(ECMASTER_STAMPDIR)/.configured \
+	$(ECMASTER_STAMPDIR)/.built $(ECMASTER_STAMPDIR)/.installed)
+else ifeq ($(wildcard $(ECMASTER_DIR)/Makefile),)
+$(shell rm -f $(ECMASTER_STAMPDIR)/.configured $(ECMASTER_STAMPDIR)/.built \
+	$(ECMASTER_STAMPDIR)/.installed)
+else ifeq ($(wildcard $(ECMASTER_PREFIX)include/ecrt.h),)
+$(shell rm -f $(ECMASTER_STAMPDIR)/.installed)
+endif
+
+# The submodule's commit, rewritten only when it differs: its mtime moves
+# exactly when the master has to be built again.  "none" outside a git
+# checkout (a source tarball), where it never changes.
+$(ECMASTER_HEAD_STAMP): ecmaster-head-force
+	@mkdir -p $(ECMASTER_STAMPDIR)
+	@head=$$(git -C $(ECMASTER_DIR) rev-parse HEAD 2>/dev/null || echo none); \
+	if [ "$$(cat $@ 2>/dev/null)" != "$$head" ]; then \
+		echo "--- EtherCAT master: submodule at $$head ---"; \
+		echo "$$head" > $@; \
+	fi
+
+ecmaster-head-force:
 
 ecmaster-check:
 	@if [ ! -f $(ECMASTER_DIR)/configure.ac ]; then \
@@ -667,7 +700,7 @@ ecmaster-check:
 		exit 1; \
 	fi
 
-$(ECMASTER_STAMPDIR)/.bootstrapped: | ecmaster-check
+$(ECMASTER_STAMPDIR)/.bootstrapped: $(ECMASTER_HEAD_STAMP) | ecmaster-check
 	@echo "--- EtherCAT master: bootstrap ---"
 	@mkdir -p $(ECMASTER_STAMPDIR)
 	cd $(ECMASTER_DIR) && ./bootstrap
