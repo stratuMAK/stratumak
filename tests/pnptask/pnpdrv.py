@@ -63,10 +63,10 @@ class Error(Exception):
 
 # ─── report format ───────────────────────────────────────────────────────────
 #
-# Each scenario prints one PASS line per assertion and "ALL OK" at the end, and
-# runtests compares that against the directory's `expected` file. The lines are
-# the record of what actually ran: a scenario that dies halfway prints fewer of
-# them, and the diff names the step it got to.
+# Each scenario prints one PASS line per assertion and "ALL OK" at the end;
+# ../shared-checkresult accepts a result with no FAIL line that ends in
+# "ALL OK". The lines are the record of what actually ran: a scenario that dies
+# halfway prints fewer of them, and the last one names the step it got to.
 
 _checks = 0
 

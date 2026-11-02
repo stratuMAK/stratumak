@@ -158,7 +158,9 @@ and a realtime instrument rather than the shared simulation:
 Each is a `runtests` test: a test.sh that starts stmakd on this config and a
 Python driver that commands jobs over the handshake pins and asserts what came
 back. They share pnpdrv.sh (server lifecycle) and pnpdrv.py (pin access over
-the halcmd REST API) from this directory. Run them all with
+the halcmd REST API) from this directory. Each checkresult links to
+shared-checkresult, which passes a run with no FAIL line that ends in "ALL OK",
+so there is no expected file to keep in step with the checks. Run them all with
 
     scripts/runtests tests/pnptask
 
