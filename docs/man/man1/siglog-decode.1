@@ -1,0 +1,151 @@
+.TH siglog-decode "1" "2026-11-02" "stratuMAK Documentation" "HAL User's Manual"
+.SH NAME
+siglog-decode \- decode a HAL signal change log written by the siglog cmod
+
+.SH SYNOPSIS
+.B siglog-decode
+[\fB\-f\fR \fIFORMAT\fR] [\fB\-s\fR \fIGLOB\fR]... [\fB\-o\fR \fIOUTPUT\fR] \fIFILE\fR
+
+.SH DESCRIPTION
+The
+.B siglog
+cmod records every change of the selected HAL signals, tagged with the cycle
+number of the thread it runs in, to a binary file for the whole lifetime of
+the instance:
+.PP
+.RS
+.nf
+load siglog file=siglog-%Y%m%d-%H%M%S.bin include=joint.*
+addf siglog.sample servo-thread
+.fi
+.RE
+.PP
+(\fBinclude=\fR, \fBexclude=\fR and \fBdepth=\fR are optional; without
+\fBinclude=\fR every signal is logged.)
+.PP
+.B siglog-decode
+reads such a file and writes it as text, CSV or a Value Change Dump.
+Only real changes are in the file; the first logged cycle, and the first
+cycle after a loss, hold a full snapshot of every logged signal.
+.PP
+A file that was not closed cleanly (no END record, e.g. after a crash or a
+full disk) is still decoded up to its last complete record.
+
+.SH OPTIONS
+.TP
+\fB\-f\fR, \fB\-\-format\fR \fIFORMAT\fR
+Output format, one of:
+.RS
+.TP
+.B text
+One line per change: cycle, time, signal, value (the default).
+.TP
+.B csv
+The same as CSV, with the header row
+.BR cycle,time,signal,value .
+.TP
+.B vcd
+Value Change Dump, for viewers such as GTKWave or Surfer.  The timestamp is
+cycle times the thread period, so it is monotonic even if the thread
+jittered.  Bit signals become wires, floats reals, s32 and u32 32-bit
+integers.
+.TP
+.B info
+The header only: file version, thread period, start time, the include and
+exclude patterns, and the list of logged signals with their types.
+.RE
+.TP
+\fB\-s\fR, \fB\-\-signal\fR \fIGLOB\fR
+Only output signals whose name matches the
+.BR fnmatch (3)-style
+pattern
+.IR GLOB .
+May be given several times; a signal matching any of them is output.
+Without it, every logged signal is output.  Ignored by
+.BR "\-f info" .
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIOUTPUT\fR
+Write to
+.I OUTPUT
+instead of standard output.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show a usage summary and exit.
+
+.SH OUTPUT
+Cycle numbers count calls of the siglog RT function; cycle 0 is the first
+call.  Times in
+.B text
+and
+.B csv
+are seconds since the first logged cycle.  They follow the real clock: the
+file carries a timestamp once per second of run time, and each cycle's time is
+derived from the last one, rather than assuming a perfect period.  Changes
+before the first timestamp have an empty time.
+.PP
+Gaps are marked in the output.  In
+.B text
+they are comment lines:
+.TP
+.BI "# lost " N " cycle(s) from cycle " C
+the ring between the RT function and the writer thread was full, and the
+changes of
+.I N
+cycles were dropped.  The next row is a full snapshot again.
+.TP
+.B "# end of file without END record (not closed cleanly)"
+the file ends early.
+.PP
+In
+.B csv
+the same gaps are rows with
+.B #lost
+(value = number of dropped cycles, starting at that cycle) or
+.B #truncated
+in the signal column.  In
+.B vcd
+a loss is a
+.B $comment
+line.
+.PP
+Floats are printed with full precision, so \-0.0 and 0.0 are distinct.
+
+.SH EXIT STATUS
+0 on success.  A file that is not a siglog file, has an unsupported version,
+or is truncated inside its header (logging never started) is reported on
+standard error with a non-zero exit status.
+
+.SH EXAMPLES
+Show what a file contains:
+.PP
+.RS
+.nf
+siglog-decode \-f info siglog-20261102-101500.bin
+.fi
+.RE
+.PP
+The changes of the joint 0 signals as CSV:
+.PP
+.RS
+.nf
+siglog-decode \-f csv \-s 'j0.*' \-o j0.csv siglog-20261102-101500.bin
+.fi
+.RE
+.PP
+Open everything in a waveform viewer:
+.PP
+.RS
+.nf
+siglog-decode \-f vcd \-o run.vcd siglog-20261102-101500.bin
+gtkwave run.vcd
+.fi
+.RE
+
+.SH NOTES
+The file format is documented at the top of
+.I src/hal/components/siglog.c
+in the stratuMAK sources.
+
+.SH SEE ALSO
+.BR halsampler (1),
+.BR halcmd (1)
