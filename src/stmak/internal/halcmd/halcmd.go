@@ -97,14 +97,21 @@ func CreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
 	// core. Only this call's own acquisition is undone: restoring a whole-pool
 	// snapshot would also resurrect cores handed to concurrent newthread calls
 	// between the snapshot and the failure.
-	lease, err := acquireCPU(name, cpu)
-	if err != nil {
-		return err
+	//
+	// A thread the HAL files declared had its CPU reserved when they were
+	// parsed (ReserveThreadCPU): it gets that one.
+	lease, reserved := takeReservation(name, cpu)
+	if !reserved {
+		var err error
+		if lease, err = acquireCPU(name, cpu); err != nil {
+			return err
+		}
 	}
 	if err := halCreateThreadCPU(name, periodNs, usesFP, lease.cpu); err != nil {
 		releaseCPU(lease)
 		return err
 	}
+	recordThreadCPU(name, lease.cpu)
 	return nil
 }
 
@@ -147,7 +154,11 @@ func ThreadOrderWarning(name string, periodNs int64) string {
 // ThreadDelete deletes a HAL realtime thread by name.
 // The thread must have been stopped (via StopThreads) before deletion.
 func ThreadDelete(name string) error {
-	return halThreadDelete(name)
+	if err := halThreadDelete(name); err != nil {
+		return err
+	}
+	forgetThreadCPU(name)
+	return nil
 }
 
 // ListComponents returns the names of all currently loaded HAL components.

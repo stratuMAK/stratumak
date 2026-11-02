@@ -395,6 +395,8 @@ typedef struct lcec_master {
   char backup_interface[LCEC_CONF_STR_MAXLEN]; /**< Redundant network interface name, or empty string. */
   unsigned int debug_level;                    /**< EtherCAT library debug verbosity (0 = off). */
   int run_on_cpu;                              /**< CPU affinity for the master thread, -1 = no affinity. */
+  int irq_cpu;                                 /**< CPU for the NIC IRQs, -1 = leave them,
+                                                    LCEC_IRQ_CPU_DERIVE = from the HAL threads. */
   ec_transport_t *transport;                   /**< Primary EtherCAT transport handle. */
   ec_transport_t *backup_transport;            /**< Redundant EtherCAT transport handle, or NULL. */
 #endif

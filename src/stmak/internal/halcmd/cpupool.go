@@ -30,6 +30,18 @@ type cpuPool struct {
 	lastAssigned int   // most recently assigned isolated core, -1 if none yet
 	logger       *slog.Logger
 	posixRT      bool // true if running with SCHED_FIFO (real RT)
+
+	// reserved holds CPUs taken for newthread commands before they run
+	// (ReserveThreadCPU), per thread name in command order; threadCPU the
+	// CPU of every thread created, -1 for one without affinity.
+	reserved  map[string][]reservation
+	threadCPU map[string]int
+}
+
+// reservation is a CPU taken ahead for a newthread of a given cpu argument.
+type reservation struct {
+	requested int
+	lease     cpuLease
 }
 
 var pool cpuPool
@@ -64,6 +76,8 @@ func InitCPUPool(logger *slog.Logger) error {
 	pool.lastAssigned = -1
 	pool.logger = logger
 	pool.posixRT = posixRT
+	pool.reserved = nil
+	pool.threadCPU = nil
 	pool.mu.Unlock()
 
 	if len(avail) > 0 {
@@ -317,4 +331,78 @@ func parseCPUList(s string) []int {
 	}
 	sort.Ints(result)
 	return result
+}
+
+// ReserveThreadCPU takes, now, the CPU a later "newthread name ... cpu=cpu"
+// will get, and returns it (-1: no affinity).  The launcher reserves for every
+// newthread of the HAL files right after parsing them, before any module is
+// loaded: a module's New() runs before the wiring commands create the threads,
+// yet may need to know where its realtime function will run (the EtherCAT
+// master pins its NIC interrupts there before its bus scan).  The newthread
+// command then uses the reservation instead of taking another CPU, so the
+// answer given earlier is the CPU the thread gets.  Reservations are taken in
+// command order, which is the order the threads would have taken them in.
+func ReserveThreadCPU(name string, cpu int) (int, error) {
+	lease, err := acquireCPU(name, cpu)
+	if err != nil {
+		return -1, err
+	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if pool.reserved == nil {
+		pool.reserved = make(map[string][]reservation)
+	}
+	pool.reserved[name] = append(pool.reserved[name], reservation{requested: cpu, lease: lease})
+	return lease.cpu, nil
+}
+
+// takeReservation hands the oldest reservation for a newthread of name and
+// cpu to its creation; ok is false when there is none (a thread the HAL files
+// did not declare, e.g. one created from the REST API).
+func takeReservation(name string, cpu int) (cpuLease, bool) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	list := pool.reserved[name]
+	for i, r := range list {
+		if r.requested == cpu {
+			pool.reserved[name] = append(list[:i:i], list[i+1:]...)
+			if len(pool.reserved[name]) == 0 {
+				delete(pool.reserved, name)
+			}
+			return r.lease, true
+		}
+	}
+	return cpuLease{}, false
+}
+
+// recordThreadCPU notes the CPU of a created thread (forgetThreadCPU when it
+// is deleted).
+func recordThreadCPU(name string, cpu int) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if pool.threadCPU == nil {
+		pool.threadCPU = make(map[string]int)
+	}
+	pool.threadCPU[name] = cpu
+}
+
+func forgetThreadCPU(name string) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	delete(pool.threadCPU, name)
+}
+
+// ThreadCPU reports the CPU thread name runs on, or will run on once the
+// reserved newthread has run: -1 for no affinity.  ok is false for a thread
+// that neither exists nor is reserved.
+func ThreadCPU(name string) (cpu int, ok bool) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if c, found := pool.threadCPU[name]; found {
+		return c, true
+	}
+	if list := pool.reserved[name]; len(list) > 0 {
+		return list[0].lease.cpu, true
+	}
+	return -1, false
 }

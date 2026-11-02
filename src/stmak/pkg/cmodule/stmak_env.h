@@ -31,6 +31,7 @@
 #include "stmak_log.h"
 #include "stmak_api.h"
 #include "stmak_path.h"
+#include "stmak_sched.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,7 +61,7 @@ extern "C" {
 // undefined behaviour with nothing to detect it at load time -- the symbols
 // all resolve, and the module reads the wrong offsets.  The launcher reads
 // this symbol before it calls New() and refuses a module that disagrees.
-#define CMOD_ABI_VERSION 4
+#define CMOD_ABI_VERSION 5
 
 // Every module carries the stamp automatically, by including this header:
 // the definition is emitted into each translation unit rather than left for a
@@ -103,6 +104,9 @@ typedef struct {
     // value) must go through path->resolve() before it is opened — see
     // stmak_path.h.
     const stmak_path_t  *path;
+    // Where the configuration runs realtime functions.  Always non-NULL.
+    // (Added in CMOD_ABI_VERSION 5.)
+    const stmak_sched_t *sched;
 } cmod_env_t;
 
 // ---------------------------------------------------------------------------

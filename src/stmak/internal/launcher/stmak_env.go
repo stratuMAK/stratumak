@@ -54,6 +54,7 @@ import (
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
@@ -611,4 +612,34 @@ func stmak_path_resolve(ctx C.uintptr_t, name *C.char, mode C.int, errOut **C.ch
 	cs := C.CString(resolved)
 	l.arenaAppend(unsafe.Pointer(cs))
 	return cs
+}
+
+// functCPU is the Go half of env->sched->funct_cpu(): the CPU of the thread
+// the boot HAL files add funct to, or, for a function they do not add (a
+// module loaded later), -1.  The thread's CPU was reserved when the files were
+// parsed, before any module's New() (halparse.ReserveThreadCPUs), and the
+// newthread command uses that reservation, so the answer is the CPU the thread
+// gets.  -1 also for a thread without affinity.
+func (l *Launcher) functCPU(funct string) int {
+	if l.halParse == nil || funct == "" {
+		return -1
+	}
+	thread, ok := l.halParse.FunctThread(funct)
+	if !ok {
+		return -1
+	}
+	cpu, ok := halcmd.ThreadCPU(thread)
+	if !ok {
+		return -1
+	}
+	return cpu
+}
+
+//export stmak_sched_funct_cpu
+func stmak_sched_funct_cpu(ctx C.uintptr_t, funct *C.char) C.int {
+	if funct == nil {
+		return -1
+	}
+	l := cgo.Handle(ctx).Value().(*Launcher)
+	return C.int(l.functCPU(C.GoString(funct)))
 }

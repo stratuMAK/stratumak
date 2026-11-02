@@ -776,6 +776,10 @@ fail0:
  *  - @c transportType    — (EC_USPACE_MASTER only) "raw", "xdp-skb", "xdp-native".
  *  - @c debugLevel       — (EC_USPACE_MASTER only) Debug verbosity (uint, default 0).
  *  - @c runOnCpu         — (EC_USPACE_MASTER only) CPU affinity, or -1 (int).
+ *  - @c irqCpu           — (EC_USPACE_MASTER only) CPU for the NIC IRQs, pinned
+ *                          before the bus scan; -1 leaves them where they are;
+ *                          absent: the CPU of the HAL thread that runs the
+ *                          master's read function (int).
  *
  * @param inst  XML parse instance; cast to @ref LCEC_CONF_XML_STATE_T*.
  * @param next  State to transition to (unused here).
@@ -798,6 +802,7 @@ static void parseMasterAttrs(LCEC_CONF_XML_INST_T *inst, int next, const char **
   p->backupInterface[0] = 0;
   p->debugLevel = 0;
   p->runOnCpu = -1;             // no CPU binding
+  p->irqCpu = LCEC_IRQ_CPU_DERIVE;
 #endif
   while (*attr) {
     const char *name = *(attr++);
@@ -878,6 +883,17 @@ static void parseMasterAttrs(LCEC_CONF_XML_INST_T *inst, int next, const char **
     // parse runOnCpu (optional, default: -1)
     if (strcmp(name, "runOnCpu") == 0) {
       p->runOnCpu = atoi(val);
+      continue;
+    }
+
+    // parse irqCpu (optional, default: derived from the HAL threads)
+    if (strcmp(name, "irqCpu") == 0) {
+      p->irqCpu = atoi(val);
+      if (p->irqCpu < -1) {
+        xml_log_error_fmt(inst, "Invalid irqCpu '%s' (a CPU number, or -1 to leave the IRQs where they are)", val);
+        XML_StopParser(inst->parser, 0);
+        return;
+      }
       continue;
     }
 #endif

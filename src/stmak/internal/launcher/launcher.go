@@ -26,6 +26,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/halfile"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/halparse"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/halrest"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/inirest"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
@@ -60,6 +61,10 @@ type Launcher struct {
 	halibPath   string            // colon-separated HAL library search path
 	cleanupOnce sync.Once         // ensures cleanup runs exactly once
 	halComp     *hal.Component    // launcher's HAL component (like halcmd's hal_init)
+	// halParse is the boot HAL files as parsed, for env->sched->funct_cpu()
+	// (which thread a function is added to).  Set before the modules are
+	// loaded, read-only afterwards.
+	halParse *halparse.ParseResult
 	// modMu serializes runtime load/unload operations (a supported production
 	// path via the halcmd REST surface — see docs/dev/NETWORK_MODULES_REVIEW_FINDINGS.md
 	// N6 / launcher L-3) and guards the goModules/cModules slices and the
@@ -299,6 +304,15 @@ func (l *Launcher) Run() (runErr error) {
 	if err != nil {
 		return fmt.Errorf("HAL file parsing failed: %w", err)
 	}
+
+	// Every newthread's CPU is taken now, before the modules are loaded: a
+	// module's New() may need to know where its realtime function will run
+	// (env->sched->funct_cpu), and the newthread commands below use exactly
+	// these CPUs.
+	if err := halResult.ReserveThreadCPUs(); err != nil {
+		return fmt.Errorf("HAL file thread CPUs: %w", err)
+	}
+	l.halParse = halResult
 
 	// Load plugin modules (cmod or Go).
 	if err := halResult.IterLoads(func(path string, name string, args []string) error {

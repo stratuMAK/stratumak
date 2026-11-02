@@ -207,6 +207,10 @@ extern char* stmak_ini_source_file(uintptr_t ctx);
 
 extern char* stmak_path_resolve(uintptr_t ctx, char *name, int mode, char **err_out);
 
+// --- Scheduling queries (forward-declared, implemented in Go) ---
+
+extern int stmak_sched_funct_cpu(uintptr_t ctx, char *funct);
+
 // --- Log subscribe/unsubscribe (forward-declared, implemented in Go) ---
 
 extern stmak_log_sub_t* stmak_log_subscribe_cb(uintptr_t ctx, stmak_log_level_t min_level);
@@ -231,6 +235,11 @@ static void stmak_ini_init(stmak_ini_t *ini, void *ctx) {
 static void stmak_path_init(stmak_path_t *path, void *ctx) {
     path->ctx     = ctx;
     path->resolve = (const char*(*)(void*,const char*,stmak_path_mode_t,const char**))stmak_path_resolve;
+}
+
+static void stmak_sched_init(stmak_sched_t *sched, void *ctx) {
+    sched->ctx       = ctx;
+    sched->funct_cpu = (int(*)(void*,const char*))stmak_sched_funct_cpu;
 }
 
 static void stmak_hal_init_struct(stmak_hal_t *hal) {
@@ -281,18 +290,20 @@ static cmod_env_t *stmak_env_create(stmak_log_ring_t *ring, uintptr_t log_ctx,
     stmak_log_t *log = (stmak_log_t *)calloc(1, sizeof(stmak_log_t));
     stmak_ini_t *ini = (stmak_ini_t *)calloc(1, sizeof(stmak_ini_t));
     stmak_path_t *path = (stmak_path_t *)calloc(1, sizeof(stmak_path_t));
+    stmak_sched_t *sched = (stmak_sched_t *)calloc(1, sizeof(stmak_sched_t));
     stmak_hal_t *hal = (stmak_hal_t *)calloc(1, sizeof(stmak_hal_t));
     stmak_rtapi_t *rtapi = (stmak_rtapi_t *)calloc(1, sizeof(stmak_rtapi_t));
     stmak_api_t *api = (stmak_api_t *)calloc(1, sizeof(stmak_api_t));
 
-    if (!log || !ini || !path || !hal || !rtapi || !api) {
-        free(log); free(ini); free(path); free(hal); free(rtapi); free(api); free(env);
+    if (!log || !ini || !path || !sched || !hal || !rtapi || !api) {
+        free(log); free(ini); free(path); free(sched); free(hal); free(rtapi); free(api); free(env);
         return NULL;
     }
 
     stmak_log_init(log, ring, (void *)log_ctx);
     stmak_ini_init(ini, (void *)ini_ctx);
     stmak_path_init(path, (void *)ini_ctx);
+    stmak_sched_init(sched, (void *)ini_ctx);
     stmak_hal_init_struct(hal);
     stmak_rtapi_init_struct(rtapi);
     stmak_api_init_struct(api);
@@ -301,6 +312,7 @@ static cmod_env_t *stmak_env_create(stmak_log_ring_t *ring, uintptr_t log_ctx,
     env->log       = log;
     env->ini       = ini;
     env->path      = path;
+    env->sched     = sched;
     env->hal       = hal;
     env->rtapi     = rtapi;
     env->api       = api;
@@ -313,6 +325,7 @@ static void stmak_env_destroy(cmod_env_t *env) {
     free((void *)env->log);
     free((void *)env->ini);
     free((void *)env->path);
+    free((void *)env->sched);
     free((void *)env->hal);
     free((void *)env->rtapi);
     free((void *)env->api);
