@@ -277,8 +277,13 @@ typedef struct {
   char backupInterface[LCEC_CONF_STR_MAXLEN]; // backup NIC or empty string
   unsigned int debugLevel;                    // default: 0
   int runOnCpu;                               // default: -1 (no binding)
+  int irqCpu;                                 // default: LCEC_IRQ_CPU_DERIVE
 #endif
 } LCEC_CONF_MASTER_T;
+
+/** irqCpu not given: the CPU of the HAL thread that runs the master's read
+ * function (see lcec_master_irq_cpu()). */
+#define LCEC_IRQ_CPU_DERIVE (-2)
 
 /**
  * @brief Configuration record for one EtherCAT slave device.

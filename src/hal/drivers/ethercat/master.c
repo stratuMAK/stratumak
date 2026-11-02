@@ -179,6 +179,7 @@ lcec_master_t * lcec_create_master(const cmod_env_t *env, LCEC_CONF_MASTER_T *ma
   master->backup_interface[LCEC_CONF_STR_MAXLEN - 1] = 0;
   master->debug_level = master_conf->debugLevel;
   master->run_on_cpu = master_conf->runOnCpu;
+  master->irq_cpu = master_conf->irqCpu;
 #endif
 
   return master;
@@ -227,7 +228,7 @@ int lcec_startup_master(lcec_master_t *master) {
   // startup userspace master
   master->master = ecrt_startup_master(
       master->index, master->transport, master->backup_transport,
-      master->debug_level, master->run_on_cpu);
+      master->debug_level, master->run_on_cpu, master->irq_cpu);
   if (!master->master) {
     LCEC_ERR(master, "startup of master %s (index %d, iface %s) failed",
         master->name, master->index, master->interface);

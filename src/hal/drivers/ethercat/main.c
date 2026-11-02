@@ -83,6 +83,14 @@ static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
 #endif
 
 static int lcec_parse_config(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf);
+#ifdef EC_USPACE_MASTER
+static void lcec_master_irq_cpu(lcec_rt_context_t *ctx, lcec_master_t *master);
+#else
+static inline void lcec_master_irq_cpu(lcec_rt_context_t *ctx, lcec_master_t *master) {
+  (void) ctx;
+  (void) master;
+}
+#endif
 static void lcec_clear_config(lcec_rt_context_t *ctx);
 
 static void lcec_read_all(void *arg, long period) STMAK_NONBLOCKING;
@@ -150,6 +158,9 @@ int lcec_rt_init(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf) {
     master->env = ctx->env;
     master->log = ctx->env->log;
     master->comp_name = master->instance_name;
+
+    // the CPU for the NIC IRQs, pinned before the bus scan
+    lcec_master_irq_cpu(ctx, master);
 
     // startup master
     if (lcec_startup_master(master)) {
@@ -838,3 +849,43 @@ static void lcec_write_all(void *arg, long period) {
     lcec_write_master(master, period);
   }
 }
+
+#ifdef EC_USPACE_MASTER
+/**
+ * @brief Decide the CPU the master pins its NIC IRQs to before its bus scan.
+ *
+ * An explicit @c irqCpu wins.  Otherwise it is the CPU of the HAL thread
+ * that runs the master's read function -- @c <instance>.read-all, or
+ * @c <instance>.<master>.read -- which the launcher knows before the threads
+ * exist (env->sched).  The scan's replies then arrive on the realtime CPU:
+ * left on a CPU shared with the rest of the system they can come later than
+ * the datagram timeout, and the scan fails (coating machine, 2026-11-02).
+ * -1 when neither function is added to a thread with CPU affinity.
+ */
+static void lcec_master_irq_cpu(lcec_rt_context_t *ctx, lcec_master_t *master) {
+  const stmak_sched_t *sched = ctx->env->sched;
+  char funct[STMAK_HAL_NAME_LEN + 1];
+  int cpu = -1;
+
+  if (master->irq_cpu != LCEC_IRQ_CPU_DERIVE) {
+    LCEC_CTX_INFO(ctx, "master %s: NIC IRQs to CPU %d (irqCpu)", master->name, master->irq_cpu);
+    return;
+  }
+
+  if (sched != NULL) {
+    snprintf(funct, sizeof(funct), "%s.read-all", ctx->instance_name);
+    cpu = sched->funct_cpu(sched->ctx, funct);
+    if (cpu < 0) {
+      snprintf(funct, sizeof(funct), "%s.%s.read", ctx->instance_name, master->name);
+      cpu = sched->funct_cpu(sched->ctx, funct);
+    }
+  }
+  master->irq_cpu = cpu;
+  if (cpu >= 0) {
+    LCEC_CTX_INFO(ctx, "master %s: NIC IRQs to CPU %d, where %s runs", master->name, cpu, funct);
+  } else {
+    LCEC_CTX_INFO(ctx, "master %s: NIC IRQs not pinned (no CPU known for its read function; set irqCpu)",
+        master->name);
+  }
+}
+#endif

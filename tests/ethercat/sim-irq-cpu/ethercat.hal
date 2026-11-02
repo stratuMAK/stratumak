@@ -1,0 +1,8 @@
+# The thread comes AFTER the load, as in a machine config whose threads.hal is
+# its last HAL file: the module's New() runs before any newthread, and still
+# has to know the CPU (the launcher reserves it while parsing).  cpu=0 so the
+# test does not depend on isolated CPUs on the runner.
+load ethercat config=ethercat-conf.xml
+newthread servo-thread 1000000 cpu=0
+addf ethercat.read-all servo-thread
+addf ethercat.write-all servo-thread
