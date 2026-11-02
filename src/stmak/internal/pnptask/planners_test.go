@@ -387,3 +387,65 @@ func TestPlannersRejectBadDrawing(t *testing.T) {
 		t.Errorf("error = %v, want it to name the offending file", err)
 	}
 }
+
+// TestPlannersClipToAxisLimits: D54. The axis position limits are laid over
+// every drawing's outer limit, so the usable region ends at an axis limit
+// wherever the drawing (eroded by CLEARANCE) reached past it, and the load
+// says so. A drawing inside the axis limits is left alone and silent.
+func TestPlannersClipToAxisLimits(t *testing.T) {
+	setupPaths(t)
+
+	// The fixture limit eroded by CLEARANCE 10 is (10,10)..(590,490). X max
+	// 580 cuts it, Y min 0 does not, the others are unbounded.
+	cfg := mustLoad(t, trajSection+"[AXIS_X]\nMAX_LIMIT = 580\n[AXIS_Y]\nMIN_LIMIT = 0\n"+
+		pnptaskSection+stationSections)
+	set, err := newPlanners(cfg)
+	if err != nil {
+		t.Fatalf("newPlanners: %v", err)
+	}
+	for i, pl := range set.planners {
+		min, max := boundsOfPolygon(pl.Boundary())
+		if math.Abs(min.X-10) > 1e-9 || math.Abs(min.Y-10) > 1e-9 ||
+			math.Abs(max.X-580) > 1e-6 || math.Abs(max.Y-490) > 1e-9 {
+			t.Errorf("drawing %d: usable region (%g,%g)..(%g,%g), want (10,10)..(580,490)",
+				i, min.X, min.Y, max.X, max.Y)
+		}
+		// The head may stand on the limit: a route starts there.
+		if err := pl.CheckPoint(pnproute.Point{X: 580, Y: 200}); err != nil {
+			t.Errorf("drawing %d: a point on the X max limit: %v", i, err)
+		}
+		if err := pl.CheckPoint(pnproute.Point{X: 580.01, Y: 200}); !errors.Is(err, pnproute.ErrOutsideLimit) {
+			t.Errorf("drawing %d: a point past the X max limit: %v, want ErrOutsideLimit", i, err)
+		}
+	}
+	if len(set.warnings) != 2 {
+		t.Fatalf("warnings = %q, want one per drawing", set.warnings)
+	}
+	for _, w := range set.warnings {
+		if !strings.Contains(w, "X max 590.000 (after CLEARANCE) against [AXIS_X]MAX_LIMIT 580.000") ||
+			strings.Contains(w, "Y min") {
+			t.Errorf("warning %q: want the X max side named, and only it", w)
+		}
+	}
+
+	// A limit exactly on a corner of the usable region, the head homed there
+	// (the axis range's corner): the route still starts.
+	cfg = mustLoad(t, trajSection+"[AXIS_X]\nMIN_LIMIT = 20\n[AXIS_Y]\nMIN_LIMIT = 20\n"+
+		pnptaskSection+stationSections)
+	if set, err = newPlanners(cfg); err != nil {
+		t.Fatalf("newPlanners: %v", err)
+	}
+	if _, err := set.planners[0].Plan(pnproute.Point{X: 20, Y: 20}, cfg.Procs[0].Pos); err != nil {
+		t.Errorf("route from the axis range's corner: %v", err)
+	}
+
+	// No axis limits, or limits wider than the drawing: nothing to say.
+	cfg = mustLoad(t, trajSection+"[AXIS_X]\nMIN_LIMIT = -5\nMAX_LIMIT = 600\n"+
+		pnptaskSection+stationSections)
+	if set, err = newPlanners(cfg); err != nil {
+		t.Fatalf("newPlanners: %v", err)
+	}
+	if len(set.warnings) != 0 {
+		t.Errorf("drawing inside the axis limits: unexpected warnings %q", set.warnings)
+	}
+}
