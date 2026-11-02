@@ -325,3 +325,55 @@ func TestPolygonSame(t *testing.T) {
 		})
 	}
 }
+
+// --------------------------------------------------------------------------
+// ClipBox (D54): the axis limits laid over an outer limit
+// --------------------------------------------------------------------------
+
+func TestClipBox(t *testing.T) {
+	rect := Polygon{{-732.5, -6}, {6, -6}, {6, 402.5}, {-732.5, 402.5}}
+
+	// Inside the box: untouched.
+	got, cut := rect.ClipBox(Point{-800, -10}, Point{10, 410})
+	if cut || len(got) != 4 || got[0] != rect[0] {
+		t.Fatalf("ring inside the box: got %v cut=%v, want it unchanged", got, cut)
+	}
+
+	// One side past the box: that side moves onto it, the rest stays.
+	got, cut = rect.ClipBox(Point{-800, -5.2}, Point{10, 410})
+	if !cut {
+		t.Fatalf("Y min past the box: not reported as cut")
+	}
+	b := boundsOf(got)
+	if b.minY != -5.2 || b.maxY != 402.5 || b.minX != -732.5 || b.maxX != 6 {
+		t.Fatalf("Y min past the box: bounds %+v, want Y from -5.2, the rest as drawn", b)
+	}
+	if err := checkConvex(got); err != nil {
+		t.Fatalf("clipped ring not convex: %v", err)
+	}
+
+	// A slanted ring: the cut lands on the box edge, the corner vertices
+	// follow the slanted edges.
+	diamond := Polygon{{0, -10}, {10, 0}, {0, 10}, {-10, 0}}
+	got, cut = diamond.ClipBox(Point{-100, -5}, Point{100, 100})
+	if !cut {
+		t.Fatalf("diamond: not reported as cut")
+	}
+	want := map[Point]bool{{5, -5}: true, {10, 0}: true, {0, 10}: true, {-10, 0}: true, {-5, -5}: true}
+	if len(got) != len(want) {
+		t.Fatalf("diamond: got %v, want the 5 vertices %v", got, want)
+	}
+	for _, v := range got {
+		if !want[v] {
+			t.Fatalf("diamond: unexpected vertex %v in %v", v, got)
+		}
+	}
+	if math.Abs(signedArea(got)-(200-25)) > 1e-9 {
+		t.Fatalf("diamond: area %v, want 175", signedArea(got))
+	}
+
+	// Entirely outside: nothing left.
+	if got, _ = rect.ClipBox(Point{100, 100}, Point{200, 200}); len(got) != 0 {
+		t.Fatalf("ring outside the box: got %v, want empty", got)
+	}
+}

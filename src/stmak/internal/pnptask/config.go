@@ -127,6 +127,14 @@ type Config struct {
 	// PLANNING_FAILED that names coordinates instead of the cause.
 	Home pnproute.Point
 
+	// AxisMin/AxisMax are the X/Y axis position limits ([AXIS_X]/[AXIS_Y]
+	// MIN_LIMIT/MAX_LIMIT, mm), the same values motsetup pushes to motmod at
+	// Start. Read here as well because the planners are built at load, before
+	// Start: they are laid over every drawing's outer limit (D54), so no route
+	// or curve leaves the range the axes may be commanded in. An absent key is
+	// unbounded, as in motsetup.
+	AxisMin, AxisMax pnproute.Point
+
 	TrayDefs []TrayDef
 	Trays    []TrayStation
 	Procs    []ProcStation
@@ -425,6 +433,10 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	// homes them.
 	cfg.Home.X = r.length("JOINT_0", "HOME", 0)
 	cfg.Home.Y = r.length("JOINT_1", "HOME", 0)
+	cfg.AxisMin.X = r.length(motsetup.AxisSection(0), "MIN_LIMIT", math.Inf(-1))
+	cfg.AxisMax.X = r.length(motsetup.AxisSection(0), "MAX_LIMIT", math.Inf(1))
+	cfg.AxisMin.Y = r.length(motsetup.AxisSection(1), "MIN_LIMIT", math.Inf(-1))
+	cfg.AxisMax.Y = r.length(motsetup.AxisSection(1), "MAX_LIMIT", math.Inf(1))
 	if err := r.err; err != nil {
 		return nil, err
 	}
