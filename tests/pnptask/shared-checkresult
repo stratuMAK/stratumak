@@ -1,0 +1,19 @@
+#!/bin/bash
+# Judge a pnptask scenario by its own verdict (pnpdrv.py check()/done()):
+# at least one PASS, no FAIL, and "ALL OK" as the last line. A scenario that
+# dies halfway never prints "ALL OK". No golden file: adding a check to a
+# scenario does not mean editing a second file.
+result=$1
+
+if grep -q '^FAIL ' "$result"; then
+    grep '^FAIL ' "$result"
+    exit 1
+fi
+if ! grep -q '^PASS ' "$result"; then
+    echo "no PASS line in result"
+    exit 1
+fi
+if [ "$(tail -n 1 "$result")" != "ALL OK" ]; then
+    echo "result does not end with ALL OK"
+    exit 1
+fi
