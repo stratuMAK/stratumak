@@ -4,6 +4,7 @@ package pnptask
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -22,6 +23,9 @@ type plannerSet struct {
 	// movable is the region a scene change can move something through (D45):
 	// every drawn zone that is not drawn identically in every drawing.
 	movable []pnproute.Polygon
+	// warnings are load-time findings about the drawings (D54), logged once
+	// by the module next to homeWarnings.
+	warnings []string
 }
 
 // at returns the planner the deadzone-select pin names. The selector is a PLC
@@ -52,6 +56,9 @@ func newPlanners(cfg *Config) (*plannerSet, error) {
 			return nil, fmt.Errorf("dead-zone file %d (%s): %w", i, path, err)
 		}
 		scaleScene(scene, machineToMMFactor(cfg.LinearUnits))
+		if w := clipOuterToAxes(scene, cfg); w != "" {
+			s.warnings = append(s.warnings, fmt.Sprintf("dead-zone file %d (%s): %s", i, path, w))
+		}
 		pl, err := pnproute.NewPlanner(scene, cfg.Clearance)
 		if err != nil {
 			return nil, fmt.Errorf("dead-zone file %d (%s): %w", i, path, err)
@@ -63,6 +70,67 @@ func newPlanners(cfg *Config) (*plannerSet, error) {
 	}
 	s.movable = movableRegion(s.planners)
 	return s, nil
+}
+
+// clipOuterToAxes lays the X/Y axis position limits over the drawing's outer
+// limit (D54) and says, if it cut anything, where the drawing reached past
+// them.
+//
+// The planner keeps CLEARANCE from the outer limit, so what it may use is the
+// outer limit eroded by CLEARANCE. The drawing is clipped to the axis limits
+// grown by CLEARANCE, which makes that usable region end exactly at the axis
+// limits wherever the drawing reached further: the route, the smooth curve
+// and the Z arcs (all checked against the eroded limit) can no longer
+// command a position the axis refuses. Before this the coating machine's
+// drawing let a spline leg bow to Y = -1 against a limit of -0.2, and the
+// per-segment limit check faulted the leg with the lift already running.
+//
+// A warning, not an error: the drawing is not wrong to be generous -- the
+// outer limit is the physical envelope, the axis limits are where the head
+// may be sent, and the planner now uses the tighter of the two. It is worth
+// knowing, though, because a station that only the drawing's surplus made
+// reachable is now refused at load.
+//
+// The box is wider than the axis limits by half the dispatch check's
+// tolerance (moveFuzz): the containment test does not decide a point exactly
+// on the boundary, and a head standing on a limit -- homed at the corner of
+// its range -- has to start a route. Half, so everything the planner accepts
+// still passes checkMoveInLimits.
+func clipOuterToAxes(scene *pnproute.Scene, cfg *Config) string {
+	c := cfg.Clearance + moveFuzz/2
+	lo := pnproute.Point{X: cfg.AxisMin.X - c, Y: cfg.AxisMin.Y - c}
+	hi := pnproute.Point{X: cfg.AxisMax.X + c, Y: cfg.AxisMax.Y + c}
+	before, after := scene.Bounds()
+	clipped, cut := scene.Outer.ClipBox(lo, hi)
+	if !cut {
+		return ""
+	}
+	if len(clipped) < 3 {
+		// Nothing of the drawing inside the axis range: leave it to
+		// NewPlanner and checkPositions to refuse with their own words.
+		return fmt.Sprintf("the outer limit lies entirely outside the axis limits X [%.3f, %.3f], Y [%.3f, %.3f]",
+			cfg.AxisMin.X, cfg.AxisMax.X, cfg.AxisMin.Y, cfg.AxisMax.Y)
+	}
+	scene.Outer = clipped
+	var past []string
+	side := func(axis, which string, usable, limit float64) {
+		past = append(past, fmt.Sprintf("%s %s %.3f (after CLEARANCE) against [AXIS_%s]%s_LIMIT %.3f",
+			axis, which, usable, axis, strings.ToUpper(which), limit))
+	}
+	if before.X < lo.X {
+		side("X", "min", before.X+cfg.Clearance, cfg.AxisMin.X)
+	}
+	if after.X > hi.X {
+		side("X", "max", after.X-cfg.Clearance, cfg.AxisMax.X)
+	}
+	if before.Y < lo.Y {
+		side("Y", "min", before.Y+cfg.Clearance, cfg.AxisMin.Y)
+	}
+	if after.Y > hi.Y {
+		side("Y", "max", after.Y-cfg.Clearance, cfg.AxisMax.Y)
+	}
+	return "the outer limit reaches past the axis limits (" + strings.Join(past, "; ") +
+		"); routes are planned within the axis limits there"
 }
 
 // zoneSameEps is how close two drawn vertices have to be to be the same

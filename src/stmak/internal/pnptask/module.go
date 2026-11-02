@@ -182,6 +182,9 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
 	}
 	m.planners = planners
+	for _, w := range planners.warnings {
+		logger.Warn("pnptask: " + w)
+	}
 	for _, w := range planners.homeWarnings(cfg) {
 		logger.Warn("pnptask: " + w)
 	}

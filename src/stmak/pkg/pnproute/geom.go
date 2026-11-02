@@ -532,3 +532,63 @@ func (p Polygon) Same(q Polygon, eps float64) bool {
 	}
 	return false
 }
+
+// ClipBox returns the part of a convex ring inside the axis-aligned box
+// [min, max] (Sutherland-Hodgman against the four sides), and whether
+// anything was cut off. A ring already inside the box comes back unchanged.
+// The result of a convex ring is convex; one entirely outside the box comes
+// back empty.
+//
+// The box is how pnptask lays the axis position limits over a drawing's outer
+// limit (D54): what the drawing allows beyond them is not a place the head can
+// be sent.
+func (p Polygon) ClipBox(min, max Point) (Polygon, bool) {
+	b := boundsOf(p)
+	if b.minX >= min.X && b.minY >= min.Y && b.maxX <= max.X && b.maxY <= max.Y {
+		return p.Clone(), false
+	}
+	// Each side keeps the points with in(pt) >= 0; at(a, b) is where segment
+	// ab crosses it.
+	type side struct {
+		in func(Point) float64
+		at func(a, b Point) Point
+	}
+	cutX := func(x float64) func(a, b Point) Point {
+		return func(a, b Point) Point {
+			return Point{x, a.Y + (b.Y-a.Y)*(x-a.X)/(b.X-a.X)}
+		}
+	}
+	cutY := func(y float64) func(a, b Point) Point {
+		return func(a, b Point) Point {
+			return Point{a.X + (b.X-a.X)*(y-a.Y)/(b.Y-a.Y), y}
+		}
+	}
+	sides := []side{
+		{func(q Point) float64 { return q.X - min.X }, cutX(min.X)},
+		{func(q Point) float64 { return max.X - q.X }, cutX(max.X)},
+		{func(q Point) float64 { return q.Y - min.Y }, cutY(min.Y)},
+		{func(q Point) float64 { return max.Y - q.Y }, cutY(max.Y)},
+	}
+	out := p.Clone()
+	for _, s := range sides {
+		if len(out) == 0 {
+			break
+		}
+		in := out
+		out = make(Polygon, 0, len(in)+1)
+		for i := range in {
+			a, b := in[(i+len(in)-1)%len(in)], in[i]
+			da, db := s.in(a), s.in(b)
+			switch {
+			case db >= 0:
+				if da < 0 {
+					out = append(out, s.at(a, b))
+				}
+				out = append(out, b)
+			case da >= 0:
+				out = append(out, s.at(a, b))
+			}
+		}
+	}
+	return dedupeRing(out), true
+}
