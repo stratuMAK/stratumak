@@ -111,9 +111,8 @@ func faultf(id errorID, format string, args ...any) *pnpFault {
 }
 
 // atStation names the station a fault is about, for error-station.
-func (f *pnpFault) atStation(id uint32) *pnpFault {
+func (f *pnpFault) atStation(id uint32) {
 	f.station = id
-	return f
 }
 
 // errStopping ends a wait because the module is shutting down. It is not a
