@@ -405,8 +405,10 @@ class pyvcp_button(Button):
             self.client.send_event(self.wid, EV_PRESS)
 
     def _released(self, event):
-        if not self._disabled:
-            self.client.send_event(self.wid, EV_RELEASE)
+        # Always, also while disabled: a button greyed out while held would
+        # otherwise stay pressed on the server until its next press.  A release
+        # with nothing pressed changes nothing.
+        self.client.send_event(self.wid, EV_RELEASE)
 
     def _on_state(self, state):
         self._disabled = state.get("disabled", False)
