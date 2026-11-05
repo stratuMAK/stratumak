@@ -1,8 +1,7 @@
 # pnptask: the scene gate per leg (D45) and the end of the derived wait point (D46)
 
-Status: **built on branch `pnp-simplify` (2026-10-29, d125d46371) as D45/D46; not yet run on the machine.** The config side
-of the coating machine is specified in CoatV2conf
-`docs/PNP_SIMPLIFY_SPEC.md` on the branch of the same name.
+Status: **built as D45/D46, in use on the coating machine.** The config side of
+the coating machine is described in CoatV2conf `docs/PICK_AND_PLACE.md`, section 13.
 
 ## 1. Why
 
@@ -171,7 +170,7 @@ legs; legs are starved at most for one stroke.
   only where it exercises the streamed approach (to be checked — the blend of a
   route's own corners stays).
 - Docs: D29's row becomes "superseded by D46"; CoatV2conf
-  `docs/PNPTASK_ZONE_WAIT_SPEC.md` is archived.
+  `docs/PNPTASK_ZONE_WAIT_SPEC.md` is removed.
 
 A busy station without `WAIT_X/Y` is then waited for where the head stands,
 at movement height (`gatedTravel`, third case, unchanged).

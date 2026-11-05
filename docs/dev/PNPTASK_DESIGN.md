@@ -1,7 +1,6 @@
 # pnptask — Pick-and-Place Task Module
 
-Status: **draft for review** (2026-08-08)
-Branch: `add-pnptask`
+Status: **built, in use on the coating machine.**
 
 A task gomod for pick-and-place machines — not a `milltask` replacement, but
 a sibling task implementation for a different use case. No NGC/G-code:
