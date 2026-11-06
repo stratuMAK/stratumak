@@ -1,5 +1,18 @@
-stratumak (0.1.3) UNRELEASED; urgency=medium
+stratumak (0.1.4) UNRELEASED; urgency=medium
 
+  * BEHAVIOR CHANGE: every C module has to be rebuilt, the components of a
+    machine config included. CMOD_ABI_VERSION is 5 now. A helper whose
+    Makefile rebuilds it only when its source is newer must be deleted once.
+  * BEHAVIOR CHANGE: stmakd no longer writes <ini>.expanded, and INI_FILE_NAME
+    names the root file. The C INI reader behind inivar, rs274 -i,
+    linuxcnc.ini(), mb2hal and the xhc-hb04 button config treated #INCLUDE as
+    a comment, so included keys went missing without a word; it now refuses
+    such a file. Read the machine's INI through gmi.IniFile(). update_ini
+    refuses a config that uses #INCLUDE and asks for a manual conversion.
+  * #INCLUDE is resolved textually: an included file continues the current
+    section, and what follows continues the section the file ended in. A
+    relative path resolves against the including file, includes nest freely,
+    a leading ~/ is the home directory, and a missing file stops stmakd.
   * BEHAVIOR CHANGE for inch configs with [JOINT_n]COMP_FILE: leadscrew
     compensation triplets are now converted from machine units to motion's
     internal millimetres, like every other length in the joint section.
@@ -35,6 +48,89 @@ stratumak (0.1.3) UNRELEASED; urgency=medium
     that was refreshed on enqueue and never on a completed segment, so it
     read 1, 2, 3, 0 over a three-segment move; it now reports the live
     queue length every cycle.
+  * BEHAVIOR CHANGE: M51 (spindle speed override enable) reaches motion. The
+    task tracked it but never sent it, so M51 P0 left the override live --
+    and a floating tap (G84/G74), which switches both overrides off, ran its
+    spindle under the override while its feed ran at F. A G84 now runs at
+    its programmed feed and speed whatever the overrides say, and
+    motion.feed-inhibit, spindle.N.inhibit, motion.feed-hold, a program
+    pause and single-step are deferred until its retract is done: stopping
+    either side alone under a floating tap strips or breaks it, and pause
+    and step stopped Z with the spindle turning (pause and feed-hold did in
+    2.9 too). The moves after the cycle are held as usual; the UI shows
+    "paused" at once while the cycle finishes.
+  * BEHAVIOR CHANGE for homemod_cia402: the home reference is the drive's own
+    origin rather than a position sampled at HomingAttained, which landed a
+    few tenths of a mm off on every homing run. Positions taught against the
+    old reference may need teaching again.
+  * BEHAVIOR CHANGE for halsampler: the sampler stream numbers its samples,
+    so a client that falls behind sees the loss rather than a seamless record
+    with a hole in it, and halsampler fails when it happens. hal_sampler.gmi
+    is at @version 2.
+  * BEHAVIOR CHANGE for modcompile: an array name without # is refused, as
+    halcompile refuses it.
+  * New: pnptask, a pick-and-place task module: jobs between trays and process
+    stations, travel planned around dead zones drawn in DXF, smooth paths with
+    Z corner arcs ([PNPTASK]Z_CORNER_RADIUS), a per-leg scene gate
+    (scene-hold, scene-busy), and faults that name the station (error-station).
+  * New: fsm blocks in .comp files declare a state machine that modcompile
+    lowers to C. Output pins are written once per run, so a reader outside the
+    thread never sees a default between two writes.
+  * New: Go modules can export realtime functions, implemented in C: no Go
+    runs in the cycle.
+  * New: a machine config can bring its own REST API and web apps: modcompile
+    add-gmi and rm-gmi for IDLs from outside the tree, and [SERVER]WEBAPP_DIR
+    for web apps next to the system's.
+  * New: AXIS embeds web server pages as tabs and as a side panel, by way of
+    stmakui --xid. configs/sim/axis/axis_mm_webapp.ini shows it.
+  * New: siglog, a module logging every change of the selected HAL signals to
+    a binary file for the whole run, and siglog-decode(1) to read it as text,
+    CSV or VCD.
+  * New interlocks that refuse up front instead of stopping after the fact:
+    halui.program.inhibit, halui.mdi.inhibit and spindle.N.start-inhibit. AXIS
+    greys out what they refuse. spindle.N.inhibit only scales the speed to 0,
+    and releasing it spins the spindle up again.
+  * New: halui.program.ui-disable and halui.machine.ui-disable take program
+    flow, and estop and machine power, away from the UIs while leaving the
+    halui pins and callers using the new force flag alone.
+  * New: STMAK_LOG_OPER marks a log message as meant for the operator, whatever
+    its severity.
+  * EtherCAT: EL1918 and EL6910 TwinSAFE support, a REST CLI diag command, and
+    TwinCAT CoE init command exports are consumed as they are, which the AX5805
+    safety cards need on every boot.
+  * EtherCAT: the bus goes down cleanly at shutdown, with the drives
+    de-energised first, so AX5000 drives no longer report a sync fault, and
+    their latched faults can be reset. The NIC IRQs are pinned on the realtime
+    CPU before the bus scan, which ends the failed first starts after a reboot;
+    <master irqCpu="N"> overrides the CPU.
+  * EtherCAT: naming an AX5nxx drive as an fsoeSlaveIdx is refused, the AX5
+    srv-status, srv-torque-fb-pct and srv-diag pins are outputs, and the el3255
+    overrange and underrange pins are no longer swapped.
+  * The realtime timebase runs on CLOCK_MONOTONIC_RAW. NTP slewing
+    CLOCK_MONOTONIC bent the task periods far enough after boot to drop AX5000
+    drives with AL 0x001A.
+  * Task and motion: a refused switch to MDI or AUTO keeps the task mode and
+    yields to abort and ESTOP; the jog wheel enable switches motion to teleop;
+    an MDI after a jog in MDI mode re-enters coordinated mode; a joint fault is
+    reported per episode and again on every enable; machine off ends M3 but
+    keeps S; overrides are clamped to the limits the config declares; homing an
+    already-homed machine finishes its sequence.
+  * Motion reports in position only once the jerk filter has flushed, and
+    always while disabled, so an ESTOP during a jog no longer blocks mode
+    switches.
+  * Smaller fixes: a dropped message no longer silences the log ring; halcmd
+    shows every function of a thread; ngcpreview reads a probe's target instead
+    of 0 and previews programs using M100-M199; a pyvcp button greyed out while
+    held still sends its release.
+  * Known gaps, unchanged from earlier releases: GladeVCP and QtVCP are not
+    ported, and 90 files under configs/ still name LIB:basic_sim.tcl, which
+    needs Tcl HAL support stmakd does not have. Those sim configs await
+    migration.
+
+ -- Sascha Ittner <sascha.ittner@modusoft.de>  Fri, 06 Nov 2026 15:13:15 +0100
+
+stratumak (0.1.3) UNRELEASED; urgency=medium
+
   * A .comp can now declare the external libraries it needs: pkgconfig for a
     library that ships a .pc file, cflags and ldflags for one that does not.
     modcompile --compile links them, --deps prints them for a packager to
@@ -71,17 +167,6 @@ stratumak (0.1.3) UNRELEASED; urgency=medium
     $STMAK_CWARNFLAGS is the opt-out. The tree's own build takes the policy
     from --enable-werror, which CI passes and debian/rules does not, so a
     distro rebuild on a newer compiler cannot be broken by a new diagnostic.
-  * BEHAVIOR CHANGE: M51 (spindle speed override enable) reaches motion. The
-    task tracked it but never sent it, so M51 P0 left the override live --
-    and a floating tap (G84/G74), which switches both overrides off, ran its
-    spindle under the override while its feed ran at F. A G84 now runs at
-    its programmed feed and speed whatever the overrides say, and
-    motion.feed-inhibit, spindle.N.inhibit, motion.feed-hold, a program
-    pause and single-step are deferred until its retract is done: stopping
-    either side alone under a floating tap strips or breaks it, and pause
-    and step stopped Z with the spindle turning (pause and feed-hold did in
-    2.9 too). The moves after the cycle are held as usual; the UI shows
-    "paused" at once while the cycle finishes.
 
  -- Sascha Ittner <sascha.ittner@modusoft.de>  Tue, 11 Aug 2026 17:18:22 +0200
 
