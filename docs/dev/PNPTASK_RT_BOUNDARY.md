@@ -217,13 +217,17 @@ is that the PLC can see when (§5.2).
 and with no error latched, RT accepts in the same servo cycle: `busy` rises,
 origin/dest/step/stay-near/deadzone-select are latched **from that same input
 sample**, and the job goes to Go with a job sequence number. An edge while an
-error is latched is not taken (today: start-job cleared, error left as it is),
-see §11 for how to report that. Everything RT cannot know stays a Go decision
-made inside the job, as today: `AUTO_DISABLED`, `MACHINE_OFF`, unknown ids,
-`UNREACHABLE`, planning — the job then ends at once with that error, through the
-same end-of-job commit. (RT could refuse `AUTO_DISABLED` and `MACHINE_OFF`
-itself, since it sees both; whether that is worth a second place for the rule
-is §11.) Go runs the job and, at the end,
+error is latched is ignored, with no `refused` output: the PLC sees `error`
+high in the same frame and must not request then. The one race, an error
+latched in the very cycle of the request, leaves the requester with `error`
+high and no `busy`, which is a refusal it already handles (pnp.main: REQUEST,
+"abgelehnt"). Everything else stays a Go decision made inside the job, as
+today, including `AUTO_DISABLED` and `MACHINE_OFF`, which RT could see but
+deliberately does not judge: one place for each rule, and a refusal without
+`busy` would need a `refused` output after all. Unknown ids, `UNREACHABLE` and
+planning likewise. Such a job ends at once with its error, through the same
+end-of-job commit, at most one Go tick after `busy` rose. Go runs the job and,
+at the end,
 sets `job_done_seq` together with the outcome (raise or none) and the final
 model outputs in **one** commit. RT drops `busy` in the cycle it sees that
 frame, with the error pins and every model output from the same frame.
@@ -310,17 +314,20 @@ Names stay where the meaning stays. Changes:
 `sync` is the exact form of what `cycle-count` + 2 approximated, and it is
 generic: any "has pnptask seen this" question is answered by it.
 
-Open: whether `jobs` (u32, finished jobs) is worth adding next to `busy`.
-`busy` is high for at least one Go tick, so a reader in the servo thread cannot
-miss it; a counter would only help a slow reader (UI).
+No `jobs` counter: `busy` is high for at least one Go commit, so a reader in
+the servo thread cannot miss it, and no UI needs one. Easy to add should a slow
+reader ever need it.
 
 ### 5.3 What the config loses
 
 - `coat_pnp_main`: the once-per-run sampling of busy/error/id, the id-0 term,
   `portal_saw`, `job_accept_time` (or it stays as a plain watchdog),
   `req_low_cycles` where it was about pnptask.
-- `coat_pnp_jobreq`: the `start-job` bridge (the valve pulses stay, or move to
-  a component named for them).
+- `coat_pnp_jobreq`: the `start-job` bridge. The valve pulses stay in the
+  config (bistable valves, the coil held in automatic and the panel's force
+  buttons are machine wiring, `SAFETY_BOUNDARY.md` §1; they only follow the
+  `close` level, which now changes at one defined point). The component is
+  renamed `coat_pnp_valves`.
 - `coat_auto_handler`: `portal_err_hold`.
 - `threads.hal`: `deadzone-check` → `cycle`, same position; the jobreq-before-
   main ordering stops mattering.
@@ -354,10 +361,18 @@ at `Start` warns with the addf line, as `warnIfDeadzoneUnscheduled` does now.
 
 ### 7.2 Go stalls
 
-RT sees `sync` stop moving. Proposal: after a configurable age (param, e.g.
-`task-timeout`, default 200 ms) RT raises a `TASK_STALLED` error in the latch,
-so the PLC's existing error path reacts. RT does **not** touch motion: a
-running leg is motmod's and the estop chain's business. Open question, §11.
+RT sees `sync` stop moving. After `task-timeout` (param, default 500 ms) RT
+raises `TASK_STALLED` in the error latch, so the PLC's existing error path
+reacts; no separate pin. The default stays clear of route planning, which runs
+inside the Go loop with no commit in between (~50 ms for a spline leg, D13's
+budget 100 ms).
+
+RT does **not** touch motion: motmod finishes what is queued and stands, and
+stopping the machine for safety is the estop chain's business.
+
+Go gets one new rule with it: a latched error Go did not raise ends the job in
+flight, as estop does. Otherwise a Go that recovers would carry on with a job
+the PLC has already given up.
 
 ### 7.3 Start, restart, priming
 
@@ -425,19 +440,21 @@ Step 2 alone already removes the bug class; steps 3–6 remove the workarounds.
   only use them at defined moments today. Worth a look once §3 exists.
 - **pyvcp**: single buttons, no groups.
 
-## 11. Open questions
+## 11. Decisions (2026-11-07)
 
-1. **Go stall** (§7.2): raise `TASK_STALLED` from RT, and with which default
-   timeout? Or only publish a `task-ok` pin and leave the reaction to the PLC?
-2. **Refusal** (§4.4): an edge while an error is latched — ignore it (the PLC
-   sees `error` high anyway and must not request then), or a `refused` output?
-   And does RT refuse `AUTO_DISABLED`/`MACHINE_OFF` itself, or does that stay
-   only in Go's validation?
-3. **`jobs` counter** (§5.2): needed?
-4. **Valve pulses**: keep them in a renamed `coat_pnp_jobreq` in the config, or
-   is a pulse mode for bistable valves generic enough to move into pnptask's
-   RT function (`picker.N.close` as a level *and* `open-coil`/`close-coil`
-   pulses)?
-5. **Manual picker presses**: today Go turns them into `close` at its next tick
-   (≤ 10 ms). Fine for a button; noted only so nobody moves it to RT for
-   symmetry's sake, which would give `close` two writers.
+1. **Go stall:** `TASK_STALLED` in the error latch after `task-timeout`
+   (default 500 ms); RT leaves motion alone; a latched error Go did not raise
+   ends the job in flight (§7.2).
+2. **Refusal:** an edge while an error is latched is ignored, no `refused`
+   output. `AUTO_DISABLED` and `MACHINE_OFF` stay in Go's validation only
+   (§4.4).
+3. **No `jobs` counter** (§5.2).
+4. **Valve pulses stay in the config**, `coat_pnp_jobreq` becomes
+   `coat_pnp_valves` (§5.3).
+5. **Manual picker presses** stay Go's: Go turns them into `close` at its next
+   tick, so `close` keeps one writer.
+
+## 12. Open
+
+1. **The Go loop: cyclic or driven by RT frames?** With the cyclic work in RT,
+   the 10 ms ticker may no longer be the right shape for the Go side.
