@@ -185,6 +185,17 @@ func RTCalloc(_ uintptr) unsafe.Pointer { return nil }
 // no-op.
 func RTFree(_ unsafe.Pointer) {}
 
+// RT bridge stubs for non-CGO builds (the cgo versions are in rtbridge_cgo.go).
+// RTCalloc returns nil here, so the constructors in rtbridge.go fail before any
+// of these can be reached; they exist for the build only.
+func tribufSize(frame uintptr) uintptr                          { return frame }
+func tribufInit(_ unsafe.Pointer, _ uintptr)                    {}
+func tribufPublishCopy(_, _ unsafe.Pointer)                     {}
+func tribufReadCopy(_, _ unsafe.Pointer) bool                   { return false }
+func pinmapSize(capacity int) uintptr                           { return uintptr(capacity) }
+func pinmapInit(_ unsafe.Pointer, _ int)                        {}
+func pinmapAdd(_, _ unsafe.Pointer, _ uintptr, _ PinType) error { return errNoCGO }
+
 // LookupValue stub for non-CGO builds (the cgo implementation is in lookup.go,
 // which is excluded without cgo). Always reports "not found" for build symmetry.
 func LookupValue(_ string) (float64, bool) { return 0, false }

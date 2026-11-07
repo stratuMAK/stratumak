@@ -107,11 +107,14 @@ const void *stmak_tribuf_read(stmak_tribuf_t *b, int *fresh) STMAK_NONBLOCKING; 
 The writer always writes a **whole frame** into its slot (the slot holds a
 frame from two publishes ago). Both directions use one: RT→Go and Go→RT.
 
-Go side: `hal.TriBuf` over an `RTCalloc` block — `WriteSlot()`, `Publish()`,
-`Read() (p unsafe.Pointer, fresh bool)`. The exchange goes through the C
-helpers (one cgo call per commit or read), the frame content is copied in and out of Go
-memory with one call each, so no Go pointer is ever stored in C memory and the
-frame layout is defined once, in a C header, and seen by Go through cgo types.
+Go side: `hal.TriBuf[T]` over an `RTCalloc` block — `Publish(*T)` and
+`Read(*T) (fresh bool)`, each one cgo call that copies the whole frame between
+Go memory and the slot and does the exchange. No Go pointer is ever stored in C
+memory, and the frame layout is defined once, in a C header, and seen by Go
+through its cgo type. `NewTriBuf` refuses a frame type that is not plain data
+(a pointer, slice, string, map, interface, channel or func anywhere in it).
+Go callers on one side are serialized by the handle, so the buffer sees one
+logical writer and one logical reader.
 
 Why not the others:
 
@@ -140,7 +143,12 @@ void stmak_pinmap_in (const stmak_pinmap_t *m, void *frame) STMAK_NONBLOCKING; /
 void stmak_pinmap_out(const stmak_pinmap_t *m, const void *frame) STMAK_NONBLOCKING; /* frame -> pins */
 ```
 
-Go: `m := hal.NewPinMap(); m.Bind(pin, unsafe.Offsetof(C.pnp_rt_in_t{}.estop))`.
+Go: `m, _ := hal.NewPinMap(hal.In, unsafe.Sizeof(frame), n)`, then
+`hal.BindBit(m, pin, unsafe.Pointer(&frame), &frame.estop)` (and `BindFloat`,
+`BindS32`, `BindU32`). The Bind function pairs the pin type with the field
+type, and the map checks range, alignment and duplicates. An Out map takes only
+Out pins: it writes them every cycle, which on an IO pin would overwrite the
+other writer.
 The pin keeps its `hal.Pin` object for naming, introspection and the REST API,
 but pnptask stops calling `Get`/`Set` on it.
 
@@ -157,16 +165,18 @@ computed from. Each side can tell whether the other is running (§7).
 ### 3.4 Waking Go
 
 The RT side cannot wake a goroutine: a futex or eventfd write is a syscall,
-and the servo thread makes none. So the RT frame header carries a **change
-counter** that the RT function increments when something its Go side acts on
-changed, and the Go frame carries a **`wake_at`** servo cycle at which RT
-increments it as well (a deadline).
+and the servo thread makes none. So the function keeps a **doorbell**
+(`stmak_doorbell.h`, a block of its own, because reading the triple buffer
+consumes a frame): a `cycle` counter it bumps every run, and a **change
+counter** it bumps, after publishing, when something its Go side acts on
+changed. The Go frame carries a **`wake_at`** servo cycle at which the
+function rings as well (a deadline).
 
-`hal.Waiter` polls the counter at a fixed short interval (1 ms) with one
-atomic load and returns when it moved, when the caller's context ends, or when
-`cycle` has stood still too long (the RT function is not running, §7.1). What
-counts as a change is the RT function's business; the waiter only watches the
-counter. The poll is the one periodic thing left on the Go side, kept in
+`hal.Doorbell.Wait` polls the counters at a fixed short interval (1 ms) with
+one atomic load each and returns when the change counter moved, when the
+caller's context ends, or with `ErrRTStalled` when `cycle` has stood still too
+long (the RT function is not running, §7.1). What counts as a change is the RT
+function's business; the doorbell only counts. The poll is the one periodic thing left on the Go side, kept in
 `pkg/hal` so modules do not each grow their own.
 
 ## 4. The pnptask RT function
@@ -488,11 +498,14 @@ Each step ends with the stratumak runtests (`tests/pnptask/*`, `pkg/hal`
 tests) green, and the steps that change the contract also with the CoatV2conf
 rigs and the machine.
 
-1. **Generic layer.** `stmak_tribuf.h`, `stmak_pinmap.h`, `hal.TriBuf`,
-   `hal.PinMap`; covered by `make rt-effects-check`. Tests: a concurrency test
-   of the triple buffer (monotonic, never torn, never backwards, both
-   directions), and a pin map on a real HAL thread like
-   `TestExportFunctOnThread`.
+1. **Generic layer.** `stmak_tribuf.h`, `stmak_pinmap.h`, `stmak_doorbell.h`,
+   `hal.TriBuf`, `hal.PinMap`, `hal.Doorbell`; the headers verified by
+   `make rt-effects-check` through `internal/hallib/rtbridgetest`, a cyclic
+   function that uses all three. Tests: a two-goroutine torture of the triple
+   buffer (never torn, never backwards, fresh exactly when new), the binding
+   guards, the function run by hand cycle by cycle, and on a real HAL thread
+   (wake on an input change, Go's frame to the pins, a fast reader never
+   seeing time go backwards, stalled after the unload barrier). *Built.*
 2. **The boundary moves, the contract does not.** `pnp.task.cycle` copies all
    pins through the frames; Go stops calling `Get`/`Set`; edges are still
    derived in Go from the sampled levels. Behaviour is unchanged, but every
@@ -509,7 +522,7 @@ rigs and the machine.
 6. **Scene lock and lift watch in RT.** `scenegate` and `zarcs` scenarios
    extended: grant and hold in the same cycle; the clamp within a servo cycle
    of the segment change.
-7. **The Go loop driven by RT frames** (§6.1). `hal.Waiter`, the change
+7. **The Go loop driven by RT frames** (§6.1). `hal.Doorbell.Wait`, the change
    counter and `wake_at`; `tick()` becomes commit-wait-read; tick counts
    become deadlines in servo cycles; teach pins move to RT; persistence and
    the watchdog on change; the stall check on untaken changes (§7.2). Its own
