@@ -237,3 +237,140 @@ func TestRTStatusStaleAfterDispatch(t *testing.T) {
 		t.Errorf("after the command: inpos %d depth %d; want 0 1", s.Inpos, s.QueueDepth)
 	}
 }
+
+// edges is the edge block of the latest input frame.
+func edges(m *pnptaskModule) *edgeBlock {
+	m.rt.read()
+	return &m.rt.in.edges
+}
+
+// TestEdgesOneServoCycle: a pulse that lasts one run of the cycle function is
+// counted once, and an input already high at the function's first run is no
+// edge.
+func TestEdgesOneServoCycle(t *testing.T) {
+	m, _ := rtModule(t)
+
+	m.pins.home.Set(true) // high before the first run: primes, no edge
+	m.rt.invoke()
+	if n := edges(m).home; n != 0 {
+		t.Fatalf("home counted %d at the first run, want 0 (primed)", n)
+	}
+	m.pins.home.Set(false)
+	m.rt.invoke()
+
+	m.pins.home.Set(true)
+	m.rt.invoke()
+	m.pins.home.Set(false)
+	m.rt.invoke()
+	m.rt.invoke()
+	if n := edges(m).home; n != 1 {
+		t.Errorf("one-cycle home pulse counted %d, want 1", n)
+	}
+	if n := edges(m).error_reset; n != 0 {
+		t.Errorf("error-reset counted %d without a pulse", n)
+	}
+}
+
+// TestEdgesGatedAtThePress: machine-on, home and park are not counted under
+// estop, the manual picker presses neither under estop nor in auto -- judged
+// in the servo cycle of the press, so clearing estop afterwards brings nothing
+// back.
+func TestEdgesGatedAtThePress(t *testing.T) {
+	m, _ := rtModule(t)
+	m.rt.invoke()
+
+	pulse := func(p *hal.Pin[bool]) {
+		p.Set(true)
+		m.rt.invoke()
+		p.Set(false)
+		m.rt.invoke()
+	}
+
+	m.pins.estopOn.Set(true)
+	pulse(m.pins.machineOn)
+	pulse(m.pins.home)
+	pulse(m.pins.park)
+	pulse(m.pins.pickers[0].manualOpen)
+	m.pins.estopOn.Set(false)
+	m.rt.invoke()
+	e := edges(m)
+	if e.machine_on != 0 || e.home != 0 || e.park != 0 || e.picker[0].open != 0 {
+		t.Errorf("counted under estop: machine-on %d home %d park %d open %d",
+			e.machine_on, e.home, e.park, e.picker[0].open)
+	}
+
+	m.pins.autoEnable.Set(true)
+	pulse(m.pins.pickers[0].manualClose)
+	if n := edges(m).picker[0].close; n != 0 {
+		t.Errorf("manual close counted %d in auto, want 0", n)
+	}
+	m.pins.autoEnable.Set(false)
+	m.rt.invoke()
+	pulse(m.pins.pickers[0].manualClose)
+	pulse(m.pins.home)
+	e = edges(m)
+	if e.picker[0].close != 1 || e.home != 1 {
+		t.Errorf("manual, no estop: close %d home %d, want 1 1", e.picker[0].close, e.home)
+	}
+}
+
+// TestEdgesStationResets: set-full carries the tray's step of the press,
+// set-empty -1, the latest wins, and both in one servo cycle is a conflict
+// that changes nothing.
+func TestEdgesStationResets(t *testing.T) {
+	m, _ := rtModule(t)
+	tr := &m.pins.trays[0]
+	m.rt.invoke()
+
+	tr.step.Set(5)
+	tr.setFull.Set(true)
+	m.rt.invoke()
+	tr.setFull.Set(false)
+	tr.step.Set(7) // moves after the press: not what the reset carries
+	m.rt.invoke()
+	r := edges(m).tray[0]
+	if r.count != 1 || r.value != 5 {
+		t.Errorf("after set-full: count %d value %d, want 1 5", r.count, r.value)
+	}
+
+	tr.setEmpty.Set(true)
+	m.rt.invoke()
+	tr.setEmpty.Set(false)
+	m.rt.invoke()
+	r = edges(m).tray[0]
+	if r.count != 2 || r.value != -1 {
+		t.Errorf("after set-empty: count %d value %d, want 2 -1", r.count, r.value)
+	}
+
+	tr.setFull.Set(true)
+	tr.setEmpty.Set(true)
+	m.rt.invoke()
+	r = edges(m).tray[0]
+	if r.count != 2 || r.conflicts != 1 || r.value != -1 {
+		t.Errorf("both in one cycle: count %d conflicts %d value %d, want 2 1 -1", r.count, r.conflicts, r.value)
+	}
+
+	ps := &m.pins.procs[0]
+	ps.setHasMaterial.Set(true)
+	m.rt.invoke()
+	if p := edges(m).proc[0]; p.count != 1 || p.value != 1 {
+		t.Errorf("proc set-has-material: count %d value %d, want 1 1", p.count, p.value)
+	}
+}
+
+// TestHomePulseBetweenTwoSamples: a home pulse that exists for one servo
+// cycle between two samples of the control loop still homes the machine. The
+// loop used to detect edges on its own 10 ms samples, and lost such a pulse
+// without a trace (PNPTASK_DESIGN.md §5.2.1).
+func TestHomePulseBetweenTwoSamples(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{simulate: true})
+	f.machineOn()
+	f.mot.resetCalls()
+
+	f.sim.inLoop(t, func() {
+		f.m.pins.home.Set(true)
+		f.m.rt.invoke() // the one servo cycle the pulse lasts
+		f.m.pins.home.Set(false)
+	})
+	f.eventually("homing from a one-cycle pulse", func() bool { return f.mot.called("JointHome") })
+}

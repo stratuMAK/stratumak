@@ -6,6 +6,80 @@
 
 #include "pnp_rt.h"
 
+static int rose(uint8_t now, uint8_t before) STMAK_NONBLOCKING;
+static int rose(uint8_t now, uint8_t before)
+{
+    return now && !before;
+}
+
+// count_reset folds one station's two reset edges into its counter: the
+// latest wins, both in one cycle is a conflict.
+static void count_reset(pnp_rt_edge_reset_t *e, int set, int clear,
+                        int64_t set_value, int64_t clear_value) STMAK_NONBLOCKING;
+static void count_reset(pnp_rt_edge_reset_t *e, int set, int clear,
+                        int64_t set_value, int64_t clear_value)
+{
+    if (set && clear) {
+        e->conflicts++;
+    } else if (set || clear) {
+        e->value = set ? set_value : clear_value;
+        e->count++;
+    }
+}
+
+// pnp_rt_edges counts this cycle's rising edges (pnp_rt.h, the edges block)
+// and hands the counts to the frame.
+static void pnp_rt_edges(pnp_rt_t *r, pnp_rt_in_t *in) STMAK_NONBLOCKING;
+static void pnp_rt_edges(pnp_rt_t *r, pnp_rt_in_t *in)
+{
+    const pnp_rt_in_t *p = &r->prev;
+    pnp_rt_edges_t    *e = &r->edges;
+
+    if (r->primed) {
+        int armed  = !in->estop_on;
+        int manual = armed && !in->auto_enable;
+
+        if (armed && rose(in->machine_on, p->machine_on))
+            e->machine_on++;
+        if (armed && rose(in->home, p->home))
+            e->home++;
+        if (armed && rose(in->park, p->park))
+            e->park++;
+        if (rose(in->error_reset, p->error_reset))
+            e->error_reset++;
+        for (int i = 0; i < r->n_pickers; i++) {
+            if (manual && rose(in->picker[i].manual_open, p->picker[i].manual_open))
+                e->picker[i].open++;
+            if (manual && rose(in->picker[i].manual_close, p->picker[i].manual_close))
+                e->picker[i].close++;
+        }
+        for (int i = 0; i < r->n_trays; i++)
+            count_reset(&e->tray[i],
+                        rose(in->tray[i].set_full, p->tray[i].set_full),
+                        rose(in->tray[i].set_empty, p->tray[i].set_empty),
+                        (int64_t)in->tray[i].step, -1);
+        for (int i = 0; i < r->n_procs; i++)
+            count_reset(&e->proc[i],
+                        rose(in->proc[i].set_has_material, p->proc[i].set_has_material),
+                        rose(in->proc[i].set_empty, p->proc[i].set_empty),
+                        1, 0);
+    }
+    r->primed = 1;
+
+    r->prev.machine_on  = in->machine_on;
+    r->prev.home        = in->home;
+    r->prev.park        = in->park;
+    r->prev.error_reset = in->error_reset;
+    for (int i = 0; i < r->n_pickers; i++)
+        r->prev.picker[i] = in->picker[i];
+    for (int i = 0; i < r->n_trays; i++)
+        r->prev.tray[i] = in->tray[i];
+    for (int i = 0; i < r->n_procs; i++)
+        r->prev.proc[i] = in->proc[i];
+
+    in->edges = *e;
+}
+
 void pnp_rt_cycle(void *arg, long period)
 {
     pnp_rt_t *r = (pnp_rt_t *)arg;
@@ -15,6 +89,7 @@ void pnp_rt_cycle(void *arg, long period)
     //    written; the others are 0 in every slot.
     pnp_rt_in_t *in = (pnp_rt_in_t *)stmak_tribuf_write_slot(r->to_go);
     stmak_pinmap_in(r->in, in);
+    pnp_rt_edges(r, in);
 
     // 2. Go's outputs, all at once.
     const pnp_rt_out_t *out = (const pnp_rt_out_t *)stmak_tribuf_read(r->to_rt, &fresh);

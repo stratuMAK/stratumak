@@ -9,7 +9,8 @@ package pnptask
 #include "pnp_rt.h"
 
 static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out,
-                        void *dz, void *bell, void *start_job) {
+                        void *dz, void *bell, void *start_job,
+                        int pickers, int trays, int procs) {
     pnp_rt_t *r = (pnp_rt_t *)blk;
     r->to_go     = (stmak_tribuf_t *)to_go;
     r->to_rt     = (stmak_tribuf_t *)to_rt;
@@ -18,6 +19,9 @@ static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out
     r->dz        = (pnp_dz_t *)dz;
     r->bell      = (stmak_doorbell_t *)bell;
     r->start_job = (void *volatile *)start_job;
+    r->n_pickers = pickers;
+    r->n_trays   = trays;
+    r->n_procs   = procs;
 }
 
 static size_t pnp_rt_size(void) { return sizeof(pnp_rt_t); }
@@ -191,7 +195,8 @@ func (r *rtIO) build(p *pinSet, dz *deadzoneRT) error {
 		dzBlk = dz.blk
 	}
 	C.pnp_rt_link(r.blk, r.toGo.RTPtr(), r.toRT.RTPtr(), r.inMap.RTPtr(), r.outMap.RTPtr(),
-		dzBlk, r.bell.RTPtr(), p.startJob.RTDataPtr())
+		dzBlk, r.bell.RTPtr(), p.startJob.RTDataPtr(),
+		C.int(len(p.pickers)), C.int(len(p.trays)), C.int(len(p.procs)))
 	return nil
 }
 
@@ -551,3 +556,26 @@ func snapPose(p *C.mot_pose_t) motstat.Pose {
 		U: float64(p.u), V: float64(p.v), W: float64(p.w),
 	}
 }
+
+// takeAll takes every counter of an edges block as seen (primeEdges).
+func (s *edgesSeen) takeAll(e *C.pnp_rt_edges_t) {
+	s.machineOn = uint32(e.machine_on)
+	s.home = uint32(e.home)
+	s.park = uint32(e.park)
+	s.errorReset = uint32(e.error_reset)
+	for i := range s.pickerOpen {
+		s.pickerOpen[i] = uint32(e.picker[i].open)
+		s.pickerClose[i] = uint32(e.picker[i].close)
+	}
+	for i := range s.trayReset {
+		s.trayReset[i] = uint32(e.tray[i].count)
+		s.trayConflicts[i] = uint32(e.tray[i].conflicts)
+	}
+	for i := range s.procReset {
+		s.procReset[i] = uint32(e.proc[i].count)
+		s.procConflicts[i] = uint32(e.proc[i].conflicts)
+	}
+}
+
+// edgeBlock is the edges block of the input frame (tests read it).
+type edgeBlock = C.pnp_rt_edges_t

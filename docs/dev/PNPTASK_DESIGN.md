@@ -503,29 +503,36 @@ normalized to HAL-conventional dashes.
 | `set-has-material` | bit | in | edge: has-material := true. The operator resync §6.4 promised, and what makes a station *probe* possible — a job may only originate at a station the model believes occupied |
 | `set-empty` | bit | in | edge: has-material := false |
 
-### 5.2.1 Timing contract — hold commands, do not pulse them
+### 5.2.1 Timing contract
 
-**The control loop is not the servo thread.** It runs at `pollInterval`, 10 ms
-(`machine.go`), and every input above is sampled there — the edge-triggered ones
-included. The only exception is `deadzone.N.free`, which a cyclic function
-publishes at servo rate (see `GOMOD_RT_DESIGN.md`).
+**The edge inputs take a pulse of one servo cycle** (since
+[`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) step 4). The control loop
+still runs at `pollInterval`, 10 ms, but the edges are no longer its business:
+the module's cycle function samples every input every servo cycle and counts
+each rising edge of `machine-on`, `home`, `park`, `error-reset`,
+`picker.N.manual-open`/`manual-close`, `tray.N.set-full`/`set-empty` and
+`proc.N.set-has-material`/`set-empty`, gated on estop and auto in the cycle of
+the press. The loop takes the counts, so a pulse between two of its samples
+is not lost. A pulse must still last one run of the cycle function: a
+producer outside the servo thread that sets a pin and clears it again within
+a millisecond can still go unseen.
 
-So a producer running faster than 10 ms — another realtime component, not a PLC
-or a panel button — **must hold a command until it sees the acknowledgement**. A
-pulse of one or two servo cycles can fall entirely between two samples and is
-then lost, with no error anywhere: the module simply never saw it.
+Two gates are still the loop's, applied when it takes a count: home and park
+are ignored while busy, error-reset while no error is latched. A pulse
+refused there is gone, not kept.
 
-Every command pin has something to watch for, which is what makes holding
-practical:
+The station resets are applied between jobs (see the end of this section), so
+"seen" and "applied" are two moments; what a producer watches to know a reset
+has been applied:
 
-| Command | Held until |
+| Command | Applied when |
 |---|---|
 | `home` | `homed` |
 | `error-reset` | `error` low |
 | `tray.N.set-full` / `set-empty` | `avail` / `count` change |
 | `proc.N.set-has-material` / `set-empty` | `has-material` follows |
 | `picker.N.manual-open` / `manual-close` | `picker.N.close` follows |
-| `start-job` | the module clears it (see below) |
+| `start-job` | the module clears it (see below) — still a level, not an edge |
 
 `start-job` carries one extra rule. The module only accepts a request it has
 watched go **low** first (`jobRequest`, §7.4 D26: a level held across a restart

@@ -241,6 +241,15 @@ with servo-cycle state:
 Station resets keep their semantics: applied by Go between jobs. What changes
 is that the PLC can see when (§5.2).
 
+*Step 4 as built:* the gates the inputs decide (estop; estop and auto) are
+applied in the cycle function at the press. The gates on Go's own state —
+home and park not while busy, error-reset only with an error latched — are
+applied by Go when it takes the count, exactly where its sample() applied
+them before; they move into the cycle function with step 5, when busy and
+the latch do. A station reset is one counter with the latest value (set-full:
+the tray's step of that servo cycle; set-empty: -1), plus a conflict counter
+for both in one cycle, which Go logs.
+
 ### 4.4 Handshakes in RT
 
 **Job.** `start-job` becomes a plain `in` pin. On its rising edge, not busy
@@ -548,8 +557,18 @@ rigs and the machine.
    motstat's `MotionStatus`); the snapshot in the input frame; `rtStatus`;
    the doorbell's cycle count instead of the echo (see §4.5);
    `dispatchSettleTicks` = 1.
+   **Checkpoint after step 3** (decided 2026-11-07): steps 2 and 3 keep the
+   pin contract and change timing, so before step 5 changes the contract they
+   run on the coating machine (stratumak #59 with CoatV2conf #34, after the
+   customer acceptance), and `pnp.task.cycle`'s time is measured there
+   (`halcmd show funct`, against the 1 ms servo period; it copies ~200 pins
+   plus the dead-zone check). Step 4 is behaviour-neutral and may go ahead.
 4. **Edges and latches in RT.** Counters, press-time gating in RT. New
    scenario: every edge input as a one-servo-cycle pulse, counted exactly once.
+   *Built:* the edges block of `pnp_rt.h`, Go's `edgesSeen`; the one-cycle
+   pulse is covered by unit tests at the function and at the loop level
+   (`TestHomePulseBetweenTwoSamples`) rather than a runtest scenario, since
+   halcmd from a script cannot place a pulse of one servo cycle.
 5. **Handshakes in RT — the contract changes.** Job, park, error latch,
    `cycle`/`sync`, station reset counters. pnptask scenarios and `pnpdrv.py`
    move to the new contract; CoatV2conf (pnp.main, jobreq, auto_handler,
@@ -611,7 +630,7 @@ step ticks off what it settles.
 | 3 | step 2 | `TriBuf.Publish`/`Read` passed a Go pointer to C; cgo checks the whole allocation behind an `unsafe.Pointer`, so a frame inside a struct holding pointers panicked. Go now copies into and out of the C slot itself. | fixed in step 2, regression test `TestTriBufFrameInsideAStruct` |
 | 4 | step 2 | Outputs could lag motion commands (motctl is immediate, outputs go at a commit). | fixed in step 2 (commit before each command), made strict in step 3 (wait until applied): `committedMotion`, test `TestOutputsBeforeMotion` |
 | 5 | step 2 | The `z-offset` inputs (trays and process stations) and `tray-id` were read live outside `sample()` (approach heights, reach check, world start, persistence restore). They now come from the frame like every other input. | done in step 2 |
-| 6 | step 2 | Pulses shorter than a Go tick are still lost: the cycle function samples every servo cycle, but Go still looks at the latest frame only, every 10 ms. §5.2.1's hold rules stay valid until edges move to RT. | step 4 |
+| 6 | step 2 | Pulses shorter than a Go tick are still lost: the cycle function samples every servo cycle, but Go still looks at the latest frame only, every 10 ms. §5.2.1's hold rules stay valid until edges move to RT. | done in step 4; §5.2.1 rewritten for the edge inputs |
 | 7 | step 2 | CoatV2conf `threads.hal` names `pnp.task.deadzone-check`; the stratumak build of step 2 refuses to start without `pnp.task.cycle`. The two have to be deployed together. | config change with step 2 |
 | 8 | step 2 | `start-job` is still an IO pin, cleared by the cycle function on request. | step 5 makes it an in pin |
 | 9 | step 3 | The test fake of `mot` (`dztest`) had no `status_get_snapshot`; a NULL callback would have crashed the cycle function. A version-3 provider always has it, but the cycle function checks for NULL anyway, and the fake can now serve a snapshot. | done in step 3 |

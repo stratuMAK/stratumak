@@ -8,7 +8,8 @@
 // Per run:
 //
 //   1. the input pins are copied into the write slot of the RT -> Go buffer
-//      (one pin map, so all of them from one moment of the thread);
+//      (one pin map, so all of them from one moment of the thread), and the
+//      rising edges of the command inputs are counted (pnp_rt_edges_t);
 //   2. Go's latest output frame is read and copied to the output pins (one pin
 //      map, so they all change together: no reader can see half an update);
 //   3. a start-job clear Go asked for is applied (start-job is an IO pin the
@@ -39,6 +40,40 @@
 #define PNP_RT_MAX_TRAYS   16
 #define PNP_RT_MAX_PROCS   16
 #define PNP_RT_MAX_AXES    9
+
+// --- RT -> Go: the edges, counted at servo rate --------------------------------
+//
+// Each command input's rising edge, counted in the cycle it happens in and
+// only when the inputs allow it then (press-time gating, PNPTASK_RT_BOUNDARY.md
+// §4.3): machine-on, home and park not under estop, the manual picker presses
+// neither under estop nor in auto. Go keeps the last count it took and acts on
+// the difference, so a pulse of one servo cycle is seen and none is lost
+// between two Go ticks. The gates on Go's own state (busy, the error latch)
+// are Go's, applied when it takes the count, until those move here.
+//
+// The first run only primes: an input already high then is no edge (Go adds
+// machine-on's boot edge itself, as it always did).
+//
+// The station resets are one counter each with the value of the latest one:
+// set-full carries the tray's step of that cycle, set-empty -1 (a proc
+// station: 1 has material, 0 empty). The latest wins; both in one cycle is a
+// contradiction and counts as a conflict instead.
+
+typedef struct {
+    uint32_t open, close;
+} pnp_rt_edge_picker_t;
+
+typedef struct {
+    int64_t  value;
+    uint32_t count, conflicts;
+} pnp_rt_edge_reset_t;
+
+typedef struct {
+    uint32_t machine_on, home, park, error_reset;
+    pnp_rt_edge_picker_t picker[PNP_RT_MAX_PICKERS];
+    pnp_rt_edge_reset_t  tray[PNP_RT_MAX_TRAYS];
+    pnp_rt_edge_reset_t  proc[PNP_RT_MAX_PROCS];
+} pnp_rt_edges_t;
 
 // --- RT -> Go: the inputs of one servo cycle --------------------------------
 
@@ -80,6 +115,8 @@ typedef struct {
     uint8_t            pad2_[6];
     pnp_rt_in_tray_t   tray[PNP_RT_MAX_TRAYS];
     pnp_rt_in_proc_t   proc[PNP_RT_MAX_PROCS];
+
+    pnp_rt_edges_t     edges;   // counted since the function started
 
     mot_snapshot_t     mot;     // motmod's state this cycle, valid with mot_ok
     uint8_t            mot_ok;
@@ -137,6 +174,13 @@ typedef struct {
 
     uint32_t cycle;
     uint32_t start_job_clears; // the last count applied
+
+    // Edge counting (step 1): how many of each the frames hold, the counts,
+    // and last cycle's input levels.
+    int            n_pickers, n_trays, n_procs;
+    int            primed;
+    pnp_rt_edges_t edges;
+    pnp_rt_in_t    prev;
 } pnp_rt_t;
 
 void pnp_rt_cycle(void *arg, long period) STMAK_NONBLOCKING;

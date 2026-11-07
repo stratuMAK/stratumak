@@ -193,9 +193,12 @@ type control struct {
 	// loaded host) must not turn an answer that arrived in time into a fault.
 	sampledAt time.Time
 
-	// This cycle's inputs and the previous cycle's, for edge detection.
-	in   inputs
-	prev inputs
+	// This cycle's inputs.
+	in inputs
+
+	// seen is the cycle function's edge counters as last taken (pnp_rt.h,
+	// the edges block): a counter that moved since is an edge.
+	seen edgesSeen
 
 	// procPending is a resync request waiting for the current job to end,
 	// parallel to world.procs — the proc-station twin of trayPending.
@@ -340,7 +343,7 @@ func newControl(m *pnptaskModule) *control {
 		stop:             make(chan struct{}),
 		done:             make(chan struct{}),
 		in:               mk(),
-		prev:             mk(),
+		seen:             newEdgesSeen(pickers, trays, procs),
 		rise:             mk(),
 		jogDir:           make([]int, len(m.pins.jog)),
 		trayPending:      make([]*int64, trays),
@@ -349,6 +352,33 @@ func newControl(m *pnptaskModule) *control {
 		manualGripWarned: make([]bool, pickers),
 		heldVerifyWarned: make([]bool, pickers),
 	}
+}
+
+// edgesSeen is the cycle function's edge counters as the control loop last
+// took them, parallel to the edges block of pnp_rt.h.
+type edgesSeen struct {
+	machineOn, home, park, errorReset uint32
+	pickerOpen, pickerClose           []uint32
+	trayReset, trayConflicts          []uint32
+	procReset, procConflicts          []uint32
+}
+
+func newEdgesSeen(pickers, trays, procs int) edgesSeen {
+	return edgesSeen{
+		pickerOpen:    make([]uint32, pickers),
+		pickerClose:   make([]uint32, pickers),
+		trayReset:     make([]uint32, trays),
+		trayConflicts: make([]uint32, trays),
+		procReset:     make([]uint32, procs),
+		procConflicts: make([]uint32, procs),
+	}
+}
+
+// moved reports whether a counter moved since it was last seen, and takes it.
+func moved(cur uint32, seen *uint32) bool {
+	m := cur != *seen
+	*seen = cur
+	return m
 }
 
 // take consumes a latched edge: it reports whether the edge was pending and
@@ -523,22 +553,6 @@ func (c *control) tick() bool {
 func (c *control) sample() {
 	p := c.m.pins
 
-	// Roll this cycle's reading into the previous one BEFORE overwriting it.
-	// A plain `prev := c.in` would not do: the per-picker slices are shared by
-	// the copy, so the new reading would overwrite the very values the edge
-	// detection is about to compare against.
-	c.prev.estop = c.in.estop
-	c.prev.machineOn = c.in.machineOn
-	c.prev.autoEnable = c.in.autoEnable
-	c.prev.home = c.in.home
-	c.prev.errorReset = c.in.errorReset
-	copy(c.prev.pickerOpen, c.in.pickerOpen)
-	copy(c.prev.pickerClose, c.in.pickerClose)
-	copy(c.prev.traySetFull, c.in.traySetFull)
-	copy(c.prev.traySetEmpty, c.in.traySetEmpty)
-	copy(c.prev.procSetHasMaterial, c.in.procSetHasMaterial)
-	copy(c.prev.procSetEmpty, c.in.procSetEmpty)
-
 	// One frame of the cycle function: every input from the same moment of
 	// the servo thread. The order the fields are read in does not matter any
 	// more -- start-job and the parameters it carries, deadzone-select and the
@@ -588,61 +602,59 @@ func (c *control) sample() {
 	}
 	c.in.jogSpeed = float64(f.jog_speed)
 
-	// machine-on's first cycle deliberately compares against a zeroed previous
-	// reading, so held high at startup it counts as a rising edge: a PLC that
-	// holds it high across a stmakd restart is asking for the machine, and
-	// waiting for an edge that already happened would leave it off with
-	// nothing to show why. The one-shot inputs (home, error-reset, manual
-	// open/close, the tray resets) go the other way — see primeEdges.
+	// The edges were counted by the cycle function, every servo cycle, and
+	// gated there on what the inputs say at the press: machine-on, home and
+	// park not under estop (a machine-on edge during estop must not enable the
+	// machine at estop clear, the post-estop cycle rule of §6.2; a home press
+	// during estop must not home on reset), the manual picker presses neither
+	// under estop nor in auto (§6.4). A pulse of one servo cycle counts, and
+	// none is lost between two ticks.
 	//
-	// The edges are OR-ed into the latches rather than assigned (see the rise
-	// field), and each latch is GATED AT PRESS TIME: sample() runs on every
-	// nested tick, so this cycle's inputs are exactly the context the press
-	// happened in, and a press that was invalid then must not be remembered
-	// into a context where it would fire unrequested. A machine-on edge during
-	// estop must not enable the machine at estop clear (the post-estop cycle
-	// rule of §6.2); a home press during estop must not home on reset; an
-	// error-reset with no fault latched must not pre-clear a fault raised
-	// later; a home press while a job runs is ignored, not deferred — the
-	// deferred run arrived as a surprise homing sequence the moment the job
-	// completed, which turns a PLC glitch on that line into a homing run
-	// (§12.3, resolved; busy is this module's own job-in-flight output,
-	// written by this same goroutine); and a manual picker press outside
-	// manual mode is ignored, not queued (§6.4). What the latch is FOR — a
-	// valid press surviving a long job's nested ticks — is untouched: those
-	// presses pass their gate.
-	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn && !c.in.estop)
-	c.rise.home = c.rise.home ||
-		(c.in.home && !c.prev.home && !c.in.estop && !c.m.pins.busy.Get())
-	c.rise.park = c.rise.park ||
-		(c.in.park && !c.prev.park && !c.in.estop && !c.m.pins.busy.Get())
-	c.rise.errorReset = c.rise.errorReset ||
-		(c.in.errorReset && !c.prev.errorReset && c.m.pins.errorFlag.Get())
-	manualOK := !c.in.estop && !c.in.autoEnable
+	// What the latches are FOR -- a valid press surviving a long job's nested
+	// ticks -- is unchanged: the edges are OR-ed into them. The gates on this
+	// goroutine's own state are applied here, when the count is taken, as they
+	// always were: an error-reset with no fault latched must not pre-clear a
+	// fault raised later; a home or park press while a job runs is ignored, not
+	// deferred -- the deferred run arrived as a surprise homing sequence the
+	// moment the job completed (§12.3, resolved). A press taken and refused is
+	// gone, not kept for later.
+	e := &f.edges
+	busy := c.m.pins.busy.Get()
+	if moved(uint32(e.machine_on), &c.seen.machineOn) {
+		c.rise.machineOn = true
+	}
+	if moved(uint32(e.home), &c.seen.home) && !busy {
+		c.rise.home = true
+	}
+	if moved(uint32(e.park), &c.seen.park) && !busy {
+		c.rise.park = true
+	}
+	if moved(uint32(e.error_reset), &c.seen.errorReset) && c.m.pins.errorFlag.Get() {
+		c.rise.errorReset = true
+	}
 	for i := range p.pickers {
-		c.rise.pickerOpen[i] = c.rise.pickerOpen[i] ||
-			(manualOK && c.in.pickerOpen[i] && !c.prev.pickerOpen[i])
-		c.rise.pickerClose[i] = c.rise.pickerClose[i] ||
-			(manualOK && c.in.pickerClose[i] && !c.prev.pickerClose[i])
+		if moved(uint32(e.picker[i].open), &c.seen.pickerOpen[i]) {
+			c.rise.pickerOpen[i] = true
+		}
+		if moved(uint32(e.picker[i].close), &c.seen.pickerClose[i]) {
+			c.rise.pickerClose[i] = true
+		}
 	}
 	// The tray resets latch a pending VALUE, not a boolean: set-full means "all
-	// slots become this tray's process step", snapshotted at press time so a
-	// step pin that moves before the reset is consumed cannot mark the tray
-	// wrongly. Later presses overwrite earlier ones (last wins); only two edges
-	// in the SAME sample are a genuinely contradictory pair, ignored like the
-	// picker branch ignores its own.
+	// slots become this tray's process step", taken at the press (the cycle
+	// function carries the step of that servo cycle) so a step pin that moves
+	// before the reset is consumed cannot mark the tray wrongly. Later presses
+	// overwrite earlier ones (last wins); two edges in the SAME servo cycle are
+	// a contradictory pair, which the cycle function counts as a conflict and
+	// nothing else.
 	for i := range p.trays {
-		full := c.in.traySetFull[i] && !c.prev.traySetFull[i]
-		empty := c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i]
-		switch {
-		case full && empty:
+		r := &e.tray[i]
+		if moved(uint32(r.conflicts), &c.seen.trayConflicts[i]) {
 			c.m.logger.Debug("pnptask: tray set-full and set-empty in the same cycle, ignored",
 				"station", c.m.world.trays[i].cfg.ID)
-		case full:
-			v := int64(c.in.trayStep[i])
-			c.trayPending[i] = &v
-		case empty:
-			v := slotEmpty
+		}
+		if moved(uint32(r.count), &c.seen.trayReset[i]) {
+			v := int64(r.value)
 			c.trayPending[i] = &v
 		}
 	}
@@ -652,14 +664,13 @@ func (c *control) sample() {
 	// not — and a fixture that went from occupied to empty mid-place is a lie
 	// the job would then act on.
 	for i := range p.procs {
-		set := c.in.procSetHasMaterial[i] && !c.prev.procSetHasMaterial[i]
-		clear := c.in.procSetEmpty[i] && !c.prev.procSetEmpty[i]
-		switch {
-		case set && clear:
+		r := &e.proc[i]
+		if moved(uint32(r.conflicts), &c.seen.procConflicts[i]) {
 			c.m.logger.Debug("pnptask: proc set-has-material and set-empty in the same cycle, ignored",
 				"station", c.m.world.procs[i].cfg.ID)
-		case set != clear:
-			v := set
+		}
+		if moved(uint32(r.count), &c.seen.procReset[i]) {
+			v := r.value != 0
 			c.procPending[i] = &v
 		}
 	}
@@ -691,38 +702,27 @@ func (c *control) sample() {
 	}
 }
 
-// primeEdges seeds the edge detector with the current pin state, so a one-shot
-// input already high when the loop starts does NOT fire on the first cycle.
-// home, error-reset, the manual picker pins and the tray set-full/set-empty
-// pins are requests for an action; a PLC that latches them across a stmakd
-// restart is not re-issuing them, and acting on the stale level would home the
-// machine, close a picker or wipe a tray's slot state at boot with nobody asking
-// (D25/D26/§5.2 specify rising-edge semantics). machine-on is deliberately NOT
-// primed — it is the standing request for the machine, and its boot edge is
-// wanted (see sample).
+// primeEdges takes the cycle function's edge counters as they stand, so an
+// edge counted before the loop existed does not fire on its first cycle, and
+// the cycle function's own first run only primed: a one-shot input already
+// high then is no edge either. home, error-reset, the manual picker pins and
+// the tray set-full/set-empty pins are requests for an action; a PLC that
+// latches them across a stmakd restart is not re-issuing them, and acting on
+// the stale level would home the machine, close a picker or wipe a tray's slot
+// state at boot with nobody asking (D25/D26/§5.2 specify rising-edge
+// semantics). machine-on is the exception -- it is the standing request for the
+// machine, and its boot edge is wanted -- so it is raised here from the level.
 //
 // tray-id needs no priming: it is a level, and updateStations compares it against
 // the geometry the model has actually selected — which world.start has already
 // taken from this same pin, so the boot value is by construction not a change.
 func (c *control) primeEdges() {
-	p := c.m.pins
 	c.m.rt.read()
 	f := &c.m.rt.in
-	c.in.home = b8(f.home)
-	c.in.park = b8(f.park)
-	c.in.errorReset = b8(f.error_reset)
-	for i := range p.pickers {
-		c.in.pickerOpen[i] = b8(f.picker[i].manual_open)
-		c.in.pickerClose[i] = b8(f.picker[i].manual_close)
-	}
-	for i := range p.trays {
-		c.in.traySetFull[i] = b8(f.tray[i].set_full)
-		c.in.traySetEmpty[i] = b8(f.tray[i].set_empty)
-	}
-	for i := range p.procs {
-		c.in.procSetHasMaterial[i] = b8(f.proc[i].set_has_material)
-		c.in.procSetEmpty[i] = b8(f.proc[i].set_empty)
-	}
+	c.seen.takeAll(&f.edges)
+	// machine-on is the standing request for the machine: held high at start
+	// (and not under estop) it counts as the boot edge (D26).
+	c.rise.machineOn = b8(f.machine_on) && !b8(f.estop_on)
 	// start-job is not edge-detected but armed (see jobRequest), and it starts
 	// disarmed: a level held high across a restart is not a request for that job.
 	c.jobArmed = false
