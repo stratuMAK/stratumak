@@ -166,6 +166,10 @@ type inputs struct {
 	traySetFull  []bool
 	traySetEmpty []bool
 
+	// The z-offset inputs of each tray and process station, added to Z_PICK.
+	trayZOffset []float64
+	procZOffset []float64
+
 	jogPos   []bool
 	jogNeg   []bool
 	jogSpeed float64
@@ -321,6 +325,8 @@ func newControl(m *pnptaskModule) *control {
 			trayStep:           make([]uint32, trays),
 			traySetFull:        make([]bool, trays),
 			traySetEmpty:       make([]bool, trays),
+			trayZOffset:        make([]float64, trays),
+			procZOffset:        make([]float64, procs),
 			procBusy:           make([]bool, procs),
 			procReleased:       make([]bool, procs),
 			procSetHasMaterial: make([]bool, procs),
@@ -486,6 +492,10 @@ func (c *control) run() {
 // this file goes through it. A wait that polled its own timer would both outlive
 // Stop and freeze the teach pins for the seconds it runs.
 func (c *control) tick() bool {
+	// What the step wrote since the last tick goes out together, before the
+	// wait: a picker closed and a dwell started reach the pins in the same
+	// servo cycle, never one without the other.
+	c.m.rt.commit()
 	select {
 	case <-c.stop:
 		return false
@@ -503,6 +513,7 @@ func (c *control) tick() bool {
 		// one cycle instead of at the end of the job.
 		c.m.world.flush()
 		c.m.pins.cycleCount.Set(c.m.pins.cycleCount.Get() + 1)
+		c.m.rt.commit()
 		return true
 	}
 }
@@ -528,54 +539,54 @@ func (c *control) sample() {
 	copy(c.prev.procSetHasMaterial, c.in.procSetHasMaterial)
 	copy(c.prev.procSetEmpty, c.in.procSetEmpty)
 
-	c.in.estop = p.estopOn.Get()
-	c.in.machineOn = p.machineOn.Get()
-	c.in.autoEnable = p.autoEnable.Get()
-	c.in.waitAbort = p.waitAbort.Get()
-	c.in.sceneHold = p.sceneHold.Get()
-	c.in.park = p.park.Get()
-	c.in.home = p.home.Get()
-	c.in.errorReset = p.errorReset.Get()
-	// start-job is read BEFORE the parameters it carries, and that order matters:
-	// the PLC writes origin-id, dest-id, process-step and deadzone-select and
-	// *then* raises start-job. This loop is not synchronised with whatever writes
-	// those pins, so a sample can straddle the PLC's update — and reading the
-	// request first means that a request we see high was raised before the
-	// parameter reads that follow it, so the job is never latched with the
-	// parameters of the previous one.
-	c.in.startJob = p.startJob.Get()
-	c.in.stayNear = p.stayNear.Get()
-	c.in.processStep = p.processStep.Get()
-	c.in.originID = p.originID.Get()
-	c.in.destID = p.destID.Get()
+	// One frame of the cycle function: every input from the same moment of
+	// the servo thread. The order the fields are read in does not matter any
+	// more -- start-job and the parameters it carries, deadzone-select and the
+	// trigger that follows a scene change all come from one sample.
+	c.m.rt.read()
+	f := &c.m.rt.in
+	c.in.estop = b8(f.estop_on)
+	c.in.machineOn = b8(f.machine_on)
+	c.in.autoEnable = b8(f.auto_enable)
+	c.in.waitAbort = b8(f.wait_abort)
+	c.in.sceneHold = b8(f.scene_hold)
+	c.in.park = b8(f.park)
+	c.in.home = b8(f.home)
+	c.in.errorReset = b8(f.error_reset)
+	c.in.startJob = b8(f.start_job)
+	c.in.stayNear = b8(f.stay_near)
+	c.in.processStep = uint32(f.process_step)
+	c.in.originID = uint32(f.origin_id)
+	c.in.destID = uint32(f.dest_id)
+	c.in.deadzoneSelect = uint32(f.deadzone_select)
 	for i := range p.pickers {
-		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
-		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
-		c.in.pickerOpened[i] = p.pickers[i].opened.Get()
-		c.in.pickerClosed[i] = p.pickers[i].closed.Get()
+		fp := &f.picker[i]
+		c.in.pickerOpen[i] = b8(fp.manual_open)
+		c.in.pickerClose[i] = b8(fp.manual_close)
+		c.in.pickerOpened[i] = b8(fp.opened)
+		c.in.pickerClosed[i] = b8(fp.closed)
 	}
 	for i := range p.trays {
-		c.in.trayID[i] = p.trays[i].trayID.Get()
-		c.in.trayStep[i] = p.trays[i].step.Get()
-		c.in.traySetFull[i] = p.trays[i].setFull.Get()
-		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
+		ft := &f.tray[i]
+		c.in.trayID[i] = uint32(ft.tray_id)
+		c.in.trayStep[i] = uint32(ft.step)
+		c.in.traySetFull[i] = b8(ft.set_full)
+		c.in.traySetEmpty[i] = b8(ft.set_empty)
+		c.in.trayZOffset[i] = float64(ft.z_offset)
 	}
 	for i := range p.procs {
-		c.in.procBusy[i] = p.procs[i].busy.Get()
-		c.in.procReleased[i] = p.procs[i].released.Get()
-		c.in.procSetHasMaterial[i] = p.procs[i].setHasMaterial.Get()
-		c.in.procSetEmpty[i] = p.procs[i].setEmpty.Get()
+		fs := &f.proc[i]
+		c.in.procBusy[i] = b8(fs.busy)
+		c.in.procReleased[i] = b8(fs.released)
+		c.in.procSetHasMaterial[i] = b8(fs.set_has_material)
+		c.in.procSetEmpty[i] = b8(fs.set_empty)
+		c.in.procZOffset[i] = float64(fs.z_offset)
 	}
-	// deadzone-select is read last: a PLC that changes the scene and then
-	// releases a station (drops busy) or starts a job must never be seen with
-	// the new trigger and the old drawing -- the leg planned right after would
-	// be planned around obstacles that are no longer the ones there.
-	c.in.deadzoneSelect = p.deadzoneSelect.Get()
 	for i := range p.jog {
-		c.in.jogPos[i] = p.jog[i].pos.Get()
-		c.in.jogNeg[i] = p.jog[i].neg.Get()
+		c.in.jogPos[i] = b8(f.jog[i].pos)
+		c.in.jogNeg[i] = b8(f.jog[i].neg)
 	}
-	c.in.jogSpeed = p.jogSpeed.Get()
+	c.in.jogSpeed = float64(f.jog_speed)
 
 	// machine-on's first cycle deliberately compares against a zeroed previous
 	// reading, so held high at startup it counts as a rising edge: a PLC that
@@ -695,20 +706,22 @@ func (c *control) sample() {
 // taken from this same pin, so the boot value is by construction not a change.
 func (c *control) primeEdges() {
 	p := c.m.pins
-	c.in.home = p.home.Get()
-	c.in.park = p.park.Get()
-	c.in.errorReset = p.errorReset.Get()
+	c.m.rt.read()
+	f := &c.m.rt.in
+	c.in.home = b8(f.home)
+	c.in.park = b8(f.park)
+	c.in.errorReset = b8(f.error_reset)
 	for i := range p.pickers {
-		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
-		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
+		c.in.pickerOpen[i] = b8(f.picker[i].manual_open)
+		c.in.pickerClose[i] = b8(f.picker[i].manual_close)
 	}
 	for i := range p.trays {
-		c.in.traySetFull[i] = p.trays[i].setFull.Get()
-		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
+		c.in.traySetFull[i] = b8(f.tray[i].set_full)
+		c.in.traySetEmpty[i] = b8(f.tray[i].set_empty)
 	}
 	for i := range p.procs {
-		c.in.procSetHasMaterial[i] = p.procs[i].setHasMaterial.Get()
-		c.in.procSetEmpty[i] = p.procs[i].setEmpty.Get()
+		c.in.procSetHasMaterial[i] = b8(f.proc[i].set_has_material)
+		c.in.procSetEmpty[i] = b8(f.proc[i].set_empty)
 	}
 	// start-job is not edge-detected but armed (see jobRequest), and it starts
 	// disarmed: a level held high across a restart is not a request for that job.
@@ -792,7 +805,7 @@ func (c *control) step() {
 		// the error first, so the cleared start-job it reacts to is already
 		// accompanied by the reason.
 		c.raise(faultf(errAutoDisabled, "start-job while auto-enable is low"))
-		c.m.pins.startJob.Set(false)
+		c.m.rt.clearStartJob()
 	}
 }
 
@@ -1609,5 +1622,8 @@ func (c *control) park() {
 	}
 	c.m.pins.machineIsOn.Set(false)
 	c.m.pins.busy.Set(false)
+	// The last commit. Stop runs ahead of the launcher's RT barrier, so the
+	// cycle function still carries it out to the pins.
+	c.m.rt.commit()
 	c.m.logger.Debug("pnptask control loop stopped")
 }

@@ -94,19 +94,19 @@ load pnptask  <pnp.task> motion_instance=pnp.mot pickers=2 \
                          persist_instance=persist
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
-addf pnp.task.deadzone-check        servo-thread
+addf pnp.task.cycle                 servo-thread
 ```
 
-**`deadzone-check` must come after `motion-controller`.** It is the module's one
-realtime function (see §5.2's `deadzone.N.free`), and it reads the Cartesian
-feedback position that `motion-controller` computes — put earlier in the thread
-it would answer from the previous cycle. One cycle of staleness is harmless, but
-it should be a deliberate ordering rather than an accident of where the line was
-typed.
+**`cycle` must come after `motion-controller`, and before the first component
+that reads pnptask's outputs.** It is the module's realtime function: every pin
+of the module is read and written there, at one point of the thread
+([`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md)), and it runs the dead-zone
+check (see §5.2's `deadzone.N.free`), which reads the Cartesian feedback
+position that `motion-controller` computes — put earlier in the thread it would
+answer from the previous cycle.
 
-Omitting the line is not fatal and not silent: the pins stay at *not clear* — the
-conservative direction — and the module logs a warning at start naming the
-missing `addf`.
+Omitting the line is fatal: the module could see no input and drive no output,
+so Start refuses, naming the missing `addf`.
 
 Load args (parsed `key=value` like `internal/task/module.go`):
 
@@ -444,7 +444,7 @@ normalized to HAL-conventional dashes.
 | `error-station` | u32 | out | the TRAYDEF/PROCDEF id the latched fault is about, 0 = none; set with `error-id`, before `error` rises. Only `RELEASE_TIMEOUT` names one so far: a job touches two stations, and the PLC has to say whose fixture stuck |
 | `error-reset` | bit | in | rising edge clears error/error-id/error-station (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
-| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The module's only realtime output — computed every servo cycle by `deadzone-check` (§2.1) from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
+| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The only output computed in the servo thread rather than in the control loop — every servo cycle, by the `cycle` function (§2.1), from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
 | `homed` | bit | out | all joints homed |
 

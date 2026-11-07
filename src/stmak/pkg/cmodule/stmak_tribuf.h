@@ -44,7 +44,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "stmak_rt_check.h"
 
@@ -134,26 +133,6 @@ static inline const void *stmak_tribuf_read(stmak_tribuf_t *b, int *fresh)
         *fresh = 1;
     }
     return stmak_tribuf_slot(b, b->read_idx);
-}
-
-// --- whole-frame copies, for the non-RT side ------------------------------
-//
-// Not annotated: memcpy is a libc call the function-effects analysis cannot
-// see into. A realtime side writes its fields straight into the write slot and
-// reads them straight out of the returned frame instead.
-
-static inline void stmak_tribuf_publish_copy(stmak_tribuf_t *b, const void *frame)
-{
-    memcpy(stmak_tribuf_write_slot(b), frame, b->frame_size);
-    stmak_tribuf_publish(b);
-}
-
-static inline int stmak_tribuf_read_copy(stmak_tribuf_t *b, void *frame)
-{
-    int fresh;
-    const void *p = stmak_tribuf_read(b, &fresh);
-    memcpy(frame, p, b->frame_size);
-    return fresh;
 }
 
 #ifdef __cplusplus

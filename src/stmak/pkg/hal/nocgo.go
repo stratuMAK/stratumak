@@ -190,8 +190,9 @@ func RTFree(_ unsafe.Pointer) {}
 // of these can be reached; they exist for the build only.
 func tribufSize(frame uintptr) uintptr                          { return frame }
 func tribufInit(_ unsafe.Pointer, _ uintptr)                    {}
-func tribufPublishCopy(_, _ unsafe.Pointer)                     {}
-func tribufReadCopy(_, _ unsafe.Pointer) bool                   { return false }
+func tribufWriteSlot(_ unsafe.Pointer) unsafe.Pointer           { return nil }
+func tribufPublish(_ unsafe.Pointer)                            {}
+func tribufRead(_ unsafe.Pointer) (unsafe.Pointer, bool)        { return nil, false }
 func pinmapSize(capacity int) uintptr                           { return uintptr(capacity) }
 func pinmapInit(_ unsafe.Pointer, _ int)                        {}
 func pinmapAdd(_, _ unsafe.Pointer, _ uintptr, _ PinType) error { return errNoCGO }

@@ -101,7 +101,8 @@ gomod_tu_includes() {
     # stmak_doorbell.h), so their STMAK_NONBLOCKING claims are verified here.
     src/stmak/internal/hallib/rtbridgetest/rtbridgetest_rt.c)
         echo "$CORE_INC -Isrc/stmak/pkg/cmodule" ;;
-    src/stmak/internal/pnptask/pnp_deadzone_rt.c)
+    src/stmak/internal/pnptask/pnp_deadzone_rt.c|\
+    src/stmak/internal/pnptask/pnp_rt.c)
         echo "$CORE_INC -Isrc/stmak/pkg/cmodule -Isrc/stmak/generated/gmi/mot" ;;
     # classicladder's scan function is compiled under the regime but claims
     # nothing yet: classicladder_refresh carries no STMAK_NONBLOCKING, so the

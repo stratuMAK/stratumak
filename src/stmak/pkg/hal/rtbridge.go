@@ -70,6 +70,9 @@ var ErrPinMap = &Error{
 // must be plain data (checked at construction): the frame is copied in and out
 // of C memory as bytes.
 //
+// The frame is copied between Go memory and the C slot by Go, never by passing
+// a Go pointer to C, so a frame may live inside any Go struct.
+//
 // One TriBuf has one writer and one reader. Which of the two is Go is the
 // owner's choice: Publish on a buffer Go writes, Read on a buffer Go reads.
 // Concurrent Go callers on the same side are serialized here, so the buffer
@@ -114,7 +117,8 @@ func (b *TriBuf[T]) Publish(v *T) {
 	if b.blk == nil {
 		return
 	}
-	tribufPublishCopy(b.blk, unsafe.Pointer(v))
+	*(*T)(tribufWriteSlot(b.blk)) = *v
+	tribufPublish(b.blk)
 }
 
 // Read copies the latest published frame into *v and reports whether it is new
@@ -126,7 +130,9 @@ func (b *TriBuf[T]) Read(v *T) bool {
 	if b.blk == nil {
 		return false
 	}
-	return tribufReadCopy(b.blk, unsafe.Pointer(v))
+	p, fresh := tribufRead(b.blk)
+	*v = *(*T)(p)
+	return fresh
 }
 
 // Free releases the buffer. Only past the launcher's RT barrier (Destroy).

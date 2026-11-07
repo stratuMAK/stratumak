@@ -369,8 +369,17 @@ reader ever need it.
 - `sample()` becomes: read the RT frame; derive edges from counters; take the
   motion snapshot. The read-order comments go.
 - Every `c.m.pins.X.Set(...)` writes a field of the Go frame's working copy
-  (Go memory). The wait (§6.1) commits before it blocks: copy into the write
-  slot, publish. A step's writes become visible together.
+  (Go memory): the output fields of `pinSet` are handles (`outBit`, `outU32`,
+  `outF64`) that keep their HAL pin for the binding and point into the frame,
+  so the call sites did not change. The wait (§6.1) commits before it blocks:
+  copy into the write slot, publish. A step's writes become visible together.
+- **Every motion command commits first** (`committedMotion` wraps the motion
+  stack). Motion commands reach motmod at once, the outputs at a commit; an
+  output written before a command — scene-busy dropped before a descent — must
+  not read its old value while the head already moves. Committed first, it
+  reaches the pins in the same servo cycle motmod takes the command, because
+  the cycle function runs after the command handler. (Found by the scenegate
+  runtest in step 2: a descent under a scene-busy already dropped.)
 - `publish()` stays as the function that fills the model outputs; it now writes
   the working copy. The teach pins leave it (§6.1).
 - `raise()`, `clearError()`, `runJobHandshake`, `runParkRequest`,
@@ -444,10 +453,12 @@ seen after the plan.
 
 ### 7.1 The RT function is not scheduled
 
-No RT frame is ever fresh and no output ever changes. The waiter (§3.4) sees
-`cycle` stand still; after a timeout Go treats it like today's comm failure
-(motion gone, nothing starts), and
-at `Start` warns with the addf line, as `warnIfDeadzoneUnscheduled` does now.
+No RT frame is ever fresh and no output ever changes. Since step 2, Start
+waits up to a second for the first frame and refuses, naming the addf line:
+without the function the module sees no input and drives no output, so a
+warning (what `deadzone-check` used to get) is not enough. Later, the doorbell
+(§3.4) sees `cycle` stand still while running; Go then treats it like today's
+comm failure (motion gone, nothing starts).
 
 ### 7.2 Go stalls
 
@@ -510,7 +521,14 @@ rigs and the machine.
    pins through the frames; Go stops calling `Get`/`Set`; edges are still
    derived in Go from the sampled levels. Behaviour is unchanged, but every
    output group is now published at one point, so the tearing is gone. All
-   scenarios pass unchanged; the config only renames the addf.
+   scenarios pass unchanged; the config only renames the addf. *Built:*
+   `pnp_rt.{c,h}` and `rtio.go`; commits at tick entry, after `publish()`, at
+   the job and park handshakes, at the end of the loop, and before every
+   motion command; `start-job` (still IO) cleared by the cycle function in
+   the run that applies the commit busy falls in; Start refuses without the
+   function; the frames hold at most 16 tray and 16 process stations, 2
+   pickers and 9 axes, and the config refuses more. The unit tests run the
+   cycle function inside the control loop (`driveRT`).
 3. **Motion snapshot.** The `mot` accessor and API bump; Go drops motstat;
    `commandNumEcho` replaces `dispatchSettleTicks`. Scenarios unchanged.
 4. **Edges and latches in RT.** Counters, press-time gating in RT. New
@@ -563,3 +581,20 @@ step 7 removes the ticker.
    blocking waits stays; a wait blocks on the change counter or a `wake_at`
    deadline in servo cycles instead of a 10 ms tick; the teach pins move to
    RT; a stall is a change Go has not taken (§7.2).
+
+## 12. Found on the way
+
+Things a step turned up that belong to another step, or to nobody yet. Each
+step ticks off what it settles.
+
+| # | Found in | What | State |
+|---|---|---|---|
+| 1 | step 1 | `stmak_hal.h` declares `stmak_hal_bit_t` as `volatile unsigned` (4 bytes), `hal.h` has `hal_bit_t` as `volatile bool` (1 byte), although the comment says they must match. Harmless on little-endian (every pin cell is an 8-byte `hal_data_u`), wrong by the letter. The bridge accesses bits as one byte. | open, small separate PR |
+| 2 | step 1 | The `STMAK_PKG_FILES` list (the `pkg/hal` copy for external Go modules) does not carry the bridge files. Nothing outside the tree needs them yet. | open, when a module outside the tree wants the bridge |
+| 3 | step 2 | `TriBuf.Publish`/`Read` passed a Go pointer to C; cgo checks the whole allocation behind an `unsafe.Pointer`, so a frame inside a struct holding pointers panicked. Go now copies into and out of the C slot itself. | fixed in step 2, regression test `TestTriBufFrameInsideAStruct` |
+| 4 | step 2 | Outputs could lag motion commands (motctl is immediate, outputs go at a commit). | fixed in step 2: `committedMotion`, test `TestOutputsBeforeMotion` |
+| 5 | step 2 | The `z-offset` inputs (trays and process stations) and `tray-id` were read live outside `sample()` (approach heights, reach check, world start, persistence restore). They now come from the frame like every other input. | done in step 2 |
+| 6 | step 2 | Pulses shorter than a Go tick are still lost: the cycle function samples every servo cycle, but Go still looks at the latest frame only, every 10 ms. §5.2.1's hold rules stay valid until edges move to RT. | step 4 |
+| 7 | step 2 | CoatV2conf `threads.hal` names `pnp.task.deadzone-check`; the stratumak build of step 2 refuses to start without `pnp.task.cycle`. The two have to be deployed together. | config change with step 2 |
+| 8 | step 2 | `start-job` is still an IO pin, cleared by the cycle function on request. | step 5 makes it an in pin |
+

@@ -16,8 +16,9 @@ package hal
 // the C helpers are the only place their layout matters.
 static size_t go_tribuf_size(uint32_t frame) { return stmak_tribuf_size(frame); }
 static void go_tribuf_init(void *b, uint32_t frame) { stmak_tribuf_init((stmak_tribuf_t *)b, frame); }
-static void go_tribuf_publish_copy(void *b, const void *f) { stmak_tribuf_publish_copy((stmak_tribuf_t *)b, f); }
-static int go_tribuf_read_copy(void *b, void *f) { return stmak_tribuf_read_copy((stmak_tribuf_t *)b, f); }
+static void *go_tribuf_write_slot(void *b) { return stmak_tribuf_write_slot((stmak_tribuf_t *)b); }
+static void go_tribuf_publish(void *b) { stmak_tribuf_publish((stmak_tribuf_t *)b); }
+static const void *go_tribuf_read(void *b, int *fresh) { return stmak_tribuf_read((stmak_tribuf_t *)b, fresh); }
 
 static size_t go_pinmap_size(uint32_t cap) { return stmak_pinmap_size(cap); }
 static void go_pinmap_init(void *m, uint32_t cap) { stmak_pinmap_init((stmak_pinmap_t *)m, cap); }
@@ -51,14 +52,23 @@ func tribufInit(blk unsafe.Pointer, frame uintptr) {
 	C.go_tribuf_init(blk, C.uint32_t(frame))
 }
 
-// tribufPublishCopy and tribufReadCopy pass a Go pointer for the duration of
-// the call only, to plain data (NewTriBuf checked): within the cgo rules.
-func tribufPublishCopy(blk, frame unsafe.Pointer) {
-	C.go_tribuf_publish_copy(blk, frame)
+// tribufWriteSlot, tribufPublish and tribufRead hand out C slot addresses; the
+// frame is copied by Go (TriBuf.Publish/Read), so no Go pointer is ever passed
+// to C. Passing one would have cgo check the whole Go allocation behind it --
+// a frame embedded in a larger struct fails that check as soon as the struct
+// holds any pointer.
+func tribufWriteSlot(blk unsafe.Pointer) unsafe.Pointer {
+	return C.go_tribuf_write_slot(blk)
 }
 
-func tribufReadCopy(blk, frame unsafe.Pointer) bool {
-	return C.go_tribuf_read_copy(blk, frame) != 0
+func tribufPublish(blk unsafe.Pointer) {
+	C.go_tribuf_publish(blk)
+}
+
+func tribufRead(blk unsafe.Pointer) (unsafe.Pointer, bool) {
+	var fresh C.int
+	p := C.go_tribuf_read(blk, &fresh)
+	return unsafe.Pointer(p), fresh != 0
 }
 
 func pinmapSize(capacity int) uintptr {

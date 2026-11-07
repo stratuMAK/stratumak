@@ -90,6 +90,30 @@ func TestTriBufWholeFrames(t *testing.T) {
 	}
 }
 
+// TestTriBufFrameInsideAStruct: a module keeps its frames inside a struct that
+// also holds pointers (pnptask's rtIO holds the buffers themselves). Passing a
+// pointer into such a struct to C makes cgo check the whole allocation and
+// panic, so Publish and Read must never do that.
+func TestTriBufFrameInsideAStruct(t *testing.T) {
+	b, err := hal.NewTriBuf[tortureFrame]()
+	if err != nil {
+		t.Fatalf("NewTriBuf: %v", err)
+	}
+	defer b.Free()
+	owner := &struct {
+		buf   *hal.TriBuf[tortureFrame]
+		out   tortureFrame
+		in    tortureFrame
+		names []string
+	}{buf: b, names: []string{"x"}}
+
+	owner.out.Seq = 3
+	owner.buf.Publish(&owner.out)
+	if !owner.buf.Read(&owner.in) || owner.in.Seq != 3 {
+		t.Errorf("round trip through a struct with pointers: seq %d", owner.in.Seq)
+	}
+}
+
 func TestTriBufNeverPublished(t *testing.T) {
 	b, err := hal.NewTriBuf[tortureFrame]()
 	if err != nil {
