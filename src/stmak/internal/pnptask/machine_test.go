@@ -529,6 +529,25 @@ func fastLoop(t *testing.T) {
 	})
 }
 
+// driveRT stands in for the servo thread: it runs the module's cycle function
+// once now, so startControl finds a first frame, and then inside every control
+// cycle -- before the tick hook already installed (the sim), and again after
+// it, so the sim sees the outputs of the last commit and the loop's sample
+// sees the sim's answer in the same cycle, as it did when both read the pins
+// directly. Call it after the sim is hooked and before startControl.
+func driveRT(m *pnptaskModule) {
+	inner := m.tickHook
+	m.rt.runRT = m.rt.invoke
+	m.rt.invoke()
+	m.tickHook = func() {
+		m.rt.invoke()
+		if inner != nil {
+			inner()
+			m.rt.invoke()
+		}
+	}
+}
+
 // jogIniSection gives the axes a max velocity, so the clamp has something to
 // clamp to. Joint sections keep the config push happy on the way through.
 const machineIniAxes = `
@@ -612,6 +631,7 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	if o.simulate || o.sim != nil {
 		sim = newMachineSim(m, o.sim)
 	}
+	driveRT(m)
 	if err := m.startControl(); err != nil {
 		t.Fatalf("startControl: %v", err)
 	}
@@ -1056,6 +1076,7 @@ func TestHeldInputsAtStartupAreNotEdges(t *testing.T) {
 	m.pins.autoEnable.Set(false)
 	m.pins.pickers[0].manualClose.Set(true)
 
+	driveRT(m)
 	if err := m.startControl(); err != nil {
 		t.Fatalf("startControl: %v", err)
 	}
@@ -1290,6 +1311,7 @@ func TestEnsureHomed(t *testing.T) {
 	// enable sequence.
 	m.pins.machineOn.Set(true)
 
+	driveRT(m)
 	c := newControl(m)
 	c.ticker = time.NewTicker(pollInterval)
 	defer c.ticker.Stop()
@@ -1481,6 +1503,9 @@ func TestModuleStopDisablesMotion(t *testing.T) {
 	f.mot.resetCalls()
 
 	f.m.Stop()
+	// The servo thread is still running during Stop; it carries the loop's
+	// last commit out to the pins.
+	f.m.rt.invoke()
 
 	if !f.mot.called("Abort") || !f.mot.called("Disable") {
 		t.Errorf("Stop did not abort and disable motion: %v", f.mot.callList())

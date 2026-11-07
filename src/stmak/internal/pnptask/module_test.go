@@ -198,8 +198,8 @@ func TestFactoryTwoPickers(t *testing.T) {
 // value is enough — the same stand-in apiserver's own tests use.
 var fakeCallbacks = unsafe.Pointer(&struct{}{})
 
-// registerFakeMotion registers a motctl/motstat provider under the given
-// instance name, the way motmod does when it loads.
+// registerFakeMotion registers the motctl and mot providers pnptask looks up
+// under the given instance name, the way motmod does when it loads.
 func registerFakeMotion(t *testing.T, instance string) {
 	t.Helper()
 	prev := apiserver.DefaultRegistry()
@@ -210,11 +210,8 @@ func registerFakeMotion(t *testing.T, instance string) {
 	if err := reg.RegisterNoREST("motctl", motctlVersion, instance, fakeCallbacks); err != nil {
 		t.Fatalf("registering fake motctl: %v", err)
 	}
-	if err := reg.RegisterNoREST("motstat", motstatVersion, instance, fakeCallbacks); err != nil {
-		t.Fatalf("registering fake motstat: %v", err)
-	}
-	// mot is the third one motmod registers: the RT-side interface the cyclic
-	// dead-zone check reads the Cartesian position from.
+	// mot: the RT-side interface the cycle function reads the Cartesian
+	// position and the motion snapshot from.
 	if err := reg.RegisterNoREST("mot", motVersion, instance, fakeCallbacks); err != nil {
 		t.Fatalf("registering fake mot: %v", err)
 	}
@@ -254,7 +251,7 @@ func TestStartRequiresMotion(t *testing.T) {
 
 // TestStartRequiresMotRT: the cyclic dead-zone check reads its position from
 // mot, motmod's RT-side interface, so a motion instance that provides motctl
-// and motstat but no mot has to fail startup too. Degrading instead would leave
+// but no mot has to fail startup too. Degrading instead would leave
 // every deadzone.N.free pin at "not clear" forever — safe, but silently useless
 // to the fixture waiting on it.
 func TestStartRequiresMotRT(t *testing.T) {
@@ -266,7 +263,7 @@ func TestStartRequiresMotRT(t *testing.T) {
 	for _, api := range []struct {
 		name string
 		ver  int
-	}{{"motctl", motctlVersion}, {"motstat", motstatVersion}} {
+	}{{"motctl", motctlVersion}} {
 		if err := reg.RegisterNoREST(api.name, api.ver, "pnp.mot", fakeCallbacks); err != nil {
 			t.Fatalf("registering fake %s: %v", api.name, err)
 		}

@@ -362,7 +362,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		}
 		from = next
 
-		if err := c.approach(j, pk, j.origin, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
+		if err := c.approach(j, pk, j.origin, t.slotPos(slot), t.cfg.ZPick+c.in.trayZOffset[t.idx]); err != nil {
 			return err
 		}
 		grip, err := c.closeAndCheck(pk)
@@ -436,7 +436,7 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 		return err
 	}
 	st := c.m.world.station(s.cfg.ID)
-	if err := c.gatedTravel(j, pk, s, busy, nil, down(s.cfg.ZPick+s.pins.zOffset.Get(), st.zCornerRadius())); err != nil {
+	if err := c.gatedTravel(j, pk, s, busy, nil, down(s.cfg.ZPick+c.in.procZOffset[s.idx], st.zCornerRadius())); err != nil {
 		return err
 	}
 	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
@@ -543,7 +543,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if !ok {
 		return faultf(errTrayFull, "station %d has no free slot besides the one this job emptied", t.cfg.ID)
 	}
-	if err := c.approach(j, pk, j.dest, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()+t.cfg.ZPlaceOffset); err != nil {
+	if err := c.approach(j, pk, j.dest, t.slotPos(slot), t.cfg.ZPick+c.in.trayZOffset[t.idx]+t.cfg.ZPlaceOffset); err != nil {
 		return err
 	}
 	if err := c.openAndCheck(pk); err != nil {
@@ -677,7 +677,7 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 // z-offset is read now, at the approach, like every stroke's.
 func (c *control) placeDescent(s *procState) descent {
 	st := c.m.world.station(s.cfg.ID)
-	z := s.cfg.ZPick + s.pins.zOffset.Get() + s.cfg.ZPlaceOffset
+	z := s.cfg.ZPick + c.in.procZOffset[s.idx] + s.cfg.ZPlaceOffset
 	return downWhen(z, st.zCornerRadius(),
 		func() bool { return c.in.procReleased[s.idx] },
 		func() error { return c.waitReleased(s, true) })

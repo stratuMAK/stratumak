@@ -97,7 +97,12 @@ gomod_tu_includes() {
         echo "$CORE_INC -Isrc/stmak/generated/gmi/halscope -Isrc/stmak/pkg/cmodule" ;;
     src/stmak/internal/hallib/rtfuncttest/rtfuncttest_rt.c)
         echo "$CORE_INC -Isrc/stmak/pkg/cmodule" ;;
-    src/stmak/internal/pnptask/pnp_deadzone_rt.c)
+    # Uses every RT-bridge header (stmak_tribuf.h, stmak_pinmap.h,
+    # stmak_doorbell.h), so their STMAK_NONBLOCKING claims are verified here.
+    src/stmak/internal/hallib/rtbridgetest/rtbridgetest_rt.c)
+        echo "$CORE_INC -Isrc/stmak/pkg/cmodule" ;;
+    src/stmak/internal/pnptask/pnp_deadzone_rt.c|\
+    src/stmak/internal/pnptask/pnp_rt.c)
         echo "$CORE_INC -Isrc/stmak/pkg/cmodule -Isrc/stmak/generated/gmi/mot" ;;
     # classicladder's scan function is compiled under the regime but claims
     # nothing yet: classicladder_refresh carries no STMAK_NONBLOCKING, so the

@@ -19,12 +19,12 @@ type pinSet struct {
 	// Machine state and mode.
 	estopOn     *hal.Pin[bool] // in:  external estop chain, high aborts
 	machineOn   *hal.Pin[bool] // in:  request machine enable (level)
-	machineIsOn *hal.Pin[bool] // out: motion enabled and not estopped
+	machineIsOn *outBit        // out: motion enabled and not estopped
 	autoEnable  *hal.Pin[bool] // in:  high = auto mode, low = manual mode
 	waitAbort   *hal.Pin[bool] // in:  level, ends a busy-station wait (D33)
 	park        *hal.Pin[bool] // in:  rising edge, auto mode: go to PARK_X/Y/Z (D34)
-	parked      *hal.Pin[bool] // out: standing at the park position (D34)
-	homed       *hal.Pin[bool] // out: all joints homed
+	parked      *outBit        // out: standing at the park position (D34)
+	homed       *outBit        // out: all joints homed
 	// home is the operator's homing request (D25). Without it a machine with
 	// AUTOHOME = 0 could never be homed at all: jobs would refuse with
 	// NOT_HOMED and the jog pins are ignored while unhomed (D18).
@@ -44,7 +44,7 @@ type pinSet struct {
 	// ignored (D16).
 	startJob *hal.Pin[bool]
 	stayNear *hal.Pin[bool] // in:  the next job starts where this one ends: end at NEAR_HEIGHT (D37)
-	busy     *hal.Pin[bool]
+	busy     *outBit
 
 	// planTime is the slowest route plan of the current (or last) job, in
 	// seconds — the D13 budget made observable from outside. A job plans one
@@ -52,14 +52,14 @@ type pinSet struct {
 	// sampled reliably from a PLC or a test: the interesting number is the
 	// worst case, and it is reset when a job latches so it always describes
 	// one job.
-	planTime *hal.Pin[float64]
+	planTime *outF64
 
 	// The scene gate (D45). sceneHold (in): whatever changes the dead-zone
 	// scene is about to, or is doing it — start no leg that touches the
 	// movable region. sceneBusy (out): such a leg is in flight, or taking the
 	// lock. Unwired, sceneHold reads low and no leg ever waits.
 	sceneHold *hal.Pin[bool]
-	sceneBusy *hal.Pin[bool]
+	sceneBusy *outBit
 
 	// cycleCount advances once per control cycle, after the cycle has sampled
 	// its inputs and published its outputs. A driver that sets an input and
@@ -67,18 +67,18 @@ type pinSet struct {
 	// the cycle behind the first increment may have read the inputs before
 	// the write, the one behind the second cannot have. That replaces holding
 	// a request pin for a guessed time, which a loaded host stretches.
-	cycleCount *hal.Pin[uint32]
+	cycleCount *outU32
 
 	// Error latch.
-	errorFlag  *hal.Pin[bool]   // out
-	errorID    *hal.Pin[uint32] // out, 0 = none
-	errorReset *hal.Pin[bool]   // in, rising edge clears (D11)
+	errorFlag  *outBit        // out
+	errorID    *outU32        // out, 0 = none
+	errorReset *hal.Pin[bool] // in, rising edge clears (D11)
 
 	// errorStation is the station the latched fault is about (a TRAYDEF or
 	// PROCDEF id), 0 when it is about none: error-id says what went wrong,
 	// this says where -- RELEASE_TIMEOUT alone cannot tell the PLC whose
 	// fixture stuck when a job touches two.
-	errorStation *hal.Pin[uint32] // out, 0 = none
+	errorStation *outU32 // out, 0 = none
 
 	// Tuning knobs. Params rather than pins because they are adjusted with
 	// halcmd setp and never wired (D2); the INI only seeds them.
@@ -121,10 +121,10 @@ type jogPins struct {
 type pickerPins struct {
 	n int
 
-	close       *hal.Pin[bool] // out: close command
+	close       *outBit        // out: close command
 	opened      *hal.Pin[bool] // in:  opened feedback
 	closed      *hal.Pin[bool] // in:  fully closed — after a pick this means nothing was gripped
-	missing     *hal.Pin[bool] // out: last pick found no material
+	missing     *outBit        // out: last pick found no material
 	manualOpen  *hal.Pin[bool] // in:  rising edge opens, manual mode only
 	manualClose *hal.Pin[bool] // in:  rising edge closes, manual mode only
 
@@ -142,21 +142,21 @@ type pickerPins struct {
 	// A retained record (§8.1 — material a manual open let go of, still in the
 	// operator's hands) reads as holding nothing, because the picker is not
 	// holding it. Jobs are refused for the whole of that window anyway.
-	holds    *hal.Pin[bool]
-	originID *hal.Pin[uint32]
+	holds    *outBit
+	originID *outU32
 
 	// posX/posY report where this picker actually is (feedback + offset), for
 	// UI display and manual position teaching (D21). Like every float pin they
 	// carry the internal millimetres (D23).
-	posX *hal.Pin[float64]
-	posY *hal.Pin[float64]
+	posX *outF64
+	posY *outF64
 
 	// posXMu/posYMu are the same positions in *machine units* (D26, "-mu"
 	// suffix): the teach workflow pastes these into the INI, which is written
 	// in machine units — pasting the mm pins would be 25.4x off on an inch
 	// machine. On a metric machine both pairs carry the same value.
-	posXMu *hal.Pin[float64]
-	posYMu *hal.Pin[float64]
+	posXMu *outF64
+	posYMu *outF64
 
 	xOffset *hal.Param[float64] // this picker's XY offset from the machine position
 	yOffset *hal.Param[float64]
@@ -179,10 +179,10 @@ type trayPins struct {
 	setFull  *hal.Pin[bool]    // in:  edge, all slots := step (D8)
 	setEmpty *hal.Pin[bool]    // in:  edge, all slots := -1
 	zOffset  *hal.Pin[float64] // in:  added to Z_PICK
-	empty    *hal.Pin[bool]    // out: every slot is -1 — physically bare
-	avail    *hal.Pin[bool]    // out: a slot holds `step` and probing has not given up
-	full     *hal.Pin[bool]    // out: no free slot
-	count    *hal.Pin[uint32]  // out: slots holding something — a bin's fill level
+	empty    *outBit           // out: every slot is -1 — physically bare
+	avail    *outBit           // out: a slot holds `step` and probing has not given up
+	full     *outBit           // out: no free slot
+	count    *outU32           // out: slots holding something — a bin's fill level
 }
 
 // procPins is one process station's interface.
@@ -198,8 +198,8 @@ type procPins struct {
 	// describes the fixture -- see ProcStation.ReleaseSettle.
 	releaseSettle *hal.Param[float64]
 
-	hasMaterial *hal.Pin[bool] // out: owned by pnptask, restored from persistence
-	release     *hal.Pin[bool] // out: request fixture release
+	hasMaterial *outBit        // out: owned by pnptask, restored from persistence
+	release     *outBit        // out: request fixture release
 	released    *hal.Pin[bool] // in:  fixture released feedback
 
 	// setHasMaterial/setEmpty are the operator resync the tray resets have
@@ -218,18 +218,18 @@ type procPins struct {
 // from the INI. It must run before the component is marked ready — and, because
 // HAL "net" lines in the same file execute right after the load line, before
 // the factory returns.
-func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
+func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pinSet, error) {
 	b := &pinBuilder{comp: comp}
 	p := &pinSet{}
 
 	p.estopOn = mkPin[bool](b, "estop-on", hal.In)
 	p.machineOn = mkPin[bool](b, "machine-on", hal.In)
-	p.machineIsOn = mkPin[bool](b, "machine-is-on", hal.Out)
+	p.machineIsOn = mkOutBit(b, "machine-is-on", &out.machine_is_on)
 	p.autoEnable = mkPin[bool](b, "auto-enable", hal.In)
 	p.waitAbort = mkPin[bool](b, "wait-abort", hal.In)
 	p.park = mkPin[bool](b, "park", hal.In)
-	p.parked = mkPin[bool](b, "parked", hal.Out)
-	p.homed = mkPin[bool](b, "homed", hal.Out)
+	p.parked = mkOutBit(b, "parked", &out.parked)
+	p.homed = mkOutBit(b, "homed", &out.homed)
 	p.home = mkPin[bool](b, "home", hal.In)
 
 	for _, ax := range cfg.Axes {
@@ -248,15 +248,15 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.deadzoneSelect = mkPin[uint32](b, "deadzone-select", hal.In)
 	p.startJob = mkPin[bool](b, "start-job", hal.IO)
 	p.stayNear = mkPin[bool](b, "stay-near", hal.In)
-	p.busy = mkPin[bool](b, "busy", hal.Out)
-	p.planTime = mkPin[float64](b, "plan-time", hal.Out)
-	p.cycleCount = mkPin[uint32](b, "cycle-count", hal.Out)
+	p.busy = mkOutBit(b, "busy", &out.busy)
+	p.planTime = mkOutF64(b, "plan-time", &out.plan_time)
+	p.cycleCount = mkOutU32(b, "cycle-count", &out.cycle_count)
 	p.sceneHold = mkPin[bool](b, "scene-hold", hal.In)
-	p.sceneBusy = mkPin[bool](b, "scene-busy", hal.Out)
+	p.sceneBusy = mkOutBit(b, "scene-busy", &out.scene_busy)
 
-	p.errorFlag = mkPin[bool](b, "error", hal.Out)
-	p.errorID = mkPin[uint32](b, "error-id", hal.Out)
-	p.errorStation = mkPin[uint32](b, "error-station", hal.Out)
+	p.errorFlag = mkOutBit(b, "error", &out.error)
+	p.errorID = mkOutU32(b, "error-id", &out.error_id)
+	p.errorStation = mkOutU32(b, "error-station", &out.error_station)
 	p.errorReset = mkPin[bool](b, "error-reset", hal.In)
 
 	p.posSettleTime = mkParam[float64](b, "pos-settle-time", hal.RW)
@@ -265,27 +265,29 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 
 	for n := 0; n < pickers; n++ {
 		pre := fmt.Sprintf("picker.%d.", n)
+		op := &out.picker[n]
 		p.pickers = append(p.pickers, pickerPins{
 			n:           n,
-			close:       mkPin[bool](b, pre+"close", hal.Out),
+			close:       mkOutBit(b, pre+"close", &op.close),
 			opened:      mkPin[bool](b, pre+"opened", hal.In),
 			closed:      mkPin[bool](b, pre+"closed", hal.In),
-			missing:     mkPin[bool](b, pre+"missing", hal.Out),
+			missing:     mkOutBit(b, pre+"missing", &op.missing),
 			manualOpen:  mkPin[bool](b, pre+"manual-open", hal.In),
 			manualClose: mkPin[bool](b, pre+"manual-close", hal.In),
-			holds:       mkPin[bool](b, pre+"holds", hal.Out),
-			originID:    mkPin[uint32](b, pre+"origin-id", hal.Out),
-			posX:        mkPin[float64](b, pre+"pos-x", hal.Out),
-			posY:        mkPin[float64](b, pre+"pos-y", hal.Out),
-			posXMu:      mkPin[float64](b, pre+"pos-x-mu", hal.Out),
-			posYMu:      mkPin[float64](b, pre+"pos-y-mu", hal.Out),
+			holds:       mkOutBit(b, pre+"holds", &op.holds),
+			originID:    mkOutU32(b, pre+"origin-id", &op.origin_id),
+			posX:        mkOutF64(b, pre+"pos-x", &op.pos_x),
+			posY:        mkOutF64(b, pre+"pos-y", &op.pos_y),
+			posXMu:      mkOutF64(b, pre+"pos-x-mu", &op.pos_x_mu),
+			posYMu:      mkOutF64(b, pre+"pos-y-mu", &op.pos_y_mu),
 			xOffset:     mkParam[float64](b, pre+"x-offset", hal.RW),
 			yOffset:     mkParam[float64](b, pre+"y-offset", hal.RW),
 		})
 	}
 
-	for _, t := range cfg.Trays {
+	for i, t := range cfg.Trays {
 		pre := fmt.Sprintf("tray.%d.", t.ID)
+		ot := &out.tray[i]
 		p.trays = append(p.trays, trayPins{
 			id:       t.ID,
 			trayID:   mkPin[uint32](b, pre+"tray-id", hal.In),
@@ -293,22 +295,23 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 			setFull:  mkPin[bool](b, pre+"set-full", hal.In),
 			setEmpty: mkPin[bool](b, pre+"set-empty", hal.In),
 			zOffset:  mkPin[float64](b, pre+"z-offset", hal.In),
-			empty:    mkPin[bool](b, pre+"empty", hal.Out),
-			avail:    mkPin[bool](b, pre+"avail", hal.Out),
-			full:     mkPin[bool](b, pre+"full", hal.Out),
-			count:    mkPin[uint32](b, pre+"count", hal.Out),
+			empty:    mkOutBit(b, pre+"empty", &ot.empty),
+			avail:    mkOutBit(b, pre+"avail", &ot.avail),
+			full:     mkOutBit(b, pre+"full", &ot.full),
+			count:    mkOutU32(b, pre+"count", &ot.count),
 		})
 	}
 
-	for _, s := range cfg.Procs {
+	for i, s := range cfg.Procs {
 		pre := fmt.Sprintf("proc.%d.", s.ID)
+		op := &out.proc[i]
 		p.procs = append(p.procs, procPins{
 			id:             s.ID,
 			zOffset:        mkPin[float64](b, pre+"z-offset", hal.In),
 			releaseSettle:  mkParam[float64](b, pre+"release-settle", hal.RW),
 			busy:           mkPin[bool](b, pre+"busy", hal.In),
-			hasMaterial:    mkPin[bool](b, pre+"has-material", hal.Out),
-			release:        mkPin[bool](b, pre+"release", hal.Out),
+			hasMaterial:    mkOutBit(b, pre+"has-material", &op.has_material),
+			release:        mkOutBit(b, pre+"release", &op.release),
 			released:       mkPin[bool](b, pre+"released", hal.In),
 			setHasMaterial: mkPin[bool](b, pre+"set-has-material", hal.In),
 			setEmpty:       mkPin[bool](b, pre+"set-empty", hal.In),

@@ -26,7 +26,31 @@ package dztest
 typedef struct {
     double x, y;
     int    ok;
+    int    has_snap;
+    mot_snapshot_t snap;
 } fake_mot_ctx_t;
+
+static int32_t fake_get_snapshot(void *ctx, mot_snapshot_t *s) {
+    fake_mot_ctx_t *c = (fake_mot_ctx_t *)ctx;
+    *s = c->snap;
+    return 0;
+}
+
+static void fake_mot_set_snapshot(mot_callbacks_t *cb, int32_t inpos, int32_t depth, int32_t id,
+                                  double x, double y, uint32_t homed) {
+    fake_mot_ctx_t *c = (fake_mot_ctx_t *)cb->ctx;
+    memset(&c->snap, 0, sizeof(c->snap));
+    c->snap.enabled = 1;
+    c->snap.inpos = inpos;
+    c->snap.queue_depth = depth;
+    c->snap.id = id;
+    c->snap.carte_pos_fb.x = x;
+    c->snap.carte_pos_fb.y = y;
+    c->snap.carte_pos_fb_ok = 1;
+    c->snap.num_joints = 3;
+    c->snap.joints_homed = homed;
+    cb->status_get_snapshot = fake_get_snapshot;
+}
 
 static int32_t fake_get_carte_pos_fb(void *ctx, mot_pose_t *pos) {
     fake_mot_ctx_t *c = (fake_mot_ctx_t *)ctx;
@@ -94,6 +118,17 @@ func (f *FakeMot) Set(x, y float64, ok bool) {
 }
 
 // Free releases the table. The caller must retract it from the scene first.
+// SetSnapshot makes the fake serve a motion snapshot (status_get_snapshot);
+// until it is called the callback is absent, as on a provider older than
+// mot version 3.
+func (f *FakeMot) SetSnapshot(inpos bool, depth, id int32, x, y float64, homed uint32) {
+	ip := C.int32_t(0)
+	if inpos {
+		ip = 1
+	}
+	C.fake_mot_set_snapshot(f.cb, ip, C.int32_t(depth), C.int32_t(id), C.double(x), C.double(y), C.uint32_t(homed))
+}
+
 func (f *FakeMot) Free() { C.fake_mot_free(f.cb); f.cb = nil }
 
 // Invoke runs the cyclic function once, as a HAL thread would.

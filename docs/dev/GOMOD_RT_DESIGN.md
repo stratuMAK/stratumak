@@ -88,6 +88,12 @@ treatment (explicit atomics, or a published pointer swapped with release
 semantics). Nothing here does, and a design that starts needing it should be
 reviewed rather than bolted on.
 
+That review has happened for pin I/O through a cyclic function: frames that
+change every cycle one way and every Go step the other go through the RT
+bridge — `pkg/hal`'s `TriBuf`, `PinMap` and `Doorbell` over the
+`stmak_tribuf.h`, `stmak_pinmap.h` and `stmak_doorbell.h` headers
+([`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) §3).
+
 ### cgo pointer rules
 
 Go pointers may be passed to C for the duration of a call and must not be

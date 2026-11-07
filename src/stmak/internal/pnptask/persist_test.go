@@ -532,6 +532,11 @@ func TestRestoredHeldPartGone(t *testing.T) {
 		sim: func(s *machineSim) { s.missesLeft = 1 },
 	})
 
+	// The restore's close reaches the pin with the loop's first commit, so
+	// close reading low proves nothing until the sim has seen it rise.
+	second.eventually("the restore's close command", func() bool {
+		return !second.sim.closedSince(0).IsZero()
+	})
 	second.eventually("phantom record cleared and picker opened", func() bool {
 		return !second.bit("picker.0.close")
 	})
