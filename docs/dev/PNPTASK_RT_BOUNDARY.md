@@ -625,7 +625,7 @@ step ticks off what it settles.
 
 | # | Found in | What | State |
 |---|---|---|---|
-| 1 | step 1 | `stmak_hal.h` declares `stmak_hal_bit_t` as `volatile unsigned` (4 bytes), `hal.h` has `hal_bit_t` as `volatile bool` (1 byte), although the comment says they must match. Harmless on little-endian (every pin cell is an 8-byte `hal_data_u`), wrong by the letter. The bridge accesses bits as one byte. | open, small separate PR |
+| 1 | step 1 | `stmak_hal.h` declares `stmak_hal_bit_t` as `volatile unsigned` (4 bytes), `hal.h` has `hal_bit_t` as `volatile bool` (1 byte), although the comment says they must match. Harmless on little-endian (every pin cell is an 8-byte `hal_data_u`), wrong by the letter. The bridge accesses bits as one byte. The real fix changes the typedef, which reaches ~140 files (the in-tree drivers incl. ethercat and hostmot2, every generated .comp, the CoatV2conf components); a comment-only workaround was rejected. | open: the full fix, later, in its own PR |
 | 2 | step 1 | The `STMAK_PKG_FILES` list (the `pkg/hal` copy for external Go modules) does not carry the bridge files. Nothing outside the tree needs them yet. | open, when a module outside the tree wants the bridge |
 | 3 | step 2 | `TriBuf.Publish`/`Read` passed a Go pointer to C; cgo checks the whole allocation behind an `unsafe.Pointer`, so a frame inside a struct holding pointers panicked. Go now copies into and out of the C slot itself. | fixed in step 2, regression test `TestTriBufFrameInsideAStruct` |
 | 4 | step 2 | Outputs could lag motion commands (motctl is immediate, outputs go at a commit). | fixed in step 2 (commit before each command), made strict in step 3 (wait until applied): `committedMotion`, test `TestOutputsBeforeMotion` |
