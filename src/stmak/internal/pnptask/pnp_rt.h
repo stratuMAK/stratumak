@@ -14,7 +14,10 @@
 //   3. a start-job clear Go asked for is applied (start-job is an IO pin the
 //      requester raises, so it cannot be in the output map);
 //   4. the dead-zone check runs (pnp_deadzone_rt.h);
-//   5. the input frame is published to Go.
+//   5. motmod's state of this cycle goes into the input frame (mot's
+//      status_get_snapshot), so Go sees motion and pins from the same cycle;
+//   6. the input frame is published to Go, and the doorbell's cycle counter
+//      ticks (Go reads it to know a frame postdates a motion command).
 //
 // The frames have fixed-size arrays; config.go refuses more stations, pickers
 // or axes than they hold. A field no pin is bound to stays 0 in every slot.
@@ -28,6 +31,8 @@
 #include "stmak_rt_check.h"
 #include "stmak_tribuf.h"
 #include "stmak_pinmap.h"
+#include "stmak_doorbell.h"
+#include "mot_api.h"
 #include "pnp_deadzone_rt.h"
 
 #define PNP_RT_MAX_PICKERS 2
@@ -75,6 +80,10 @@ typedef struct {
     uint8_t            pad2_[6];
     pnp_rt_in_tray_t   tray[PNP_RT_MAX_TRAYS];
     pnp_rt_in_proc_t   proc[PNP_RT_MAX_PROCS];
+
+    mot_snapshot_t     mot;     // motmod's state this cycle, valid with mot_ok
+    uint8_t            mot_ok;
+    uint8_t            pad3_[7];
 } pnp_rt_in_t;
 
 // --- Go -> RT: the outputs of one Go commit ----------------------------------
@@ -119,7 +128,8 @@ typedef struct {
     stmak_tribuf_t *to_rt;     // pnp_rt_out_t, Go writes
     stmak_pinmap_t *in;        // input pins -> pnp_rt_in_t
     stmak_pinmap_t *out;       // pnp_rt_out_t -> output pins
-    pnp_dz_t       *dz;        // the dead-zone check's block
+    pnp_dz_t       *dz;        // the dead-zone check's block, and mot
+    stmak_doorbell_t *bell;    // cycle ticks after every publish
 
     // start-job's data-pointer slot: written only to clear it (step 3), as
     // one byte, the size of hal.h's hal_bit_t.

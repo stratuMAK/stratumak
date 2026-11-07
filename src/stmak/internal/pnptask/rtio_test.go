@@ -4,11 +4,13 @@
 package pnptask
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/pnptask/dztest"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 )
 
@@ -19,6 +21,7 @@ func rtModule(t *testing.T) (*pnptaskModule, func(string) float64) {
 	setupPaths(t)
 	name := testInstanceName(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name)
+	m.rt.runRT = m.rt.invoke // no servo thread here: waits run the function themselves
 	get := func(pin string) float64 {
 		t.Helper()
 		v, ok := hal.LookupValue(name + "." + pin)
@@ -141,8 +144,9 @@ func TestStartControlNeedsTheCycleFunction(t *testing.T) {
 }
 
 // TestOutputsBeforeMotion: an output written before a motion command is on its
-// pin by the time motmod takes the command. Motion commands go out at once and
-// the outputs at a commit, so without committedMotion the head could move with
+// pin before motmod takes the command -- already when the command is sent, not
+// only in the servo cycle that takes it. Motion commands go out at once and the
+// outputs at a commit, so without committedMotion the head could move with
 // scene-busy still reading the value from before the write (the scenegate
 // runtest caught a descent under a scene-busy that had already been dropped).
 func TestOutputsBeforeMotion(t *testing.T) {
@@ -152,10 +156,7 @@ func TestOutputsBeforeMotion(t *testing.T) {
 
 	seen := -1.0
 	mot.onMove = func(moveCall) {
-		// motmod takes the command in the next servo cycle, in which the
-		// cycle function runs too.
-		m.rt.invoke()
-		seen = get("scene-busy")
+		seen = get("scene-busy") // the pin as the command is sent
 	}
 
 	m.pins.sceneBusy.Set(true)
@@ -164,5 +165,75 @@ func TestOutputsBeforeMotion(t *testing.T) {
 	}
 	if seen != 1 {
 		t.Errorf("scene-busy = %v when the move was taken, want 1", seen)
+	}
+}
+
+// TestRTStatusFromFrame: the control loop's motion status is motmod's state as
+// the cycle function read it, in the frame with the pins.
+func TestRTStatusFromFrame(t *testing.T) {
+	m, _ := rtModule(t)
+	st := &rtStatus{rt: m.rt, numJoints: m.cfg.NumJoints}
+
+	m.rt.invoke()
+	m.rt.read()
+	if _, err := st.GetStatus(); !errors.Is(err, errNoSnapshot) {
+		t.Fatalf("without mot: got %v, want errNoSnapshot", err)
+	}
+
+	mot := dztest.NewFakeMot()
+	defer mot.Free()
+	m.deadzone.setMot(mot.Ptr())
+	defer m.deadzone.setMot(nil)
+	mot.SetSnapshot(false, 3, 42, 120, 80, 0b101)
+
+	m.rt.invoke()
+	m.rt.read()
+	s, err := st.GetStatus()
+	if err != nil {
+		t.Fatalf("GetStatus: %v", err)
+	}
+	if s.Enabled != 1 || s.Inpos != 0 || s.QueueDepth != 3 || s.Id != 42 {
+		t.Errorf("status: enabled %d inpos %d depth %d id %d; want 1 0 3 42", s.Enabled, s.Inpos, s.QueueDepth, s.Id)
+	}
+	if s.Joints[0].Homed != 1 || s.Joints[1].Homed != 0 || s.Joints[2].Homed != 1 {
+		t.Errorf("homed: %d %d %d; want 1 0 1", s.Joints[0].Homed, s.Joints[1].Homed, s.Joints[2].Homed)
+	}
+	if fb, err := st.GetPosFb(); err != nil || fb.X != 120 || fb.Y != 80 {
+		t.Errorf("GetPosFb = %+v, %v; want (120,80)", fb, err)
+	}
+}
+
+// TestRTStatusStaleAfterDispatch: a frame from before a motion command is
+// refused, so the first good read after a dispatch describes the machine
+// after it -- what dispatchSettleTicks used to guess at.
+func TestRTStatusStaleAfterDispatch(t *testing.T) {
+	m, _ := rtModule(t)
+	st := &rtStatus{rt: m.rt, numJoints: m.cfg.NumJoints}
+	mot := dztest.NewFakeMot()
+	defer mot.Free()
+	m.deadzone.setMot(mot.Ptr())
+	defer m.deadzone.setMot(nil)
+	mot.SetSnapshot(true, 0, 1, 0, 0, 0b111)
+
+	m.rt.invoke()
+	m.rt.read() // the frame of the cycle before the command
+
+	cm := committedMotion{motionControl: newFakeMotion(m.cfg.NumJoints), rt: m.rt}
+	if err := cm.SetLine(motctl.Pose{X: 1}, 10, 10, 100, 0, 2, 0, -1); err != nil {
+		t.Fatalf("SetLine: %v", err)
+	}
+	if _, err := st.GetStatus(); !errors.Is(err, errStaleStatus) {
+		t.Errorf("frame from before the command: got %v, want errStaleStatus", err)
+	}
+
+	mot.SetSnapshot(false, 1, 2, 0, 0, 0b111)
+	m.rt.invoke()
+	m.rt.read()
+	s, err := st.GetStatus()
+	if err != nil {
+		t.Fatalf("frame after the command: %v", err)
+	}
+	if s.Inpos != 0 || s.QueueDepth != 1 {
+		t.Errorf("after the command: inpos %d depth %d; want 0 1", s.Inpos, s.QueueDepth)
 	}
 }

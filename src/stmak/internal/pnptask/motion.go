@@ -34,12 +34,14 @@ const (
 )
 
 var (
-	// dispatchSettleTicks is how many cycles pass between dispatching motion and
-	// the first in-position check. Motion status is published by the servo
-	// thread, so immediately after a SetLine it still describes the machine
-	// standing still — the same stale-inpos race milltask's waitMotionDone skips
-	// past (sequencer.go).
-	dispatchSettleTicks = 5
+	// dispatchSettleTicks is how many good status reads pass between
+	// dispatching motion and the first in-position check. Status published
+	// before the dispatch still describes the machine standing still; rtStatus
+	// refuses such a frame (it knows the cycle the command was taken in), so
+	// the first good read already describes the machine after it. (The tests'
+	// scripted motion updates its status inside the dispatch call itself, so
+	// it needs no settling either.)
+	dispatchSettleTicks = 1
 )
 
 // ---------------------------------------------------------------------------

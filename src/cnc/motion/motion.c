@@ -296,6 +296,47 @@ static int32_t gmi_mot_status_get_carte_pos_fb(void *ctx, mot_pose_t *pos) STMAK
     return 0;
 }
 
+/* The motion state a Go module's cyclic function hands its control loop
+   (pnptask's cycle function, docs/dev/PNPTASK_RT_BOUNDARY.md §4.5): one call,
+   from the RT status struct, after motion-controller this cycle's values.  The
+   fields are filled exactly as motstat's h_get_status fills the MotionStatus
+   fields of the same name, so a consumer moving from motstat to here sees the
+   same meaning, only from the servo cycle instead of a snapshot. */
+static int32_t gmi_mot_status_get_snapshot(void *ctx, mot_snapshot_t *snap) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+    const emcmot_status_t *s = inst->status;
+    int nj = inst->num_joints;
+    uint32_t homed = 0, homing = 0;
+
+    if (nj > 32)
+        nj = 32;
+    for (int i = 0; i < nj; i++) {
+        if (s->joint_status[i].homed)
+            homed |= 1u << i;
+        if (s->joint_status[i].homing)
+            homing |= 1u << i;
+    }
+
+    snap->command_num_echo = s->commandNumEcho;
+    snap->command_status   = s->commandStatus;
+    snap->motion_state     = s->motion_state;
+    snap->enabled          = (s->motionFlag & EMCMOT_MOTION_ENABLE_BIT) ? 1 : 0;
+    snap->inpos            = (s->motionFlag & EMCMOT_MOTION_INPOS_BIT) ? 1 : 0;
+    snap->queue_depth      = s->depth;
+    snap->id               = s->id;
+    snap->distance_to_go   = s->distance_to_go;
+    snap->current_vel      = s->current_vel;
+    memcpy(&snap->carte_pos_cmd, &s->carte_pos_cmd, sizeof(EmcPose));
+    memcpy(&snap->carte_pos_fb, &s->carte_pos_fb, sizeof(EmcPose));
+    snap->carte_pos_cmd_ok = s->carte_pos_cmd_ok;
+    snap->carte_pos_fb_ok  = s->carte_pos_fb_ok;
+    snap->num_joints       = nj;
+    snap->joints_homed     = homed;
+    snap->joints_homing    = homing;
+    return 0;
+}
+
 /* --- Status setters --- */
 
 static void gmi_mot_status_set_current_vel(void *ctx, double vel) STMAK_NONBLOCKING

@@ -33,11 +33,23 @@ void pnp_rt_cycle(void *arg, long period)
     if (r->dz != NULL)
         pnp_dz_check(r->dz, period);
 
-    // 5. Publish.
+    // 5. Motion, this cycle (the function runs after motion-controller).
+    const mot_callbacks_t *mot = r->dz != NULL ? (const mot_callbacks_t *)pnp_dz_mot(r->dz) : NULL;
+    in->mot_ok = 0;
+    // A truth test, not "!= NULL": comparing the nonblocking-typed pointer
+    // with (void *)0 reads to -Wfunction-effects as adding the attribute.
+    if (mot != NULL && mot->status_get_snapshot &&
+        mot->status_get_snapshot(mot->ctx, &in->mot) == 0)
+        in->mot_ok = 1;
+
+    // 6. Publish, then count the run: a cycle count Go reads means that frame
+    //    is out.
     r->cycle++;
     in->cycle  = r->cycle;
     in->go_seq = out->seq;
     stmak_tribuf_publish(r->to_go);
+    if (r->bell != NULL)
+        stmak_doorbell_tick(r->bell);
 }
 
 const stmak_hal_funct_t pnp_rt_cycle_fp = pnp_rt_cycle;

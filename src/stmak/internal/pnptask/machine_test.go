@@ -537,6 +537,7 @@ func fastLoop(t *testing.T) {
 // directly. Call it after the sim is hooked and before startControl.
 func driveRT(m *pnptaskModule) {
 	inner := m.tickHook
+	m.rt.runRT = m.rt.invoke
 	m.rt.invoke()
 	m.tickHook = func() {
 		m.rt.invoke()

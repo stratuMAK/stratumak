@@ -87,8 +87,11 @@ void pnp_dz_check(void *arg, long period)
     }
 }
 
-// The address hal.ExportFunct is handed.
-const stmak_hal_funct_t pnp_dz_check_fp = pnp_dz_check;
+const void *pnp_dz_mot(pnp_dz_t *d)
+{
+    return mot_load(d);
+}
+
 
 // --- init-time helpers -----------------------------------------------------
 

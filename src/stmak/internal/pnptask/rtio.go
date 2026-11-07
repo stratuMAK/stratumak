@@ -9,13 +9,14 @@ package pnptask
 #include "pnp_rt.h"
 
 static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out,
-                        void *dz, void *start_job) {
+                        void *dz, void *bell, void *start_job) {
     pnp_rt_t *r = (pnp_rt_t *)blk;
     r->to_go     = (stmak_tribuf_t *)to_go;
     r->to_rt     = (stmak_tribuf_t *)to_rt;
     r->in        = (stmak_pinmap_t *)in;
     r->out       = (stmak_pinmap_t *)out;
     r->dz        = (pnp_dz_t *)dz;
+    r->bell      = (stmak_doorbell_t *)bell;
     r->start_job = (void *volatile *)start_job;
 }
 
@@ -34,6 +35,7 @@ import (
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 )
 
@@ -135,7 +137,25 @@ type rtIO struct {
 	toRT   *hal.TriBuf[outFrame]
 	inMap  *hal.PinMap
 	outMap *hal.PinMap
+	bell   *hal.Doorbell
 	blk    unsafe.Pointer
+
+	// sent is the output frame of the last commit, sentCycle the doorbell's
+	// cycle count right after it: a run that starts after the commit -- two
+	// counts later -- has applied it (applyBeforeMotion).
+	sent      outFrame
+	sentCycle uint32
+
+	// runRT, when set, runs the cycle function in place of the servo thread
+	// (unit tests: driveRT); applyBeforeMotion then needs no thread to wait
+	// for.
+	runRT func()
+
+	// dispatchCycle is the doorbell's cycle count right after the last motion
+	// command returned (committedMotion). motctl returns only once motmod has
+	// taken the command, so a frame of a later cycle includes it; rtStatus
+	// refuses older ones.
+	dispatchCycle uint32
 }
 
 // build allocates the buffers and maps, binds every pin of the set, and links
@@ -154,6 +174,9 @@ func (r *rtIO) build(p *pinSet, dz *deadzoneRT) error {
 	if r.outMap, err = hal.NewPinMap(hal.Out, unsafe.Sizeof(outFrame{}), 256); err != nil {
 		return err
 	}
+	if r.bell, err = hal.NewDoorbell(); err != nil {
+		return err
+	}
 	if err := r.bindInputs(p); err != nil {
 		return fmt.Errorf("binding the input pins: %w", err)
 	}
@@ -168,7 +191,7 @@ func (r *rtIO) build(p *pinSet, dz *deadzoneRT) error {
 		dzBlk = dz.blk
 	}
 	C.pnp_rt_link(r.blk, r.toGo.RTPtr(), r.toRT.RTPtr(), r.inMap.RTPtr(), r.outMap.RTPtr(),
-		dzBlk, p.startJob.RTDataPtr())
+		dzBlk, r.bell.RTPtr(), p.startJob.RTDataPtr())
 	return nil
 }
 
@@ -270,6 +293,40 @@ func (r *rtIO) export(comp *hal.Component) error {
 func (r *rtIO) commit() {
 	r.out.seq++
 	r.toRT.Publish(&r.out)
+	r.sent = r.out
+	r.sentCycle = r.bell.Cycle()
+}
+
+// applyWait bounds applyBeforeMotion's wait. Two servo cycles normally; the
+// bound only matters if the function stopped running, and then the command
+// goes out anyway rather than hanging the loop.
+const applyWait = 20 * time.Millisecond
+
+// applyBeforeMotion makes sure what the control loop wrote is on the pins
+// before a motion command goes out: commit what changed since the last commit,
+// and wait until the cycle function has started a run after the last commit
+// (two cycle counts) -- for a commit from an earlier tick that is long past. Motion commands reach motmod at once,
+// through motctl; without this an output written before a command -- scene-busy
+// dropped before a descent -- could read its old value while the head already
+// moved, to a reader outside the servo thread even within the cycle the
+// command is taken in (motion-controller runs before the cycle function).
+// Nothing changed, nothing to wait for: most commands of a leg go straight
+// out.
+func (r *rtIO) applyBeforeMotion() {
+	if r.out != r.sent {
+		r.commit()
+	}
+	deadline := time.Now().Add(applyWait)
+	for r.bell.Cycle()-r.sentCycle < 2 {
+		if r.runRT != nil {
+			r.runRT()
+			continue
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
 }
 
 // clearStartJob asks the cycle function to clear the start-job pin, in the run
@@ -314,6 +371,9 @@ func (r *rtIO) free() {
 	if r.outMap != nil {
 		r.outMap.Free()
 	}
+	if r.bell != nil {
+		r.bell.Free()
+	}
 	hal.RTFree(r.blk)
 	r.blk = nil
 }
@@ -353,34 +413,141 @@ type committedMotion struct {
 	rt *rtIO
 }
 
-func (m committedMotion) Abort() error   { m.rt.commit(); return m.motionControl.Abort() }
-func (m committedMotion) Enable() error  { m.rt.commit(); return m.motionControl.Enable() }
-func (m committedMotion) Disable() error { m.rt.commit(); return m.motionControl.Disable() }
-func (m committedMotion) SetFree() error { m.rt.commit(); return m.motionControl.SetFree() }
-func (m committedMotion) SetTeleop() error {
-	m.rt.commit()
-	return m.motionControl.SetTeleop()
+// note records, after a command returned, from which cycle on a frame
+// includes it (rtIO.dispatchCycle), and passes the command's error through.
+func (m committedMotion) note(err error) error {
+	m.rt.dispatchCycle = m.rt.bell.Cycle()
+	return err
 }
-func (m committedMotion) SetCoord() error { m.rt.commit(); return m.motionControl.SetCoord() }
+
+func (m committedMotion) Abort() error {
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.Abort())
+}
+func (m committedMotion) Enable() error {
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.Enable())
+}
+func (m committedMotion) Disable() error {
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.Disable())
+}
+func (m committedMotion) SetFree() error {
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.SetFree())
+}
+func (m committedMotion) SetTeleop() error {
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.SetTeleop())
+}
+func (m committedMotion) SetCoord() error {
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.SetCoord())
+}
 func (m committedMotion) JointHome(joint int32) error {
-	m.rt.commit()
-	return m.motionControl.JointHome(joint)
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.JointHome(joint))
 }
 func (m committedMotion) JogCont(num int32, vel float64, isTeleop int32) error {
-	m.rt.commit()
-	return m.motionControl.JogCont(num, vel, isTeleop)
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.JogCont(num, vel, isTeleop))
 }
 func (m committedMotion) JogAbort(num int32, isTeleop int32) error {
-	m.rt.commit()
-	return m.motionControl.JogAbort(num, isTeleop)
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.JogAbort(num, isTeleop))
 }
 func (m committedMotion) SetLine(pos motctl.Pose, vel, iniMaxvel, acc float64,
 	motionType, id int32, feedMmPerMin float64, indexerJnum int32) error {
-	m.rt.commit()
-	return m.motionControl.SetLine(pos, vel, iniMaxvel, acc, motionType, id, feedMmPerMin, indexerJnum)
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.SetLine(pos, vel, iniMaxvel, acc, motionType, id, feedMmPerMin, indexerJnum))
 }
 func (m committedMotion) SetCircle(pos motctl.Pose, center, normal motctl.Cartesian, turn int32,
 	vel, iniMaxvel, acc float64, motionType, id int32, feedMmPerMin float64) error {
-	m.rt.commit()
-	return m.motionControl.SetCircle(pos, center, normal, turn, vel, iniMaxvel, acc, motionType, id, feedMmPerMin)
+	m.rt.applyBeforeMotion()
+	return m.note(m.motionControl.SetCircle(pos, center, normal, turn, vel, iniMaxvel, acc, motionType, id, feedMmPerMin))
+}
+
+// ---------------------------------------------------------------------------
+// Motion status from the frame
+// ---------------------------------------------------------------------------
+
+var (
+	errNoSnapshot  = errors.New("no motion snapshot: the motion instance is not resolved yet")
+	errStaleStatus = errors.New("the motion snapshot predates the last motion command")
+)
+
+// rtStatus is the control loop's motion status in production: motmod's state
+// as the cycle function read it, in the same frame as the pins (pnp_rt.h, step
+// 5). It replaces the motstat snapshot, whose read took a mutex, could fail,
+// and came from another moment than the pins.
+//
+// A frame from before the last motion command is refused with
+// errStaleStatus. The loop treats a failed read as it always has -- the last
+// good status, counted against the stale tolerance -- and the first read that
+// succeeds after a dispatch therefore already describes the machine after it:
+// what dispatchSettleTicks used to guess at.
+//
+// It reads rtIO.in, so it describes the frame the current sample() took.
+type rtStatus struct {
+	rt        *rtIO
+	numJoints int
+}
+
+func (s *rtStatus) GetStatus() (motstat.MotionStatus, error) {
+	f := &s.rt.in
+	if f.mot_ok == 0 {
+		return motstat.MotionStatus{}, errNoSnapshot
+	}
+	if int32(uint32(f.cycle)-s.rt.dispatchCycle) <= 0 {
+		return motstat.MotionStatus{}, errStaleStatus
+	}
+	m := &f.mot
+	st := motstat.MotionStatus{
+		CommandNumEcho: int32(m.command_num_echo),
+		CommandStatus:  int32(m.command_status),
+		MotionState:    int32(m.motion_state),
+		Enabled:        int32(m.enabled),
+		Inpos:          int32(m.inpos),
+		QueueDepth:     int32(m.queue_depth),
+		Id:             int32(m.id),
+		DistanceToGo:   float64(m.distance_to_go),
+		CurrentVel:     float64(m.current_vel),
+		CartePosCmd:    snapPose(&m.carte_pos_cmd),
+		CartePosFb:     snapPose(&m.carte_pos_fb),
+		CartePosCmdOk:  int32(m.carte_pos_cmd_ok),
+		CartePosFbOk:   int32(m.carte_pos_fb_ok),
+	}
+	for j := 0; j < s.numJoints && j < len(st.Joints); j++ {
+		if uint32(m.joints_homed)&(1<<j) != 0 {
+			st.Joints[j].Homed = 1
+		}
+		if uint32(m.joints_homing)&(1<<j) != 0 {
+			st.Joints[j].Homing = 1
+		}
+	}
+	return st, nil
+}
+
+// GetPosFb and GetPosCmd return the positions whatever their _ok flags say,
+// as motstat's did; a frame without a snapshot is the only failure.
+func (s *rtStatus) GetPosFb() (motstat.Pose, error) {
+	if s.rt.in.mot_ok == 0 {
+		return motstat.Pose{}, errNoSnapshot
+	}
+	return snapPose(&s.rt.in.mot.carte_pos_fb), nil
+}
+
+func (s *rtStatus) GetPosCmd() (motstat.Pose, error) {
+	if s.rt.in.mot_ok == 0 {
+		return motstat.Pose{}, errNoSnapshot
+	}
+	return snapPose(&s.rt.in.mot.carte_pos_cmd), nil
+}
+
+func snapPose(p *C.mot_pose_t) motstat.Pose {
+	return motstat.Pose{
+		X: float64(p.x), Y: float64(p.y), Z: float64(p.z),
+		A: float64(p.a), B: float64(p.b), C: float64(p.c),
+		U: float64(p.u), V: float64(p.v), W: float64(p.w),
+	}
 }

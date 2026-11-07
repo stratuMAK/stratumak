@@ -308,10 +308,18 @@ sampled in the same cycle.
 
 Go then drops `motstat` (`GetStatus`, `GetPosFb`, `GetPosCmd`) completely:
 
-- `statusStaleTicks`, `commErrors`: gone; "status is stale" becomes "the RT
-  frame is not fresh" (§7).
-- `dispatchSettleTicks`: replaced by `commandNumEcho` — Go knows exactly when
-  motmod has taken its last command.
+- `statusStaleTicks`, `commErrors` stay as the tolerance for a failed read,
+  but a read now fails only before `mot` is resolved, or for a frame from
+  before the last motion command (below). The `motionStatus` interface stays
+  too: production reads the frame (`rtStatus`), the unit tests keep scripting
+  their fake motion through it.
+- `dispatchSettleTicks`: 5 guessed cycles become 1 exact one. motctl's
+  `send_command` returns only once motmod echoed the command, so a frame of a
+  later servo cycle than the one current at that return includes it. The
+  cycle function ticks a doorbell after every publish; `committedMotion`
+  notes the count after every command, and `rtStatus` refuses older frames.
+  (`commandNumEcho` is in the snapshot, but pnptask does not know its own
+  command numbers — motctl assigns them — so the cycle count is the handle.)
 - `awaitDescent`'s margin shrinks to what a Go wake really costs (§6.1).
 
 Commands still go through `motctl` (non-RT, as today).
@@ -373,13 +381,18 @@ reader ever need it.
   `outF64`) that keep their HAL pin for the binding and point into the frame,
   so the call sites did not change. The wait (§6.1) commits before it blocks:
   copy into the write slot, publish. A step's writes become visible together.
-- **Every motion command commits first** (`committedMotion` wraps the motion
-  stack). Motion commands reach motmod at once, the outputs at a commit; an
-  output written before a command — scene-busy dropped before a descent — must
-  not read its old value while the head already moves. Committed first, it
-  reaches the pins in the same servo cycle motmod takes the command, because
-  the cycle function runs after the command handler. (Found by the scenegate
-  runtest in step 2: a descent under a scene-busy already dropped.)
+- **Outputs are on the pins before a motion command goes out**
+  (`committedMotion` wraps the motion stack; `rtIO.applyBeforeMotion`).
+  Motion commands reach motmod at once, the outputs at a commit; an output
+  written before a command — scene-busy dropped before a descent — must not
+  read its old value while the head already moves. The wrapper commits what
+  changed and waits until the cycle function has started a run after the last
+  commit (two cycle counts, normally under 2 ms; a commit from an earlier tick
+  is long past and costs nothing). Committing alone would put pins and motion
+  in the same servo cycle, but inside it motion-controller runs before the
+  cycle function, so a reader outside the servo thread could still catch the
+  head moving with the old pin. (Found by the scenegate runtest in steps 2 and
+  3.)
 - `publish()` stays as the function that fills the model outputs; it now writes
   the working copy. The teach pins leave it (§6.1).
 - `raise()`, `clearError()`, `runJobHandshake`, `runParkRequest`,
@@ -531,6 +544,10 @@ rigs and the machine.
    cycle function inside the control loop (`driveRT`).
 3. **Motion snapshot.** The `mot` accessor and API bump; Go drops motstat;
    `commandNumEcho` replaces `dispatchSettleTicks`. Scenarios unchanged.
+   *Built:* `mot` v3 `status_get_snapshot` (`mot_snapshot_t`, filled like
+   motstat's `MotionStatus`); the snapshot in the input frame; `rtStatus`;
+   the doorbell's cycle count instead of the echo (see §4.5);
+   `dispatchSettleTicks` = 1.
 4. **Edges and latches in RT.** Counters, press-time gating in RT. New
    scenario: every edge input as a one-servo-cycle pulse, counted exactly once.
 5. **Handshakes in RT — the contract changes.** Job, park, error latch,
@@ -592,9 +609,11 @@ step ticks off what it settles.
 | 1 | step 1 | `stmak_hal.h` declares `stmak_hal_bit_t` as `volatile unsigned` (4 bytes), `hal.h` has `hal_bit_t` as `volatile bool` (1 byte), although the comment says they must match. Harmless on little-endian (every pin cell is an 8-byte `hal_data_u`), wrong by the letter. The bridge accesses bits as one byte. | open, small separate PR |
 | 2 | step 1 | The `STMAK_PKG_FILES` list (the `pkg/hal` copy for external Go modules) does not carry the bridge files. Nothing outside the tree needs them yet. | open, when a module outside the tree wants the bridge |
 | 3 | step 2 | `TriBuf.Publish`/`Read` passed a Go pointer to C; cgo checks the whole allocation behind an `unsafe.Pointer`, so a frame inside a struct holding pointers panicked. Go now copies into and out of the C slot itself. | fixed in step 2, regression test `TestTriBufFrameInsideAStruct` |
-| 4 | step 2 | Outputs could lag motion commands (motctl is immediate, outputs go at a commit). | fixed in step 2: `committedMotion`, test `TestOutputsBeforeMotion` |
+| 4 | step 2 | Outputs could lag motion commands (motctl is immediate, outputs go at a commit). | fixed in step 2 (commit before each command), made strict in step 3 (wait until applied): `committedMotion`, test `TestOutputsBeforeMotion` |
 | 5 | step 2 | The `z-offset` inputs (trays and process stations) and `tray-id` were read live outside `sample()` (approach heights, reach check, world start, persistence restore). They now come from the frame like every other input. | done in step 2 |
 | 6 | step 2 | Pulses shorter than a Go tick are still lost: the cycle function samples every servo cycle, but Go still looks at the latest frame only, every 10 ms. §5.2.1's hold rules stay valid until edges move to RT. | step 4 |
 | 7 | step 2 | CoatV2conf `threads.hal` names `pnp.task.deadzone-check`; the stratumak build of step 2 refuses to start without `pnp.task.cycle`. The two have to be deployed together. | config change with step 2 |
 | 8 | step 2 | `start-job` is still an IO pin, cleared by the cycle function on request. | step 5 makes it an in pin |
-
+| 9 | step 3 | The test fake of `mot` (`dztest`) had no `status_get_snapshot`; a NULL callback would have crashed the cycle function. A version-3 provider always has it, but the cycle function checks for NULL anyway, and the fake can now serve a snapshot. | done in step 3 |
+| 10 | step 3 | `mot` v3 shifts nothing for tpmod/homemod (rebuilt with the generated header), but any out-of-tree consumer of `mot` v2 is refused at lookup until rebuilt. | note for the release |
+| 11 | step 3 | The scenegate runtest read `scene-busy` and `in-position` with two REST calls, so its "leg under way" condition could combine two moments; the hold then landed before the leg took the lock and the job waited forever. It reads both from one listing now. | done in step 3 |

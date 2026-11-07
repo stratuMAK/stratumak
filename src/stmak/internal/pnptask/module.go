@@ -54,7 +54,6 @@ import (
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
-	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
@@ -71,14 +70,13 @@ func init() {
 const defaultMotionInstance = "motmod"
 
 // The GMI versions this module is built against; a provider registered at any
-// other version is refused rather than called through a mismatched ABI. Same
-// versions milltask requires of the same two APIs.
+// other version is refused rather than called through a mismatched ABI.
 const (
-	motctlVersion  = 1
-	motstatVersion = 1
-	// mot is the motion controller's RT-side interface, consumed only by the
-	// cyclic dead-zone check (for the Cartesian feedback position).
-	motVersion = 2
+	motctlVersion = 1
+	// mot is the motion controller's RT-side interface, consumed by the cycle
+	// function: the Cartesian feedback for the dead-zone check, and the motion
+	// snapshot the control loop reads instead of motstat (version 3).
+	motVersion = 3
 )
 
 // pnptaskModule is one loaded pnptask instance.
@@ -336,12 +334,10 @@ func (m *pnptaskModule) Start() error {
 	if err != nil {
 		return fmt.Errorf("pnptask %q: motctl API lookup (%s): %w", m.name, m.motInstance, err)
 	}
-	motstatCbs, err := reg.GetAPIFor(m.name, "motstat", m.motInstance, motstatVersion)
-	if err != nil {
-		return fmt.Errorf("pnptask %q: motstat API lookup (%s): %w", m.name, m.motInstance, err)
-	}
 	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
-	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
+	// The motion status comes out of the cycle function's frame, read in the
+	// servo thread with the pins (rtStatus), not from motstat.
+	m.ms = &rtStatus{rt: m.rt, numJoints: m.cfg.NumJoints}
 
 	// The cyclic dead-zone check needs a Cartesian position, and it takes it
 	// from mot — motmod's RT-side interface, whose accessors are @rt_safe.

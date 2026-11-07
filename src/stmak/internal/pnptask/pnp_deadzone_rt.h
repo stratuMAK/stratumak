@@ -80,9 +80,10 @@ typedef struct {
 // deliberate line in the HAL file rather than an accident of where it was typed.
 void pnp_dz_check(void *arg, long period) STMAK_NONBLOCKING;
 
-// pnp_dz_check_fp is pnp_dz_check's address, as a real symbol — cgo cannot take
-// the address of a C function. See hal.CFunct.
-extern const stmak_hal_funct_t pnp_dz_check_fp;
+// pnp_dz_mot is the published motmod callback table (const mot_callbacks_t *),
+// or NULL: the same acquire load the check itself does, for the cycle function
+// that reads the motion snapshot through it.
+const void *pnp_dz_mot(pnp_dz_t *d) STMAK_NONBLOCKING;
 
 // --- init-time helpers (non-RT) --------------------------------------------
 

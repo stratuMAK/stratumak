@@ -55,9 +55,15 @@ m.start_job(22, 10, deadzone=OPEN)
 # in which the gate looks at scene-hold once more, and a hold raised into
 # that cycle wins (the leg yields and waits). The hold here must land on a
 # leg that is already moving.
-stmak_test.wait_until(
-    lambda: m.get("scene-busy") and not pnpdrv.raw_get("pnp.mot.motion.in-position"),
-    "the leg out of the station to be under way under the lock")
+# Both pins from one listing: read by two calls, scene-busy could come from
+# before the zero-length leg into the station dropped its lock and in-position
+# from after the descent there began -- a state that never was, and the hold
+# would land on the leg out before it took the lock.
+def under_way():
+    s = pnpdrv.raw_snapshot("pnp.*")
+    return s["pnp.task.scene-busy"] and not s["pnp.mot.motion.in-position"]
+
+stmak_test.wait_until(under_way, "the leg out of the station to be under way under the lock")
 m.set("scene-hold", True)
 pnpdrv.check_eq(m.await_job(), 0, "the leg already under the lock runs on to its end")
 s = m.snapshot()

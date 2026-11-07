@@ -79,7 +79,9 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 ### 2.1 Instance stack
 
 pnptask is a **peer of milltask**: it owns its own motion stack and talks to it
-through the GMI clients (`motctl`/`motstat`), exactly like milltask does. No
+through the GMI clients, like milltask does: commands through `motctl`, and
+since PNPTASK_RT_BOUNDARY step 3 the status through `mot`'s RT-side snapshot,
+read by the cycle function with the pins (motstat is no longer used). No
 `io`/`iocontrol` instance is needed (no toolchanger); estop/enable are
 sequenced by pnptask itself against motctl.
 
@@ -112,7 +114,7 @@ Load args (parsed `key=value` like `internal/task/module.go`):
 
 | Arg | Default | Meaning |
 |-----|---------|---------|
-| `motion_instance` | `[EMCMOT]MOTION_INSTANCE`, then `motmod` | motctl/motstat provider instance (INI fallback like milltask's) |
+| `motion_instance` | `[EMCMOT]MOTION_INSTANCE`, then `motmod` | motctl/mot provider instance (INI fallback like milltask's) |
 | `pickers` | `1` | `1` or `2`; `2` enables the alternating-picker logic |
 | `persist_instance` | *(unset)* | persist API instance; unset = in-memory state only |
 
