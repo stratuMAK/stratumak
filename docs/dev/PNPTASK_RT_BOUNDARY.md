@@ -62,7 +62,7 @@ at the boundary, not in every reader.
 
 1. Every HAL pin of pnptask is read and written **in the servo thread, at one
    point**, by the RT part. Go never touches a pin.
-2. Go sees **one consistent servo cycle** per tick (inputs, events, motion
+2. Go sees **one consistent servo cycle** per wake (inputs, events, motion
    status), and publishes **one consistent frame** per commit.
 3. Edges, latches and handshakes are decided **at servo rate**: no lost pulses,
    no hold rules, no guessed settle times on either side.
@@ -109,7 +109,7 @@ frame from two publishes ago). Both directions use one: RT→Go and Go→RT.
 
 Go side: `hal.TriBuf` over an `RTCalloc` block — `WriteSlot()`, `Publish()`,
 `Read() (p unsafe.Pointer, fresh bool)`. The exchange goes through the C
-helpers (one cgo call per tick), the frame content is copied in and out of Go
+helpers (one cgo call per commit or read), the frame content is copied in and out of Go
 memory with one call each, so no Go pointer is ever stored in C memory and the
 frame layout is defined once, in a C header, and seen by Go through cgo types.
 
@@ -154,6 +154,21 @@ Each frame carries the producer's counter: the RT frame its servo cycle number,
 the Go frame its commit number and the servo cycle of the RT frame it was
 computed from. Each side can tell whether the other is running (§7).
 
+### 3.4 Waking Go
+
+The RT side cannot wake a goroutine: a futex or eventfd write is a syscall,
+and the servo thread makes none. So the RT frame header carries a **change
+counter** that the RT function increments when something its Go side acts on
+changed, and the Go frame carries a **`wake_at`** servo cycle at which RT
+increments it as well (a deadline).
+
+`hal.Waiter` polls the counter at a fixed short interval (1 ms) with one
+atomic load and returns when it moved, when the caller's context ends, or when
+`cycle` has stood still too long (the RT function is not running, §7.1). What
+counts as a change is the RT function's business; the waiter only watches the
+counter. The poll is the one periodic thing left on the Go side, kept in
+`pkg/hal` so modules do not each grow their own.
+
 ## 4. The pnptask RT function
 
 ### 4.1 One function, one place in the thread
@@ -166,11 +181,16 @@ cycle, in this order:
 2. **Go frame:** `stmak_tribuf_read` → the latest commands and outputs from Go.
 3. **Motion:** one `mot` accessor call → this cycle's motion snapshot (§4.5).
 4. **Logic:** edges and counters, gating, job/park/error/scene state, lift
-   watch (§4.3, §4.4).
-5. **Dead zones:** as today, from the snapshot's position.
-6. **Pins out:** compose the output struct (Go's values, overridden where RT
+   watch (§4.3, §4.4), the stall check (§7.2).
+5. **Dead zones and teach pins:** as today, from the snapshot's position; the
+   picker positions (`pos-x/-y/-mu`) from the same position plus the offset
+   params.
+6. **Change:** compare what Go acts on with the previous cycle, and check
+   `wake_at`; increment the change counter if either fired (§3.4, §6.1).
+7. **Pins out:** compose the output struct (Go's values, overridden where RT
    owns the pin) → `stmak_pinmap_out`. All outputs change here, together.
-7. **RT frame:** inputs, event counters, RT state, motion snapshot →
+8. **RT frame:** inputs, event counters, RT state, motion snapshot, change
+   counter →
    `stmak_tribuf_publish` for Go.
 
 Readers after `pnp.task.cycle` in the thread see this cycle's outputs.
@@ -183,8 +203,8 @@ The rule: **one owner per pin and per piece of state**.
 
 | Owner | What |
 |---|---|
-| **RT** | input sampling; edge detection and press-time gating; the job and park handshake (`busy`, accept/refuse); the error latch (`error`, `error-id`, `error-station`, `picker.N.missing`); the scene lock (`scene-busy`); the lift-watch override of `release`; `deadzone.N.free`; `cycle`, `sync` |
-| **Go** | everything computed from the model or from motion: `machine-is-on`, `homed`, `parked`, `picker.N.close`, `proc.N.release` (outside the override), `holds`/`origin-id`, tray and station outputs, teach pins, `plan-time`; and the decisions: when a job ends and how, what to raise, when to ask for the scene lock |
+| **RT** | input sampling; edge detection and press-time gating; the job and park handshake (`busy`, accept/refuse); the error latch (`error`, `error-id`, `error-station`, `picker.N.missing`); the scene lock (`scene-busy`); the lift-watch override of `release`; `deadzone.N.free`; the teach pins `picker.N.pos-x/-y/-mu`; `cycle`, `sync`; the change counter and stall check |
+| **Go** | everything computed from the model or from motion: `machine-is-on`, `homed`, `parked`, `picker.N.close`, `proc.N.release` (outside the override), `holds`/`origin-id`, tray and station outputs, `plan-time`; and the decisions: when a job ends and how, what to raise, when to ask for the scene lock |
 
 Go's requests to RT are fields in the Go frame: levels where a level is the
 truth (scene-lock request), sequence numbers where an event must not be lost
@@ -195,7 +215,7 @@ or applied twice (raise an error, finish a job, arm a lift watch).
 Each edge input gets a `u32` counter in the RT frame, incremented by RT on a
 **rising edge that passes its gate**. Go keeps the last value it consumed and
 acts on the difference. Nothing is cleared, nothing is lost between two Go
-ticks, and a pulse of one servo cycle counts.
+wakes, and a pulse of one servo cycle counts.
 
 Gating stays at press time (today's comment in `sample()` stays true), now
 with servo-cycle state:
@@ -226,7 +246,7 @@ today, including `AUTO_DISABLED` and `MACHINE_OFF`, which RT could see but
 deliberately does not judge: one place for each rule, and a refusal without
 `busy` would need a `refused` output after all. Unknown ids, `UNREACHABLE` and
 planning likewise. Such a job ends at once with its error, through the same
-end-of-job commit, at most one Go tick after `busy` rose. Go runs the job and,
+end-of-job commit, at Go's first wake after `busy` rose. Go runs the job and,
 at the end,
 sets `job_done_seq` together with the outcome (raise or none) and the final
 model outputs in **one** commit. RT drops `busy` in the cycle it sees that
@@ -282,7 +302,7 @@ Go then drops `motstat` (`GetStatus`, `GetPosFb`, `GetPosCmd`) completely:
   frame is not fresh" (§7).
 - `dispatchSettleTicks`: replaced by `commandNumEcho` — Go knows exactly when
   motmod has taken its last command.
-- `awaitDescent`'s margin shrinks to what the Go tick really costs.
+- `awaitDescent`'s margin shrinks to what a Go wake really costs (§6.1).
 
 Commands still go through `motctl` (non-RT, as today).
 
@@ -339,33 +359,96 @@ reader ever need it.
 - `sample()` becomes: read the RT frame; derive edges from counters; take the
   motion snapshot. The read-order comments go.
 - Every `c.m.pins.X.Set(...)` writes a field of the Go frame's working copy
-  (Go memory). `tick()` commits once per tick: copy into the write slot,
-  publish. A step's writes become visible together, at the next commit.
+  (Go memory). The wait (§6.1) commits before it blocks: copy into the write
+  slot, publish. A step's writes become visible together.
 - `publish()` stays as the function that fills the model outputs; it now writes
-  the working copy.
+  the working copy. The teach pins leave it (§6.1).
 - `raise()`, `clearError()`, `runJobHandshake`, `runParkRequest`,
   `acquireScene`/`releaseScene`, `watchLift`/`checkLiftWatch` turn into
   requests in the Go frame and reactions to the RT frame.
 - `jobRequest()` and its arming logic go: RT decides.
 
-The Go loop keeps its 10 ms ticker. Waking Go from RT would need a syscall from
-the servo thread; the counters make a missed tick harmless.
+### 6.1 The Go loop: driven by RT frames
+
+With the cyclic work in RT, the 10 ms ticker is no longer the right shape for
+the Go side. What stays is the **sequential code**; what changes is **what a
+wait waits for**.
+
+**Not a callback or state-machine design.** A job is a sequence — travel, wait
+for the sensor, release, wait, lift — and a goroutine with blocking waits says
+exactly that. Cutting it into callbacks or an explicit state machine would make
+every wait a state and every local variable carried state, a rewrite of proven
+code into a worse shape.
+
+**The wait.** Every wait goes through `tick()` today: sleep until the next
+10 ms tick, then look. It becomes: *commit, then block until something changed
+or a deadline came, then read the frame*.
+
+- **Change counter.** The RT frame carries a `u32` that RT increments whenever
+  anything Go acts on changes: an input level, an edge counter, the motion
+  snapshot's id, inpos, motion state or command echo, a scene grant, a fired
+  lift watch, the latch. Position and velocity alone do not count — they move
+  every cycle while the head travels and would wake Go at servo rate; a wait
+  that needs them (`awaitDescent`) sets a deadline instead.
+- **Deadlines in servo time.** The Go frame carries `wake_at`, a servo cycle
+  number; RT bumps the change counter in that cycle. Every time Go measures —
+  settle times, release and sensor timeouts, dwells, `awaitDescent`'s
+  re-check — becomes a deadline in servo cycles, computed from the `cycle` of
+  the frame it is based on. Go's time is servo time: deterministic, and the
+  same time the config's rigs already run on (rig.clock, no sleeps).
+- **The waiter.** The servo thread makes no syscalls, so RT cannot wake Go
+  directly. A small waiter in `pkg/hal` (§3.4) looks at the change counter
+  every millisecond — one atomic load — and wakes the goroutine only when it
+  moved. That poll is the only periodic thing left on the Go side, and pnptask
+  does not see it.
+- **Commit after every wake.** Go commits once per wake, after acting on it, so
+  outputs change when Go decides something, and `sync` follows every input
+  change (an input change is a wake, a wake ends in a commit).
+
+**What leaves the Go loop.**
+
+| Today (per tick) | New |
+|---|---|
+| teach pins `picker.N.pos-x/-y/-mu` | RT, from the motion snapshot plus the offset params, every cycle (§4.2) |
+| persistence `flush()` | on a model change |
+| motion-disabled watchdog (`motionDisabled` count) | from the snapshot's enabled, as a change |
+| jog | reacts to the jog inputs' changes |
+| `settleTicks`, `dispatchSettleTicks`, tick counts | deadlines in servo cycles; command echo (§4.5) |
+
+After that Go does nothing when nothing changes.
+
+**What it buys.**
+
+- Each sequence step waits for its event, not for the next tick: about half a
+  tick per wait, some ten waits a job.
+- The Go logic becomes a function of the frames it receives. Tests can feed
+  frames and servo cycles with no wall clock — deterministic, and replayable
+  from a recording.
+- No idle work.
+
+Route planning still runs inside the loop and blocks it for up to ~50 ms; the
+change counter keeps what happens meanwhile, so nothing is lost, it is only
+seen after the plan.
 
 ## 7. Failure modes
 
 ### 7.1 The RT function is not scheduled
 
-No RT frame is ever fresh and no output ever changes. Go treats "no fresh RT
-frame for N ticks" like today's comm failure (motion gone, nothing starts), and
+No RT frame is ever fresh and no output ever changes. The waiter (§3.4) sees
+`cycle` stand still; after a timeout Go treats it like today's comm failure
+(motion gone, nothing starts), and
 at `Start` warns with the addf line, as `warnIfDeadzoneUnscheduled` does now.
 
 ### 7.2 Go stalls
 
-RT sees `sync` stop moving. After `task-timeout` (param, default 500 ms) RT
-raises `TASK_STALLED` in the error latch, so the PLC's existing error path
-reacts; no separate pin. The default stays clear of route planning, which runs
-inside the Go loop with no commit in between (~50 ms for a spline leg, D13's
-budget 100 ms).
+An idle Go does not commit (§6.1), so the age of `sync` alone says nothing.
+The stall is defined by work Go has not taken: the Go frame carries the change
+counter of the RT frame it last acted on, and when RT has a change (or a
+`wake_at` that came) that Go has not taken for longer than `task-timeout`
+(param, default 500 ms), RT raises `TASK_STALLED` in the error latch, so the
+PLC's existing error path reacts; no separate pin and no heartbeat. The
+default stays clear of route planning, which runs inside the Go loop with no
+commit in between (~50 ms for a spline leg, D13's budget 100 ms).
 
 RT does **not** touch motion: motmod finishes what is queued and stands, and
 stopping the machine for safety is the estop chain's business.
@@ -426,11 +509,20 @@ rigs and the machine.
 6. **Scene lock and lift watch in RT.** `scenegate` and `zarcs` scenarios
    extended: grant and hold in the same cycle; the clamp within a servo cycle
    of the segment change.
-7. **Cleanup.** `PNPTASK_DESIGN.md` §5.2/§5.2.1 rewritten (the timing contract
+7. **The Go loop driven by RT frames** (§6.1). `hal.Waiter`, the change
+   counter and `wake_at`; `tick()` becomes commit-wait-read; tick counts
+   become deadlines in servo cycles; teach pins move to RT; persistence and
+   the watchdog on change; the stall check on untaken changes (§7.2). Its own
+   step, after the handshakes, so two changes of timing behaviour never land
+   together. Mechanical across the wait loops, but each wait is reviewed for
+   its timing assumption. Scenarios unchanged in outcome; the Go unit tests
+   gain frame-fed cases with no wall clock.
+8. **Cleanup.** `PNPTASK_DESIGN.md` §5.2/§5.2.1 rewritten (the timing contract
    mostly disappears), the D-entries touched by this get their superseding
    note, CoatV2conf #25's TODOs and code go.
 
-Step 2 alone already removes the bug class; steps 3–6 remove the workarounds.
+Step 2 alone already removes the bug class; steps 3–6 remove the workarounds;
+step 7 removes the ticker.
 
 ## 10. Out of scope
 
@@ -452,9 +544,9 @@ Step 2 alone already removes the bug class; steps 3–6 remove the workarounds.
 4. **Valve pulses stay in the config**, `coat_pnp_jobreq` becomes
    `coat_pnp_valves` (§5.3).
 5. **Manual picker presses** stay Go's: Go turns them into `close` at its next
-   tick, so `close` keeps one writer.
+   wake, so `close` keeps one writer.
 
-## 12. Open
-
-1. **The Go loop: cyclic or driven by RT frames?** With the cyclic work in RT,
-   the 10 ms ticker may no longer be the right shape for the Go side.
+6. **The Go loop is driven by RT frames** (§6.1): sequential code with
+   blocking waits stays; a wait blocks on the change counter or a `wake_at`
+   deadline in servo cycles instead of a 10 ms tick; the teach pins move to
+   RT; a stall is a change Go has not taken (§7.2).
