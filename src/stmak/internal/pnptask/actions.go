@@ -516,7 +516,7 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap, busy bool) 
 	// may be the next leg's corner arc (D53), and confirmed before the job is
 	// done (D19).
 	return c.afterLift(func() { c.requestRelease(s, false) },
-		func() error { return c.waitReleased(s, false) })
+		func() error { return c.waitReleased(s, false) }, 1<<s.idx)
 }
 
 // ---------------------------------------------------------------------------

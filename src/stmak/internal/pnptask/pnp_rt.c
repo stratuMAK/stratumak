@@ -80,6 +80,22 @@ static void pnp_rt_handshakes(pnp_rt_t *r, const pnp_rt_in_t *in,
     }
 }
 
+// pnp_rt_scene_and_watch is the scene lock and the lift watch for one cycle
+// (pnp_rt.h). in->mot is this cycle's snapshot.
+static void pnp_rt_scene_and_watch(pnp_rt_t *r, const pnp_rt_in_t *in,
+                                   const pnp_rt_out_t *go) STMAK_NONBLOCKING;
+static void pnp_rt_scene_and_watch(pnp_rt_t *r, const pnp_rt_in_t *in,
+                                   const pnp_rt_out_t *go)
+{
+    if (!go->scene_req)
+        r->scene_granted = 0;
+    else if (!r->scene_granted && !in->scene_hold)
+        r->scene_granted = 1;
+
+    if (go->watch_seq != r->watch_fired && in->mot_ok && in->mot.id > go->watch_id)
+        r->watch_fired = go->watch_seq;
+}
+
 // pnp_rt_edges counts this cycle's rising edges of the other command inputs
 // (pnp_rt.h, the edges block), keeps this cycle's levels for the next, and
 // hands the counts to the frame.
@@ -143,15 +159,25 @@ void pnp_rt_cycle(void *arg, long period)
     pnp_rt_in_t *in = (pnp_rt_in_t *)stmak_tribuf_write_slot(r->to_go);
     stmak_pinmap_in(r->in, in);
 
-    // 2. Go's latest frame.
+    // 2. Motion, this cycle (the function runs after motion-controller).
+    const mot_callbacks_t *mot = r->dz != NULL ? (const mot_callbacks_t *)pnp_dz_mot(r->dz) : NULL;
+    in->mot_ok = 0;
+    // A truth test, not "!= NULL": comparing the nonblocking-typed pointer
+    // with (void *)0 reads to -Wfunction-effects as adding the attribute.
+    if (mot != NULL && mot->status_get_snapshot &&
+        mot->status_get_snapshot(mot->ctx, &in->mot) == 0)
+        in->mot_ok = 1;
+
+    // 3. Go's latest frame.
     const pnp_rt_out_t *go = (const pnp_rt_out_t *)stmak_tribuf_read(r->to_rt, &fresh);
 
-    // 3., 4. The handshakes, then the other edges (home is gated on the busy
-    //    this cycle ends with).
+    // 4., 5. The handshakes, the scene lock and the lift watch, then the other
+    //    edges (home is gated on the busy this cycle ends with).
     pnp_rt_handshakes(r, in, go);
+    pnp_rt_scene_and_watch(r, in, go);
     pnp_rt_edges(r, in);
 
-    // 5. The outputs, all at once: Go's frame with RT's pins put in.
+    // 6. The outputs, all at once: Go's frame with RT's pins put in.
     pnp_rt_out_t *o = &r->composed;
     *o = *go;
     o->cycle = r->cycle;
@@ -161,20 +187,17 @@ void pnp_rt_cycle(void *arg, long period)
     o->error_station = r->latch.station;
     for (int i = 0; i < r->n_pickers; i++)
         o->picker[i].missing = (uint8_t)((r->latch.missing >> i) & 1u);
+    o->scene_busy = (uint8_t)r->scene_granted;
+    if (r->watch_fired == go->watch_seq && go->watch_release != 0) {
+        for (int i = 0; i < r->n_procs; i++)
+            if (go->watch_release & (1u << i))
+                o->proc[i].release = 0;
+    }
     stmak_pinmap_out(r->out, o);
 
-    // 6. The dead-zone check, as it has always run.
+    // 7. The dead-zone check, as it has always run.
     if (r->dz != NULL)
         pnp_dz_check(r->dz, period);
-
-    // 7. Motion, this cycle (the function runs after motion-controller).
-    const mot_callbacks_t *mot = r->dz != NULL ? (const mot_callbacks_t *)pnp_dz_mot(r->dz) : NULL;
-    in->mot_ok = 0;
-    // A truth test, not "!= NULL": comparing the nonblocking-typed pointer
-    // with (void *)0 reads to -Wfunction-effects as adding the attribute.
-    if (mot != NULL && mot->status_get_snapshot &&
-        mot->status_get_snapshot(mot->ctx, &in->mot) == 0)
-        in->mot_ok = 1;
 
     // 8. Publish, then count the run: a cycle count Go reads means that frame
     //    is out.
@@ -186,6 +209,8 @@ void pnp_rt_cycle(void *arg, long period)
     in->raise_seen = r->raise_seen;
     in->busy       = (uint8_t)r->busy;
     in->busy_park  = (uint8_t)r->busy_park;
+    in->scene_granted = (uint8_t)r->scene_granted;
+    in->watch_fired   = r->watch_fired;
     stmak_tribuf_publish(r->to_go);
     if (r->bell != NULL)
         stmak_doorbell_tick(r->bell);

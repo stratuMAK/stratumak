@@ -62,10 +62,12 @@ type pinSet struct {
 
 	// The scene gate (D45). sceneHold (in): whatever changes the dead-zone
 	// scene is about to, or is doing it — start no leg that touches the
-	// movable region. sceneBusy (out): such a leg is in flight, or taking the
-	// lock. Unwired, sceneHold reads low and no leg ever waits.
+	// movable region. sceneBusy (out, the cycle function's): such a leg holds
+	// the lock -- granted in the servo cycle the request meets scene-hold low
+	// (PNPTASK_RT_BOUNDARY.md §4.4). Unwired, sceneHold reads low and no leg
+	// ever waits.
 	sceneHold *hal.Pin[bool]
-	sceneBusy *outBit
+	sceneBusy *rtBit
 
 	// cycle counts the cycle function's runs, and sync is the cycle of the
 	// input sample the control loop's latest published frame was computed
@@ -264,7 +266,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 	p.cycle = mkRTU32(b, "cycle", &out.cycle)
 	p.sync = mkOutU32(b, "sync", &out.sync)
 	p.sceneHold = mkPin[bool](b, "scene-hold", hal.In)
-	p.sceneBusy = mkOutBit(b, "scene-busy", &out.scene_busy)
+	p.sceneBusy = mkRTBit(b, "scene-busy", &out.scene_busy)
 
 	p.errorFlag = mkRTBit(b, "error", &out.error)
 	p.errorID = mkRTU32(b, "error-id", &out.error_id)
