@@ -118,7 +118,7 @@ func TestFactoryExportsPins(t *testing.T) {
 		"estop-on", "machine-on", "machine-is-on", "auto-enable", "homed",
 		"jog-x-pos", "jog-x-neg", "jog-y-pos", "jog-y-neg", "jog-z-pos", "jog-z-neg", "jog-speed",
 		"process-step", "origin-id", "dest-id", "deadzone-select", "start-job", "busy",
-		"error", "error-id", "error-reset",
+		"error", "error-id", "error-reset", "cycle", "sync",
 		// Params.
 		"pos-settle-time", "pick-settle-time", "release-time",
 		// Picker 0.
@@ -128,9 +128,12 @@ func TestFactoryExportsPins(t *testing.T) {
 		"picker.0.x-offset", "picker.0.y-offset",
 		// Stations, addressed by their INI id.
 		"tray.10.tray-id", "tray.10.set-full", "tray.10.set-empty",
-		"tray.10.z-offset", "tray.10.empty", "tray.10.full",
+		"tray.10.z-offset", "tray.10.empty", "tray.10.full", "tray.10.resets",
 		"proc.20.z-offset", "proc.20.busy", "proc.20.has-material",
-		"proc.20.release", "proc.20.released", "proc.20.release-settle",
+		"proc.20.release", "proc.20.released", "proc.20.release-settle", "proc.20.resets",
+	}
+	if hasPin(name + ".cycle-count") {
+		t.Error("cycle-count is still exported; sync replaced it")
 	}
 	for _, p := range want {
 		if full := name + "." + p; !hasPin(full) {

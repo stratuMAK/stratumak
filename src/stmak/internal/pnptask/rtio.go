@@ -9,8 +9,7 @@ package pnptask
 #include "pnp_rt.h"
 
 static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out,
-                        void *dz, void *bell, void *start_job,
-                        int pickers, int trays, int procs) {
+                        void *dz, void *bell, int pickers, int trays, int procs) {
     pnp_rt_t *r = (pnp_rt_t *)blk;
     r->to_go     = (stmak_tribuf_t *)to_go;
     r->to_rt     = (stmak_tribuf_t *)to_rt;
@@ -18,7 +17,6 @@ static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out
     r->out       = (stmak_pinmap_t *)out;
     r->dz        = (pnp_dz_t *)dz;
     r->bell      = (stmak_doorbell_t *)bell;
-    r->start_job = (void *volatile *)start_job;
     r->n_pickers = pickers;
     r->n_trays   = trays;
     r->n_procs   = procs;
@@ -111,6 +109,29 @@ type outF64 struct {
 func (o *outF64) Set(f float64) { *o.v = C.double(f) }
 func (o *outF64) Get() float64  { return float64(*o.v) }
 
+// rtBit and rtU32 are output pins the cycle function owns (busy, the error
+// latch, picker.N.missing, cycle): the control loop never writes them -- it
+// reads their state from the input frame -- so they have no Set. The pointer
+// is only where the binding puts the pin in the output frame, which the
+// function fills in before the frame goes to the pins.
+type rtBit struct {
+	pin *hal.Pin[bool]
+	v   *C.uint8_t
+}
+
+type rtU32 struct {
+	pin *hal.Pin[uint32]
+	v   *C.uint32_t
+}
+
+func mkRTBit(b *pinBuilder, name string, v *C.uint8_t) *rtBit {
+	return &rtBit{pin: mkPin[bool](b, name, hal.Out), v: v}
+}
+
+func mkRTU32(b *pinBuilder, name string, v *C.uint32_t) *rtU32 {
+	return &rtU32{pin: mkPin[uint32](b, name, hal.Out), v: v}
+}
+
 func mkOutBit(b *pinBuilder, name string, v *C.uint8_t) *outBit {
 	return &outBit{pin: mkPin[bool](b, name, hal.Out), v: v}
 }
@@ -195,8 +216,7 @@ func (r *rtIO) build(p *pinSet, dz *deadzoneRT) error {
 		dzBlk = dz.blk
 	}
 	C.pnp_rt_link(r.blk, r.toGo.RTPtr(), r.toRT.RTPtr(), r.inMap.RTPtr(), r.outMap.RTPtr(),
-		dzBlk, r.bell.RTPtr(), p.startJob.RTDataPtr(),
-		C.int(len(p.pickers)), C.int(len(p.trays)), C.int(len(p.procs)))
+		dzBlk, r.bell.RTPtr(), C.int(len(p.pickers)), C.int(len(p.trays)), C.int(len(p.procs)))
 	return nil
 }
 
@@ -263,26 +283,28 @@ func (r *rtIO) bindOutputs(p *pinSet) error {
 	bit := func(o *outBit) error { return hal.BindBit(m, o.pin, base, o.v) }
 	u32 := func(o *outU32) error { return hal.BindU32(m, o.pin, base, o.v) }
 	f64 := func(o *outF64) error { return hal.BindFloat(m, o.pin, base, o.v) }
+	rtBit := func(o *rtBit) error { return hal.BindBit(m, o.pin, base, o.v) }
+	rtU32 := func(o *rtU32) error { return hal.BindU32(m, o.pin, base, o.v) }
 
 	errs := []error{
-		bit(p.machineIsOn), bit(p.homed), bit(p.parked), bit(p.busy),
-		bit(p.sceneBusy), bit(p.errorFlag),
-		u32(p.cycleCount), u32(p.errorID), u32(p.errorStation),
+		bit(p.machineIsOn), bit(p.homed), bit(p.parked), rtBit(p.busy),
+		bit(p.sceneBusy), rtBit(p.errorFlag),
+		rtU32(p.cycle), u32(p.sync), rtU32(p.errorID), rtU32(p.errorStation),
 		f64(p.planTime),
 	}
 	for i := range p.pickers {
 		pk := &p.pickers[i]
 		errs = append(errs,
-			bit(pk.close), bit(pk.missing), bit(pk.holds), u32(pk.originID),
+			bit(pk.close), rtBit(pk.missing), bit(pk.holds), u32(pk.originID),
 			f64(pk.posX), f64(pk.posY), f64(pk.posXMu), f64(pk.posYMu))
 	}
 	for i := range p.trays {
 		t := &p.trays[i]
-		errs = append(errs, bit(t.empty), bit(t.avail), bit(t.full), u32(t.count))
+		errs = append(errs, bit(t.empty), bit(t.avail), bit(t.full), u32(t.count), u32(t.resets))
 	}
 	for i := range p.procs {
 		s := &p.procs[i]
-		errs = append(errs, bit(s.hasMaterial), bit(s.release))
+		errs = append(errs, bit(s.hasMaterial), bit(s.release), u32(s.resets))
 	}
 	return errors.Join(errs...)
 }
@@ -334,14 +356,46 @@ func (r *rtIO) applyBeforeMotion() {
 	}
 }
 
-// clearStartJob asks the cycle function to clear the start-job pin, in the run
-// that applies this commit (pnp_rt.h, step 3). start-job is an IO pin the
-// requester raises, so it is not one of the outputs the function writes every
-// cycle.
-func (r *rtIO) clearStartJob() { r.out.start_job_clears++ }
+// The handshake requests (pnp_rt.h, the handshakes): fields of the output
+// frame, applied by the cycle function in the run that applies the commit
+// they go out with.
 
-// read takes the latest input frame into r.in.
-func (r *rtIO) read() { r.toGo.Read(&r.in) }
+// endJob ends the job the frame accepted as seq: busy falls with whatever else
+// this commit carries -- the outcome and the model.
+func (r *rtIO) endJob(seq uint32) { r.out.job_done = C.uint32_t(seq) }
+
+// endPark ends the park accepted as seq, as endJob.
+func (r *rtIO) endPark(seq uint32) { r.out.park_done = C.uint32_t(seq) }
+
+// raise asks the cycle function to latch a fault. It reports false, and sends
+// nothing, when a fault is already latched or one sent earlier is not yet
+// taken: the first wins (§6.5), and a second raise in the same frame would
+// overwrite the first one's fields.
+func (r *rtIO) raise(id, station uint32, missing uint8) bool {
+	if r.in.latch.set != 0 || r.raisePending() {
+		return false
+	}
+	r.out.raise_seq++
+	r.out.raise_id = C.uint32_t(id)
+	r.out.raise_station = C.uint32_t(station)
+	r.out.raise_missing = C.uint8_t(missing)
+	return true
+}
+
+// raisePending reports whether a raise has been sent that the frame read
+// last does not show taken yet.
+func (r *rtIO) raisePending() bool { return r.out.raise_seq != r.in.raise_seen }
+
+// latched reports whether an error is latched, or about to be: the frame
+// shows the latch, or a raise is on its way to it.
+func (r *rtIO) latched() bool { return r.in.latch.set != 0 || r.raisePending() }
+
+// read takes the latest input frame into r.in, and makes it the frame the next
+// commit says it was computed from (sync).
+func (r *rtIO) read() {
+	r.toGo.Read(&r.in)
+	r.out.sync = r.in.cycle
+}
 
 // waitFirstFrame waits for the cycle function's first run, so the first read
 // sees the pins and not the zero frame.
@@ -561,7 +615,6 @@ func snapPose(p *C.mot_pose_t) motstat.Pose {
 func (s *edgesSeen) takeAll(e *C.pnp_rt_edges_t) {
 	s.machineOn = uint32(e.machine_on)
 	s.home = uint32(e.home)
-	s.park = uint32(e.park)
 	s.errorReset = uint32(e.error_reset)
 	for i := range s.pickerOpen {
 		s.pickerOpen[i] = uint32(e.picker[i].open)

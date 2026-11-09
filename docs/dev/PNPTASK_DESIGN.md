@@ -427,24 +427,25 @@ normalized to HAL-conventional dashes.
 | `machine-is-on` | bit | out | motion enabled and not estopped |
 | `auto-enable` | bit | in | high = auto mode (jobs accepted); low = manual mode (§6.4) |
 | `wait-abort` | bit | in | level: ends a busy-station wait with `WAIT_ABORTED`, staying in auto mode (D33) |
-| `stay-near` | bit | in | read with `start-job`: the next job starts at this one's destination -- end at its `NEAR_HEIGHT` (D37) |
-| `park` | bit | in | rising edge, auto mode: drive to `PARK_X/Y/Z` (D34) |
+| `stay-near` | bit | in | latched with `start-job`: the next job starts at this one's destination -- end at its `NEAR_HEIGHT` (D37) |
+| `park` | bit | in | rising edge, not under estop, busy low and no error latched: accepted as a park (the job's handshake, busy); in manual mode it ends at once with `AUTO_DISABLED` (D34) |
 | `parked` | bit | out | standing at the park position; drops at the next motion and with the machine (D34) |
 | `jog-<a>-pos`, `jog-<a>-neg` | bit | in | per axis `a` ∈ COORDINATES (`jog-x-pos`, …); jog while high, manual mode only |
 | `jog-speed` | float | in | jog velocity, clamped to the axis MAX_VELOCITY; latched at jog start |
-| `process-step` | u32 | in | latched at `start-job` edge |
-| `origin-id` | u32 | in | latched at `start-job` edge |
-| `dest-id` | u32 | in | latched at `start-job` edge |
-| `start-job` | bit | io | rising edge starts a job; reset by module on finish/error; external clears mid-job are ignored (D16) |
-| `busy` | bit | out | job executing |
-| `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset at the `start-job` edge (phase 7 — D13's budget, made observable) |
-| `cycle-count` | u32 | out | advances once per control cycle, after its inputs were sampled and its outputs published; wraps. Two increments after writing an input prove the input was sampled — what the integration driver waits for instead of holding request pins for a fixed time |
+| `process-step` | u32 | in | latched from the sample of the `start-job` edge |
+| `origin-id` | u32 | in | latched from the sample of the `start-job` edge |
+| `dest-id` | u32 | in | latched from the sample of the `start-job` edge |
+| `start-job` | bit | in | rising edge, busy low and no error latched: a job, accepted in that servo cycle (busy rises). An edge while busy or latched is ignored. The module never writes it; one servo cycle is enough (§5.2.1) |
+| `busy` | bit | out | a job or park accepted and not over: rises in the servo cycle of the request, falls in the cycle that also carries the outcome (`error`, `error-id`) and every model output. Written by the cycle function |
+| `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset when the job starts (phase 7 — D13's budget, made observable) |
+| `cycle` | u32 | out | runs of the cycle function (servo cycles); wraps |
+| `sync` | u32 | out | the `cycle` of the input sample the control loop's latest published outputs were computed from. An input changed in cycle *k* has been seen once `sync` − *k* ≥ 0 (wrap-safe) — what a driver waits for instead of holding a pin for a fixed time |
 | `scene-hold` | bit | in | the dead-zone scene is about to change or changing: start no leg that touches the movable region (D45); unwired = never waits |
 | `scene-busy` | bit | out | a leg that touches the movable region is in flight, or taking the lock (D45) |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
-| `error-station` | u32 | out | the TRAYDEF/PROCDEF id the latched fault is about, 0 = none; set with `error-id`, before `error` rises. Only `RELEASE_TIMEOUT` names one so far: a job touches two stations, and the PLC has to say whose fixture stuck |
-| `error-reset` | bit | in | rising edge clears error/error-id/error-station (D11) |
+| `error-station` | u32 | out | the TRAYDEF/PROCDEF id the latched fault is about, 0 = none; latched with `error-id` and `error` in one servo cycle. Only `RELEASE_TIMEOUT` names one so far: a job touches two stations, and the PLC has to say whose fixture stuck |
+| `error-reset` | bit | in | rising edge clears error/error-id/error-station/`picker.N.missing` in that servo cycle (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
 | `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The only output computed in the servo thread rather than in the control loop — every servo cycle, by the `cycle` function (§2.1), from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
@@ -465,7 +466,7 @@ normalized to HAL-conventional dashes.
 | `picker.N.close` | pin | bit | out | close command |
 | `picker.N.opened` | pin | bit | in | opened feedback |
 | `picker.N.closed` | pin | bit | in | fully-closed feedback (closed after pick ⇒ gripped nothing) |
-| `picker.N.missing` | pin | bit | out | set when a pick found no material / tray exhausted; cleared on successful pick and on error-reset |
+| `picker.N.missing` | pin | bit | out | latched with the fault when a pick found no material / tray exhausted; cleared with it on error-reset |
 | `picker.N.manual-open` | pin | bit | in | rising edge: `close` := 0 (manual mode only, §6.4) |
 | `picker.N.manual-close` | pin | bit | in | rising edge: `close` := 1 (manual mode only, §6.4) |
 | `picker.N.pos-x` | pin | float | out | picker position, mm: feedback X + `x-offset` (D21/D23) |
@@ -506,20 +507,19 @@ normalized to HAL-conventional dashes.
 ### 5.2.1 Timing contract
 
 **The edge inputs take a pulse of one servo cycle** (since
-[`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) step 4). The control loop
-still runs at `pollInterval`, 10 ms, but the edges are no longer its business:
-the module's cycle function samples every input every servo cycle and counts
-each rising edge of `machine-on`, `home`, `park`, `error-reset`,
+[`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) steps 4 and 5). The
+control loop still runs at `pollInterval`, 10 ms, but the edges are no longer
+its business: the module's cycle function samples every input every servo
+cycle and counts each rising edge of `machine-on`, `home`, `error-reset`,
 `picker.N.manual-open`/`manual-close`, `tray.N.set-full`/`set-empty` and
-`proc.N.set-has-material`/`set-empty`, gated on estop and auto in the cycle of
-the press. The loop takes the counts, so a pulse between two of its samples
-is not lost. A pulse must still last one run of the cycle function: a
-producer outside the servo thread that sets a pin and clears it again within
-a millisecond can still go unseen.
-
-Two gates are still the loop's, applied when it takes a count: home and park
-are ignored while busy, error-reset while no error is latched. A pulse
-refused there is gone, not kept.
+`proc.N.set-has-material`/`set-empty`, gated in the cycle of the press: on
+estop and auto, home also on busy, error-reset on an error being latched (and
+it clears the latch in that cycle). `start-job` and `park` it accepts itself
+(the job handshake below). The loop takes the counts, so a pulse between two
+of its samples is not lost. A pulse must still last one run of the cycle
+function: a producer outside the servo thread that sets a pin and clears it
+again within a millisecond can still go unseen. A press refused at its gate
+is gone, not kept.
 
 The station resets are applied between jobs (see the end of this section), so
 "seen" and "applied" are two moments; what a producer watches to know a reset
@@ -529,27 +529,28 @@ has been applied:
 |---|---|
 | `home` | `homed` |
 | `error-reset` | `error` low |
-| `tray.N.set-full` / `set-empty` | `avail` / `count` change |
-| `proc.N.set-has-material` / `set-empty` | `has-material` follows |
+| `tray.N.set-full` / `set-empty` | `tray.N.resets` counts up (and `avail` / `count` change) |
+| `proc.N.set-has-material` / `set-empty` | `proc.N.resets` counts up (and `has-material` follows) |
 | `picker.N.manual-open` / `manual-close` | `picker.N.close` follows |
-| `start-job` | the module clears it (see below) — still a level, not an edge |
+| `start-job`, `park` | `busy` rises in the same servo cycle (or `error` is high: ignored) |
 
-`start-job` carries one extra rule. The module only accepts a request it has
-watched go **low** first (`jobRequest`, §7.4 D26: a level held across a restart
-is not a request for that job). A producer that clears it and re-raises it
-within a servo cycle or two is invisible — the module sees a level that was
-never low, ignores it, and the requester waits forever for a job that was never
-taken. **Leave it low for at least five loop cycles (50 ms) between jobs.**
-
-That deadlock is symmetric and neither side can break it alone: the requester
-waits for the acknowledgement accepting would have produced, the module waits
-for a low only the requester can produce. It used to be entirely silent, and on
-a real machine it presented as a job that simply never started, with the reason
-visible on no pin. The module now warns once (`jobUnarmedWarnTicks`, two
-seconds) when `start-job` has been high since before it armed. A requester that
-holds the level until acknowledged must therefore also **withdraw it if it gives
-up** — otherwise the stuck level blocks every later request too, because the
-raise is conditioned on the level being low.
+**The job handshake is the cycle function's** (PNPTASK_RT_BOUNDARY.md §4.4).
+A `start-job` rising edge with `busy` low and no error latched is accepted in
+its own servo cycle: `busy` rises, and `origin-id`, `dest-id`,
+`process-step`, `stay-near` and `deadzone-select` are latched from that same
+sample, so the order a PLC writes them in no longer matters as long as they
+are there in the cycle of the edge. The control loop runs the job and ends it
+in one commit with the outcome: `busy` falls in the servo cycle that also
+carries `error`/`error-id`/`error-station` and every model output. An edge
+while busy or latched is ignored; the requester sees `busy` or `error` in the
+same frame. A level already high when the function starts only primes (D26).
+`start-job` is never written by the module: the requester drops it when it
+likes, and the next request is the next rising edge. A job the loop refuses
+before it moves (validation, manual mode, an unknown id) still raises `busy`
+for at least one control cycle -- a reader in the servo thread cannot miss it,
+a slow poller can: it waits for `sync` past the cycle of its request with
+`busy` low, read in one listing. `park` is the same handshake, ending with
+`parked`.
 
 Station resets have a second property worth knowing: they are latched when
 sampled but consumed **between jobs** (`updateStations` runs from `step()`, not
@@ -716,7 +717,8 @@ Mode logic:
   `busy` stays high until it completes; manual controls activate only once
   the module is idle.
 - `auto-enable` **low** (manual mode): a `start-job` edge is rejected with
-  error `AUTO_DISABLED` (latched like any other error, `start-job` reset).
+  error `AUTO_DISABLED` (latched like any other error; `busy` rises with the
+  accepted edge and falls with the error).
 
 Jog (manual mode, idle, machine on, no estop):
 
@@ -869,9 +871,10 @@ Single writer, plain `set_entry`, no optimistic-concurrency handling needed.
 
 `IDLE → LATCH → VALIDATE → [HOME] → PLAN → EXECUTE → FINISH/ERROR`
 
-- LATCH on `start-job` rising edge: origin-id, dest-id, process-step.
-  `deadzone-select` is deliberately not latched — it is range-checked in
-  VALIDATE and read again per movement leg (§7.3).
+- LATCH on `start-job` rising edge, by the cycle function from the edge's own
+  sample: origin-id, dest-id, process-step, stay-near. `deadzone-select` is
+  latched too, but only for the log — it is range-checked in VALIDATE and read
+  again per movement leg (§7.3).
 - VALIDATE: ids exist; action combo legal; preconditions (tray not
   empty/full, `has-material` state) — errors §7.5.
 - EXECUTE runs the action sequence; every wait polls abort conditions —
@@ -880,8 +883,9 @@ Single writer, plain `set_entry`, no optimistic-concurrency handling needed.
   wait leg, to dest) just before the leg executes (each within the <100 ms
   budget, D13). The busy-wait additionally aborts when `auto-enable` goes low
   (D15, error `WAIT_ABORTED`).
-- FINISH: `start-job` := 0, `busy` := 0. ERROR: additionally `error` := 1,
-  `error-id` set. `error-reset` edge clears both (only outside EXECUTE).
+- FINISH: `busy` := 0. ERROR: additionally `error` := 1, `error-id` set, in
+  the same servo cycle. `error-reset` edge clears both (the latch is the cycle
+  function's).
 
 Action selection from latched ids:
 
@@ -1093,15 +1097,11 @@ machine and completes the pick/place cycle (`has-material` set, a slot consumed,
   input snapshot — returning without ticking would have the check judge a sample
   taken before the command it is checking, so a machine with the settle times
   left at 0 would fail every pick with `PICKER_CLOSE_FAILED`.
-- **`start-job` is armed, not edge-detected.** It has to be seen low before it
-  counts as a request: a level latched across a stmakd restart is not a job
-  (D26), and a pin linked to a signal the PLC keeps driving high reads high again
-  on the cycle after the module clears it — still the same request.
-- **`start-job` is sampled before the parameters it carries.** The PLC writes
-  origin-id/dest-id/process-step/deadzone-select and *then* raises the request;
-  this loop is not synchronised with whatever writes those pins, so reading the
-  request first is what guarantees a job is never latched with the previous job's
-  parameters.
+- **`start-job` is an edge the cycle function accepts** (since
+  PNPTASK_RT_BOUNDARY.md step 5; before, it was an IO pin the module armed and
+  cleared). A level already high when the function starts only primes (D26), and
+  the parameters come from the edge's own sample, so their write order no longer
+  matters.
 - **Rising edges are latched, not per-cycle.** This was a real bug the job engine
   exposed: the long operations tick the loop themselves, so they advance the edge
   detector many times before `step()` looks again, and any button pressed during a
@@ -1110,14 +1110,15 @@ machine and completes the pick/place cycle (`has-material` set, a slot consumed,
   *discards* the manual-control edges rather than storing them up (§6.4). The
   tray-id selector is compared against the geometry the model has actually
   selected, for the same reason.
-- **The diagnosis is published before the handshake completes.** `busy` low with
-  `start-job` cleared is the PLC's cue to look at `error-id`, so the error pins
-  are written first.
+- **The diagnosis goes out with the end of the handshake.** `busy` falling is
+  the PLC's cue to look at `error-id`, so both are one commit, applied in one
+  servo cycle.
 - **A job is refused while an error is latched.** Faults latch first-error-wins
   (§6.5), so a job started with the latch set could fail with nothing to show for
-  it — its id would be swallowed by the one already there. `start-job` is cleared
-  with the original error still on the pin, which says exactly what happened, and
-  `error-reset` is what the PLC owes before the next job.
+  it — its id would be swallowed by the one already there. The cycle function
+  ignores the edge (busy never rises), with the original error still on the pin,
+  which says exactly what happened, and `error-reset` is what the PLC owes before
+  the next job.
 - Homing runs *after* validation: a job naming an unknown station is refused
   without the machine having moved first.
 - `has-material` and the held record are written together and before the retract,

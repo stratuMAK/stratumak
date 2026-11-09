@@ -39,12 +39,18 @@ type pinSet struct {
 	originID       *hal.Pin[uint32]
 	destID         *hal.Pin[uint32]
 	deadzoneSelect *hal.Pin[uint32]
-	// startJob is IO, not in: the module clears it itself when the job ends,
-	// so the PLC sees the handshake complete. An external clear mid-job is
-	// ignored (D16).
+	// startJob (in): a rising edge with busy low and no error latched is a
+	// job, accepted by the cycle function in that servo cycle -- busy rises,
+	// and the parameters above and stay-near are latched from that same
+	// sample (PNPTASK_RT_BOUNDARY.md §4.4). An edge while busy or latched is
+	// ignored. The requester drops it when it likes; the module never writes
+	// it.
 	startJob *hal.Pin[bool]
 	stayNear *hal.Pin[bool] // in:  the next job starts where this one ends: end at NEAR_HEIGHT (D37)
-	busy     *outBit
+	// busy (out, the cycle function's): a job or a park accepted and not
+	// over. It rises in the servo cycle of the request and falls in the cycle
+	// that also carries the outcome -- the error pins and every model output.
+	busy *rtBit
 
 	// planTime is the slowest route plan of the current (or last) job, in
 	// seconds — the D13 budget made observable from outside. A job plans one
@@ -61,24 +67,25 @@ type pinSet struct {
 	sceneHold *hal.Pin[bool]
 	sceneBusy *outBit
 
-	// cycleCount advances once per control cycle, after the cycle has sampled
-	// its inputs and published its outputs. A driver that sets an input and
-	// then sees the count go up by two knows the input has been sampled since:
-	// the cycle behind the first increment may have read the inputs before
-	// the write, the one behind the second cannot have. That replaces holding
-	// a request pin for a guessed time, which a loaded host stretches.
-	cycleCount *outU32
+	// cycle counts the cycle function's runs, and sync is the cycle of the
+	// input sample the control loop's latest published frame was computed
+	// from. A producer that changed an input in cycle k knows the loop has
+	// seen it once sync - k >= 0 (wrap-safe, PNPTASK_RT_BOUNDARY.md §5.2).
+	cycle *rtU32
+	sync  *outU32
 
-	// Error latch.
-	errorFlag  *outBit        // out
-	errorID    *outU32        // out, 0 = none
-	errorReset *hal.Pin[bool] // in, rising edge clears (D11)
+	// Error latch, the cycle function's (§4.4): the control loop raises, the
+	// function latches the first fault and clears it on error-reset, flag, id,
+	// station and the pickers' missing flags each in one servo cycle.
+	errorFlag  *rtBit         // out
+	errorID    *rtU32         // out, 0 = none
+	errorReset *hal.Pin[bool] // in, rising edge clears (D11); one servo cycle is enough
 
 	// errorStation is the station the latched fault is about (a TRAYDEF or
 	// PROCDEF id), 0 when it is about none: error-id says what went wrong,
 	// this says where -- RELEASE_TIMEOUT alone cannot tell the PLC whose
 	// fixture stuck when a job touches two.
-	errorStation *outU32 // out, 0 = none
+	errorStation *rtU32 // out, 0 = none
 
 	// Tuning knobs. Params rather than pins because they are adjusted with
 	// halcmd setp and never wired (D2); the INI only seeds them.
@@ -124,7 +131,7 @@ type pickerPins struct {
 	close       *outBit        // out: close command
 	opened      *hal.Pin[bool] // in:  opened feedback
 	closed      *hal.Pin[bool] // in:  fully closed — after a pick this means nothing was gripped
-	missing     *outBit        // out: last pick found no material
+	missing     *rtBit         // out: the latched fault is this picker finding no material
 	manualOpen  *hal.Pin[bool] // in:  rising edge opens, manual mode only
 	manualClose *hal.Pin[bool] // in:  rising edge closes, manual mode only
 
@@ -183,6 +190,9 @@ type trayPins struct {
 	avail    *outBit           // out: a slot holds `step` and probing has not given up
 	full     *outBit           // out: no free slot
 	count    *outU32           // out: slots holding something — a bin's fill level
+	// resets counts the set-full/set-empty requests applied (they wait for
+	// the end of a job): a PLC compares it with the count it asked for.
+	resets *outU32
 }
 
 // procPins is one process station's interface.
@@ -212,6 +222,7 @@ type procPins struct {
 	// a way to say the first half. Edges, honored in both modes.
 	setHasMaterial *hal.Pin[bool] // in: edge, has-material := true
 	setEmpty       *hal.Pin[bool] // in: edge, has-material := false
+	resets         *outU32        // out: those requests applied, as on the trays
 }
 
 // newPins exports the whole pin and param tree on comp and seeds the params
@@ -246,17 +257,18 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 	p.originID = mkPin[uint32](b, "origin-id", hal.In)
 	p.destID = mkPin[uint32](b, "dest-id", hal.In)
 	p.deadzoneSelect = mkPin[uint32](b, "deadzone-select", hal.In)
-	p.startJob = mkPin[bool](b, "start-job", hal.IO)
+	p.startJob = mkPin[bool](b, "start-job", hal.In)
 	p.stayNear = mkPin[bool](b, "stay-near", hal.In)
-	p.busy = mkOutBit(b, "busy", &out.busy)
+	p.busy = mkRTBit(b, "busy", &out.busy)
 	p.planTime = mkOutF64(b, "plan-time", &out.plan_time)
-	p.cycleCount = mkOutU32(b, "cycle-count", &out.cycle_count)
+	p.cycle = mkRTU32(b, "cycle", &out.cycle)
+	p.sync = mkOutU32(b, "sync", &out.sync)
 	p.sceneHold = mkPin[bool](b, "scene-hold", hal.In)
 	p.sceneBusy = mkOutBit(b, "scene-busy", &out.scene_busy)
 
-	p.errorFlag = mkOutBit(b, "error", &out.error)
-	p.errorID = mkOutU32(b, "error-id", &out.error_id)
-	p.errorStation = mkOutU32(b, "error-station", &out.error_station)
+	p.errorFlag = mkRTBit(b, "error", &out.error)
+	p.errorID = mkRTU32(b, "error-id", &out.error_id)
+	p.errorStation = mkRTU32(b, "error-station", &out.error_station)
 	p.errorReset = mkPin[bool](b, "error-reset", hal.In)
 
 	p.posSettleTime = mkParam[float64](b, "pos-settle-time", hal.RW)
@@ -271,7 +283,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 			close:       mkOutBit(b, pre+"close", &op.close),
 			opened:      mkPin[bool](b, pre+"opened", hal.In),
 			closed:      mkPin[bool](b, pre+"closed", hal.In),
-			missing:     mkOutBit(b, pre+"missing", &op.missing),
+			missing:     mkRTBit(b, pre+"missing", &op.missing),
 			manualOpen:  mkPin[bool](b, pre+"manual-open", hal.In),
 			manualClose: mkPin[bool](b, pre+"manual-close", hal.In),
 			holds:       mkOutBit(b, pre+"holds", &op.holds),
@@ -299,6 +311,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 			avail:    mkOutBit(b, pre+"avail", &ot.avail),
 			full:     mkOutBit(b, pre+"full", &ot.full),
 			count:    mkOutU32(b, pre+"count", &ot.count),
+			resets:   mkOutU32(b, pre+"resets", &ot.resets),
 		})
 	}
 
@@ -315,6 +328,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 			released:       mkPin[bool](b, pre+"released", hal.In),
 			setHasMaterial: mkPin[bool](b, pre+"set-has-material", hal.In),
 			setEmpty:       mkPin[bool](b, pre+"set-empty", hal.In),
+			resets:         mkOutU32(b, pre+"resets", &op.resets),
 		})
 	}
 

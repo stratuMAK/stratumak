@@ -47,9 +47,16 @@ SIM = "pnp.sim"
 JOB_TIMEOUT = 60.0
 
 # Request pins are held, and start-job is held low before a job, until the
-# module has sampled them: counted in its own control cycles (cycle-count), not
-# in seconds, which a loaded host stretches past any margin -- a pulse the loop
-# never saw is a test that hangs waiting for its effect.
+# module has acted on them: its sync pin names the servo cycle of the input
+# sample its outputs were computed from, so a sync past the cycle at a write
+# says the write was seen -- the module's own time, not seconds, which a loaded
+# host stretches past any margin. A pulse the loop never saw is a test that
+# hangs waiting for its effect.
+
+
+def _after(a, b):
+    """Whether cycle count a is after b, wrap-safe."""
+    return 0 < (a - b) % 2**32 < 2**31
 
 # The log lines updateManualGrip writes when it judges a manual close (§8.1).
 # The verdict is a record, not a pin, so the server log is where it becomes
@@ -179,6 +186,7 @@ class Machine:
         # How many manual-close judgements this machine has waited out; see
         # wait_manual_judged.
         self._judged = 0
+        self._job_cycle = 0
 
     # ── naming ──
 
@@ -245,21 +253,21 @@ class Machine:
         self.sampled()
 
     def cycles(self, n=5):
-        """Let n control cycles of the module pass, counted on cycle-count.
+        """Let n control cycles of the module pass, each on a newer sample.
 
         Only for assertions whose subject is that *nothing* happened — an
         ignored jog pin, a machine that stays off. There is no event to wait
         for in those, so the wait is the module's own time, and the test says
-        why. One extra cycle is added: the first increment seen may belong to
-        a cycle that sampled its inputs before this call.
+        why.
         """
-        start = self.get("cycle-count")
-        self.wait(lambda s: (s["cycle-count"] - start) % 2**32 >= n + 1,
-                  "%d control cycles of the module" % n)
+        for _ in range(n):
+            self.sampled()
 
     def sampled(self):
-        """Wait until the module has sampled every input written before this."""
-        self.cycles(1)
+        """Wait until the module has acted on every input written before this:
+        sync past the cycle the function had counted at the call."""
+        c0 = self.get("cycle")
+        self.wait(lambda s: _after(s["sync"], c0), "the module to sample")
 
     def wait_manual_judged(self, log="server.log"):
         """Wait for the module to judge a manual close against the gripper.
@@ -315,8 +323,8 @@ class Machine:
                                      timeout=timeout, interval=0.05)
 
     def wait_idle(self, timeout=None):
-        """Wait for the job handshake to be complete: busy low, start-job low."""
-        return self.wait(lambda s: not s["busy"] and not s["start-job"],
+        """Wait for the module to be idle: busy low."""
+        return self.wait(lambda s: not s["busy"],
                          "the module to go idle",
                          timeout=JOB_TIMEOUT if timeout is None else timeout)
 
@@ -357,10 +365,9 @@ class Machine:
     def start_job(self, origin, dest, step=0, deadzone=0):
         """Raise the start-job handshake. Does not wait — see await_job.
 
-        The parameters are written before the request, in the order the design
-        says a PLC writes them (§7.7): start-job is sampled first in the
-        module's snapshot, so a request seen high is a request whose parameters
-        were already there.
+        start-job goes low first, until the module has seen the low, so the
+        high is an edge. The parameters are written before it: the cycle
+        function latches them from the sample its edge is in (§4.4).
         """
         self.set("start-job", False)
         self.sampled()
@@ -370,17 +377,23 @@ class Machine:
         if deadzone is not None:   # None: a HAL signal drives the pin
             self.set("deadzone-select", deadzone)
         self.set("start-job", True)
+        self._job_cycle = self.get("cycle")
 
     def await_job(self, timeout=None):
-        """Wait for a running job to complete and return its error id.
+        """Wait for the job start_job asked for to end, drop start-job as a PLC
+        would, and return its error id.
 
-        The module clears start-job itself whichever way the job went (§7.4),
-        and publishes the diagnosis before it does, so the error id read after
-        this describes the job that just ended.
+        A job the module refuses at once raises busy for a few milliseconds,
+        too short to poll for. What a poller can see instead is the module
+        past the request -- sync after the cycle at the raise, so the edge was
+        sampled and, if accepted, busy rose -- with busy low, in one listing:
+        busy and sync are written by the same run. busy falls with the outcome
+        (§4.4), so the error id read here describes this job.
         """
-        self.wait(lambda s: not s["start-job"], "the job to complete",
+        c0 = self._job_cycle
+        self.wait(lambda s: _after(s["sync"], c0) and not s["busy"], "the job to complete",
                   timeout=JOB_TIMEOUT if timeout is None else timeout)
-        self.wait_idle()
+        self.set("start-job", False)
         return self.get("error-id")
 
     def run_job(self, origin, dest, step=0, deadzone=0, timeout=None):

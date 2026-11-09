@@ -37,13 +37,6 @@ var (
 	// split read; a full second of them means the RT side died or detached.
 	commFailureTicks = 100
 
-	// jobUnarmedWarnTicks is how long start-job may sit high, unarmed and
-	// therefore ignored, before saying so once. Two seconds: a PLC that raises
-	// it a cycle before this module arms is a normal race and resolves itself,
-	// while a level held past that is the deadlock jobRequest describes and
-	// nothing in it will ever change on its own.
-	jobUnarmedWarnTicks = 200
-
 	// statusStaleTicks is how many cycles the last good status snapshot keeps
 	// serving after failed reads. A single failed read is an expected split
 	// read (see commFailureTicks) and must not glitch state derived from the
@@ -282,13 +275,10 @@ type control struct {
 	motionDispatched bool
 	moveID           int32
 
-	// jobArmed is the start-job handshake's state: see jobRequest.
-	jobArmed bool
-
-	// jobUnarmedTicks counts cycles spent with start-job high and jobArmed
-	// false — the state that is not a request and cannot become one. Only so
-	// the warning is emitted once per episode rather than every cycle.
-	jobUnarmedTicks int
+	// missing is the control loop's side of the pickers' missing flags: set
+	// where a pick found nothing, sent with the fault it raises, cleared with
+	// the latch. The pins are the cycle function's (the latch).
+	missing []bool
 
 	// trayPending is the latched tray reset request per station (D8): the
 	// value every slot is to get, snapshotted at press time (set-full carries
@@ -351,16 +341,20 @@ func newControl(m *pnptaskModule) *control {
 		manualGrip:       make([]int, pickers),
 		manualGripWarned: make([]bool, pickers),
 		heldVerifyWarned: make([]bool, pickers),
+		missing:          make([]bool, pickers),
 	}
 }
 
 // edgesSeen is the cycle function's edge counters as the control loop last
 // took them, parallel to the edges block of pnp_rt.h.
 type edgesSeen struct {
-	machineOn, home, park, errorReset uint32
-	pickerOpen, pickerClose           []uint32
-	trayReset, trayConflicts          []uint32
-	procReset, procConflicts          []uint32
+	machineOn, home, errorReset uint32
+	// job and park are the handshake numbers taken: the cycle function counts
+	// the requests it accepts, and one past what was taken is a request to run.
+	job, park                uint32
+	pickerOpen, pickerClose  []uint32
+	trayReset, trayConflicts []uint32
+	procReset, procConflicts []uint32
 }
 
 func newEdgesSeen(pickers, trays, procs int) edgesSeen {
@@ -542,7 +536,6 @@ func (c *control) tick() bool {
 		// function, so a slot emptied halfway through a pick is written within
 		// one cycle instead of at the end of the job.
 		c.m.world.flush()
-		c.m.pins.cycleCount.Set(c.m.pins.cycleCount.Get() + 1)
 		c.m.rt.commit()
 		return true
 	}
@@ -611,25 +604,22 @@ func (c *control) sample() {
 	// none is lost between two ticks.
 	//
 	// What the latches are FOR -- a valid press surviving a long job's nested
-	// ticks -- is unchanged: the edges are OR-ed into them. The gates on this
-	// goroutine's own state are applied here, when the count is taken, as they
-	// always were: an error-reset with no fault latched must not pre-clear a
-	// fault raised later; a home or park press while a job runs is ignored, not
-	// deferred -- the deferred run arrived as a surprise homing sequence the
-	// moment the job completed (§12.3, resolved). A press taken and refused is
-	// gone, not kept for later.
+	// ticks -- is unchanged: the edges are OR-ed into them. The gates on the
+	// handshake state are the cycle function's too, applied at the press: a
+	// home press while a job or park runs is not counted -- deferred, it
+	// arrived as a surprise homing sequence the moment the job completed
+	// (§12.3, resolved) -- and an error-reset is counted only when it cleared
+	// the latch, so it is the news that the latch is clear, not a request.
+	// start-job and park are not edges here: the function accepts them itself
+	// (step).
 	e := &f.edges
-	busy := c.m.pins.busy.Get()
 	if moved(uint32(e.machine_on), &c.seen.machineOn) {
 		c.rise.machineOn = true
 	}
-	if moved(uint32(e.home), &c.seen.home) && !busy {
+	if moved(uint32(e.home), &c.seen.home) {
 		c.rise.home = true
 	}
-	if moved(uint32(e.park), &c.seen.park) && !busy {
-		c.rise.park = true
-	}
-	if moved(uint32(e.error_reset), &c.seen.errorReset) && c.m.pins.errorFlag.Get() {
+	if moved(uint32(e.error_reset), &c.seen.errorReset) {
 		c.rise.errorReset = true
 	}
 	for i := range p.pickers {
@@ -723,9 +713,55 @@ func (c *control) primeEdges() {
 	// machine-on is the standing request for the machine: held high at start
 	// (and not under estop) it counts as the boot edge (D26).
 	c.rise.machineOn = b8(f.machine_on) && !b8(f.estop_on)
-	// start-job is not edge-detected but armed (see jobRequest), and it starts
-	// disarmed: a level held high across a restart is not a request for that job.
-	c.jobArmed = false
+	// The handshakes: everything the function accepted is taken, but for one
+	// it accepted and nobody has ended -- an edge between the function's first
+	// run and now. That one is still to run, or busy would never fall. A
+	// start-job already high at the function's first run is no edge at all
+	// (D26): it only primed.
+	c.seen.job = uint32(f.job.seq)
+	c.seen.park = uint32(f.park_seq)
+	if b8(f.busy) {
+		if b8(f.busy_park) {
+			c.seen.park--
+		} else {
+			c.seen.job--
+		}
+	}
+}
+
+// jobRequest reports a job the cycle function has accepted and the loop has
+// not taken yet, and takes it. Jobs are one at a time (D12): the function
+// accepts none while one is busy, so there is never more than one.
+func (c *control) jobRequest() (uint32, bool) {
+	seq := uint32(c.m.rt.in.job.seq)
+	if seq == c.seen.job {
+		return 0, false
+	}
+	c.seen.job = seq
+	return seq, true
+}
+
+// parkRequest is jobRequest for park.
+func (c *control) parkRequest() (uint32, bool) {
+	seq := uint32(c.m.rt.in.park_seq)
+	if seq == c.seen.park {
+		return 0, false
+	}
+	c.seen.park = seq
+	return seq, true
+}
+
+// refuse ends a request without running it: the fault (if any) is raised and
+// goes out with the end, so busy falls with the reason next to it.
+func (c *control) refuse(seq uint32, park bool, err error) {
+	c.raise(err)
+	if park {
+		c.m.rt.endPark(seq)
+	} else {
+		c.m.rt.endJob(seq)
+	}
+	c.m.rt.commit()
+	c.m.handshakes.Add(1)
 }
 
 // step is one cycle's decisions. Order matters: the machine state is settled
@@ -734,6 +770,14 @@ func (c *control) primeEdges() {
 func (c *control) step() {
 	if c.commErrors >= commFailureTicks {
 		c.motionLost()
+		// A request accepted meanwhile ends at once, with the fault motionLost
+		// latched: busy must not stand until comm comes back.
+		if seq, ok := c.jobRequest(); ok {
+			c.refuse(seq, false, nil)
+		}
+		if seq, ok := c.parkRequest(); ok {
+			c.refuse(seq, true, nil)
+		}
 		return
 	}
 	if c.heldVerify > 0 {
@@ -755,8 +799,11 @@ func (c *control) step() {
 
 	// The tray state resets are the operator's way to resync the model with the
 	// physical world (§6.4), so they are honored in both modes — a tray refilled
-	// by hand is exactly the situation manual mode exists for.
+	// by hand is exactly the situation manual mode exists for. What they
+	// changed is published at once, so a reset's count (tray.N.resets) and the
+	// model it produced go out in the same commit.
 	c.updateStations()
+	c.publish()
 
 	// The homing request is honored in both modes (D25): in auto mode a PLC
 	// that wants the machine homed before its first job should not have to
@@ -784,28 +831,25 @@ func (c *control) step() {
 		for i := range c.rise.pickerOpen {
 			c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
 		}
-		if take(&c.rise.park) {
-			c.runParkRequest()
+		if seq, ok := c.parkRequest(); ok {
+			c.runParkRequest(seq)
 		}
-		if c.jobRequest() {
+		if seq, ok := c.jobRequest(); ok {
 			// The job runs to completion inside this call, ticking this same
 			// loop: that is what makes an estop end it wherever it is (§6.5).
-			c.runJobHandshake()
+			c.runJobHandshake(seq)
 		}
 		return
 	}
 	c.manualPickers()
 	c.jog()
-	if take(&c.rise.park) {
-		c.raise(faultf(errAutoDisabled, "park while auto-enable is low"))
+	// §6.4: in manual mode a request is refused, latched like any other error,
+	// and the handshake ends with it, so busy falls with the reason.
+	if seq, ok := c.parkRequest(); ok {
+		c.refuse(seq, true, faultf(errAutoDisabled, "park while auto-enable is low"))
 	}
-	if c.jobRequest() {
-		// §6.4: in manual mode a job request is refused, latched like any other
-		// error, and the handshake is completed so the PLC is not left waiting —
-		// the error first, so the cleared start-job it reacts to is already
-		// accompanied by the reason.
-		c.raise(faultf(errAutoDisabled, "start-job while auto-enable is low"))
-		c.m.rt.clearStartJob()
+	if seq, ok := c.jobRequest(); ok {
+		c.refuse(seq, false, faultf(errAutoDisabled, "start-job while auto-enable is low"))
 	}
 }
 
@@ -862,7 +906,6 @@ func (c *control) enterEstop() {
 	// is valid in estop, and its gate (a fault was latched) still held.
 	c.rise.machineOn = false
 	c.rise.home = false
-	c.rise.park = false
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
@@ -1005,7 +1048,6 @@ func (c *control) motionLost() {
 	// clearing; error-reset survives for the same reason it survives there).
 	c.rise.machineOn = false
 	c.rise.home = false
-	c.rise.park = false
 	c.parked = false
 	c.nearAt = 0
 	c.lowAt = 0
@@ -1041,6 +1083,7 @@ func (c *control) updateStations() {
 		}
 		c.trayPending[i] = nil
 		if t.geom == nil {
+			c.m.pins.trays[i].resets.Set(c.m.pins.trays[i].resets.Get() + 1)
 			// A phantom success would be worse than a refusal: with no
 			// geometry there are no slots to set, and persisting the "result"
 			// would clobber a record that may still be the only surviving
@@ -1050,6 +1093,7 @@ func (c *control) updateStations() {
 			continue
 		}
 		t.setAll(*v)
+		c.m.pins.trays[i].resets.Set(c.m.pins.trays[i].resets.Get() + 1)
 		if *v == slotEmpty {
 			c.m.logger.Info("pnptask: tray declared empty",
 				"station", t.cfg.ID, "slots", len(t.slots))
@@ -1071,6 +1115,7 @@ func (c *control) applyProcResync() {
 		c.procPending[i] = nil
 		ps := c.m.world.procs[i]
 		ps.setHasMaterial(*v)
+		c.m.pins.procs[i].resets.Set(c.m.pins.procs[i].resets.Get() + 1)
 		c.m.logger.Info("pnptask: process station state set by operator",
 			"station", ps.cfg.ID, "has_material", *v)
 	}
@@ -1580,30 +1625,31 @@ func (c *control) raise(err error) {
 	if errors.As(err, &f) {
 		fault = f
 	}
-	if c.m.pins.errorFlag.Get() {
+	// The cycle function latches it, flag, id, station and missing in one
+	// servo cycle, and keeps the first: a further fault while one is latched,
+	// or on its way, is only logged.
+	var missing uint8
+	for i, m := range c.missing {
+		if m {
+			missing |= 1 << i
+		}
+	}
+	if !c.m.rt.raise(uint32(fault.id), fault.station, missing) {
 		c.m.logger.Debug("pnptask: further fault while one is latched",
 			"error_id", uint32(fault.id), "error", fault.id.String(), "detail", fault.msg)
 		return
 	}
-	// The detail pins before the flag: a PLC that reacts to error rising
-	// reads them in the same cycle.
-	c.m.pins.errorStation.Set(fault.station)
-	c.m.pins.errorID.Set(uint32(fault.id))
-	c.m.pins.errorFlag.Set(true)
 	c.m.logger.Error("pnptask: fault",
 		"error_id", uint32(fault.id), "error", fault.id.String(),
 		"station", fault.station, "detail", fault.msg)
 }
 
-// clearError is the error-reset edge (D11). It also clears the per-picker
-// missing flags, which are the same kind of latched "something went wrong"
-// state and would otherwise need a second, non-existent reset.
+// clearError is the news of an error-reset (D11): the cycle function has
+// cleared the latch, with the pickers' missing flags, in the cycle of the
+// press. The loop forgets its side of them.
 func (c *control) clearError() {
-	c.m.pins.errorFlag.Set(false)
-	c.m.pins.errorID.Set(uint32(errNone))
-	c.m.pins.errorStation.Set(0)
-	for i := range c.m.pins.pickers {
-		c.m.pins.pickers[i].missing.Set(false)
+	for i := range c.missing {
+		c.missing[i] = false
 	}
 	c.m.logger.Debug("pnptask: error latch cleared")
 }
@@ -1621,7 +1667,6 @@ func (c *control) park() {
 		c.m.pins.procs[i].release.Set(false)
 	}
 	c.m.pins.machineIsOn.Set(false)
-	c.m.pins.busy.Set(false)
 	// The last commit. Stop runs ahead of the launcher's RT barrier, so the
 	// cycle function still carries it out to the pins.
 	c.m.rt.commit()

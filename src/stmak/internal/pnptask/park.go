@@ -14,18 +14,17 @@ import (
 // route planned around the dead zones like any leg, at MOVE_HEIGHT, and a Z
 // stroke down to PARK_Z.
 
-// runParkRequest runs one park the way runJobHandshake runs one job: busy
-// for its duration, the outcome on the error pins. parked rises at the end.
-func (c *control) runParkRequest() {
-	if c.m.pins.errorFlag.Get() {
+// runParkRequest runs one park, accepted by the cycle function as seq, the way
+// runJobHandshake runs one job: busy for its duration, the outcome on the error
+// pins. parked rises at the end.
+func (c *control) runParkRequest(seq uint32) {
+	if c.m.rt.latched() {
 		// As a job: an error is latched first-wins, so a park started under
 		// it could fail with nothing to show for it.
-		c.m.logger.Warn("pnptask: park refused, an error is still latched",
-			"error_id", c.m.pins.errorID.Get())
+		c.m.logger.Warn("pnptask: park refused, an error is latched")
+		c.refuse(seq, true, nil)
 		return
 	}
-	c.m.pins.busy.Set(true)
-	c.m.rt.commit()
 	c.parked = false
 	err := c.runPark()
 	switch {
@@ -37,12 +36,12 @@ func (c *control) runParkRequest() {
 	default:
 		c.raise(err)
 	}
-	// parked is published before busy falls, as a job's outcome is
-	// (runJobHandshake): busy low with parked still low would read as a park
-	// that did not arrive.
+	// parked goes out with the end, as a job's outcome does (runJobHandshake):
+	// busy low with parked still low would read as a park that did not arrive.
 	c.publish()
-	c.m.pins.busy.Set(false)
+	c.m.rt.endPark(seq)
 	c.m.rt.commit()
+	c.m.handshakes.Add(1)
 }
 
 func (c *control) runPark() error {

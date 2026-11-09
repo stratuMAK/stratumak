@@ -348,7 +348,6 @@ func (c *control) waitStanding(done func() bool, what string, cleared func()) er
 // forty wasted approaches.
 func (c *control) pickFromTray(j *job, pk int) error {
 	t := j.origin.tray
-	picker := &c.m.pins.pickers[pk]
 	if err := c.openForPick(pk); err != nil {
 		return err
 	}
@@ -356,7 +355,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 	for {
 		slot, next, ok := t.nextPick(j.step, from)
 		if !ok {
-			picker.missing.Set(true)
+			c.missing[pk] = true
 			return faultf(errTrayEmpty, "station %d: no slot holding step-%d material left",
 				t.cfg.ID, j.step)
 		}
@@ -370,7 +369,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 			return err
 		}
 		if grip == gripHolding {
-			picker.missing.Set(false)
+			c.missing[pk] = false
 			t.markPicked(slot)
 			j.pickedSlot = slot
 			c.m.world.setHeld(pk, j.origin.id, false, j.step, true)
@@ -392,7 +391,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 			return err
 		}
 		if t.probedEmpty {
-			picker.missing.Set(true)
+			c.missing[pk] = true
 			return faultf(errTrayEmpty,
 				"station %d: %d successive picks found nothing (MAX_UNPOPULATED = %d)",
 				t.cfg.ID, t.misses, t.geom.def.MaxUnpopulated)
