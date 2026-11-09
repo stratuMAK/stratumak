@@ -25,6 +25,7 @@ func (c *control) runParkRequest() {
 		return
 	}
 	c.m.pins.busy.Set(true)
+	c.m.rt.commit()
 	c.parked = false
 	err := c.runPark()
 	switch {
@@ -41,6 +42,7 @@ func (c *control) runParkRequest() {
 	// that did not arrive.
 	c.publish()
 	c.m.pins.busy.Set(false)
+	c.m.rt.commit()
 }
 
 func (c *control) runPark() error {

@@ -8,7 +8,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
@@ -281,6 +280,7 @@ func newTrayGeometry(d TrayDef) *trayGeometry {
 type trayState struct {
 	cfg  TrayStation
 	pins *trayPins
+	idx  int // index into pins.trays and the input frame
 
 	// defs is the shared tray-id -> geometry lookup, so a tray-id change can
 	// re-select without going back to the config.
@@ -667,7 +667,7 @@ type world struct {
 	// ESTOP_KEEPS_GRIP, the records an estop left standing (D39).
 	held         []heldMaterial
 	heldDirty    bool
-	pickerClose  []*hal.Pin[bool]
+	pickerClose  []*outBit
 	restoredHeld []bool
 
 	// persist is nil unless persist_instance= was given (D6: no default lookup,
@@ -696,7 +696,7 @@ func newWorld(cfg *Config, pins *pinSet, pickers int, logger *slog.Logger) *worl
 	}
 
 	for i := range cfg.Trays {
-		t := &trayState{cfg: cfg.Trays[i], pins: &pins.trays[i], defs: defs}
+		t := &trayState{cfg: cfg.Trays[i], pins: &pins.trays[i], idx: i, defs: defs}
 		w.trays = append(w.trays, t)
 		w.byID[t.cfg.ID] = &station{id: t.cfg.ID, tray: t}
 	}
@@ -719,9 +719,11 @@ func (w *world) station(id uint32) *station { return w.byID[id] }
 // whose PLC (or HAL file) has the pin at its final value before stmakd starts
 // never produces a change, and a station left without geometry because its
 // selector happened to be correct from the first cycle would refuse every job.
-func (w *world) start() {
-	for _, t := range w.trays {
-		id := t.pins.trayID.Get()
+// trayIDs is their value in the cycle function's first frame, parallel to
+// w.trays.
+func (w *world) start(trayIDs []uint32) {
+	for i, t := range w.trays {
+		id := trayIDs[i]
 		if id == 0 {
 			// Not told yet: id 0 is no valid TRAYDEF (config.go refuses it
 			// because an unconnected u32 pin reads 0).
@@ -732,7 +734,7 @@ func (w *world) start() {
 				"station", t.cfg.ID, "tray_id", id)
 		}
 	}
-	w.restore()
+	w.restore(trayIDs)
 }
 
 // occupied reports whether the picker is unavailable to the engine: it holds

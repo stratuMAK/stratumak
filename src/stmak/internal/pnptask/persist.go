@@ -380,11 +380,11 @@ func procKey(id uint32) string { return fmt.Sprintf("%s%d", persistProcPrefix, i
 // it yet — comparing against it then would discard the state of every restart.
 // The record is kept pending instead and adopted the moment tray-id names the
 // geometry it was recorded under; any *other* id discards it immediately.
-func (w *world) restore() {
+func (w *world) restore(trayIDs []uint32) {
 	if w.persist == nil {
 		return
 	}
-	for _, t := range w.trays {
+	for i, t := range w.trays {
 		var rec trayRecord
 		switch w.persist.load(trayKey(t.cfg.ID), &rec) {
 		case loadFailed:
@@ -400,7 +400,7 @@ func (w *world) restore() {
 			continue
 		case loadOK:
 		}
-		id := t.pins.trayID.Get()
+		id := trayIDs[i]
 		switch {
 		case id == rec.TrayID:
 			if !w.adoptTray(t, rec) {

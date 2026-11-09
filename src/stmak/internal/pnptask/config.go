@@ -359,6 +359,9 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 		return nil, err
 	}
 	cfg.Axes = axes
+	if len(axes) > maxAxes {
+		return nil, fmt.Errorf("[TRAJ]COORDINATES names %d axes: at most %d are supported", len(axes), maxAxes)
+	}
 
 	// [KINS]JOINTS is required rather than defaulted: it decides which joints
 	// are activated and which have to be homed, and a default that happens to
@@ -810,6 +813,13 @@ func loadStations(r *iniReader, cfg *Config) error {
 
 	if len(cfg.Trays) == 0 && len(cfg.Procs) == 0 {
 		return fmt.Errorf("no stations configured: at least one [PNPTASK_TRAY_x] or [PNPTASK_PROC_x] section is required")
+	}
+	// The cycle function's frames hold a fixed number of stations (pnp_rt.h).
+	if len(cfg.Trays) > maxTrays {
+		return fmt.Errorf("%d tray stations configured: at most %d are supported", len(cfg.Trays), maxTrays)
+	}
+	if len(cfg.Procs) > maxProcs {
+		return fmt.Errorf("%d process stations configured: at most %d are supported", len(cfg.Procs), maxProcs)
 	}
 	return nil
 }

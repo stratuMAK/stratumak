@@ -18,14 +18,6 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
-// deadzoneFunct is the HAL function name suffix the cyclic dead-zone check is
-// exported under, so a HAL file writes
-//
-//	addf <instance>.deadzone-check servo-thread
-//
-// It has to come after motion-controller in that thread — see the header.
-const deadzoneFunct = "deadzone-check"
-
 // deadzoneRT owns the flat structure the cyclic function walks.
 //
 // The split of labour is the whole point of the design: the expensive,
@@ -107,16 +99,6 @@ func newDeadzoneRT(planners *plannerSet, pins []*hal.Pin[bool]) (*deadzoneRT, er
 	}
 
 	return &deadzoneRT{blk: blk}, nil
-}
-
-// export registers the cyclic function on comp. Called from the factory: the
-// addf lines of a HAL file run after every load and before any Start, so a
-// function exported any later would not exist when its addf runs.
-func (d *deadzoneRT) export(comp *hal.Component) error {
-	// usesFP: the whole predicate is double arithmetic, so HAL must save and
-	// restore the FPU state around it. reentrant: false — one thread only.
-	return comp.ExportFunct(deadzoneFunct,
-		hal.CFunct(unsafe.Pointer(C.pnp_dz_check_fp)), d.blk, true, false)
 }
 
 // setMot publishes (or with nil retracts) the motmod callback table the cyclic

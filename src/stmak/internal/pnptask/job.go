@@ -132,11 +132,13 @@ func (c *control) runJobHandshake() {
 		// happened, and error-reset is what the PLC owes before the next job.
 		c.m.logger.Warn("pnptask: start-job refused, an error is still latched",
 			"error_id", c.m.pins.errorID.Get())
-		c.m.pins.startJob.Set(false)
+		c.m.rt.clearStartJob()
+		c.m.rt.commit()
 		return
 	}
 
 	c.m.pins.busy.Set(true)
+	c.m.rt.commit()
 	c.parked = false
 	err := c.runJob()
 
@@ -146,7 +148,7 @@ func (c *control) runJobHandshake() {
 	switch {
 	case err == nil:
 		c.m.logger.Info("pnptask: job complete",
-			"origin", c.m.pins.originID.Get(), "dest", c.m.pins.destID.Get())
+			"origin", c.in.originID, "dest", c.in.destID)
 	case errors.Is(err, errStopping):
 		// The module is shutting down mid-job. Not a machine fault: the pins are
 		// cleared so a restart does not inherit a job that is no longer running,
@@ -161,9 +163,13 @@ func (c *control) runJobHandshake() {
 	// this the PLC would find busy low next to the pickers, the stations and
 	// the trays as they were before that action, one cycle stale, and would
 	// have to guess how long to wait for the cycle that corrects them.
+	//
+	// All of it -- the outcome, the model, busy and the start-job clear -- is
+	// one commit, so the cycle function applies it in one servo cycle.
 	c.publish()
 	c.m.pins.busy.Set(false)
-	c.m.pins.startJob.Set(false)
+	c.m.rt.clearStartJob()
+	c.m.rt.commit()
 }
 
 // runJob is the job state machine of §7.4:
@@ -391,7 +397,7 @@ func (c *control) checkReach(j *job) error {
 				// No geometry selected: checkOrigin/checkDest own that refusal.
 				return
 			}
-			z := t.cfg.ZPick + t.pins.zOffset.Get()
+			z := t.cfg.ZPick + c.in.trayZOffset[t.idx]
 			for i := range t.slots {
 				eps = append(eps, endpoint{s.id, t.slotPos(i), z})
 				if t.cfg.ZPlaceOffset != 0 {
@@ -401,7 +407,7 @@ func (c *control) checkReach(j *job) error {
 			return
 		}
 		p := s.proc
-		z := p.cfg.ZPick + p.pins.zOffset.Get()
+		z := p.cfg.ZPick + c.in.procZOffset[p.idx]
 		eps = append(eps, endpoint{s.id, p.cfg.Pos, z})
 		// The place stops at its own height (D31), which a negative offset
 		// puts below the pick's.

@@ -54,9 +54,7 @@ import (
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
-	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
-	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
@@ -72,14 +70,13 @@ func init() {
 const defaultMotionInstance = "motmod"
 
 // The GMI versions this module is built against; a provider registered at any
-// other version is refused rather than called through a mismatched ABI. Same
-// versions milltask requires of the same two APIs.
+// other version is refused rather than called through a mismatched ABI.
 const (
-	motctlVersion  = 1
-	motstatVersion = 1
-	// mot is the motion controller's RT-side interface, consumed only by the
-	// cyclic dead-zone check (for the Cartesian feedback position).
-	motVersion = 2
+	motctlVersion = 1
+	// mot is the motion controller's RT-side interface, consumed by the cycle
+	// function: the Cartesian feedback for the dead-zone check, and the motion
+	// snapshot the control loop reads instead of motstat (version 3).
+	motVersion = 3
 )
 
 // pnptaskModule is one loaded pnptask instance.
@@ -96,11 +93,15 @@ type pnptaskModule struct {
 	comp *hal.Component
 	pins *pinSet
 
-	// deadzone is the flat scene the cyclic dead-zone check walks, and the
-	// cyclic function's registration. Built in the factory from planners, fed
-	// the motmod callback table in Start, released in Destroy — after the
-	// launcher's RT barrier, never before.
+	// deadzone is the flat scene the dead-zone check walks. Built in the
+	// factory from planners, fed the motmod callback table in Start, released
+	// in Destroy — after the launcher's RT barrier, never before.
 	deadzone *deadzoneRT
+
+	// rt is the cycle function's Go side: every pin of the module is read and
+	// written by that function in the servo thread, through the frames here
+	// (pnp_rt.h, docs/dev/PNPTASK_RT_BOUNDARY.md). Same lifecycle as deadzone.
+	rt *rtIO
 
 	// world is the runtime model behind the station pins: tray contents, process
 	// station occupancy and the per-picker held-material records (§7.1). Built
@@ -205,6 +206,8 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	}
 	m.comp = comp
 
+	m.rt = &rtIO{}
+
 	// A probing swap takes the occupant out with the free picker while the
 	// other carries the job's material: with one picker there is none.
 	if m.pickers < 2 {
@@ -216,7 +219,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		}
 	}
 
-	pins, err := newPins(comp, cfg, m.pickers)
+	pins, err := newPins(comp, cfg, m.pickers, &m.rt.out)
 	if err != nil {
 		// The launcher only tears down modules whose factory returned one, so
 		// a component created and then abandoned here would hold its name (and
@@ -227,26 +230,31 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	m.pins = pins
 	m.world = newWorld(cfg, pins, m.pickers, logger)
 
-	// The dead-zone check runs in the servo cycle, so the geometry it walks is
-	// assembled here — once, out of the planners that already offset the zones
-	// — and the function is exported before Ready, as HAL requires and as the
-	// addf lines that follow this load line expect.
+	// The cycle function and the dead-zone check it runs work in the servo
+	// thread, so what they walk is assembled here — once, the geometry out of
+	// the planners that already offset the zones, the frames and pin maps out
+	// of the pins — and the function is exported before Ready, as HAL requires
+	// and as the addf lines that follow this load line expect.
 	dz, err := newDeadzoneRT(planners, pins.deadzoneFree)
 	if err != nil {
 		_ = comp.Exit()
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
 	}
-	if err := dz.export(comp); err != nil {
-		_ = comp.Exit()
-		dz.free()
-		return nil, fmt.Errorf("pnptask %q: exporting %s: %w", name, deadzoneFunct, err)
-	}
 	m.deadzone = dz
-
-	if err := comp.Ready(); err != nil {
+	fail := func(err error) (stmak.Module, error) {
 		_ = comp.Exit()
+		m.rt.free()
 		dz.free()
-		return nil, fmt.Errorf("pnptask %q: hal ready: %w", name, err)
+		return nil, fmt.Errorf("pnptask %q: %w", name, err)
+	}
+	if err := m.rt.build(pins, dz); err != nil {
+		return fail(err)
+	}
+	if err := m.rt.export(comp); err != nil {
+		return fail(fmt.Errorf("exporting %s: %w", cycleFunct, err))
+	}
+	if err := comp.Ready(); err != nil {
+		return fail(fmt.Errorf("hal ready: %w", err))
 	}
 
 	logger.Info("pnptask configured",
@@ -326,12 +334,10 @@ func (m *pnptaskModule) Start() error {
 	if err != nil {
 		return fmt.Errorf("pnptask %q: motctl API lookup (%s): %w", m.name, m.motInstance, err)
 	}
-	motstatCbs, err := reg.GetAPIFor(m.name, "motstat", m.motInstance, motstatVersion)
-	if err != nil {
-		return fmt.Errorf("pnptask %q: motstat API lookup (%s): %w", m.name, m.motInstance, err)
-	}
 	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
-	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
+	// The motion status comes out of the cycle function's frame, read in the
+	// servo thread with the pins (rtStatus), not from motstat.
+	m.ms = &rtStatus{rt: m.rt, numJoints: m.cfg.NumJoints}
 
 	// The cyclic dead-zone check needs a Cartesian position, and it takes it
 	// from mot — motmod's RT-side interface, whose accessors are @rt_safe.
@@ -348,7 +354,6 @@ func (m *pnptaskModule) Start() error {
 		return fmt.Errorf("pnptask %q: mot API lookup (%s): %w", m.name, m.motInstance, err)
 	}
 	m.deadzone.setMot(unsafe.Pointer(motCbs))
-	m.warnIfDeadzoneUnscheduled()
 
 	// Optional state persistence (D6): no default lookup, an absent load arg
 	// means in-memory state only. Resolved here for the same reason the motion
@@ -404,9 +409,22 @@ func (m *pnptaskModule) startControl() error {
 	}
 	m.limits = limits
 
+	// From here on every motion command first commits the outputs (see
+	// committedMotion). The push above wrote no outputs.
+	m.mc = committedMotion{motionControl: m.mc, rt: m.rt}
+
+	// Every pin is read by the cycle function, so nothing can be seeded before
+	// it has run once. In the servo thread that is within a millisecond; not
+	// at all means it is on no thread, and the module could see no input and
+	// drive no output.
+	if !m.rt.waitFirstFrame(firstFrameTimeout) {
+		return fmt.Errorf("pnptask %q: the cycle function has not run: it must be on the servo "+
+			"thread AFTER motion-controller (addf %s.%s servo-thread)", m.name, m.name, cycleFunct)
+	}
+
 	// Seed the station model from its pins and from persistence before the loop
 	// exists: from here on the model belongs to the control goroutine.
-	m.world.start()
+	m.world.start(m.rt.trayIDs(len(m.cfg.Trays)))
 
 	m.ctl = newControl(m)
 	m.ctl.start()
@@ -435,39 +453,6 @@ func (m *pnptaskModule) Stop() {
 	}
 }
 
-// warnIfDeadzoneUnscheduled says so, loudly and with the line to add, when the
-// dead-zone check is not on any thread.
-//
-// The pins are published by the cyclic function and by nothing else, so a
-// configuration that never addf's it leaves every deadzone.N.free reading "not
-// clear" — the safe direction, and exactly the direction that is impossible to
-// tell from a machine legitimately parked inside a zone. Whatever is waiting to
-// close would simply never move, with nothing in the log to say why. Hence a
-// warning that names the missing line rather than a silent correct-but-useless
-// state.
-//
-// Start is the right moment: every load line has run and the HAL file's addf
-// lines with them, so a function with no users here has none by omission.
-func (m *pnptaskModule) warnIfDeadzoneUnscheduled() {
-	full := m.name + "." + deadzoneFunct
-	res, err := halcmd.Show("funct", full)
-	if err != nil {
-		// Nothing to conclude — say nothing rather than warn about a config
-		// that may be perfectly fine.
-		m.logger.Debug("pnptask: could not check the dead-zone function's thread", "error", err)
-		return
-	}
-	for _, f := range res.Functs {
-		if f.Name == full && f.Users > 0 {
-			return
-		}
-	}
-	m.logger.Warn("pnptask: the dead-zone check is not on any thread, so every "+
-		"deadzone.N.free pin will stay false (\"not clear\"); add it to the servo "+
-		"thread AFTER motion-controller, which is what computes the position it reads",
-		"add", fmt.Sprintf("addf %s servo-thread", full))
-}
-
 // Destroy releases the HAL component and, only then, the memory the cyclic
 // function was walking.
 //
@@ -483,6 +468,10 @@ func (m *pnptaskModule) Destroy() {
 			m.logger.Debug("pnptask HAL component exit error", "error", err)
 		}
 		m.comp = nil
+	}
+	if m.rt != nil {
+		m.rt.free()
+		m.rt = nil
 	}
 	if m.deadzone != nil {
 		m.deadzone.free()

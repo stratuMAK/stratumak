@@ -79,7 +79,9 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 ### 2.1 Instance stack
 
 pnptask is a **peer of milltask**: it owns its own motion stack and talks to it
-through the GMI clients (`motctl`/`motstat`), exactly like milltask does. No
+through the GMI clients, like milltask does: commands through `motctl`, and
+since PNPTASK_RT_BOUNDARY step 3 the status through `mot`'s RT-side snapshot,
+read by the cycle function with the pins (motstat is no longer used). No
 `io`/`iocontrol` instance is needed (no toolchanger); estop/enable are
 sequenced by pnptask itself against motctl.
 
@@ -94,25 +96,25 @@ load pnptask  <pnp.task> motion_instance=pnp.mot pickers=2 \
                          persist_instance=persist
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
-addf pnp.task.deadzone-check        servo-thread
+addf pnp.task.cycle                 servo-thread
 ```
 
-**`deadzone-check` must come after `motion-controller`.** It is the module's one
-realtime function (see §5.2's `deadzone.N.free`), and it reads the Cartesian
-feedback position that `motion-controller` computes — put earlier in the thread
-it would answer from the previous cycle. One cycle of staleness is harmless, but
-it should be a deliberate ordering rather than an accident of where the line was
-typed.
+**`cycle` must come after `motion-controller`, and before the first component
+that reads pnptask's outputs.** It is the module's realtime function: every pin
+of the module is read and written there, at one point of the thread
+([`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md)), and it runs the dead-zone
+check (see §5.2's `deadzone.N.free`), which reads the Cartesian feedback
+position that `motion-controller` computes — put earlier in the thread it would
+answer from the previous cycle.
 
-Omitting the line is not fatal and not silent: the pins stay at *not clear* — the
-conservative direction — and the module logs a warning at start naming the
-missing `addf`.
+Omitting the line is fatal: the module could see no input and drive no output,
+so Start refuses, naming the missing `addf`.
 
 Load args (parsed `key=value` like `internal/task/module.go`):
 
 | Arg | Default | Meaning |
 |-----|---------|---------|
-| `motion_instance` | `[EMCMOT]MOTION_INSTANCE`, then `motmod` | motctl/motstat provider instance (INI fallback like milltask's) |
+| `motion_instance` | `[EMCMOT]MOTION_INSTANCE`, then `motmod` | motctl/mot provider instance (INI fallback like milltask's) |
 | `pickers` | `1` | `1` or `2`; `2` enables the alternating-picker logic |
 | `persist_instance` | *(unset)* | persist API instance; unset = in-memory state only |
 
@@ -444,7 +446,7 @@ normalized to HAL-conventional dashes.
 | `error-station` | u32 | out | the TRAYDEF/PROCDEF id the latched fault is about, 0 = none; set with `error-id`, before `error` rises. Only `RELEASE_TIMEOUT` names one so far: a job touches two stations, and the PLC has to say whose fixture stuck |
 | `error-reset` | bit | in | rising edge clears error/error-id/error-station (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
-| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The module's only realtime output — computed every servo cycle by `deadzone-check` (§2.1) from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
+| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The only output computed in the servo thread rather than in the control loop — every servo cycle, by the `cycle` function (§2.1), from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
 | `homed` | bit | out | all joints homed |
 
@@ -501,29 +503,36 @@ normalized to HAL-conventional dashes.
 | `set-has-material` | bit | in | edge: has-material := true. The operator resync §6.4 promised, and what makes a station *probe* possible — a job may only originate at a station the model believes occupied |
 | `set-empty` | bit | in | edge: has-material := false |
 
-### 5.2.1 Timing contract — hold commands, do not pulse them
+### 5.2.1 Timing contract
 
-**The control loop is not the servo thread.** It runs at `pollInterval`, 10 ms
-(`machine.go`), and every input above is sampled there — the edge-triggered ones
-included. The only exception is `deadzone.N.free`, which a cyclic function
-publishes at servo rate (see `GOMOD_RT_DESIGN.md`).
+**The edge inputs take a pulse of one servo cycle** (since
+[`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) step 4). The control loop
+still runs at `pollInterval`, 10 ms, but the edges are no longer its business:
+the module's cycle function samples every input every servo cycle and counts
+each rising edge of `machine-on`, `home`, `park`, `error-reset`,
+`picker.N.manual-open`/`manual-close`, `tray.N.set-full`/`set-empty` and
+`proc.N.set-has-material`/`set-empty`, gated on estop and auto in the cycle of
+the press. The loop takes the counts, so a pulse between two of its samples
+is not lost. A pulse must still last one run of the cycle function: a
+producer outside the servo thread that sets a pin and clears it again within
+a millisecond can still go unseen.
 
-So a producer running faster than 10 ms — another realtime component, not a PLC
-or a panel button — **must hold a command until it sees the acknowledgement**. A
-pulse of one or two servo cycles can fall entirely between two samples and is
-then lost, with no error anywhere: the module simply never saw it.
+Two gates are still the loop's, applied when it takes a count: home and park
+are ignored while busy, error-reset while no error is latched. A pulse
+refused there is gone, not kept.
 
-Every command pin has something to watch for, which is what makes holding
-practical:
+The station resets are applied between jobs (see the end of this section), so
+"seen" and "applied" are two moments; what a producer watches to know a reset
+has been applied:
 
-| Command | Held until |
+| Command | Applied when |
 |---|---|
 | `home` | `homed` |
 | `error-reset` | `error` low |
 | `tray.N.set-full` / `set-empty` | `avail` / `count` change |
 | `proc.N.set-has-material` / `set-empty` | `has-material` follows |
 | `picker.N.manual-open` / `manual-close` | `picker.N.close` follows |
-| `start-job` | the module clears it (see below) |
+| `start-job` | the module clears it (see below) — still a level, not an edge |
 
 `start-job` carries one extra rule. The module only accepts a request it has
 watched go **low** first (`jobRequest`, §7.4 D26: a level held across a restart
