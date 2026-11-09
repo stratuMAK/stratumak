@@ -42,6 +42,14 @@ var (
 	// scripted motion updates its status inside the dispatch call itself, so
 	// it needs no settling either.)
 	dispatchSettleTicks = 1
+
+	// descentRecheck is how often awaitDescent looks at the distance left
+	// while the head travels: position moves every cycle without ringing the
+	// doorbell, so this wait sets its own deadline.
+	descentRecheck = 5 * time.Millisecond
+
+	// minSettle is the wait a settle time of 0 still gets (settleTimeout).
+	minSettle = 10 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------
@@ -373,7 +381,8 @@ func (c *control) travelLeg(j *job, pk int, target pnproute.Point, d descent) (*
 // as soon as d.ready holds, false once the head is so near the end of the
 // queued segments that the TP would start braking for it -- the braking
 // distance at the current speed under min(ax, ay), plus what the speed covers
-// in two control cycles and the dispatch, plus 2 mm. A queue that has run out
+// until the next look (descentRecheck and a doorbell poll) and the dispatch,
+// plus 2 mm. A queue that has run out
 // decides at once. Status right after a dispatch still describes the machine
 // before it, so the distance is only trusted after dispatchSettleTicks good
 // reads.
@@ -387,11 +396,12 @@ func (c *control) awaitDescent(d descent) (bool, error) {
 		}
 		if settled >= dispatchSettleTicks {
 			v := math.Max(c.status.CurrentVel, 0)
-			margin := v*(2*pollInterval.Seconds()+0.005) + 2
+			margin := v*((descentRecheck+pollInterval).Seconds()+0.005) + 2
 			if c.queueDistance() <= v*v/(2*brake)+margin {
 				return d.ready(), nil
 			}
 		}
+		c.wakeBy(c.now + descentRecheck)
 		if !c.tick() {
 			return false, errStopping
 		}
@@ -1064,6 +1074,7 @@ func (c *control) waitDrained() error {
 		// letting the full-stop barrier pass while the machine is still
 		// moving. Failed reads lengthen this wait; they can never shorten it.
 		for settled := 0; settled < dispatchSettleTicks; {
+			c.wakeBy(c.now + wakeSoon)
 			if !c.tick() {
 				return errStopping
 			}
@@ -1097,15 +1108,16 @@ func (c *control) dwell(seconds float64) error {
 	if err := c.flushLift(); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(time.Duration(seconds * float64(time.Second)))
+	deadline := c.now + time.Duration(seconds*float64(time.Second))
 	for {
+		c.wakeBy(deadline)
 		if !c.tick() {
 			return errStopping
 		}
 		if err := c.abortCheck(); err != nil {
 			return err
 		}
-		if !time.Now().Before(deadline) {
+		if c.now >= deadline {
 			return nil
 		}
 	}
@@ -1113,14 +1125,14 @@ func (c *control) dwell(seconds float64) error {
 
 // settleTimeout turns a settle-time param into a wait timeout. A configured zero
 // means "no dwell", and waitUntil reads a non-positive timeout as "no timeout at
-// all" — so a machine with the settle times left at 0 gets a cycle or two (the
-// first sample past the deadline decides, see control.sampledAt) to show the
+// all" — so a machine with the settle times left at 0 gets minSettle (the
+// first frame past the deadline decides, see control.now) to show the
 // feedback rather than an unbounded wait.
 func settleTimeout(seconds float64) time.Duration {
 	if d := time.Duration(seconds * float64(time.Second)); d > 0 {
 		return d
 	}
-	return pollInterval
+	return minSettle
 }
 
 // flushLift runs a lift up() deferred (D52) as a stroke of its own, drained:

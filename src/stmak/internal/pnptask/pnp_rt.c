@@ -96,6 +96,74 @@ static void pnp_rt_scene_and_watch(pnp_rt_t *r, const pnp_rt_in_t *in,
         r->watch_fired = go->watch_seq;
 }
 
+// pnp_rt_stall is the stall check (§7.2): a ring the loop leaves untaken for
+// task_timeout latches TASK_STALLED, once per episode. The function leaves
+// motion alone -- motmod finishes what is queued and stands -- and the latch is
+// what the PLC's error path already reacts to.
+static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period) STMAK_NONBLOCKING;
+static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period)
+{
+    if (go->task_timeout == 0 || r->change == go->taken) {
+        r->stall_ns = 0;
+        r->stalled = 0;
+        return;
+    }
+    r->stall_ns += (uint64_t)period;
+    if (r->stall_ns >= go->task_timeout && !r->stalled) {
+        r->stalled = 1;
+        if (!r->latch.set) {
+            r->latch.set = 1;
+            r->latch.id = PNP_RT_TASK_STALLED;
+            r->latch.station = 0;
+            r->latch.missing = 0;
+        }
+    }
+}
+
+// pnp_rt_changed builds this cycle's signature of what the loop acts on
+// (pnp_rt_sig_t) and reports whether it differs from the last cycle's.
+static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in) STMAK_NONBLOCKING;
+static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in)
+{
+    pnp_rt_sig_t *g = &r->sig;
+    const uint8_t *src = (const uint8_t *)in + offsetof(pnp_rt_in_t, jog_speed);
+
+    for (size_t i = 0; i < PNP_RT_SIG_INPUTS; i++)
+        g->inputs[i] = src[i];
+    g->edges = in->edges;
+    g->job = in->job;
+    g->latch = in->latch;
+    g->park_seq = in->park_seq;
+    g->raise_seen = in->raise_seen;
+    g->watch_fired = in->watch_fired;
+    g->busy = in->busy;
+    g->busy_park = in->busy_park;
+    g->scene_granted = in->scene_granted;
+    g->mot_ok = in->mot_ok;
+    g->command_num_echo = in->mot.command_num_echo;
+    g->command_status = in->mot.command_status;
+    g->motion_state = in->mot.motion_state;
+    g->enabled = in->mot.enabled;
+    g->inpos = in->mot.inpos;
+    g->queue_depth = in->mot.queue_depth;
+    g->id = in->mot.id;
+    g->carte_pos_cmd_ok = in->mot.carte_pos_cmd_ok;
+    g->carte_pos_fb_ok = in->mot.carte_pos_fb_ok;
+    g->joints_homed = in->mot.joints_homed;
+    g->joints_homing = in->mot.joints_homing;
+
+    const uint8_t *a = (const uint8_t *)&r->sig;
+    uint8_t       *b = (uint8_t *)&r->sig_prev;
+    int changed = 0;
+    for (size_t i = 0; i < sizeof(pnp_rt_sig_t); i++) {
+        if (a[i] != b[i]) {
+            changed = 1;
+            b[i] = a[i];
+        }
+    }
+    return changed;
+}
+
 // pnp_rt_edges counts this cycle's rising edges of the other command inputs
 // (pnp_rt.h, the edges block), keeps this cycle's levels for the next, and
 // hands the counts to the frame.
@@ -153,6 +221,7 @@ void pnp_rt_cycle(void *arg, long period)
     int fresh;
 
     r->cycle++;
+    r->servo_ns += (uint64_t)period;
 
     // 1. Inputs, straight into the frame Go will read. Only bound fields are
     //    written; the others are 0 in every slot.
@@ -171,8 +240,10 @@ void pnp_rt_cycle(void *arg, long period)
     // 3. Go's latest frame.
     const pnp_rt_out_t *go = (const pnp_rt_out_t *)stmak_tribuf_read(r->to_rt, &fresh);
 
-    // 4., 5. The handshakes, the scene lock and the lift watch, then the other
-    //    edges (home is gated on the busy this cycle ends with).
+    // 4., 5. The stall check, the handshakes, the scene lock and the lift
+    //    watch, then the other edges (home is gated on the busy this cycle
+    //    ends with).
+    pnp_rt_stall(r, go, period);
     pnp_rt_handshakes(r, in, go);
     pnp_rt_scene_and_watch(r, in, go);
     pnp_rt_edges(r, in);
@@ -188,6 +259,16 @@ void pnp_rt_cycle(void *arg, long period)
     for (int i = 0; i < r->n_pickers; i++)
         o->picker[i].missing = (uint8_t)((r->latch.missing >> i) & 1u);
     o->scene_busy = (uint8_t)r->scene_granted;
+    for (int i = 0; i < r->n_pickers; i++) {
+        if (in->mot_ok) {
+            r->pos_x[i] = in->mot.carte_pos_fb.x + go->picker[i].x_offset;
+            r->pos_y[i] = in->mot.carte_pos_fb.y + go->picker[i].y_offset;
+        }
+        o->picker[i].pos_x = r->pos_x[i];
+        o->picker[i].pos_y = r->pos_y[i];
+        o->picker[i].pos_x_mu = r->pos_x[i] * go->linear_units;
+        o->picker[i].pos_y_mu = r->pos_y[i] * go->linear_units;
+    }
     if (r->watch_fired == go->watch_seq && go->watch_release != 0) {
         for (int i = 0; i < r->n_procs; i++)
             if (go->watch_release & (1u << i))
@@ -211,9 +292,25 @@ void pnp_rt_cycle(void *arg, long period)
     in->busy_park  = (uint8_t)r->busy_park;
     in->scene_granted = (uint8_t)r->scene_granted;
     in->watch_fired   = r->watch_fired;
+    in->servo_ns      = r->servo_ns;
+
+    // The change counter: what the loop acts on changed, or its wake time came
+    // (once per wake_at).
+    int ring = pnp_rt_changed(r, in);
+    if (go->wake_at != 0 && r->servo_ns >= go->wake_at && r->wake_rung != go->wake_at) {
+        r->wake_rung = go->wake_at;
+        ring = 1;
+    }
+    if (ring)
+        r->change++;
+    in->change = r->change;
+
     stmak_tribuf_publish(r->to_go);
-    if (r->bell != NULL)
+    if (r->bell != NULL) {
+        if (ring)
+            stmak_doorbell_ring(r->bell);
         stmak_doorbell_tick(r->bell);
+    }
 }
 
 const stmak_hal_funct_t pnp_rt_cycle_fp = pnp_rt_cycle;

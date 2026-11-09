@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -855,10 +856,9 @@ func TestEstopKeepsGrip(t *testing.T) {
 	f.consistently("the picker stays closed through the estop", func() bool { return f.bit("picker.1.close") })
 
 	f.setBit(f.m.pins.estopOn, false)
-	// The check is a countdown in control cycles (heldVerify, settleTicks of
-	// the pick settle time) started when the estop clears: once that many
-	// cycles have passed, it has judged.
-	f.cycles(uint32(settleTicks(f.m.pins.pickSettleTime.Get())) + 2)
+	// The check is a deadline in servo time (heldVerify, the pick settle time)
+	// started when the estop clears: once that much has passed, it has judged.
+	f.servo(settleTime(f.m.pins.pickSettleTime.Get()) + 2*time.Millisecond)
 	f.consistently("... and after it, the grip confirmed", func() bool { return f.bit("picker.1.close") })
 
 	w := f.stopped()

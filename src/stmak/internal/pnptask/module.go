@@ -138,6 +138,10 @@ type pnptaskModule struct {
 	// a time to be polled.
 	handshakes atomic.Uint32
 
+	// wakes counts the control loop's wakes, for the tests that check it
+	// sleeps while nothing changes.
+	wakes atomic.Uint32
+
 	// motInstance and persistInstance are resolved in the later phases; they
 	// are parsed here so a typo on the load line is at least recorded next to
 	// the config it belongs to.
