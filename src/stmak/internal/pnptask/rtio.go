@@ -33,6 +33,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 	"unsafe"
 
@@ -288,7 +289,7 @@ func (r *rtIO) bindOutputs(p *pinSet) error {
 
 	errs := []error{
 		bit(p.machineIsOn), bit(p.homed), bit(p.parked), rtBit(p.busy),
-		bit(p.sceneBusy), rtBit(p.errorFlag),
+		rtBit(p.sceneBusy), rtBit(p.errorFlag),
 		rtU32(p.cycle), u32(p.sync), rtU32(p.errorID), rtU32(p.errorStation),
 		f64(p.planTime),
 	}
@@ -366,6 +367,38 @@ func (r *rtIO) endJob(seq uint32) { r.out.job_done = C.uint32_t(seq) }
 
 // endPark ends the park accepted as seq, as endJob.
 func (r *rtIO) endPark(seq uint32) { r.out.park_done = C.uint32_t(seq) }
+
+// requestScene sets the scene lock request (pnp_rt.h, scene lock); the lock is
+// the function's to grant, sceneGranted says when the frame read last shows it.
+func (r *rtIO) requestScene(want bool) {
+	if want {
+		r.out.scene_req = 1
+	} else {
+		r.out.scene_req = 0
+	}
+}
+
+func (r *rtIO) sceneGranted() bool { return r.in.scene_granted != 0 }
+
+// armWatch arms a lift watch (pnp_rt.h, lift watch): past segment id, the
+// stations in release (bit per process station index) have their release
+// held low. setWatchID moves the segment once it is known; disarmWatch ends
+// the watch, fired or not; watchFired says whether the frame read last shows
+// the armed one fired.
+func (r *rtIO) armWatch(id int32, release uint32) {
+	r.out.watch_seq++
+	r.out.watch_id = C.int32_t(id)
+	r.out.watch_release = C.uint32_t(release)
+}
+
+func (r *rtIO) setWatchID(id int32) { r.out.watch_id = C.int32_t(id) }
+
+func (r *rtIO) disarmWatch() {
+	r.out.watch_id = C.int32_t(math.MaxInt32)
+	r.out.watch_release = 0
+}
+
+func (r *rtIO) watchFired() bool { return r.in.watch_fired == r.out.watch_seq }
 
 // raise asks the cycle function to latch a fault. It reports false, and sends
 // nothing, when a fault is already latched or one sent earlier is not yet

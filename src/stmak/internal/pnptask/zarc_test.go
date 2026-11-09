@@ -255,7 +255,7 @@ func TestSeparateDescentOutsideTheSceneLock(t *testing.T) {
 	f.mot.mu.Lock()
 	f.mot.onMove = func(mc moveCall) {
 		mu.Lock()
-		busyAt[len(f.mot.moves)-1] = f.m.pins.sceneBusy.Get()
+		busyAt[len(f.mot.moves)-1] = f.m.pins.sceneBusy.pin.Get() // the pin as the move goes out
 		mu.Unlock()
 	}
 	f.mot.mu.Unlock()

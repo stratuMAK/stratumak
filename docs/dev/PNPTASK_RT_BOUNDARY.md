@@ -585,6 +585,22 @@ rigs and the machine.
 6. **Scene lock and lift watch in RT.** `scenegate` and `zarcs` scenarios
    extended: grant and hold in the same cycle; the clamp within a servo cycle
    of the segment change.
+   *Built:* `scene_req`/`scene_granted` and `watch_seq`/`watch_id`/
+   `watch_release`/`watch_fired` in the frames; `scene-busy` is the
+   function's pin (`rtBit`), and a fired watch holds its stations' `release`
+   low in the composed output. The motion snapshot is read before the
+   handshakes now, so the watch judges this cycle's segment. Go waits for the
+   grant standing only while `scene-hold` is up (`waitScene`): otherwise the
+   grant is a servo cycle away and a deferred lift must stay the leg's corner
+   arc. A lock released for one leg reaches the pins before the next leg
+   requests it, so the other side gets its cycle with `scene-busy` low. Go
+   keeps its own check of the watch on the status it read (the same snapshot
+   in production; the unit tests' fake motion has only that). As in step 4,
+   the one-cycle properties are unit tests at the function level
+   (`TestCycleSceneLock`, `TestCycleLiftWatch`) rather than scenario
+   extensions: a REST driver cannot place or observe a single servo cycle.
+   In a `zarcs` run the watch fired from the function in the frame the loop
+   also saw it.
 7. **The Go loop driven by RT frames** (§6.1). `hal.Doorbell.Wait`, the change
    counter and `wake_at`; `tick()` becomes commit-wait-read; tick counts
    become deadlines in servo cycles; teach pins move to RT; persistence and

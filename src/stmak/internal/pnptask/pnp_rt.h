@@ -9,19 +9,22 @@
 //
 //   1. the input pins are copied into the write slot of the RT -> Go buffer
 //      (one pin map, so all of them from one moment of the thread);
-//   2. Go's latest output frame is read;
-//   3. the handshakes run (step 5): a job or park Go has finished ends (busy
+//   2. motmod's state of this cycle goes into the input frame (mot's
+//      status_get_snapshot), so Go sees motion and pins from the same cycle,
+//      and the lift watch below judges this cycle's segment;
+//   3. Go's latest output frame is read;
+//   4. the handshakes run (step 5): a job or park Go has finished ends (busy
 //      falls), an error-reset edge clears the latch, a fault Go raised
 //      latches, a start-job or park edge is accepted (busy rises, the job's
-//      parameters are latched from this same sample);
-//   4. the rising edges of the other command inputs are counted
+//      parameters are latched from this same sample); then the scene lock and
+//      the lift watch (step 6);
+//   5. the rising edges of the other command inputs are counted
 //      (pnp_rt_edges_t);
-//   5. the output pins are written from Go's frame, with the pins RT owns
-//      (busy, the error latch, picker.N.missing, cycle) put in: one pin map,
-//      so they all change together and no reader can see half an update;
-//   6. the dead-zone check runs (pnp_deadzone_rt.h);
-//   7. motmod's state of this cycle goes into the input frame (mot's
-//      status_get_snapshot), so Go sees motion and pins from the same cycle;
+//   6. the output pins are written from Go's frame, with the pins RT owns
+//      (busy, the error latch, picker.N.missing, cycle, scene-busy, and a
+//      fired lift watch's release override) put in: one pin map, so they all
+//      change together and no reader can see half an update;
+//   7. the dead-zone check runs (pnp_deadzone_rt.h);
 //   8. the input frame is published to Go, and the doorbell's cycle counter
 //      ticks (Go reads it to know a frame postdates a motion command).
 //
@@ -112,6 +115,21 @@ typedef struct {
     uint8_t  pad_[2];
 } pnp_rt_latch_t;
 
+// Scene lock (D45, §4.4): Go holds scene_req while it wants to start a leg
+// into the movable region. The lock is granted in a cycle where the request
+// is high and scene-hold is low, and scene-busy rises in that same cycle --
+// atomic in the cycle cam.sphere reads. Hold and request in the same cycle:
+// hold wins. Granted, it stays until the request drops, whatever hold does
+// meanwhile (the other side waits for scene-busy low). Go dispatches only
+// once the frame shows the grant.
+//
+// Lift watch (D53, §4.4): Go arms it by counting watch_seq with a segment id
+// and the process stations whose release it covers. In the first cycle whose
+// motion snapshot runs a segment beyond the id, the watch fires: watch_fired
+// takes the seq, and from that cycle on those stations' release pins are held
+// low, until Go clears the mask or arms the next watch. Go learns of it from
+// watch_fired and runs its hook, which drops release itself.
+
 // --- RT -> Go: the inputs of one servo cycle --------------------------------
 
 typedef struct {
@@ -161,7 +179,9 @@ typedef struct {
     uint32_t           raise_seen; // Go's last raise_seq this function took
     uint8_t            busy;      // a job or park accepted and not ended
     uint8_t            busy_park; // ... and it is a park
-    uint8_t            pad4_[6];
+    uint8_t            scene_granted; // the scene lock is Go's (scene-busy)
+    uint8_t            pad4_[1];
+    uint32_t           watch_fired;   // the lift watch seq that fired
 
     mot_snapshot_t     mot;     // motmod's state this cycle, valid with mot_ok
     uint8_t            mot_ok;
@@ -186,7 +206,8 @@ typedef struct {
 
 typedef struct {
     uint32_t resets;
-    uint8_t  has_material, release;
+    uint8_t  has_material;
+    uint8_t  release;          // Go's, held low by a fired lift watch (RT)
     uint8_t  pad_[2];
 } pnp_rt_out_proc_t;
 
@@ -201,7 +222,11 @@ typedef struct {
     uint32_t raise_seq;        // counts a fault to latch ...
     uint32_t raise_id, raise_station;
     uint8_t  raise_missing;    // ... with these (missing: bit per picker)
-    uint8_t  pad0_[3];
+    uint8_t  scene_req;        // Go wants the scene lock
+    uint8_t  pad0_[2];
+    uint32_t watch_seq;        // counts a lift watch armed ...
+    int32_t  watch_id;         // ... to fire past this segment ...
+    uint32_t watch_release;    // ... and hold these stations' release low (bit per proc)
 
     double   plan_time;
     uint32_t sync;             // the cycle of the input frame Go last acted on
@@ -210,7 +235,7 @@ typedef struct {
 
     uint8_t  machine_is_on, homed, parked;
     uint8_t  busy;             // RT
-    uint8_t  scene_busy;
+    uint8_t  scene_busy;       // RT
     uint8_t  error;            // RT
     uint8_t  pad_[2];
 
@@ -243,6 +268,8 @@ typedef struct {
     pnp_rt_latch_t latch;
     uint32_t       park_seq, raise_seen;
     int            busy, busy_park;
+    int            scene_granted;
+    uint32_t       watch_fired;
 
     // The output frame as it goes to the pins: Go's, with RT's pins put in.
     pnp_rt_out_t   composed;

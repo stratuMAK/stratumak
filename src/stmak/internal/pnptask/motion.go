@@ -484,16 +484,21 @@ func downWhen(z, r float64, ready func() bool, wait func() error) descent {
 
 // pendingLift is a lift out of a station that up() deferred (D52): to Z `to`,
 // joined to the next travel by a corner arc of radius up to r. after is what
-// has to wait until the head is out of the station (afterLift, D53).
+// has to wait until the head is out of the station (afterLift, D53), and
+// release the process stations (bit per index) whose release it drops -- the
+// part the cycle function does in the servo cycle the head is out.
 type pendingLift struct {
-	on    bool
-	to, r float64
-	after func()
+	on      bool
+	to, r   float64
+	after   func()
+	release uint32
 }
 
 // liftWatch is an after hook (D53) whose lift went out with a leg: it fires
-// once motion reports a segment beyond id running -- id is the straight lift
-// up to the arc, or the arc itself if the lift has no straight part.
+// once motion runs a segment beyond id -- id is the straight lift up to the
+// arc, or the arc itself if the lift has no straight part. The cycle function
+// watches the segment (rtIO.armWatch) and drops the stations' release in the
+// servo cycle it sees it; the hook follows at the loop's next look.
 type liftWatch struct {
 	id    int32
 	after func()
@@ -531,13 +536,13 @@ func (c *control) legPath(route *pnproute.Route) []pnproute.Point {
 }
 
 // acquireScene takes the scene gate's lock for a leg that touches the movable
-// region (D45, spec §4.2): wait standing while scene-hold is up, raise
-// scene-busy, and look at scene-hold once more a control cycle later. Raised
-// meanwhile, the scene change wins — busy drops and the wait starts over — so
-// a leg and a scene change can never both start: the other side starts only
-// once busy has stayed low after it raised hold, and keeps hold up until it
-// is done. The wait ends like a station's (WAIT_ABORTED on auto-enable or
-// wait-abort, D15/D33).
+// region (D45, spec §4.2): request it, and wait standing until the frame shows
+// it granted. The cycle function grants in a servo cycle with scene-hold low
+// and raises scene-busy in that same cycle; hold in the cycle of the request
+// wins (PNPTASK_RT_BOUNDARY.md §4.4). So a leg and a scene change can never
+// both start: the other side starts only once busy has stayed low after it
+// raised hold, and keeps hold up until it is done. The wait ends like a
+// station's (WAIT_ABORTED on auto-enable or wait-abort, D15/D33).
 func (c *control) acquireScene(target pnproute.Point) error {
 	// Standing, but a lift deferred for this leg (D52) stays deferred: it has
 	// not been dispatched, so the head stands at the bottom, and the leg can
@@ -546,33 +551,47 @@ func (c *control) acquireScene(target pnproute.Point) error {
 	if err := c.waitDrained(); err != nil {
 		return err
 	}
-	for {
+	// A lock released for the previous leg is let go of on the pins first:
+	// the other side gets the cycle with scene-busy low it waits for, rather
+	// than a request that never dropped.
+	if err := c.waitScene(func() bool { return !c.m.rt.sceneGranted() }, "scene release"); err != nil {
+		return err
+	}
+	c.m.rt.requestScene(true)
+	if c.in.sceneHold {
+		c.m.logger.Info("pnptask: leg waits for the scene", "x", target.X, "y", target.Y)
+	}
+	if err := c.waitScene(c.m.rt.sceneGranted, "scene gate"); err != nil {
+		c.releaseScene()
+		return err
+	}
+	return nil
+}
+
+// waitScene waits for the scene lock to reach done. While scene-hold is up it
+// is a real wait, standing, the head up (waitStanding, which runs a deferred
+// lift first); otherwise the answer is a servo cycle away -- the grant, or the
+// release reaching the pins -- and the loop only ticks for it, so a deferred
+// lift stays deferred and still runs as the leg's corner arc (D52).
+func (c *control) waitScene(done func() bool, what string) error {
+	for !done() {
 		if c.in.sceneHold {
-			c.m.logger.Info("pnptask: leg waits for the scene", "x", target.X, "y", target.Y)
+			return c.waitStanding(done, what, nil)
 		}
-		if err := c.waitStanding(func() bool { return !c.in.sceneHold }, "scene gate", nil); err != nil {
-			return err
-		}
-		c.m.pins.sceneBusy.Set(true)
 		if !c.tick() {
-			c.releaseScene()
 			return errStopping
 		}
 		if err := c.abortCheck(); err != nil {
-			c.releaseScene()
 			return err
 		}
-		if !c.in.sceneHold {
-			return nil
-		}
-		c.releaseScene()
-		c.m.logger.Debug("pnptask: leg yields to a scene change", "x", target.X, "y", target.Y)
 	}
+	return nil
 }
 
-// releaseScene drops scene-busy: the gated leg has drained, or never started.
+// releaseScene drops the lock request: the gated leg has drained, or never
+// started. scene-busy falls in the servo cycle that applies the next commit.
 func (c *control) releaseScene() {
-	c.m.pins.sceneBusy.Set(false)
+	c.m.rt.requestScene(false)
 }
 
 // planLeg plans one leg from where the picker currently is.
@@ -758,12 +777,12 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	if c.lift.on {
 		// planLeg gave the deferred lift its arc (travel ran it on its own
 		// otherwise): the straight stroke up, then the arc onto the travel.
-		after := c.lift.after
+		after, release := c.lift.after, c.lift.release
 		c.lift = pendingLift{}
 		// Its after hook (D53) waits for the head to be out of the station:
 		// past the straight stroke, where the sideways part begins. Until
 		// that segment's id is known, only a drain or an error path fires it.
-		c.watchLift(after, math.MaxInt32)
+		c.watchLift(after, math.MaxInt32, release)
 		before := c.moveID
 		to := c.cmdPos
 		to.Z = j.travel - lg.r0
@@ -780,6 +799,7 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 			lift = c.moveID
 		}
 		c.watch.id = lift
+		c.m.rt.setWatchID(lift)
 	} else {
 		// A Z still off the movement height is corrected first, rather than
 		// left for the next leg to trip over; at the height it drops itself
@@ -1142,9 +1162,10 @@ func (c *control) dropLift() {
 // the case: the fixture may only clamp again with the part out of it, and
 // the lift has to stay one stream with the travel.
 //
-// The observation lags the head by up to a control cycle, which only makes
-// fire later, never earlier.
-func (c *control) afterLift(fire func(), confirm func() error) error {
+// release names the process stations (bit per index) whose release fire
+// drops: the cycle function drops it in the servo cycle the head is out
+// (liftWatch), fire itself follows at the loop's next look.
+func (c *control) afterLift(fire func(), confirm func() error, release uint32) error {
 	if !c.lift.on {
 		fire()
 		return confirm()
@@ -1154,32 +1175,44 @@ func (c *control) afterLift(fire func(), confirm func() error) error {
 	} else {
 		c.lift.after = fire
 	}
+	c.lift.release |= release
 	c.confirms = append(c.confirms, confirm)
 	return nil
 }
 
-// watchLift has after wait for motion to run past segment id (liftWatch).
-func (c *control) watchLift(after func(), id int32) {
+// watchLift has after wait for motion to run past segment id (liftWatch), the
+// cycle function dropping release's stations' release in that servo cycle.
+func (c *control) watchLift(after func(), id int32, release uint32) {
 	c.fireLiftWatch() // never two at once; an older one is long past
 	if after != nil {
 		c.watch = liftWatch{id: id, after: after}
+		c.m.rt.armWatch(id, release)
 	}
 }
 
-// checkLiftWatch fires a watched after hook once a fresh status shows motion
-// running a segment beyond the watched one. Motion ids only grow, so a status
-// from before the dispatch can only make it wait.
+// checkLiftWatch fires a watched after hook once the frame shows the cycle
+// function has seen motion run past the watched segment. Motion ids only grow,
+// so a frame from before the dispatch can only make it wait.
+//
+// The loop also judges the status it read itself: in production that is the
+// cycle function's snapshot of the same frame (rtStatus), so the two agree;
+// a motion status of another kind (the unit tests' fake) only has this.
 func (c *control) checkLiftWatch() {
-	if c.watch.after != nil && c.commErrors == 0 && c.status.Id > c.watch.id {
+	if c.watch.after == nil {
+		return
+	}
+	if c.m.rt.watchFired() || (c.commErrors == 0 && c.status.Id > c.watch.id) {
 		c.fireLiftWatch()
 	}
 }
 
-// fireLiftWatch runs a watched after hook now, if there is one.
+// fireLiftWatch runs a watched after hook now, if there is one, and ends the
+// watch.
 func (c *control) fireLiftWatch() {
 	if f := c.watch.after; f != nil {
 		c.watch = liftWatch{}
 		f()
+		c.m.rt.disarmWatch()
 	}
 }
 

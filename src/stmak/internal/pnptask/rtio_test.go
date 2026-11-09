@@ -5,6 +5,7 @@ package pnptask
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -295,8 +296,9 @@ func TestStartControlNeedsTheCycleFunction(t *testing.T) {
 // pin before motmod takes the command -- already when the command is sent, not
 // only in the servo cycle that takes it. Motion commands go out at once and the
 // outputs at a commit, so without committedMotion the head could move with
-// scene-busy still reading the value from before the write (the scenegate
-// runtest caught a descent under a scene-busy that had already been dropped).
+// an output still reading the value from before the write (the scenegate
+// runtest caught a descent under a scene-busy that had already been dropped,
+// when scene-busy was still the loop's).
 func TestOutputsBeforeMotion(t *testing.T) {
 	m, get := rtModule(t)
 	mot := newFakeMotion(m.cfg.NumJoints)
@@ -304,15 +306,105 @@ func TestOutputsBeforeMotion(t *testing.T) {
 
 	seen := -1.0
 	mot.onMove = func(moveCall) {
-		seen = get("scene-busy") // the pin as the command is sent
+		seen = get("proc.20.release") // the pin as the command is sent
 	}
 
-	m.pins.sceneBusy.Set(true)
+	m.pins.procs[0].release.Set(true)
 	if err := cm.SetLine(motctl.Pose{X: 1}, 10, 10, 100, 0, 1, 0, -1); err != nil {
 		t.Fatalf("SetLine: %v", err)
 	}
 	if seen != 1 {
-		t.Errorf("scene-busy = %v when the move was taken, want 1", seen)
+		t.Errorf("release = %v when the move was taken, want 1", seen)
+	}
+}
+
+// TestCycleSceneLock: the lock is granted in the run the request meets
+// scene-hold low, scene-busy with it; hold in the run of the request wins;
+// granted, it stays whatever hold does until the request drops.
+func TestCycleSceneLock(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+
+	m.rt.requestScene(true)
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.read()
+	if get("scene-busy") != 1 || !m.rt.sceneGranted() {
+		t.Fatalf("request, hold low: scene-busy=%v granted=%v, want both", get("scene-busy"), m.rt.sceneGranted())
+	}
+	m.pins.sceneHold.Set(true)
+	m.rt.invoke()
+	if get("scene-busy") != 1 {
+		t.Error("hold raised after the grant took the lock back")
+	}
+	m.rt.requestScene(false)
+	m.rt.commit()
+	m.rt.invoke()
+	if get("scene-busy") != 0 {
+		t.Fatal("the request dropped, scene-busy stayed")
+	}
+
+	// Hold up when the request comes: no grant until it drops.
+	m.rt.requestScene(true)
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.invoke()
+	if get("scene-busy") != 0 {
+		t.Error("granted against scene-hold")
+	}
+	m.pins.sceneHold.Set(false)
+	m.rt.invoke()
+	if get("scene-busy") != 1 {
+		t.Error("hold dropped, the waiting request not granted in that run")
+	}
+}
+
+// TestCycleLiftWatch: a watch fires in the run motion runs a segment beyond
+// its id, and holds its stations' release low from that run on, whatever the
+// loop's frame still says -- until the loop ends the watch.
+func TestCycleLiftWatch(t *testing.T) {
+	m, get := rtModule(t)
+	mot := dztest.NewFakeMot()
+	defer mot.Free()
+	m.deadzone.setMot(mot.Ptr())
+	defer m.deadzone.setMot(nil)
+
+	m.pins.procs[0].release.Set(true)
+	m.rt.armWatch(math.MaxInt32, 1)
+	m.rt.commit()
+	mot.SetSnapshot(false, 3, 10, 0, 0, 0)
+	m.rt.invoke()
+	m.rt.read()
+	if get("proc.20.release") != 1 || m.rt.watchFired() {
+		t.Fatal("a watch with no segment yet fired")
+	}
+
+	m.rt.setWatchID(12)
+	m.rt.commit()
+	mot.SetSnapshot(false, 3, 12, 0, 0, 0) // the watched segment itself: not past it
+	m.rt.invoke()
+	m.rt.read()
+	if get("proc.20.release") != 1 || m.rt.watchFired() {
+		t.Fatal("fired on the watched segment, not past it")
+	}
+	mot.SetSnapshot(false, 3, 13, 0, 0, 0)
+	m.rt.invoke()
+	m.rt.read()
+	if get("proc.20.release") != 0 || !m.rt.watchFired() {
+		t.Fatalf("past the segment: release=%v fired=%v, want 0 and fired", get("proc.20.release"), m.rt.watchFired())
+	}
+
+	// The loop's hook drops release itself and ends the watch; a new watch
+	// does not inherit the old one's fire.
+	m.pins.procs[0].release.Set(false)
+	m.rt.disarmWatch()
+	m.pins.procs[0].release.Set(true)
+	m.rt.armWatch(20, 1)
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.read()
+	if get("proc.20.release") != 1 || m.rt.watchFired() {
+		t.Errorf("a new watch: release=%v fired=%v, want 1 and not fired", get("proc.20.release"), m.rt.watchFired())
 	}
 }
 
