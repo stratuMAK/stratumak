@@ -514,6 +514,8 @@ type machineFixture struct {
 	// sim is the simulated gripper/fixture feedback, when the fixture asked
 	// for one (fixtureOpts.sim / simulate).
 	sim *machineSim
+	// mark is the module's handshake count when request raised start-job.
+	mark uint32
 }
 
 // The control loop is time-driven; the tests run it far faster than the machine
@@ -647,26 +649,44 @@ func (f *machineFixture) setBit(pin *hal.Pin[bool], v bool) { pin.Set(v) }
 
 func (f *machineFixture) setFloat(pin *hal.Pin[float64], v float64) { pin.Set(v) }
 
-// cycles waits until the control loop has run n more cycles, counted on its
-// cycle-count pin: the loop's own time, which a descheduled test goroutine
-// cannot shorten the way it shortens a sleep.
+// cycles waits until the control loop has run n more cycles, each one on a
+// sample taken after the previous: the loop's own time, which a descheduled
+// test goroutine cannot shorten the way it shortens a sleep.
 func (f *machineFixture) cycles(n uint32) {
 	f.t.Helper()
-	start := uint32(f.get("cycle-count"))
-	f.eventually(fmt.Sprintf("%d control cycles", n), func() bool {
-		return uint32(f.get("cycle-count"))-start >= n
+	for i := uint32(0); i < n; i++ {
+		f.sampled()
+	}
+}
+
+// sampled waits until the control loop has acted on every input written before
+// the call: sync names a cycle after the one the cycle pin showed at the call,
+// whose run sampled the pins after the write (the sync pin). This is what
+// holding a level is for — a level the loop never samples is no edge at all,
+// and the case fails somewhere later with no hint that a button press went
+// missing.
+func (f *machineFixture) sampled() {
+	f.t.Helper()
+	c0 := uint32(f.get("cycle"))
+	f.eventually("the loop to sample", func() bool {
+		return int32(uint32(f.get("sync"))-c0) > 0
 	})
 }
 
-// sampled waits until the control loop has read every input written before
-// the call. The cycle behind the first increment may have sampled before the
-// write; the one behind the second cannot have (see the cycle-count pin).
-// This is what holding a level is for — a level the loop never samples is no
-// edge at all, and the case fails somewhere later with no hint that a button
-// press went missing.
-func (f *machineFixture) sampled() {
+// request raises start-job as a new request: low first, until the loop has
+// seen the low, so the high is an edge the cycle function accepts.
+func (f *machineFixture) request() {
 	f.t.Helper()
-	f.cycles(2)
+	f.m.pins.startJob.Set(false)
+	f.sampled()
+	f.mark = f.m.handshakes.Load()
+	f.m.pins.startJob.Set(true)
+}
+
+// ended reports whether the loop has ended a job or park since request, and
+// busy is down: the handshake is complete.
+func (f *machineFixture) ended() bool {
+	return f.m.handshakes.Load() != f.mark && !f.bit("busy")
 }
 
 // pulse drives an edge-triggered input low, gives the loop time to see the low,
@@ -800,15 +820,13 @@ func (f *machineFixture) homed() {
 
 // ---------------------------------------------------------------------------
 
-// cycle-count advances with the control loop. tick() bumps it only after the
-// cycle has sampled its inputs and published its outputs, so two increments
-// after a write prove the write was read -- what a driver waits for instead of
-// holding a pin for a guessed time.
-func TestCycleCountAdvances(t *testing.T) {
+// cycle counts the cycle function's runs, and sync follows it: what a driver
+// waits for instead of holding a pin for a guessed time.
+func TestSyncAdvances(t *testing.T) {
 	f := newMachineFixture(t)
-	start := uint32(f.get("cycle-count"))
-	f.eventually("two control cycles", func() bool {
-		return uint32(f.get("cycle-count"))-start >= 2
+	c0 := uint32(f.get("cycle"))
+	f.eventually("sync past the cycle at the start", func() bool {
+		return int32(uint32(f.get("sync"))-c0) > 0
 	})
 }
 

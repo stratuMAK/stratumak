@@ -5,9 +5,7 @@ package pnptask
 import (
 	"bytes"
 	"fmt"
-	"log/slog"
 	"math"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -110,7 +108,7 @@ func (s *machineSim) step() {
 	}
 	s.pending = nil
 	p := s.m.pins
-	busy := p.busy.Get()
+	busy := p.busy.pin.Get()
 	if !busy && s.lastBusy && s.onBusyFall != nil {
 		s.onBusyFall()
 	}
@@ -333,19 +331,12 @@ func (f *jobFixture) fillTray(step uint32) {
 // runJob commands one job and waits for the handshake to complete.
 func (f *jobFixture) runJob(origin, dest, step uint32) {
 	f.t.Helper()
-	// Drive start-job low and give the loop time to see it: the handshake has to
-	// be re-armed before a level counts as a new request (see jobRequest).
-	f.m.pins.startJob.Set(false)
-	f.sampled()
 	f.m.pins.originID.Set(origin)
 	f.m.pins.destID.Set(dest)
 	f.m.pins.processStep.Set(step)
 	f.mot.resetCalls()
-	f.m.pins.startJob.Set(true)
-	f.eventually("the job handshake to complete", func() bool { return !f.bit("start-job") })
-	// busy is cleared in the same cycle as start-job, but read it back so a case
-	// cannot pass with the module still claiming to be running.
-	f.eventually("busy to clear", func() bool { return !f.bit("busy") })
+	f.request()
+	f.eventually("the job handshake to complete", f.ended)
 	f.m.pins.startJob.Set(false)
 }
 
@@ -1017,8 +1008,9 @@ func TestJobRefusedInManualMode(t *testing.T) {
 }
 
 // TestJobRefusedWhileErrorLatched: faults latch first-error-wins, so a job
-// started with the latch set could fail invisibly. It is refused instead, and the
-// original error stays on the pin.
+// started with the latch set could fail invisibly. The cycle function ignores
+// the request instead (§4.4): busy never rises, and the original error stays
+// on the pin.
 func TestJobRefusedWhileErrorLatched(t *testing.T) {
 	f := newJobFixture(t)
 	f.selectTray(1)
@@ -1028,7 +1020,12 @@ func TestJobRefusedWhileErrorLatched(t *testing.T) {
 	f.requireError("empty tray", errTrayEmpty)
 
 	f.fillTray(0)
-	f.runJob(10, 20, 0)
+	f.mot.resetCalls()
+	f.request()
+	f.consistently("no job while an error is latched", func() bool {
+		return !f.bit("busy") && f.m.handshakes.Load() == f.mark
+	})
+	f.m.pins.startJob.Set(false)
 	f.requireError("job while an error is latched", errTrayEmpty)
 	if n := len(f.mot.moveList()); n != 0 {
 		t.Errorf("the refused job dispatched %d moves, want none", n)
@@ -1099,7 +1096,7 @@ func TestJobBusyGateWaitsAtTheWaitPosition(t *testing.T) {
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
 	f.mot.resetCalls()
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	// [PNPTASK_PROC_0] waits at (250, 150).
 	f.eventually("arrival at the wait position", func() bool {
@@ -1113,7 +1110,7 @@ func TestJobBusyGateWaitsAtTheWaitPosition(t *testing.T) {
 	})
 
 	f.setBit(f.proc().busy, false)
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to complete", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireOK("busy-gated job")
 	if !f.bit("proc.20.has-material") {
@@ -1135,7 +1132,7 @@ func TestPlaceToProcRaisesReleaseOnlyWhenClear(t *testing.T) {
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
 	f.mot.resetCalls()
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	f.eventually("arrival at the wait position", func() bool {
 		return len(zAtXY(f.mot.moveList(), 250, 150)) > 0
@@ -1146,7 +1143,7 @@ func TestPlaceToProcRaisesReleaseOnlyWhenClear(t *testing.T) {
 
 	f.setBit(f.proc().busy, false)
 	f.eventually("release raised once the station cleared", func() bool { return f.bit("proc.20.release") })
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to complete", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireOK("busy-gated place")
 
@@ -1199,13 +1196,13 @@ func TestJobBusyWaitAbortedByAutoEnable(t *testing.T) {
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("arrival at the wait position", func() bool {
 		return len(zAtXY(f.mot.moveList(), 250, 150)) > 0
 	})
 
 	f.setBit(f.m.pins.autoEnable, false)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to end", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireError("auto-enable dropped during the wait", errWaitAborted)
 
@@ -1274,17 +1271,15 @@ func newSceneFixtureWith(t *testing.T, tweak func(*Config)) *jobFixture {
 // startJobTo commands a job without waiting for it -- runJob's first half,
 // for the cases that act while the job runs.
 func startJobTo(f *jobFixture, origin, dest uint32) {
-	f.m.pins.startJob.Set(false)
-	f.sampled()
 	f.m.pins.originID.Set(origin)
 	f.m.pins.destID.Set(dest)
 	f.m.pins.processStep.Set(0)
 	f.mot.resetCalls()
-	f.m.pins.startJob.Set(true)
+	f.request()
 }
 
 // jobDone reports whether the job startJobTo commanded has ended.
-func (f *jobFixture) jobDone() bool { return !f.bit("start-job") && !f.bit("busy") }
+func (f *jobFixture) jobDone() bool { return f.ended() }
 
 // awaitJob is runJob's second half: the handshake completed, busy down.
 func (f *jobFixture) awaitJob() {
@@ -1410,13 +1405,13 @@ func TestJobBusyWaitAbortedByWaitAbort(t *testing.T) {
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("arrival at the wait position", func() bool {
 		return len(zAtXY(f.mot.moveList(), 250, 150)) > 0
 	})
 
 	f.setBit(f.m.pins.waitAbort, true)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to end", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireError("wait-abort during the wait", errWaitAborted)
 	f.setBit(f.m.pins.waitAbort, false)
@@ -1469,11 +1464,11 @@ func TestJobEstopMidMove(t *testing.T) {
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("the job to start moving", func() bool { return f.bit("busy") && len(f.mot.moveList()) > 0 })
 
 	f.setBit(f.m.pins.estopOn, true)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to end", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireError("estop during a job", errEstop)
 
@@ -1505,11 +1500,11 @@ func TestJobMachineOffMidMove(t *testing.T) {
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("the job to start moving", func() bool { return f.bit("busy") && len(f.mot.moveList()) > 0 })
 
 	f.setBit(f.m.pins.machineOn, false)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to end", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireError("machine-on dropped during a job", errMachineOff)
 	if f.bit("machine-is-on") {
@@ -1638,7 +1633,7 @@ func TestRemoveFromProcReleasesBeforeGrip(t *testing.T) {
 	f.m.pins.originID.Set(20) // the proc station
 	f.m.pins.destID.Set(10)   // the tray
 	f.m.pins.processStep.Set(0)
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	// And it is a dwell, not a deadlock: the grip follows, and the job runs on
 	// to the tray.
@@ -1677,7 +1672,7 @@ func TestPlaceToProcClampsBeforeLift(t *testing.T) {
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	f.eventually("the part is placed", func() bool { return f.bit("proc.20.has-material") })
 	// The fixture is slow to report itself clamped: the lift has to wait for it.
@@ -1708,7 +1703,7 @@ func TestEstopDuringPlaceDwellKeepsRecords(t *testing.T) {
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	// The record rises at the "opened" confirmation, while the dwell still runs.
 	f.eventually("has-material committed before the dwell ends", func() bool {
@@ -1764,95 +1759,9 @@ func TestStartJobHeldAtStartupIsNotARequest(t *testing.T) {
 	})
 	// Released and raised again it is a request — and this one runs into the
 	// empty tray, which proves it was actually started.
-	jf.pulse(jf.m.pins.startJob)
+	jf.request()
 	jf.eventually("the job to be answered", func() bool { return jf.bit("error") })
 	jf.requireError("a real start-job edge", errTrayEmpty)
-}
-
-// TestJobRequestArming pins the start-job handshake rule directly: a level has to
-// be seen low before it counts as a request. The interesting case cannot be built
-// out of pins — it is a start-job wired to a signal a PLC keeps driving high, so
-// the module's own clear is overwritten before the loop ever samples a low, and
-// the level would read as a fresh job on the very next cycle.
-func TestJobRequestArming(t *testing.T) {
-	var logs bytes.Buffer
-	c := &control{m: &pnptaskModule{
-		logger: slog.New(slog.NewTextHandler(&logs, nil)),
-	}}
-
-	// High from the first cycle: not a request (D26, and what primeEdges leaves
-	// jobArmed at).
-	c.in.startJob = true
-	if c.jobRequest() {
-		t.Error("a start-job level present from the start counted as a request")
-	}
-	if c.jobRequest() {
-		t.Error("the same held level counted as a request on a later cycle")
-	}
-
-	// Seen low, then raised: one request, once.
-	c.in.startJob = false
-	if c.jobRequest() {
-		t.Error("a low start-job counted as a request")
-	}
-	c.in.startJob = true
-	if !c.jobRequest() {
-		t.Error("a start-job raised after a low was not taken as a request")
-	}
-	if c.jobRequest() {
-		t.Error("one request was taken twice")
-	}
-}
-
-// TestHeldStartJobIsReported: the unarmed level is a deadlock -- the PLC waits
-// for the acknowledgement accepting would have produced, this waits for a low
-// only the PLC can produce -- and it used to be entirely silent. On the machine
-// that presented as a job that simply never started, with the reason on no pin.
-func TestHeldStartJobIsReported(t *testing.T) {
-	var logs bytes.Buffer
-	c := &control{m: &pnptaskModule{
-		logger: slog.New(slog.NewTextHandler(&logs, nil)),
-	}}
-
-	c.in.startJob = true
-	for i := 0; i < jobUnarmedWarnTicks-1; i++ {
-		if c.jobRequest() {
-			t.Fatal("an unarmed level counted as a request")
-		}
-	}
-	if logs.Len() != 0 {
-		t.Errorf("warned before %d ticks: %s", jobUnarmedWarnTicks, logs.String())
-	}
-
-	c.jobRequest()
-	if !strings.Contains(logs.String(), "start-job") {
-		t.Errorf("no warning after %d ticks of a held level: %q",
-			jobUnarmedWarnTicks, logs.String())
-	}
-
-	// Once per episode, not once per cycle.
-	n := logs.Len()
-	for i := 0; i < 3*jobUnarmedWarnTicks; i++ {
-		c.jobRequest()
-	}
-	if logs.Len() != n {
-		t.Errorf("warned more than once: %s", logs.String()[n:])
-	}
-
-	// Breaking the tie re-arms, and a later held level is reported again.
-	c.in.startJob = false
-	c.jobRequest()
-	c.in.startJob = true
-	if !c.jobRequest() {
-		t.Fatal("a level raised after a low was not taken as a request")
-	}
-	n = logs.Len()
-	for i := 0; i < jobUnarmedWarnTicks; i++ {
-		c.jobRequest()
-	}
-	if logs.Len() == n {
-		t.Error("a second held level went unreported")
-	}
 }
 
 // TestTrayResetDuringAJobIsNotLost: the reset edges are latched, so a request
@@ -1867,23 +1776,28 @@ func TestTrayResetDuringAJobIsNotLost(t *testing.T) {
 
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("the job to start moving", func() bool {
 		return f.bit("busy") && len(f.mot.moveList()) > 0
 	})
 
 	// Ask for the tray to be emptied while the job is running.
+	resets := f.get("tray.10.resets")
 	f.tray().setEmpty.Set(false)
 	f.tray().setEmpty.Set(true)
 	f.sampled()
 	f.mot.release()
-	f.eventually("the job to finish", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to finish", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireOK("job during which set-empty was pressed")
 
 	f.eventually("the request to be honoured after the job", func() bool {
 		return f.bit("tray.10.empty") && !f.bit("tray.10.full")
 	})
+	// ... and counted, so a PLC can tell it has been (§5.2).
+	if n := f.get("tray.10.resets") - resets; n != 1 {
+		t.Errorf("tray.10.resets went up by %v for one applied reset, want 1", n)
+	}
 }
 
 // TestJobPublishesPlanTime: plan-time carries the slowest route plan of the job
@@ -2015,7 +1929,7 @@ func TestJobPlansEachLegAgainstTheCurrentScene(t *testing.T) {
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
 	f.mot.resetCalls()
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	// The job picks and parks at the wait position (250, 150) — planned in the
 	// closed scene, where the station itself could not have been reached.
@@ -2036,7 +1950,7 @@ func TestJobPlansEachLegAgainstTheCurrentScene(t *testing.T) {
 	f.m.pins.deadzoneSelect.Set(1)
 	f.proc().busy.Set(false)
 
-	f.eventually("the job handshake to complete", func() bool { return !f.bit("start-job") })
+	f.eventually("the job handshake to complete", f.ended)
 	f.eventually("busy to clear", func() bool { return !f.bit("busy") })
 	f.m.pins.startJob.Set(false)
 	f.requireOK("a job whose destination was freed by a scene change")
@@ -2226,13 +2140,13 @@ func TestHomePressDuringJobIsIgnored(t *testing.T) {
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("the job to be busy-waiting", func() bool { return f.bit("busy") })
 
 	f.mot.resetCalls()
 	f.press(f.m.pins.home)
 	f.proc().busy.Set(false)
-	f.eventually("the job handshake to complete", func() bool { return !f.bit("start-job") })
+	f.eventually("the job handshake to complete", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireOK("the job around the ignored press")
 	f.consistently("no homing run after the job", func() bool {

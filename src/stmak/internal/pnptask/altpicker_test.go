@@ -405,7 +405,7 @@ func TestAltSwapAbortLeavesTheStationEmptyInTheModel(t *testing.T) {
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
-	f.m.pins.startJob.Set(true)
+	f.request()
 
 	// The removal commits the moment the fixture has let go.
 	f.eventually("the swap to take the occupant out", func() bool {
@@ -862,13 +862,13 @@ func TestFreePickerOpenedBeforeAnyDescent(t *testing.T) {
 	f.m.pins.originID.Set(10)
 	f.m.pins.destID.Set(20)
 	f.m.pins.processStep.Set(0)
-	f.m.pins.startJob.Set(true)
+	f.request()
 	f.eventually("the first move to be dispatched", func() bool { return len(f.mot.moveList()) > 0 })
 	if f.bit("picker.1.close") {
 		t.Error("the free picker was still commanded closed when the head started moving")
 	}
 	f.mot.release()
-	f.eventually("the job to complete", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to complete", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireOK("a job with the other picker left closed")
 }

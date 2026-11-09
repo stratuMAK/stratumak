@@ -21,12 +21,13 @@ jobs by hand. Tell it what the trays hold, then command one:
 
     halcmd setp pnp.task.origin-id 10         # component tray
     halcmd setp pnp.task.dest-id   20         # press
-    halcmd setp pnp.task.start-job 1          # the module clears it when done
+    halcmd setp pnp.task.start-job 1          # rising edge: busy rises at once
 
+    halcmd show pin pnp.task.busy             # falls when the job is over
     halcmd show pin pnp.task.error-id         # 0 = the job worked
     halcmd show pin pnp.task.proc.20.has-material
 
-    halcmd setp pnp.task.start-job 0          # then 20 -> 11 empties the press
+    halcmd setp pnp.task.start-job 0          # drop it; then 20 -> 11 empties the press
     halcmd setp pnp.task.origin-id 20
     halcmd setp pnp.task.dest-id   11
     halcmd setp pnp.task.start-job 1

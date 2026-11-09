@@ -241,12 +241,10 @@ with servo-cycle state:
 Station resets keep their semantics: applied by Go between jobs. What changes
 is that the PLC can see when (§5.2).
 
-*Step 4 as built:* the gates the inputs decide (estop; estop and auto) are
-applied in the cycle function at the press. The gates on Go's own state —
-home and park not while busy, error-reset only with an error latched — are
-applied by Go when it takes the count, exactly where its sample() applied
-them before; they move into the cycle function with step 5, when busy and
-the latch do. A station reset is one counter with the latest value (set-full:
+*Steps 4 and 5 as built:* every gate is applied in the cycle function at the
+press: estop, auto, and since step 5 busy (home) and the latch (error-reset,
+which clears it in the same cycle and is counted only then). `start-job` and
+`park` are not counted: the function accepts them (§4.4). A station reset is one counter with the latest value (set-full:
 the tray's step of that servo cycle; set-empty: -1), plus a conflict counter
 for both in one cycle, which Go logs.
 
@@ -573,6 +571,17 @@ rigs and the machine.
    `cycle`/`sync`, station reset counters. pnptask scenarios and `pnpdrv.py`
    move to the new contract; CoatV2conf (pnp.main, jobreq, auto_handler,
    rigs) changes in the same pair of PRs.
+   *Built:* the handshakes block of `pnp_rt.h` (`pnp_rt_job_t`,
+   `pnp_rt_latch_t`, `job_done`/`park_done`/`raise_seq` in Go's frame); the
+   function composes the output frame with its own pins (`busy`, `error`,
+   `error-id`, `error-station`, `picker.N.missing`, `cycle`) and Go cannot
+   write them (`rtBit`/`rtU32` have no Set). Go takes requests by number
+   (`jobRequest`/`parkRequest`), ends them with `rtIO.endJob`/`endPark` in the
+   commit that carries the outcome, raises through `rtIO.raise`. A request
+   accepted before the loop starts is run, not primed away. `cycle-count` is
+   gone; the unit tests and `pnpdrv.py` wait on `sync`, and for a job on
+   `sync` past the request with `busy` low (a refused job's busy is too short
+   to poll); the unit tests also count ended handshakes (`handshakes`).
 6. **Scene lock and lift watch in RT.** `scenegate` and `zarcs` scenarios
    extended: grant and hold in the same cycle; the clamp within a servo cycle
    of the segment change.
@@ -632,7 +641,7 @@ step ticks off what it settles.
 | 5 | step 2 | The `z-offset` inputs (trays and process stations) and `tray-id` were read live outside `sample()` (approach heights, reach check, world start, persistence restore). They now come from the frame like every other input. | done in step 2 |
 | 6 | step 2 | Pulses shorter than a Go tick are still lost: the cycle function samples every servo cycle, but Go still looks at the latest frame only, every 10 ms. §5.2.1's hold rules stay valid until edges move to RT. | done in step 4; §5.2.1 rewritten for the edge inputs |
 | 7 | step 2 | CoatV2conf `threads.hal` names `pnp.task.deadzone-check`; the stratumak build of step 2 refuses to start without `pnp.task.cycle`. The two have to be deployed together. | config change with step 2 |
-| 8 | step 2 | `start-job` is still an IO pin, cleared by the cycle function on request. | step 5 makes it an in pin |
+| 8 | step 2 | `start-job` is still an IO pin, cleared by the cycle function on request. | done in step 5: an in pin, accepted by the function |
 | 9 | step 3 | The test fake of `mot` (`dztest`) had no `status_get_snapshot`; a NULL callback would have crashed the cycle function. A version-3 provider always has it, but the cycle function checks for NULL anyway, and the fake can now serve a snapshot. | done in step 3 |
 | 10 | step 3 | `mot` v3 shifts nothing for tpmod/homemod (rebuilt with the generated header), but any out-of-tree consumer of `mot` v2 is refused at lookup until rebuilt. | note for the release |
 | 11 | step 3 | The scenegate runtest read `scene-busy` and `in-position` with two REST calls, so its "leg under way" condition could combine two moments; the hold then landed before the leg took the lock and the job waited forever. It reads both from one listing now. | done in step 3 |

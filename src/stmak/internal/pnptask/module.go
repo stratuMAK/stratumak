@@ -51,6 +51,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
@@ -130,6 +131,12 @@ type pnptaskModule struct {
 	// in the control loop's own time instead of on a goroutine the scheduler
 	// can hold back past a settle budget. Set before startControl only.
 	tickHook func()
+
+	// handshakes counts the jobs and parks the control loop has ended, after
+	// the commit that ends each. Nothing in production reads it: the unit
+	// tests wait on it, since a job refused at once raises busy for too short
+	// a time to be polled.
+	handshakes atomic.Uint32
 
 	// motInstance and persistInstance are resolved in the later phases; they
 	// are parsed here so a typo on the load line is at least recorded next to

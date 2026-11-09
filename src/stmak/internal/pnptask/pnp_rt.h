@@ -8,16 +8,21 @@
 // Per run:
 //
 //   1. the input pins are copied into the write slot of the RT -> Go buffer
-//      (one pin map, so all of them from one moment of the thread), and the
-//      rising edges of the command inputs are counted (pnp_rt_edges_t);
-//   2. Go's latest output frame is read and copied to the output pins (one pin
-//      map, so they all change together: no reader can see half an update);
-//   3. a start-job clear Go asked for is applied (start-job is an IO pin the
-//      requester raises, so it cannot be in the output map);
-//   4. the dead-zone check runs (pnp_deadzone_rt.h);
-//   5. motmod's state of this cycle goes into the input frame (mot's
+//      (one pin map, so all of them from one moment of the thread);
+//   2. Go's latest output frame is read;
+//   3. the handshakes run (step 5): a job or park Go has finished ends (busy
+//      falls), an error-reset edge clears the latch, a fault Go raised
+//      latches, a start-job or park edge is accepted (busy rises, the job's
+//      parameters are latched from this same sample);
+//   4. the rising edges of the other command inputs are counted
+//      (pnp_rt_edges_t);
+//   5. the output pins are written from Go's frame, with the pins RT owns
+//      (busy, the error latch, picker.N.missing, cycle) put in: one pin map,
+//      so they all change together and no reader can see half an update;
+//   6. the dead-zone check runs (pnp_deadzone_rt.h);
+//   7. motmod's state of this cycle goes into the input frame (mot's
 //      status_get_snapshot), so Go sees motion and pins from the same cycle;
-//   6. the input frame is published to Go, and the doorbell's cycle counter
+//   8. the input frame is published to Go, and the doorbell's cycle counter
 //      ticks (Go reads it to know a frame postdates a motion command).
 //
 // The frames have fixed-size arrays; config.go refuses more stations, pickers
@@ -44,12 +49,13 @@
 // --- RT -> Go: the edges, counted at servo rate --------------------------------
 //
 // Each command input's rising edge, counted in the cycle it happens in and
-// only when the inputs allow it then (press-time gating, PNPTASK_RT_BOUNDARY.md
-// §4.3): machine-on, home and park not under estop, the manual picker presses
-// neither under estop nor in auto. Go keeps the last count it took and acts on
-// the difference, so a pulse of one servo cycle is seen and none is lost
-// between two Go ticks. The gates on Go's own state (busy, the error latch)
-// are Go's, applied when it takes the count, until those move here.
+// only when the state allows it then (press-time gating, PNPTASK_RT_BOUNDARY.md
+// §4.3): machine-on not under estop, home neither under estop nor while busy,
+// error-reset only with an error latched (and that edge clears it, §4.4), the
+// manual picker presses neither under estop nor in auto. Go keeps the last
+// count it took and acts on the difference, so a pulse of one servo cycle is
+// seen and none is lost between two Go wakes. start-job and park are not
+// counted here: they are the handshakes (pnp_rt_job_t, park_seq).
 //
 // The first run only primes: an input already high then is no edge (Go adds
 // machine-on's boot edge itself, as it always did).
@@ -69,11 +75,42 @@ typedef struct {
 } pnp_rt_edge_reset_t;
 
 typedef struct {
-    uint32_t machine_on, home, park, error_reset;
+    uint32_t machine_on, home, error_reset;
     pnp_rt_edge_picker_t picker[PNP_RT_MAX_PICKERS];
     pnp_rt_edge_reset_t  tray[PNP_RT_MAX_TRAYS];
     pnp_rt_edge_reset_t  proc[PNP_RT_MAX_PROCS];
 } pnp_rt_edges_t;
+
+// --- the handshakes (§4.4) ------------------------------------------------------
+//
+// Job: a start-job rising edge, with busy low and no error latched, is
+// accepted in its own cycle: busy rises, seq counts it, and the parameters are
+// latched from that same sample. Go runs the job and ends it by setting
+// job_done to seq in its frame, with the outcome (a raise or none) and the
+// model in the same commit; busy falls in the cycle that frame is applied. An
+// edge while busy or latched is ignored -- the requester sees error, or busy,
+// in the same frame. Park is the same handshake on the park edge (not under
+// estop), counted in park_seq and ended by park_done.
+//
+// Error latch: Go raises by counting raise_seq with id, station and the
+// missing mask in its frame. The first fault wins: a raise while latched is
+// dropped (raise_seen still takes it). An error-reset edge with the latch set
+// clears it, all of it in one cycle; it is applied before a raise of the same
+// frame, so a reset never clears a fault it cannot have seen.
+
+typedef struct {
+    uint32_t seq;              // jobs accepted
+    uint32_t origin_id, dest_id, process_step, deadzone_select;
+    uint8_t  stay_near;
+    uint8_t  pad_[3];
+} pnp_rt_job_t;
+
+typedef struct {
+    uint32_t id, station;
+    uint8_t  set;
+    uint8_t  missing;          // bit per picker
+    uint8_t  pad_[2];
+} pnp_rt_latch_t;
 
 // --- RT -> Go: the inputs of one servo cycle --------------------------------
 
@@ -118,6 +155,14 @@ typedef struct {
 
     pnp_rt_edges_t     edges;   // counted since the function started
 
+    pnp_rt_job_t       job;       // the last job accepted
+    pnp_rt_latch_t     latch;     // the error latch as on the pins
+    uint32_t           park_seq;  // parks accepted
+    uint32_t           raise_seen; // Go's last raise_seq this function took
+    uint8_t            busy;      // a job or park accepted and not ended
+    uint8_t            busy_park; // ... and it is a park
+    uint8_t            pad4_[6];
+
     mot_snapshot_t     mot;     // motmod's state this cycle, valid with mot_ok
     uint8_t            mot_ok;
     uint8_t            pad3_[7];
@@ -128,30 +173,46 @@ typedef struct {
 typedef struct {
     double   pos_x, pos_y, pos_x_mu, pos_y_mu;
     uint32_t origin_id;
-    uint8_t  close, missing, holds;
+    uint8_t  close, holds;
+    uint8_t  missing;          // RT
     uint8_t  pad_;
 } pnp_rt_out_picker_t;
 
 typedef struct {
-    uint32_t count;
+    uint32_t count, resets;
     uint8_t  empty, avail, full;
-    uint8_t  pad_;
+    uint8_t  pad_[5];
 } pnp_rt_out_tray_t;
 
 typedef struct {
-    uint8_t has_material, release;
+    uint32_t resets;
+    uint8_t  has_material, release;
+    uint8_t  pad_[2];
 } pnp_rt_out_proc_t;
 
+// The fields marked RT are the pins the function owns: Go never writes them,
+// the function puts its own values in before the frame goes to the pins.
 typedef struct {
     uint32_t seq;              // Go's commit number
-    uint32_t start_job_clears; // a change clears the start-job pin (step 3)
+
+    // Go's requests (§4.4)
+    uint32_t job_done;         // = the job's seq: the job is over
+    uint32_t park_done;        // = park_seq: the park is over
+    uint32_t raise_seq;        // counts a fault to latch ...
+    uint32_t raise_id, raise_station;
+    uint8_t  raise_missing;    // ... with these (missing: bit per picker)
+    uint8_t  pad0_[3];
 
     double   plan_time;
-    uint32_t cycle_count, error_id, error_station;
+    uint32_t sync;             // the cycle of the input frame Go last acted on
+    uint32_t cycle;            // RT
+    uint32_t error_id, error_station;  // RT
 
-    uint8_t  machine_is_on, homed, parked, busy;
-    uint8_t  scene_busy, error;
-    uint8_t  pad_[6];
+    uint8_t  machine_is_on, homed, parked;
+    uint8_t  busy;             // RT
+    uint8_t  scene_busy;
+    uint8_t  error;            // RT
+    uint8_t  pad_[2];
 
     pnp_rt_out_picker_t picker[PNP_RT_MAX_PICKERS];
     pnp_rt_out_tray_t   tray[PNP_RT_MAX_TRAYS];
@@ -168,19 +229,23 @@ typedef struct {
     pnp_dz_t       *dz;        // the dead-zone check's block, and mot
     stmak_doorbell_t *bell;    // cycle ticks after every publish
 
-    // start-job's data-pointer slot: written only to clear it (step 3), as
-    // one byte, the size of hal.h's hal_bit_t.
-    void *volatile *start_job;
-
     uint32_t cycle;
-    uint32_t start_job_clears; // the last count applied
 
-    // Edge counting (step 1): how many of each the frames hold, the counts,
-    // and last cycle's input levels.
+    // Edge counting: how many of each the frames hold, the counts, and last
+    // cycle's input levels.
     int            n_pickers, n_trays, n_procs;
     int            primed;
     pnp_rt_edges_t edges;
     pnp_rt_in_t    prev;
+
+    // The handshakes (§4.4).
+    pnp_rt_job_t   job;
+    pnp_rt_latch_t latch;
+    uint32_t       park_seq, raise_seen;
+    int            busy, busy_park;
+
+    // The output frame as it goes to the pins: Go's, with RT's pins put in.
+    pnp_rt_out_t   composed;
 } pnp_rt_t;
 
 void pnp_rt_cycle(void *arg, long period) STMAK_NONBLOCKING;

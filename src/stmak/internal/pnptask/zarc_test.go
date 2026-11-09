@@ -493,7 +493,7 @@ func TestZCornerArcPickClampOnMachineOff(t *testing.T) {
 		t.Fatal("the fixture was told to clamp while motion still runs the straight lift")
 	}
 	f.setBit(f.m.pins.machineOn, false)
-	f.eventually("the job to end", func() bool { return !f.bit("start-job") })
+	f.eventually("the job to end", f.ended)
 	f.m.pins.startJob.Set(false)
 	f.requireError("machine-on dropped during the leg", errMachineOff)
 	f.eventually("the clamp request after the machine went off", func() bool { return !f.bit("proc.20.release") })

@@ -40,20 +40,19 @@ func TestCycleOutputsOnlyOnCommit(t *testing.T) {
 	m, get := rtModule(t)
 	m.rt.invoke()
 
-	m.pins.busy.Set(true)
-	m.pins.errorID.Set(uint32(errTrayEmpty))
-	m.pins.errorFlag.Set(true)
+	m.pins.machineIsOn.Set(true)
+	m.pins.trays[0].count.Set(7)
 	m.pins.pickers[0].close.Set(true)
 	m.rt.invoke()
-	if get("busy") != 0 || get("error") != 0 || get("error-id") != 0 || get("picker.0.close") != 0 {
+	if get("machine-is-on") != 0 || get("tray.10.count") != 0 || get("picker.0.close") != 0 {
 		t.Fatal("outputs reached the pins without a commit")
 	}
 
 	m.rt.commit()
 	m.rt.invoke()
-	if get("busy") != 1 || get("error") != 1 || get("error-id") != float64(errTrayEmpty) || get("picker.0.close") != 1 {
-		t.Errorf("after the commit: busy=%v error=%v error-id=%v close=%v; want all of them",
-			get("busy"), get("error"), get("error-id"), get("picker.0.close"))
+	if get("machine-is-on") != 1 || get("tray.10.count") != 7 || get("picker.0.close") != 1 {
+		t.Errorf("after the commit: machine-is-on=%v count=%v close=%v; want all of them",
+			get("machine-is-on"), get("tray.10.count"), get("picker.0.close"))
 	}
 }
 
@@ -85,39 +84,188 @@ func TestCycleInputsInOneFrame(t *testing.T) {
 	}
 }
 
-// TestCycleStartJobClearWithBusy: the start-job clear and busy falling come
-// from one commit, so they reach the pins in the same run. Without a new clear
-// the function leaves start-job alone: the requester's raise survives.
-func TestCycleStartJobClearWithBusy(t *testing.T) {
+// TestCycleJobHandshake: a start-job edge is accepted in the run that samples
+// it -- busy up, the parameters latched from that same sample -- and the job
+// ends in the run that applies Go's end, with the outcome next to it.
+func TestCycleJobHandshake(t *testing.T) {
 	m, get := rtModule(t)
+	m.rt.invoke() // primes
 
-	// A job running: the requester raised start-job, busy is up.
+	m.pins.originID.Set(10)
+	m.pins.destID.Set(20)
+	m.pins.processStep.Set(3)
+	m.pins.stayNear.Set(true)
 	m.pins.startJob.Set(true)
-	m.pins.busy.Set(true)
-	m.rt.commit()
 	m.rt.invoke()
+	m.pins.originID.Set(99) // after the edge: not the job's
 	m.rt.invoke()
-	if get("start-job") != 1 || get("busy") != 1 {
-		t.Fatalf("running: start-job=%v busy=%v, want both high", get("start-job"), get("busy"))
+	m.rt.read()
+	j := &m.rt.in.job
+	if get("busy") != 1 || j.seq != 1 {
+		t.Fatalf("after the edge: busy=%v seq=%d, want 1 1", get("busy"), j.seq)
+	}
+	if j.origin_id != 10 || j.dest_id != 20 || j.process_step != 3 || j.stay_near != 1 {
+		t.Errorf("latched origin %d dest %d step %d stay %d; want 10 20 3 1",
+			j.origin_id, j.dest_id, j.process_step, j.stay_near)
 	}
 
-	// The job ends: one commit.
-	m.pins.busy.Set(false)
-	m.rt.clearStartJob()
-	m.rt.commit()
+	// A second edge while busy is no request.
+	m.pins.startJob.Set(false)
 	m.rt.invoke()
-	if get("start-job") != 0 || get("busy") != 0 {
-		t.Errorf("after the end: start-job=%v busy=%v, want both low in the same run",
-			get("start-job"), get("busy"))
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	m.rt.read()
+	if m.rt.in.job.seq != 1 {
+		t.Errorf("an edge while busy was accepted (seq %d)", m.rt.in.job.seq)
 	}
 
-	// The next request: the function must not clear it again on its own.
-	m.pins.startJob.Set(true)
+	// The end and a fault in one commit: busy falls in the run the error rises.
+	if !m.rt.raise(uint32(errTrayEmpty), 10, 1) {
+		t.Fatal("raise refused with nothing latched")
+	}
+	m.rt.endJob(1)
 	m.rt.commit()
 	m.rt.invoke()
+	if get("busy") != 0 || get("error") != 1 || get("error-id") != float64(errTrayEmpty) ||
+		get("error-station") != 10 || get("picker.0.missing") != 1 {
+		t.Errorf("after the end: busy=%v error=%v id=%v station=%v missing=%v; want 0 1 %d 10 1",
+			get("busy"), get("error"), get("error-id"), get("error-station"),
+			get("picker.0.missing"), errTrayEmpty)
+	}
+
+	// An edge while latched is no request either.
+	m.pins.startJob.Set(false)
 	m.rt.invoke()
-	if get("start-job") != 1 {
-		t.Error("the cycle function cleared a new start-job without being asked")
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	m.rt.read()
+	if m.rt.in.job.seq != 1 || get("busy") != 0 {
+		t.Errorf("an edge while latched was accepted (seq %d busy %v)", m.rt.in.job.seq, get("busy"))
+	}
+}
+
+// TestCycleStartJobHeldAtStartIsNoRequest: D26 -- a level already high at the
+// function's first run only primes.
+func TestCycleStartJobHeldAtStartIsNoRequest(t *testing.T) {
+	m, get := rtModule(t)
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	m.rt.invoke()
+	if get("busy") != 0 {
+		t.Error("a start-job high at the first run was accepted")
+	}
+	m.pins.startJob.Set(false)
+	m.rt.invoke()
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	if get("busy") != 1 {
+		t.Error("a start-job raised after a low was not accepted")
+	}
+}
+
+// TestCycleErrorLatch: the first fault wins, a reset edge clears the whole
+// latch in one run and is counted only then, and a raise in the frame a reset
+// is applied with latches after it.
+func TestCycleErrorLatch(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+
+	m.rt.raise(uint32(errReleaseTimeout), 20, 0)
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.read()
+	if m.rt.raise(uint32(errMotionError), 0, 0) {
+		t.Error("a second raise was sent with one latched")
+	}
+	if get("error") != 1 || get("error-id") != float64(errReleaseTimeout) {
+		t.Fatalf("latched: error=%v id=%v", get("error"), get("error-id"))
+	}
+
+	// A reset with nothing else: cleared, and counted.
+	before := uint32(m.rt.in.edges.error_reset)
+	m.pins.errorReset.Set(true)
+	m.rt.invoke()
+	m.rt.read()
+	if get("error") != 0 || get("error-id") != 0 || get("error-station") != 0 {
+		t.Errorf("after the reset: error=%v id=%v station=%v; want all 0",
+			get("error"), get("error-id"), get("error-station"))
+	}
+	if uint32(m.rt.in.edges.error_reset) != before+1 {
+		t.Error("the reset that cleared the latch was not counted")
+	}
+
+	// A reset with nothing latched: not counted.
+	m.pins.errorReset.Set(false)
+	m.rt.invoke()
+	m.pins.errorReset.Set(true)
+	m.rt.invoke()
+	m.rt.read()
+	if uint32(m.rt.in.edges.error_reset) != before+1 {
+		t.Error("a reset with nothing latched was counted")
+	}
+
+	// A reset and a raise in the same run: the raise is newer, it stays.
+	m.pins.errorReset.Set(false)
+	m.rt.invoke()
+	m.rt.raise(uint32(errTrayEmpty), 10, 0)
+	m.rt.commit()
+	m.pins.errorReset.Set(true)
+	m.rt.invoke()
+	if get("error") != 1 || get("error-id") != float64(errTrayEmpty) {
+		t.Errorf("a raise in the reset's run: error=%v id=%v, want it latched", get("error"), get("error-id"))
+	}
+}
+
+// TestCycleParkHandshake: park is the job's handshake on the park edge, and
+// not under estop.
+func TestCycleParkHandshake(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+
+	m.pins.estopOn.Set(true)
+	m.pins.park.Set(true)
+	m.rt.invoke()
+	if get("busy") != 0 {
+		t.Fatal("a park under estop was accepted")
+	}
+	m.pins.estopOn.Set(false)
+	m.pins.park.Set(false)
+	m.rt.invoke()
+	m.pins.park.Set(true)
+	m.rt.invoke()
+	m.rt.read()
+	if get("busy") != 1 || m.rt.in.park_seq != 1 || m.rt.in.busy_park != 1 {
+		t.Fatalf("park: busy=%v seq=%d busy_park=%d", get("busy"), m.rt.in.park_seq, m.rt.in.busy_park)
+	}
+	// home is not counted while busy.
+	home := uint32(m.rt.in.edges.home)
+	m.pins.home.Set(true)
+	m.rt.invoke()
+	m.rt.read()
+	if uint32(m.rt.in.edges.home) != home {
+		t.Error("a home press while busy was counted")
+	}
+	m.pins.parked.Set(true)
+	m.rt.endPark(1)
+	m.rt.commit()
+	m.rt.invoke()
+	if get("busy") != 0 || get("parked") != 1 {
+		t.Errorf("after the end: busy=%v parked=%v, want 0 1 in one run", get("busy"), get("parked"))
+	}
+}
+
+// TestCycleSync: sync is the cycle of the frame the control loop last read,
+// out with its next commit; cycle counts the runs.
+func TestCycleSync(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+	m.rt.invoke()
+	m.rt.read()
+	m.rt.invoke()
+	m.rt.commit()
+	m.rt.invoke()
+	if get("cycle") != 4 || get("sync") != 2 {
+		t.Errorf("cycle=%v sync=%v, want 4 2", get("cycle"), get("sync"))
 	}
 }
 
@@ -271,8 +419,8 @@ func TestEdgesOneServoCycle(t *testing.T) {
 	}
 }
 
-// TestEdgesGatedAtThePress: machine-on, home and park are not counted under
-// estop, the manual picker presses neither under estop nor in auto -- judged
+// TestEdgesGatedAtThePress: machine-on and home are not counted under estop
+// (nor a park accepted), the manual picker presses neither under estop nor in auto -- judged
 // in the servo cycle of the press, so clearing estop afterwards brings nothing
 // back.
 func TestEdgesGatedAtThePress(t *testing.T) {
@@ -294,9 +442,10 @@ func TestEdgesGatedAtThePress(t *testing.T) {
 	m.pins.estopOn.Set(false)
 	m.rt.invoke()
 	e := edges(m)
-	if e.machine_on != 0 || e.home != 0 || e.park != 0 || e.picker[0].open != 0 {
+	m.rt.read()
+	if e.machine_on != 0 || e.home != 0 || m.rt.in.park_seq != 0 || e.picker[0].open != 0 {
 		t.Errorf("counted under estop: machine-on %d home %d park %d open %d",
-			e.machine_on, e.home, e.park, e.picker[0].open)
+			e.machine_on, e.home, m.rt.in.park_seq, e.picker[0].open)
 	}
 
 	m.pins.autoEnable.Set(true)
@@ -373,4 +522,32 @@ func TestHomePulseBetweenTwoSamples(t *testing.T) {
 		f.m.pins.home.Set(false)
 	})
 	f.eventually("homing from a one-cycle pulse", func() bool { return f.mot.called("JointHome") })
+}
+
+// TestJobAcceptedBeforeTheLoopRuns: a start-job edge between the cycle
+// function's first run and the loop's start is accepted (busy up). The loop
+// takes it as a request, not as history, or busy would never fall.
+func TestJobAcceptedBeforeTheLoopRuns(t *testing.T) {
+	m, _ := rtModule(t)
+	m.rt.invoke()
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+
+	c := newControl(m)
+	c.primeEdges()
+	if seq, ok := c.jobRequest(); !ok || seq != 1 {
+		t.Errorf("jobRequest = %d %v, want the accepted job 1", seq, ok)
+	}
+	if _, ok := c.jobRequest(); ok {
+		t.Error("the job was taken twice")
+	}
+
+	// Without one in flight, everything accepted is history.
+	m2, _ := rtModule(t)
+	m2.rt.invoke()
+	c2 := newControl(m2)
+	c2.primeEdges()
+	if _, ok := c2.jobRequest(); ok {
+		t.Error("a request with nothing accepted")
+	}
 }

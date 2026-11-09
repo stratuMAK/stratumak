@@ -83,93 +83,45 @@ type job struct {
 	planMax time.Duration
 }
 
-// jobRequest is the start-job handshake (§7.4, D12: one job at a time, no
-// queueing). start-job is a level the PLC raises and the module clears, and it
-// has to be seen low again before it counts as a new request:
-//
-//   - a level already high when the loop starts is not a request (D26) — a PLC
-//     that latched it across a stmakd restart is not asking for that job again;
-//   - a pin linked to a signal the PLC keeps driving high reads high again on the
-//     cycle after the module cleared it, and that is still the same request.
-//
-// An external clear *during* a job is ignored simply by not being looked at
-// (D16): the job runs inside the control loop and this is only reached when the
-// module is idle.
-func (c *control) jobRequest() bool {
-	if !c.in.startJob {
-		c.jobArmed = true
-		c.jobUnarmedTicks = 0
-		return false
-	}
-	if !c.jobArmed {
-		// A level high since before this module armed is not a request and
-		// cannot become one: the PLC is waiting for the acknowledgement that
-		// accepting would have produced, and this is waiting for a low only the
-		// PLC can produce. Nothing here changes on its own, so say so — once.
-		// Silent, it presents as a job that simply never starts, and the reason
-		// is not visible on any pin.
-		c.jobUnarmedTicks++
-		if c.jobUnarmedTicks == jobUnarmedWarnTicks {
-			c.m.logger.Warn("pnptask: start-job has been high since before this " +
-				"module armed, so it is not a request (D26) and no job will " +
-				"start; drop start-job to arm the next one")
-		}
-		return false
-	}
-	c.jobArmed = false
-	c.jobUnarmedTicks = 0
-	return true
-}
-
-// runJobHandshake is one whole job: run it, publish its outcome, and complete the
-// handshake whichever way it went.
-func (c *control) runJobHandshake() {
-	if c.m.pins.errorFlag.Get() {
-		// Faults latch first-error-wins (§6.5), so a job started with the latch
-		// set could fail with nothing to show for it — its error id would be
-		// swallowed by the one already there. Refuse instead, and complete the
-		// handshake: start-job cleared with error still high says exactly what
-		// happened, and error-reset is what the PLC owes before the next job.
-		c.m.logger.Warn("pnptask: start-job refused, an error is still latched",
-			"error_id", c.m.pins.errorID.Get())
-		c.m.rt.clearStartJob()
-		c.m.rt.commit()
+// runJobHandshake is one whole job, accepted by the cycle function as seq: run
+// it, and end it with its outcome -- busy falls in the servo cycle that also
+// carries the error pins and the model the job left behind.
+func (c *control) runJobHandshake(seq uint32) {
+	if c.m.rt.latched() {
+		// The function accepts no request with an error latched, but a fault
+		// raised in the cycle it accepted one is on its way to the latch.
+		// Faults latch first-error-wins (§6.5), so this job could fail with
+		// nothing to show for it: it ends at once, and the latched fault is
+		// its answer.
+		c.m.logger.Warn("pnptask: job refused, an error is latched")
+		c.refuse(seq, false, nil)
 		return
 	}
 
-	c.m.pins.busy.Set(true)
-	c.m.rt.commit()
 	c.parked = false
-	err := c.runJob()
+	j, err := c.runJob()
 
-	// The diagnosis is published *before* the handshake completes: busy going low
-	// with start-job cleared is what tells the PLC to look, and it must not find
-	// the error pins still describing the previous job.
 	switch {
 	case err == nil:
-		c.m.logger.Info("pnptask: job complete",
-			"origin", c.in.originID, "dest", c.in.destID)
+		c.m.logger.Info("pnptask: job complete", "origin", j.originID, "dest", j.destID)
 	case errors.Is(err, errStopping):
-		// The module is shutting down mid-job. Not a machine fault: the pins are
-		// cleared so a restart does not inherit a job that is no longer running,
+		// The module is shutting down mid-job. Not a machine fault: the job
+		// ends so a restart does not inherit busy for a job no longer running,
 		// but nothing is latched (raise ignores it anyway).
 		c.m.logger.Warn("pnptask: job abandoned, module stopping")
 	default:
 		c.raise(err)
 	}
 
-	// ... and so is what the job left behind. The job's last action changed
-	// the world inside this cycle's step, after tick had published; without
-	// this the PLC would find busy low next to the pickers, the stations and
-	// the trays as they were before that action, one cycle stale, and would
-	// have to guess how long to wait for the cycle that corrects them.
-	//
-	// All of it -- the outcome, the model, busy and the start-job clear -- is
-	// one commit, so the cycle function applies it in one servo cycle.
+	// The outcome, what the job left behind and the end are one commit, so
+	// the cycle function applies them in one servo cycle: the PLC never finds
+	// busy low next to the pickers, the stations and the trays as they were
+	// before the job's last action, or next to an error pin still describing
+	// the previous job.
 	c.publish()
-	c.m.pins.busy.Set(false)
-	c.m.rt.clearStartJob()
+	c.m.rt.endJob(seq)
 	c.m.rt.commit()
+	c.m.handshakes.Add(1)
 }
 
 // runJob is the job state machine of §7.4:
@@ -180,7 +132,7 @@ func (c *control) runJobHandshake() {
 // a mis-configured PLC expects to see. Planning is not a phase of its own — each
 // leg plans its own route just before it runs (§7.4), because the wait leg of a
 // busy-gated job is not known until the station has been sampled.
-func (c *control) runJob() error {
+func (c *control) runJob() (*job, error) {
 	j := c.latchJob()
 	c.m.logger.Info("pnptask: job start",
 		"origin", j.originID, "dest", j.destID, "process_step", j.step,
@@ -192,10 +144,10 @@ func (c *control) runJob() error {
 	// point first — and validation below would read the unverified record,
 	// skipPick on a part that fell out during the downtime, and place a phantom.
 	if err := c.settleRestoredHeld(); err != nil {
-		return err
+		return j, err
 	}
 	if err := c.validateJob(j); err != nil {
-		return err
+		return j, err
 	}
 	// The movement height is only known once the stations resolve, so it is
 	// logged here rather than with the request.
@@ -203,15 +155,15 @@ func (c *control) runJob() error {
 		"origin", j.originID, "dest", j.destID, "move_height", j.height,
 		"origin_is_tray", j.origin.isTray(), "dest_is_tray", j.dest.isTray())
 	if err := c.ensureHomed(); err != nil {
-		return err
+		return j, err
 	}
 	if err := c.seedCmdPos(); err != nil {
-		return err
+		return j, err
 	}
 	// Every free picker open before the head goes down anywhere: see
 	// openFreePickers.
 	if err := c.openFreePickers(); err != nil {
-		return err
+		return j, err
 	}
 	holder, err := c.runPick(j)
 	if err == nil {
@@ -219,15 +171,15 @@ func (c *control) runJob() error {
 	}
 	if err != nil {
 		c.liftAfterError()
-		return err
+		return j, err
 	}
 	// A job ends with the head up: a lift its last action deferred (D52)
 	// runs now. A fixture that clamped after a lift (D53) is confirmed.
 	if err := c.flushLift(); err != nil {
-		return err
+		return j, err
 	}
 	c.fireLiftWatch()
-	return c.runConfirms()
+	return j, c.runConfirms()
 }
 
 // liftAfterError runs a lift up() deferred (D52) when a job fails between
@@ -251,22 +203,22 @@ func (c *control) liftAfterError() {
 	}
 }
 
-// latchJob captures the request pins. The values come from this cycle's input
-// snapshot, like every other decision in the loop (§6.5) — and that snapshot read
-// start-job before the parameters it carries, so they belong to this request and
-// not to the previous one (see sample).
+// latchJob captures the request: the parameters the cycle function latched
+// from the very sample its start-job edge was in (§4.4), so they belong to this
+// request and not to a moment before or after it.
 func (c *control) latchJob() *job {
 	// plan-time describes one job (see pins.go), so the previous job's worst
 	// case goes with the previous job.
 	c.m.pins.planTime.Set(0)
 	c.confirms = nil
+	r := &c.m.rt.in.job
 	return &job{
-		step:       int64(c.in.processStep),
-		originID:   c.in.originID,
-		destID:     c.in.destID,
-		deadzone:   c.in.deadzoneSelect,
+		step:       int64(r.process_step),
+		originID:   uint32(r.origin_id),
+		destID:     uint32(r.dest_id),
+		deadzone:   uint32(r.deadzone_select),
 		pickedSlot: -1,
-		stayNear:   c.in.stayNear,
+		stayNear:   b8(r.stay_near),
 	}
 }
 
