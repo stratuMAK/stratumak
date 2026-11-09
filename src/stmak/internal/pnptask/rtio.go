@@ -50,6 +50,10 @@ import (
 // before the first component that reads pnptask's outputs.
 const cycleFunct = "cycle"
 
+// rtTaskStalled is the error id the cycle function latches itself
+// (errTaskStalled; a test pins the two together).
+const rtTaskStalled = C.PNP_RT_TASK_STALLED
+
 // The frame limits of pnp_rt.h, which config.go enforces.
 const (
 	maxPickers = C.PNP_RT_MAX_PICKERS
@@ -125,6 +129,15 @@ type rtU32 struct {
 	v   *C.uint32_t
 }
 
+type rtF64 struct {
+	pin *hal.Pin[float64]
+	v   *C.double
+}
+
+func mkRTF64(b *pinBuilder, name string, v *C.double) *rtF64 {
+	return &rtF64{pin: mkPin[float64](b, name, hal.Out), v: v}
+}
+
 func mkRTBit(b *pinBuilder, name string, v *C.uint8_t) *rtBit {
 	return &rtBit{pin: mkPin[bool](b, name, hal.Out), v: v}
 }
@@ -174,8 +187,12 @@ type rtIO struct {
 
 	// runRT, when set, runs the cycle function in place of the servo thread
 	// (unit tests: driveRT); applyBeforeMotion then needs no thread to wait
-	// for.
-	runRT func()
+	// for, and the control loop runs it while it waits (control.wait).
+	// wakeEveryCycle, with it, ends every wait after one cycle: the unit
+	// tests' motion is a fake the cycle function does not see, so its
+	// progress rings nothing.
+	runRT          func()
+	wakeEveryCycle bool
 
 	// dispatchCycle is the doorbell's cycle count right after the last motion
 	// command returned (committedMotion). motctl returns only once motmod has
@@ -286,6 +303,7 @@ func (r *rtIO) bindOutputs(p *pinSet) error {
 	f64 := func(o *outF64) error { return hal.BindFloat(m, o.pin, base, o.v) }
 	rtBit := func(o *rtBit) error { return hal.BindBit(m, o.pin, base, o.v) }
 	rtU32 := func(o *rtU32) error { return hal.BindU32(m, o.pin, base, o.v) }
+	rtF64 := func(o *rtF64) error { return hal.BindFloat(m, o.pin, base, o.v) }
 
 	errs := []error{
 		bit(p.machineIsOn), bit(p.homed), bit(p.parked), rtBit(p.busy),
@@ -297,7 +315,7 @@ func (r *rtIO) bindOutputs(p *pinSet) error {
 		pk := &p.pickers[i]
 		errs = append(errs,
 			bit(pk.close), rtBit(pk.missing), bit(pk.holds), u32(pk.originID),
-			f64(pk.posX), f64(pk.posY), f64(pk.posXMu), f64(pk.posYMu))
+			rtF64(pk.posX), rtF64(pk.posY), rtF64(pk.posXMu), rtF64(pk.posYMu))
 	}
 	for i := range p.trays {
 		t := &p.trays[i]
@@ -368,6 +386,27 @@ func (r *rtIO) endJob(seq uint32) { r.out.job_done = C.uint32_t(seq) }
 // endPark ends the park accepted as seq, as endJob.
 func (r *rtIO) endPark(seq uint32) { r.out.park_done = C.uint32_t(seq) }
 
+// setTeach, setPickerOffset and setTaskTimeout hand the cycle function what it
+// needs of the params: LinearUnits and each picker's offset for the teach pins,
+// the stall check's limit (seconds; 0 off).
+func (r *rtIO) setTeach(linearUnits float64) { r.out.linear_units = C.double(linearUnits) }
+
+func (r *rtIO) setPickerOffset(n int, x, y float64) {
+	r.out.picker[n].x_offset = C.double(x)
+	r.out.picker[n].y_offset = C.double(y)
+}
+
+func (r *rtIO) setTaskTimeout(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	r.out.task_timeout = C.uint64_t(seconds * float64(time.Second))
+}
+
+// setWake sets the servo time the cycle function rings at (pnp_rt.h, the
+// change counter).
+func (r *rtIO) setWake(t time.Duration) { r.out.wake_at = C.uint64_t(t) }
+
 // requestScene sets the scene lock request (pnp_rt.h, scene lock); the lock is
 // the function's to grant, sceneGranted says when the frame read last shows it.
 func (r *rtIO) requestScene(want bool) {
@@ -428,6 +467,8 @@ func (r *rtIO) latched() bool { return r.in.latch.set != 0 || r.raisePending() }
 func (r *rtIO) read() {
 	r.toGo.Read(&r.in)
 	r.out.sync = r.in.cycle
+	// Acting on this frame takes its rings (the stall check, §7.2).
+	r.out.taken = r.in.change
 }
 
 // waitFirstFrame waits for the cycle function's first run, so the first read
@@ -661,6 +702,13 @@ func (s *edgesSeen) takeAll(e *C.pnp_rt_edges_t) {
 		s.procReset[i] = uint32(e.proc[i].count)
 		s.procConflicts[i] = uint32(e.proc[i].conflicts)
 	}
+}
+
+// latchIn puts a latched fault into an input frame, as the cycle function
+// would publish it (tests).
+func latchIn(f *inFrame, id errorID) {
+	f.latch.set = 1
+	f.latch.id = C.uint32_t(id)
 }
 
 // edgeBlock is the edges block of the input frame (tests read it).

@@ -643,3 +643,175 @@ func TestJobAcceptedBeforeTheLoopRuns(t *testing.T) {
 		t.Error("a request with nothing accepted")
 	}
 }
+
+// teachModule is a cycle function with a motion snapshot it can be fed, and a
+// control loop that is only used to publish (pickers=2).
+func teachModule(t *testing.T) (*pnptaskModule, *control, *dztest.FakeMot, func(string) float64) {
+	t.Helper()
+	setupPaths(t)
+	name := testInstanceName(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name, "pickers=2")
+	m.rt.runRT = m.rt.invoke
+	mot := dztest.NewFakeMot()
+	t.Cleanup(mot.Free)
+	m.deadzone.setMot(mot.Ptr())
+	t.Cleanup(func() { m.deadzone.setMot(nil) })
+	get := func(pin string) float64 {
+		t.Helper()
+		v, ok := hal.LookupValue(name + "." + pin)
+		if !ok {
+			t.Fatalf("pin %s not found", pin)
+		}
+		return v
+	}
+	return m, newControl(m), mot, get
+}
+
+// The teach pins report where each picker is: feedback plus that picker's
+// offset (D21), computed by the cycle function every servo cycle from its
+// motion snapshot. Targeting commands (x - offset), so this is its inverse. On
+// a metric machine the -mu (machine unit, D26) pins carry the same values.
+func TestPickerTeachPositions(t *testing.T) {
+	m, c, mot, get := teachModule(t)
+	// The offsets are taught with halcmd setp; here, directly. The loop hands
+	// them to the function when it publishes.
+	m.pins.pickers[1].xOffset.Set(40)
+	m.pins.pickers[1].yOffset.Set(-15)
+	c.publish()
+	m.rt.commit()
+	mot.SetSnapshot(false, 0, 0, 100, 200, 0)
+	m.rt.invoke()
+	if x0, x1 := get("picker.0.pos-x"), get("picker.1.pos-x"); x0 != 100 || x1 != 140 {
+		t.Errorf("pos-x = %g/%g, want 100/140", x0, x1)
+	}
+	if got := get("picker.1.pos-y"); got != 185 {
+		t.Errorf("picker.1.pos-y = %g, want 185 (200 + -15)", got)
+	}
+	if x, y := get("picker.1.pos-x-mu"), get("picker.1.pos-y-mu"); x != 140 || y != 185 {
+		t.Errorf("metric -mu teach pins = %g/%g, want 140/185 (equal to the mm pins)", x, y)
+	}
+
+	// Every cycle, with no commit of the loop's in between.
+	mot.SetSnapshot(false, 0, 0, 110, 200, 0)
+	m.rt.invoke()
+	if x := get("picker.0.pos-x"); x != 110 {
+		t.Errorf("pos-x = %g after the head moved, want 110 without the loop", x)
+	}
+}
+
+// On an inch machine the -mu teach pins carry machine units — the value the
+// INI wants — while the plain pins keep the internal mm (D23/D26). Pasting the
+// mm pins into the INI was the 25.4x teach hole of the phase-3 review.
+func TestPickerTeachPositionsInchMachine(t *testing.T) {
+	m, c, mot, get := teachModule(t)
+	m.cfg.LinearUnits = 1.0 / 25.4
+	c.publish()
+	m.rt.commit()
+	mot.SetSnapshot(false, 0, 0, 254, 508, 0) // mm feedback: 10 by 20 inches
+	m.rt.invoke()
+	if x := get("picker.0.pos-x"); x != 254 {
+		t.Errorf("pos-x = %g, want 254 mm", x)
+	}
+	if x, y := get("picker.0.pos-x-mu"), get("picker.0.pos-y-mu"); math.Abs(x-10) > 1e-9 || math.Abs(y-20) > 1e-9 {
+		t.Errorf("inch -mu teach pins = %g/%g, want 10/20 (machine units)", x, y)
+	}
+}
+
+// TestTaskStalledMatchesTheCycleFunction: the id the cycle function latches
+// is the loop's errTaskStalled.
+func TestTaskStalledMatchesTheCycleFunction(t *testing.T) {
+	if errorID(rtTaskStalled) != errTaskStalled {
+		t.Errorf("PNP_RT_TASK_STALLED = %d, errTaskStalled = %d", rtTaskStalled, errTaskStalled)
+	}
+}
+
+// TestCycleChangeCounter (§6.1): the doorbell rings for what the loop acts on --
+// an input, the motion snapshot's segment -- not for position alone, and once
+// when servo time reaches the loop's wake time.
+func TestCycleChangeCounter(t *testing.T) {
+	m, _ := rtModule(t)
+	mot := dztest.NewFakeMot()
+	defer mot.Free()
+	m.deadzone.setMot(mot.Ptr())
+	defer m.deadzone.setMot(nil)
+	bell := m.rt.bell
+	ring := func(what string, want bool) {
+		t.Helper()
+		before := bell.Change()
+		m.rt.invoke()
+		if got := bell.Change() != before; got != want {
+			t.Errorf("%s: rang = %v, want %v", what, got, want)
+		}
+	}
+
+	mot.SetSnapshot(false, 0, 5, 10, 10, 0)
+	m.rt.invoke()
+	m.rt.invoke()
+	ring("nothing changed", false)
+	m.pins.waitAbort.Set(true)
+	ring("an input changed", true)
+	ring("... and stays", false)
+	mot.SetSnapshot(false, 0, 5, 20, 30, 0)
+	ring("only the position moved", false)
+	mot.SetSnapshot(false, 0, 6, 20, 30, 0)
+	ring("the next segment runs", true)
+
+	m.rt.read()
+	m.rt.setWake(time.Duration(m.rt.in.servo_ns) + 3*time.Millisecond)
+	m.rt.commit()
+	ring("before the wake time", false)
+	ring("before the wake time", false)
+	ring("the wake time", true)
+	ring("past it: once only", false)
+}
+
+// TestCycleStallCheck (§7.2): a ring the loop leaves untaken for task-timeout
+// latches TASK_STALLED; taken in time, or with the check off, nothing.
+func TestCycleStallCheck(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+	m.rt.read()
+	m.rt.setTaskTimeout(0.005)
+	m.rt.commit() // takes everything so far
+
+	m.pins.waitAbort.Set(true) // a ring
+	for i := 0; i < 4; i++ {
+		m.rt.invoke()
+	}
+	if get("error") != 0 {
+		t.Fatal("stalled before task-timeout")
+	}
+	m.rt.read()
+	m.rt.commit() // taken in time
+	for i := 0; i < 10; i++ {
+		m.rt.invoke()
+	}
+	if get("error") != 0 {
+		t.Fatal("stalled with the ring taken")
+	}
+
+	m.pins.waitAbort.Set(false) // another ring, never taken
+	for i := 0; i < 6; i++ {
+		m.rt.invoke()
+	}
+	if get("error") != 1 || get("error-id") != float64(errTaskStalled) {
+		t.Errorf("untaken past task-timeout: error=%v id=%v, want TASK_STALLED", get("error"), get("error-id"))
+	}
+}
+
+// TestTaskStalledEndsTheWait (§7.2): a TASK_STALLED latched by the cycle
+// function ends the job in flight at its next abort check -- the PLC has given
+// up on it -- while a fault the loop raised itself does not.
+func TestTaskStalledEndsTheWait(t *testing.T) {
+	m, _ := rtModule(t)
+	c := newControl(m)
+	latchIn(&m.rt.in, errTrayEmpty)
+	if err := c.abortCheck(); err != nil {
+		t.Fatalf("a fault of the loop's own ended the wait: %v", err)
+	}
+	latchIn(&m.rt.in, errTaskStalled)
+	var f *pnpFault
+	if err := c.abortCheck(); !errors.As(err, &f) || f.id != errTaskStalled {
+		t.Errorf("abortCheck with TASK_STALLED latched = %v, want TASK_STALLED", err)
+	}
+}

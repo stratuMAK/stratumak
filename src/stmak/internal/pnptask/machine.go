@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"context"
 	"errors"
 	"math"
 	"time"
@@ -14,12 +15,26 @@ import (
 
 // The control loop's timing. They are vars, not consts, so tests can run the
 // same loop at a pace that does not cost a wall-clock second per case.
+//
+// The loop is driven by the cycle function's frames (PNPTASK_RT_BOUNDARY.md
+// §6.1): it sleeps until the doorbell rings -- something it acts on changed,
+// or servo time reached the wake time it asked for -- and every time it
+// measures is servo time (control.now), not the host's clock.
 var (
-	// pollInterval is one control cycle: 10 ms (100 Hz), the rate milltask's
-	// monitor runs at. Every input this module reacts to is a PLC signal or an
-	// operator button, so the rate is not about tracking the inputs — it is
-	// what bounds the module's reaction time to an estop.
-	pollInterval = 10 * time.Millisecond
+	// pollInterval is how often the sleeping loop looks at the doorbell: one
+	// atomic load, and the bound on how late it sees a ring.
+	pollInterval = time.Millisecond
+
+	// idleWake is the longest the loop sleeps with nothing to do. Nothing it
+	// acts on changes meanwhile, but what it reads that is not in the frame --
+	// the params (picker offsets, settle times, task-timeout) -- reaches the
+	// frame and the pins at this pace.
+	idleWake = 100 * time.Millisecond
+
+	// rtStallTimeout is how long the doorbell's cycle count may stand still
+	// before the cycle function counts as not running (§7.1): treated as a
+	// motion controller gone.
+	rtStallTimeout = time.Second
 
 	// motionEnableTimeout bounds the wait for motion to report itself enabled
 	// after Enable(). Two servo cycles suffice on a healthy machine, so a hit
@@ -32,36 +47,43 @@ var (
 	// cycle until it takes (milltask's guards.go does the same).
 	motionModeTimeout = 500 * time.Millisecond
 
-	// commFailureTicks is how many consecutive motion-status read failures
-	// declare the motion controller gone. A single failure is an expected
-	// split read; a full second of them means the RT side died or detached.
-	commFailureTicks = 100
+	// commFailure is how long the motion status may stay unreadable before
+	// the motion controller counts as gone. A single failure is expected (a
+	// frame from before the last motion command); a second of them means the
+	// RT side died or detached.
+	commFailure = time.Second
 
-	// statusStaleTicks is how many cycles the last good status snapshot keeps
-	// serving after failed reads. A single failed read is an expected split
-	// read (see commFailureTicks) and must not glitch state derived from the
-	// snapshot — the homed pin dropping for one cycle, a jog aborted and
-	// re-issued. 10 cycles is 100 ms of staleness, conservative because
-	// nothing in the machine state changes uncommanded faster than the estop
-	// chain, which has its own pin.
-	statusStaleTicks = 10
+	// statusStale is how long the last good status snapshot keeps serving
+	// after failed reads, so a single one does not glitch state derived from
+	// it -- the homed pin dropping, a jog aborted and re-issued. Conservative,
+	// because nothing in the machine state changes uncommanded faster than the
+	// estop chain, which has its own pin.
+	statusStale = 100 * time.Millisecond
 
-	// homingSettleTicks is how many consecutive cycles "no joint homing" must
-	// hold before it counts as the end of the homing sequence. motmod's homing
-	// FSM has a 1-2 servo-cycle window between HOME_SEQUENCE groups in which
-	// no joint reports Homing; a single snapshot landing in that window is a
-	// group handover, not a finished sequence.
-	homingSettleTicks = 5
+	// homingSettle is how long "no joint homing" must hold before it counts as
+	// the end of the homing sequence. motmod's homing FSM has a 1-2 servo-cycle
+	// window between HOME_SEQUENCE groups in which no joint reports Homing; a
+	// snapshot landing in that window is a group handover, not a finished
+	// sequence.
+	homingSettle = 50 * time.Millisecond
 
-	// motionDisabledDebounce is how many consecutive fresh status reads must show
-	// motion disabled, while this module believes it enabled, before that
-	// counts as a self-disable (following error, amp fault, hard limit, an
-	// external enable drop — all of which latch in motmod). enable() commits
-	// c.enabled only on a *published* Enabled=1, so a single honest sample
-	// would already be trustworthy; the debounce is the same defense in depth
-	// milltask's monitor keeps (monitor.go checkMotionEnabled), for 30 ms of
-	// detection latency.
-	motionDisabledDebounce = 3
+	// motionDisabledDebounce is how long the status must show motion disabled,
+	// while this module believes it enabled, before that counts as a
+	// self-disable (following error, amp fault, hard limit, an external enable
+	// drop -- all of which latch in motmod). enable() commits c.enabled only on
+	// a published Enabled=1, so a single honest sample would already be
+	// trustworthy; the debounce is the same defense in depth milltask's monitor
+	// keeps (monitor.go checkMotionEnabled).
+	motionDisabledDebounce = 30 * time.Millisecond
+
+	// wakeSoon is how soon the loop looks again when it needs the next frame
+	// rather than a change: a status refused as older than the last motion
+	// command, a mode switch re-sent until it takes.
+	wakeSoon = 2 * time.Millisecond
+
+	// settleMargin is added to every settle time: the feedback a settle waits
+	// for is judged on the first frame past it.
+	settleMargin = 2 * time.Millisecond
 )
 
 // motionControl is the motctl subset this module commands. It is an interface,
@@ -175,16 +197,26 @@ type inputs struct {
 type control struct {
 	m *pnptaskModule
 
-	ticker *time.Ticker
-	stop   chan struct{}
-	done   chan struct{}
+	stop chan struct{}
+	done chan struct{}
+	ctx  context.Context // ends with stop, for the doorbell wait
+	quit context.CancelFunc
 
-	// sampledAt is when this cycle's inputs were read. A wait's deadline is
-	// judged against it, not against the clock: feedback missing from a
-	// sample taken before the deadline is no timeout, however late the loop
-	// gets to look -- a goroutine descheduled after its sample (a GC pause, a
-	// loaded host) must not turn an answer that arrived in time into a fault.
-	sampledAt time.Time
+	// now is the servo time of this cycle's frame: when its inputs were read.
+	// Every time the loop measures is a span of it, and a wait's deadline is
+	// judged against it: feedback missing from a frame taken before the
+	// deadline is no timeout, however late the loop gets to look -- a
+	// goroutine descheduled after its sample (a GC pause, a loaded host) must
+	// not turn an answer that arrived in time into a fault.
+	now time.Duration
+
+	// wakeAt is the earliest deadline asked for since the last wait (wakeBy),
+	// 0 for none: the cycle function rings at it, so a wait for time to pass
+	// ends without a change. seenChange is the doorbell's change count the
+	// loop last woke for; rtStalled says the cycle function stopped running.
+	wakeAt     time.Duration
+	seenChange uint32
+	rtStalled  bool
 
 	// This cycle's inputs.
 	in inputs
@@ -217,18 +249,18 @@ type control struct {
 	// position behind the picker teach pins.
 	status     motstat.MotionStatus
 	statusOK   bool
-	posFb      motstat.Pose
-	commErrors int
+	commErrors int           // consecutive failed status reads
+	statusAt   time.Duration // the servo time of the last good one
 
 	// Machine state as this module sees it.
 	estopped bool // estop-on was high and the teardown has run
 	enabled  bool // motion is enabled and machine-is-on is set
 	enabling bool // enable() is waiting for motion to confirm; see abortCheck
 
-	// motionDisabled counts consecutive fresh status reads showing motion
-	// disabled while enabled is still true — the self-disable watchdog
-	// (see motionDisabledDebounce and motionSelfDisabled).
-	motionDisabled int
+	// disabledSince is when fresh status reads started to show motion
+	// disabled while enabled is still true, 0 while they do not — the
+	// self-disable watchdog (see motionDisabledDebounce).
+	disabledSince time.Duration
 
 	// Jog state per configured axis: which way each axis is currently being
 	// jogged (0 = not jogging), so a held pin does not re-issue JogCont every
@@ -286,18 +318,18 @@ type control struct {
 	// overwrites an earlier one. See the latch gating in sample.
 	trayPending []*int64
 
-	// heldVerify counts down to the validation of restored held records
-	// against the picker feedback; see verifyRestoredHeld. heldVerifyWarned
-	// keeps the not-actuated warning to one per picker and restart (the
-	// validation re-arms until the gripper answers).
-	heldVerify       int
+	// heldVerify is when to validate restored held records against the
+	// picker feedback, 0 for not pending; see verifyRestoredHeld.
+	// heldVerifyWarned keeps the not-actuated warning to one per picker and
+	// restart (the validation re-arms until the gripper answers).
+	heldVerify       time.Duration
 	heldVerifyWarned []bool
 
-	// manualGrip counts down, per picker, to the validation of a manual close
-	// against the gripper feedback (§8's manual interplay); 0 = nothing
-	// pending. manualGripWarned keeps the not-actuated warning to one per
-	// close request (the judgement re-arms until the gripper answers).
-	manualGrip       []int
+	// manualGrip is, per picker, when to validate a manual close against the
+	// gripper feedback (§8's manual interplay); 0 = nothing pending.
+	// manualGripWarned keeps the not-actuated warning to one per close request
+	// (the judgement re-arms until the gripper answers).
+	manualGrip       []time.Duration
 	manualGripWarned []bool
 
 	// autoLast is auto-enable as step last saw it, for the release of opened
@@ -328,17 +360,20 @@ func newControl(m *pnptaskModule) *control {
 			jogNeg:             make([]bool, axes),
 		}
 	}
+	ctx, quit := context.WithCancel(context.Background())
 	return &control{
 		m:                m,
 		stop:             make(chan struct{}),
 		done:             make(chan struct{}),
+		ctx:              ctx,
+		quit:             quit,
 		in:               mk(),
 		seen:             newEdgesSeen(pickers, trays, procs),
 		rise:             mk(),
 		jogDir:           make([]int, len(m.pins.jog)),
 		trayPending:      make([]*int64, trays),
 		procPending:      make([]*bool, procs),
-		manualGrip:       make([]int, pickers),
+		manualGrip:       make([]time.Duration, pickers),
 		manualGripWarned: make([]bool, pickers),
 		heldVerifyWarned: make([]bool, pickers),
 		missing:          make([]bool, pickers),
@@ -390,6 +425,9 @@ func (c *control) start() {
 	// written after start returns is then a real change, while levels already
 	// present now are stale boot state (see primeEdges).
 	c.primeEdges()
+	c.now = time.Duration(c.m.rt.in.servo_ns)
+	c.statusAt = c.now
+	c.seenChange = c.m.rt.bell.Change()
 	// Restored held records re-drove their close outputs (world.restore);
 	// schedule the one-shot grip validation for after the pick settle time
 	// has given the gripper feedback a chance to arrive. Only records that
@@ -397,11 +435,10 @@ func (c *control) start() {
 	// claim about the close output and is not ours to judge.
 	for n := range c.m.world.restoredHeld {
 		if c.m.world.restoredHeld[n] {
-			c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
+			c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 			break
 		}
 	}
-	c.ticker = time.NewTicker(pollInterval)
 	go c.run()
 }
 
@@ -452,7 +489,7 @@ func (c *control) verifyRestoredHeld() (pending bool) {
 		}
 	}
 	if pending {
-		c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
+		c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 	}
 	return pending
 }
@@ -472,14 +509,18 @@ func (c *control) verifyRestoredHeld() (pending bool) {
 // has answered.
 func (c *control) settleRestoredHeld() error {
 	for c.heldVerify > 0 {
+		c.wakeBy(c.heldVerify)
 		if !c.tick() {
 			return errStopping
 		}
 		if err := c.abortCheck(); err != nil {
 			return err
 		}
-		c.heldVerify--
-		if c.heldVerify == 0 && c.verifyRestoredHeld() {
+		if c.now < c.heldVerify {
+			continue
+		}
+		c.heldVerify = 0
+		if c.verifyRestoredHeld() {
 			for n := range c.m.world.restoredHeld {
 				if c.m.world.restoredHeld[n] {
 					return faultf(errPickerCloseFail,
@@ -496,49 +537,105 @@ func (c *control) settleRestoredHeld() error {
 // that was never started only via the module's nil check — see Stop.
 func (c *control) shutdown() {
 	close(c.stop)
+	c.quit()
 	<-c.done
 }
 
 func (c *control) run() {
 	defer close(c.done)
-	defer c.ticker.Stop()
 
-	c.m.logger.Debug("pnptask control loop running", "interval", pollInterval)
+	c.m.logger.Debug("pnptask control loop running", "idle_wake", idleWake)
 	for c.tick() {
 		c.step()
 	}
 	c.park()
 }
 
-// tick waits for the next cycle and performs the work every state owes: read
-// the inputs, publish the outputs that mirror state, persist what changed. It
-// reports false when the module is shutting down — which is why every wait in
-// this file goes through it. A wait that polled its own timer would both outlive
-// Stop and freeze the teach pins for the seconds it runs.
+// wakeBy asks for the next wait to end by servo time t at the latest (0: no
+// deadline): what a wait for time to pass sets before it ticks.
+func (c *control) wakeBy(t time.Duration) {
+	if t > 0 && (c.wakeAt == 0 || t < c.wakeAt) {
+		c.wakeAt = t
+	}
+}
+
+// settleTime is a settle time in servo time, with the margin for the frame
+// that judges it.
+func settleTime(seconds float64) time.Duration {
+	return time.Duration(seconds*float64(time.Second)) + settleMargin
+}
+
+// tick is one wake of the loop (PNPTASK_RT_BOUNDARY.md §6.1): commit what the
+// step wrote, sleep until the cycle function rings -- something the loop acts
+// on changed, or the wake time came -- then read the frame and do the work
+// every state owes: the outputs that mirror state, persistence. It reports
+// false when the module is shutting down, which is why every wait in this file
+// goes through it. A wait for time to pass sets its deadline first (wakeBy);
+// with none the loop sleeps until a change, or idleWake.
 func (c *control) tick() bool {
 	// What the step wrote since the last tick goes out together, before the
 	// wait: a picker closed and a dwell started reach the pins in the same
 	// servo cycle, never one without the other.
-	c.m.rt.commit()
-	select {
-	case <-c.stop:
-		return false
-	case <-c.ticker.C:
-		if c.m.tickHook != nil {
-			c.m.tickHook()
-		}
-		c.sampledAt = time.Now()
-		c.sample()
-		c.checkLiftWatch()
-		c.publish()
-		// Persisting from here rather than from step() is what keeps the state
-		// of a long action durable: the actions of a job tick through this
-		// function, so a slot emptied halfway through a pick is written within
-		// one cycle instead of at the end of the job.
-		c.m.world.flush()
-		c.m.rt.commit()
-		return true
+	wake := c.now + idleWake
+	if c.wakeAt != 0 && c.wakeAt < wake {
+		wake = c.wakeAt
 	}
+	c.wakeAt = 0
+	c.m.rt.setWake(wake)
+	c.m.rt.commit()
+	if !c.wait() {
+		return false
+	}
+	c.m.wakes.Add(1)
+	c.sample()
+	c.checkLiftWatch()
+	c.publish()
+	// Persisting from here rather than from step() is what keeps the state of
+	// a long action durable: the actions of a job tick through this function,
+	// so a slot emptied halfway through a pick is written at once instead of
+	// at the end of the job.
+	c.m.world.flush()
+	c.m.rt.commit()
+	return true
+}
+
+// wait sleeps until the doorbell rings past seenChange. In the unit tests
+// (rtIO.runRT) the loop is the servo thread: it runs the cycle function itself,
+// one cycle per pollInterval, until it rings. It reports false on shutdown.
+func (c *control) wait() bool {
+	bell := c.m.rt.bell
+	if run := c.m.rt.runRT; run != nil {
+		for {
+			select {
+			case <-c.stop:
+				return false
+			default:
+			}
+			time.Sleep(pollInterval) // a servo cycle of the tests' time
+			run()
+			if ch := bell.Change(); ch != c.seenChange || c.m.rt.wakeEveryCycle {
+				c.seenChange = ch
+				return true
+			}
+		}
+	}
+	ch, err := bell.Wait(c.ctx, c.seenChange, pollInterval, rtStallTimeout)
+	switch {
+	case c.ctx.Err() != nil:
+		return false
+	case err != nil:
+		// The cycle function stopped running (§7.1): nothing will ring. The
+		// loop goes on with the frame it has, and step treats the machine as
+		// motion lost until the cycles come back.
+		if !c.rtStalled {
+			c.m.logger.Error("pnptask: the cycle function stopped running", "error", err)
+		}
+		c.rtStalled = true
+	default:
+		c.rtStalled = false
+		c.seenChange = ch
+	}
+	return true
 }
 
 // sample reads the HAL inputs and the motion status for this cycle and derives
@@ -552,6 +649,7 @@ func (c *control) sample() {
 	// trigger that follows a scene change all come from one sample.
 	c.m.rt.read()
 	f := &c.m.rt.in
+	c.now = time.Duration(f.servo_ns)
 	c.in.estop = b8(f.estop_on)
 	c.in.machineOn = b8(f.machine_on)
 	c.in.autoEnable = b8(f.auto_enable)
@@ -667,30 +765,39 @@ func (c *control) sample() {
 
 	if st, err := c.m.ms.GetStatus(); err != nil {
 		c.commErrors++
+		// A frame from before the last motion command: the next one will do,
+		// and nothing has to change for it to come.
+		c.wakeBy(c.now + wakeSoon)
 	} else {
 		c.commErrors = 0
+		c.statusAt = c.now
 		c.status = st
-		// The self-disable watchdog counts only fresh reads: a failed read
-		// re-serves the last snapshot and proves nothing either way. It counts
+		// The self-disable watchdog judges only fresh reads: a failed read
+		// re-serves the last snapshot and proves nothing either way. It runs
 		// only while this module believes the machine is on — its own disable
-		// paths reset the counter by clearing enabled.
+		// paths reset it by clearing enabled.
 		switch {
-		case c.enabled && st.Enabled == 0:
-			c.motionDisabled++
-		default:
-			c.motionDisabled = 0
+		case !c.enabled || st.Enabled != 0:
+			c.disabledSince = 0
+		case c.disabledSince == 0:
+			c.disabledSince = c.now
+			c.wakeBy(c.now + motionDisabledDebounce)
 		}
 	}
-	// A failed read keeps serving the last good snapshot for a bounded number
-	// of cycles (statusStaleTicks) instead of invalidating it outright: a
-	// single split read must not glitch the homed pin low or abort a running
-	// jog. Beyond the tolerance the snapshot is stale and everything derived
-	// from it turns conservative; commFailureTicks then declares motion gone.
-	c.statusOK = c.commErrors <= statusStaleTicks
-	if fb, err := c.m.ms.GetPosFb(); err == nil {
-		c.posFb = fb
-	}
+	// A failed read keeps serving the last good snapshot for a bounded time
+	// (statusStale) instead of invalidating it outright: a single one must not
+	// glitch the homed pin low or abort a running jog. Beyond it the snapshot
+	// is stale and everything derived from it turns conservative; commFailure
+	// then declares motion gone.
+	c.statusOK = c.statusAge() <= statusStale
 }
+
+// statusAge is how long ago, in servo time, the last good status was read.
+func (c *control) statusAge() time.Duration { return c.now - c.statusAt }
+
+// commLost reports whether the motion controller counts as gone: no good
+// status for commFailure, or the cycle function not running at all.
+func (c *control) commLost() bool { return c.rtStalled || c.statusAge() >= commFailure }
 
 // primeEdges takes the cycle function's edge counters as they stand, so an
 // edge counted before the loop existed does not fire on its first cycle, and
@@ -768,7 +875,7 @@ func (c *control) refuse(seq uint32, park bool, err error) {
 // before anything is published, and manual controls only ever run once the
 // machine half of the cycle is done.
 func (c *control) step() {
-	if c.commErrors >= commFailureTicks {
+	if c.commLost() {
 		c.motionLost()
 		// A request accepted meanwhile ends at once, with the fault motionLost
 		// latched: busy must not stand until comm comes back.
@@ -781,9 +888,11 @@ func (c *control) step() {
 		return
 	}
 	if c.heldVerify > 0 {
-		c.heldVerify--
-		if c.heldVerify == 0 {
+		if c.now >= c.heldVerify {
+			c.heldVerify = 0
 			c.verifyRestoredHeld()
+		} else {
+			c.wakeBy(c.heldVerify)
 		}
 	}
 	// Runs in both modes: a mode switch between the manual close and the moment
@@ -962,7 +1071,7 @@ func (c *control) leaveEstop() {
 		}
 	}
 	if pending {
-		c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
+		c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 	}
 }
 
@@ -1022,7 +1131,7 @@ func (c *control) disable(reason string) {
 // exactly like after an estop: the level still high from before the trip is
 // not a request to start moving again.
 func (c *control) checkMotionEnabled() error {
-	if !c.enabled || c.motionDisabled < motionDisabledDebounce {
+	if !c.enabled || c.disabledSince == 0 || c.now-c.disabledSince < motionDisabledDebounce {
 		return nil
 	}
 	c.disable("motion disabled itself")
@@ -1058,7 +1167,8 @@ func (c *control) motionLost() {
 	for i := range c.trayPending {
 		c.trayPending[i] = nil
 	}
-	c.raise(faultf(errMotionError, "motion controller not responding (%d consecutive status reads failed)", c.commErrors))
+	c.raise(faultf(errMotionError, "motion controller not responding (no status for %v, %d reads failed, cycle function stalled: %v)",
+		c.statusAge(), c.commErrors, c.rtStalled))
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,18 +1249,17 @@ func (c *control) publish() {
 	c.m.world.publish(c.trayStep)
 
 	// Position teach (D21): where each picker actually is. Targeting commands
-	// (x - offset), so the picker sits at (feedback + offset). The plain pins
-	// carry mm like every float pin (D23); the -mu pair carries machine units
-	// (D26) — the value the INI wants, since its lengths are parsed as machine
-	// units. LinearUnits is machine units per mm, so mu = mm * LinearUnits.
+	// (x - offset), so the picker sits at (feedback + offset). The cycle
+	// function computes the pins every servo cycle from its motion snapshot
+	// (PNPTASK_RT_BOUNDARY.md §6.1); the loop hands it the offset params and
+	// LinearUnits. The plain pins carry mm like every float pin (D23); the -mu
+	// pair carries machine units (D26) — the value the INI wants, since its
+	// lengths are parsed as machine units. LinearUnits is machine units per mm.
+	c.m.rt.setTeach(c.m.cfg.LinearUnits)
+	c.m.rt.setTaskTimeout(c.m.pins.taskTimeout.Get())
 	for i := range p.pickers {
 		pk := &p.pickers[i]
-		x := c.posFb.X + pk.xOffset.Get()
-		y := c.posFb.Y + pk.yOffset.Get()
-		pk.posX.Set(x)
-		pk.posY.Set(y)
-		pk.posXMu.Set(x * c.m.cfg.LinearUnits)
-		pk.posYMu.Set(y * c.m.cfg.LinearUnits)
+		c.m.rt.setPickerOffset(i, pk.xOffset.Get(), pk.yOffset.Get())
 
 		// What the picker is carrying. A retained record reads as empty: the
 		// part is in an operator's hands, not in the gripper.
@@ -1176,7 +1285,7 @@ func (c *control) publish() {
 // ---------------------------------------------------------------------------
 
 // allHomed reports whether every configured joint is homed. The snapshot may
-// be up to statusStaleTicks old (a split read must not glitch this — the homed
+// be up to statusStale old (a split read must not glitch this — the homed
 // pin and the jog gate hang off it); a snapshot staler than that is never
 // reported as homed, because this gates motion.
 func (c *control) allHomed() bool {
@@ -1243,11 +1352,11 @@ func (c *control) runHoming() error {
 	// getting there (a joint faulted, a home switch never made). Watching for
 	// the second is what turns a failed home into an error the operator can
 	// see now instead of a HOME_TIMEOUT one HOME_TIMEOUT later. "Stopped" must
-	// hold for homingSettleTicks consecutive cycles: between HOME_SEQUENCE
+	// hold for homingSettle: between HOME_SEQUENCE
 	// groups motmod briefly reports no joint homing, and a single snapshot in
 	// that handover window is not the end of the sequence.
 	started := false
-	idle := 0
+	var idleSince time.Duration
 	timeout := time.Duration(c.m.cfg.HomeTimeout * float64(time.Second))
 	err := c.waitUntil(errHomingFailed, timeout, "homing to complete", func() bool {
 		switch {
@@ -1257,14 +1366,17 @@ func (c *control) runHoming() error {
 			return true
 		case c.anyHoming():
 			started = true
-			idle = 0
+			idleSince = 0
 			return false
 		default:
 			if !started {
 				return false
 			}
-			idle++
-			return idle >= homingSettleTicks
+			if idleSince == 0 {
+				idleSince = c.now
+			}
+			c.wakeBy(idleSince + homingSettle)
+			return c.now-idleSince >= homingSettle
 		}
 	})
 	if err != nil {
@@ -1282,15 +1394,15 @@ func (c *control) runHoming() error {
 // motion rejects a mode switch while it is not in position; a single send would
 // simply be dropped (milltask's guards.go learned the same thing).
 func (c *control) setMotionMode(want int32) error {
-	deadline := time.Now().Add(motionModeTimeout)
+	deadline := c.now + motionModeTimeout
 	for {
 		if c.statusOK && c.status.MotionState == want {
 			return nil
 		}
 		// Only a status sampled after the deadline that still shows the old
-		// mode is a failure (see sampledAt) -- checked here, after the fresh
+		// mode is a failure (see control.now) -- checked here, after the fresh
 		// status was looked at, not straight after the tick that read it.
-		if c.sampledAt.After(deadline) {
+		if c.now > deadline {
 			return faultf(errMotionError, "motion did not switch to mode %d within %v", want, motionModeTimeout)
 		}
 		var err error
@@ -1307,6 +1419,8 @@ func (c *control) setMotionMode(want int32) error {
 		if err != nil {
 			return faultf(errMotionError, "switching motion to mode %d: %v", want, err)
 		}
+		// Re-sent on the next frame, change or not.
+		c.wakeBy(c.now + wakeSoon)
 		if !c.tick() {
 			return errStopping
 		}
@@ -1454,7 +1568,7 @@ func (c *control) manualPickers() {
 			// must not count free.
 			c.m.world.reserveManualClose(i)
 			if c.m.world.held[i].retained {
-				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
+				c.manualGrip[i] = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 				c.manualGripWarned[i] = false
 			}
 		}
@@ -1485,14 +1599,6 @@ func (c *control) releaseOpenRetained() {
 	}
 }
 
-// settleTicks is a settle time in control cycles, with a margin for the
-// feedback to arrive within the cycle it is read in. It is what turns the
-// pick-settle-time param into the countdowns this file waits out without
-// blocking the loop.
-func settleTicks(seconds float64) int {
-	return int(seconds/pollInterval.Seconds()) + 2
-}
-
 // updateManualGrip judges a manual close against the gripper feedback (§8's
 // manual interplay). A picker that was opened by hand keeps the station id of
 // the material it let go of; closing it again on that same material has to
@@ -1515,10 +1621,11 @@ func (c *control) updateManualGrip() {
 			c.manualGrip[i] = 0
 			continue
 		}
-		c.manualGrip[i]--
-		if c.manualGrip[i] > 0 {
+		if c.now < c.manualGrip[i] {
+			c.wakeBy(c.manualGrip[i])
 			continue
 		}
+		c.manualGrip[i] = 0
 		switch {
 		case c.in.pickerOpened[i]:
 			// The picker has not actuated: a slow gripper, or one with its
@@ -1533,7 +1640,7 @@ func (c *control) updateManualGrip() {
 				c.m.logger.Warn("pnptask: manual close has not actuated the picker, still waiting for the grip",
 					"picker", i)
 			}
-			c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
+			c.manualGrip[i] = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
 				// The close output stays high: the operator closed the picker
@@ -1573,14 +1680,17 @@ func (c *control) updateManualGrip() {
 // of them can survive an estop, a machine-off or a module shutdown. A
 // non-positive timeout waits indefinitely (only an abort ends it).
 func (c *control) waitUntil(id errorID, timeout time.Duration, what string, cond func() bool) error {
-	deadline := time.Now().Add(timeout)
+	deadline := c.now + timeout
 	for {
 		if cond() {
 			return nil
 		}
-		// Judged on the sample cond() just read, not on the clock: see sampledAt.
-		if timeout > 0 && c.sampledAt.After(deadline) {
+		// Judged on the frame cond() just read, not on the clock: see now.
+		if timeout > 0 && c.now > deadline {
 			return faultf(id, "timed out after %v waiting for %s", timeout, what)
+		}
+		if timeout > 0 {
+			c.wakeBy(deadline + time.Nanosecond)
 		}
 		if !c.tick() {
 			return errStopping
@@ -1607,8 +1717,15 @@ func (c *control) abortCheck() error {
 	if err := c.checkMotionEnabled(); err != nil {
 		return err
 	}
-	if c.commErrors >= commFailureTicks {
+	if c.commLost() {
 		return faultf(errMotionError, "motion controller stopped responding")
+	}
+	// A fault the loop did not raise ends the job in flight, as estop does:
+	// TASK_STALLED, latched by the cycle function when this loop left a change
+	// untaken for task-timeout (§7.2). The PLC has given up on the job by
+	// then; a loop that recovers must not carry on with it.
+	if l := &c.m.rt.in.latch; l.set != 0 && errorID(l.id) == errTaskStalled {
+		return faultf(errTaskStalled, "the control loop stalled: a change went untaken for task-timeout")
 	}
 	return nil
 }
@@ -1667,6 +1784,8 @@ func (c *control) park() {
 		c.m.pins.procs[i].release.Set(false)
 	}
 	c.m.pins.machineIsOn.Set(false)
+	// Nobody takes the cycle function's rings any more: no stall check.
+	c.m.rt.setTaskTimeout(0)
 	// The last commit. Stop runs ahead of the launcher's RT barrier, so the
 	// cycle function still carries it out to the pins.
 	c.m.rt.commit()

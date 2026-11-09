@@ -531,23 +531,57 @@ func fastLoop(t *testing.T) {
 	})
 }
 
-// driveRT stands in for the servo thread: it runs the module's cycle function
-// once now, so startControl finds a first frame, and then inside every control
-// cycle -- before the tick hook already installed (the sim), and again after
-// it, so the sim sees the outputs of the last commit and the loop's sample
-// sees the sim's answer in the same cycle, as it did when both read the pins
-// directly. Call it after the sim is hooked and before startControl.
+// driveRT stands in for the servo thread: the control loop runs the module's
+// cycle function itself while it waits (rtIO.runRT), one servo cycle per
+// pollInterval, the tick hook already installed (the sim) stepping right
+// before each run -- the hardware answers, the function samples. It runs once
+// now, so startControl finds a first frame. Call it after the sim is hooked
+// and before startControl.
 func driveRT(m *pnptaskModule) {
 	inner := m.tickHook
-	m.rt.runRT = m.rt.invoke
-	m.rt.invoke()
-	m.tickHook = func() {
-		m.rt.invoke()
+	m.tickHook = nil
+	m.rt.runRT = func() {
 		if inner != nil {
 			inner()
-			m.rt.invoke()
 		}
+		m.rt.invoke()
 	}
+	m.rt.wakeEveryCycle = true
+	m.rt.invoke()
+}
+
+// servoThread runs the module's cycle function once a millisecond on a
+// goroutine of its own until the test ends (after the loop has stopped: the
+// cleanups run last-registered first).
+func servoThread(t *testing.T, m *pnptaskModule) {
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		tk := time.NewTicker(time.Millisecond)
+		defer tk.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tk.C:
+				m.rt.invoke()
+			}
+		}
+	}()
+	m.rt.invoke() // a first frame for startControl
+	t.Cleanup(func() { close(stop); <-done })
+}
+
+// servo waits until d of servo time has passed in the cycle function (1 ms per
+// run in the tests), and the loop has acted on a frame after it.
+func (f *machineFixture) servo(d time.Duration) {
+	f.t.Helper()
+	c0 := uint32(f.get("cycle"))
+	n := uint32(d / time.Millisecond)
+	f.eventually(fmt.Sprintf("%v of servo time", d), func() bool {
+		return uint32(f.get("cycle"))-c0 >= n
+	})
+	f.sampled()
 }
 
 // jogIniSection gives the axes a max velocity, so the clamp has something to
@@ -606,6 +640,10 @@ type fixtureOpts struct {
 	// simulate attaches the simulated gripper/fixture without arming anything
 	// (job fixtures always have it).
 	simulate bool
+	// servo runs the cycle function on a goroutine of its own, once a
+	// millisecond, as the servo thread would: the loop waits on the doorbell
+	// as in production, instead of running the function itself (driveRT).
+	servo bool
 }
 
 // newMachineFixtureOpts loads a module, hands it a scripted motion stack and
@@ -633,7 +671,11 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	if o.simulate || o.sim != nil {
 		sim = newMachineSim(m, o.sim)
 	}
-	driveRT(m)
+	if o.servo {
+		servoThread(t, m)
+	} else {
+		driveRT(m)
+	}
 	if err := m.startControl(); err != nil {
 		t.Fatalf("startControl: %v", err)
 	}
@@ -751,7 +793,7 @@ func (f *machineFixture) eventually(what string, cond func() bool) {
 // waitRestored waits for a manual close over a retained record to be judged
 // material (§8.1): the record comes back, and the holds/origin-id pins publish
 // it. Waiting on that rather than sleeping out the settle window is what keeps
-// these cases honest — the judgement counts CYCLES (settleTicks), so no
+// these cases honest — the judgement is a deadline in servo time, so no
 // wall-clock sleep covers it reliably on a machine that deschedules the loop.
 func (f *machineFixture) waitRestored(pk int, station uint32) {
 	f.t.Helper()
@@ -763,9 +805,9 @@ func (f *machineFixture) waitRestored(pk int, station uint32) {
 // waitDropped is the other outcome: the close gripped nothing, so the record is
 // forgotten and the picker stays closed (the operator closed it; the next
 // pick's openForPick opens it). No pin tells a dropped record from a retained
-// one (holds is low for both), but the judgement is a countdown in control
-// cycles (settleTicks) that the close command starts, so once that many cycles
-// have passed since the gripper reported fully closed it is in. The caller
+// one (holds is low for both), but the judgement is a deadline in servo time
+// (settleTime) that the close command starts, so once that much has passed
+// since the gripper reported fully closed it is in. The caller
 // proves the record gone, by a job that runs or by the world model.
 func (f *machineFixture) waitDropped(pk int) {
 	f.t.Helper()
@@ -773,7 +815,7 @@ func (f *machineFixture) waitDropped(pk int) {
 		fmt.Sprintf("picker.%d.close", pk), fmt.Sprintf("picker.%d.closed", pk)
 	f.eventually(fmt.Sprintf("picker %d to report fully closed", pk),
 		func() bool { return f.bit(closed) })
-	f.cycles(uint32(settleTicks(f.m.pins.pickSettleTime.Get())) + 2)
+	f.servo(settleTime(f.m.pins.pickSettleTime.Get()) + 2*time.Millisecond)
 	if !f.bit(close) || f.bit(holds) {
 		f.t.Fatalf("picker %d after the verdict: close=%v holds=%v, want it left closed and holding nothing",
 			pk, f.bit(close), f.bit(holds))
@@ -1014,12 +1056,12 @@ func TestHomeSequence(t *testing.T) {
 // A HOME_SEQUENCE group handover — a short window in which no joint reports
 // Homing although the sequence is still running — must not be mistaken for a
 // finished sequence: the "stopped homing" observation has to hold for
-// homingSettleTicks before it counts (a spurious HOMING_FAILED here faulted a
+// homingSettle before it counts (a spurious HOMING_FAILED here faulted a
 // perfectly healthy multi-group homing).
 func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
 	f := newMachineFixture(t)
 	f.mot.setHomingCycles(60)
-	f.mot.setHomingGap(30, homingSettleTicks-2) // gap shorter than the settle window
+	f.mot.setHomingGap(30, 3) // a few cycles, far shorter than the settle window
 	f.machineOn()
 
 	f.setBit(f.m.pins.home, true)
@@ -1126,7 +1168,7 @@ func TestStatusGlitchDoesNotDisturbHomedOrJog(t *testing.T) {
 
 	// A glitch well inside the staleness tolerance.
 	f.mot.setStatusErr(fmt.Errorf("split read"))
-	time.Sleep(time.Duration(statusStaleTicks/2) * pollInterval)
+	time.Sleep(statusStale / 2)
 	f.mot.setStatusErr(nil)
 
 	f.consistently("jog undisturbed and homed held", func() bool {
@@ -1226,40 +1268,6 @@ func TestManualPickers(t *testing.T) {
 	f.eventually("opened", func() bool { return !f.bit("picker.1.close") })
 }
 
-// The teach pins report where each picker is: feedback plus that picker's
-// offset (D21). Targeting commands (x - offset), so this is its inverse. On a
-// metric machine the -mu (machine unit, D26) pins carry the same values.
-func TestPickerTeachPositions(t *testing.T) {
-	f := newMachineFixture(t, "pickers=2")
-	// The offsets are taught with halcmd setp; here, directly.
-	f.m.pins.pickers[1].xOffset.Set(40)
-	f.m.pins.pickers[1].yOffset.Set(-15)
-	f.mot.setPosFb(100, 200)
-
-	f.eventually("teach positions", func() bool {
-		return f.get("picker.0.pos-x") == 100 && f.get("picker.1.pos-x") == 140
-	})
-	if got := f.get("picker.1.pos-y"); got != 185 {
-		t.Errorf("picker.1.pos-y = %g, want 185 (200 + -15)", got)
-	}
-	if x, y := f.get("picker.1.pos-x-mu"), f.get("picker.1.pos-y-mu"); x != 140 || y != 185 {
-		t.Errorf("metric -mu teach pins = %g/%g, want 140/185 (equal to the mm pins)", x, y)
-	}
-}
-
-// On an inch machine the -mu teach pins carry machine units — the value the
-// INI wants — while the plain pins keep the internal mm (D23/D26). Pasting the
-// mm pins into the INI was the 25.4x teach hole of the phase-3 review.
-func TestPickerTeachPositionsInchMachine(t *testing.T) {
-	f := newMachineFixtureWith(t, func(cfg *Config) { cfg.LinearUnits = 1.0 / 25.4 })
-	f.mot.setPosFb(254, 508) // mm feedback: 10 by 20 inches
-
-	f.eventually("teach positions", func() bool { return f.get("picker.0.pos-x") == 254 })
-	if x, y := f.get("picker.0.pos-x-mu"), f.get("picker.0.pos-y-mu"); x != 10 || y != 20 {
-		t.Errorf("inch -mu teach pins = %g/%g, want 10/20 (machine units)", x, y)
-	}
-}
-
 // A motion controller that stops answering has to surface as MOTION_ERROR and
 // drop machine-is-on, not as a machine that looks fine and never moves.
 func TestMotionCommLoss(t *testing.T) {
@@ -1288,10 +1296,10 @@ func TestWaitUntilJudgesTheSampleNotTheClock(t *testing.T) {
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.mc, m.ms = mot, mot
 
+	m.rt.runRT = m.rt.invoke // the loop is the servo thread here
+	m.rt.invoke()
 	c := newControl(m)
-	c.ticker = time.NewTicker(pollInterval)
-	defer c.ticker.Stop()
-	c.sampledAt = time.Now()
+	c.seenChange = m.rt.bell.Change()
 	c.sample()
 
 	const timeout = 10 * time.Millisecond
@@ -1331,8 +1339,7 @@ func TestEnsureHomed(t *testing.T) {
 
 	driveRT(m)
 	c := newControl(m)
-	c.ticker = time.NewTicker(pollInterval)
-	defer c.ticker.Stop()
+	c.seenChange = m.rt.bell.Change()
 	c.sample()
 
 	// AUTOHOME off: a refusal the job engine turns into an error-id, not a
@@ -1618,5 +1625,29 @@ func TestDeadzoneFreePins(t *testing.T) {
 	cycle()
 	if f.bit("deadzone.0.free") || f.bit("deadzone.1.free") {
 		t.Error("a dead-zone pin reads clear with no motion provider resolved")
+	}
+}
+
+// TestLoopSleepsUntilAChange (PNPTASK_RT_BOUNDARY.md §6.1): with the cycle
+// function on its own thread the loop sleeps while nothing it acts on
+// changes -- waking only for its idle wake -- and wakes within a few servo
+// cycles of an input change.
+func TestLoopSleepsUntilAChange(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{servo: true})
+	f.sampled()
+	time.Sleep(50 * time.Millisecond)
+
+	n0 := f.m.wakes.Load()
+	time.Sleep(350 * time.Millisecond)
+	if n := f.m.wakes.Load() - n0; n > 6 {
+		t.Errorf("%d wakes in 350 ms with nothing changing, want the idle wake only (about 4)", n)
+	}
+
+	n0 = f.m.wakes.Load()
+	start := time.Now()
+	f.setBit(f.m.pins.waitAbort, true)
+	f.eventually("a wake for the input change", func() bool { return f.m.wakes.Load() != n0 })
+	if d := time.Since(start); d > 50*time.Millisecond {
+		t.Errorf("woke %v after the input changed, want within a few servo cycles", d)
 	}
 }

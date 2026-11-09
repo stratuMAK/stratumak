@@ -51,6 +51,11 @@ const (
 	errWaitSceneMismatch errorID = 25
 
 	errParkNotConfigured errorID = 26 // park requested, no [PNPTASK]PARK_X/Y/Z (D34)
+
+	// errTaskStalled is latched by the cycle function, not raised here: a
+	// change the control loop left untaken for task-timeout (pnp_rt.h,
+	// PNPTASK_RT_BOUNDARY.md §7.2). It ends a job in flight (abortCheck).
+	errTaskStalled errorID = 27 // = PNP_RT_TASK_STALLED
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -83,6 +88,7 @@ var errorNames = map[errorID]string{
 	errUnreachable:           "TARGET_UNREACHABLE",
 	errWaitSceneMismatch:     "WAIT_SCENE_MISMATCH",
 	errParkNotConfigured:     "PARK_NOT_CONFIGURED",
+	errTaskStalled:           "TASK_STALLED",
 }
 
 func (id errorID) String() string {

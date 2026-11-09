@@ -486,10 +486,15 @@ An idle Go does not commit (§6.1), so the age of `sync` alone says nothing.
 The stall is defined by work Go has not taken: the Go frame carries the change
 counter of the RT frame it last acted on, and when RT has a change (or a
 `wake_at` that came) that Go has not taken for longer than `task-timeout`
-(param, default 500 ms), RT raises `TASK_STALLED` in the error latch, so the
-PLC's existing error path reacts; no separate pin and no heartbeat. The
-default stays clear of route planning, which runs inside the Go loop with no
-commit in between (~50 ms for a spline leg, D13's budget 100 ms).
+(param, `[PNPTASK]TASK_TIMEOUT`, default 2 s), RT raises `TASK_STALLED` in the
+error latch, so the PLC's existing error path reacts; no separate pin and no
+heartbeat. The default stays clear of what runs inside the Go loop with no wake
+in between: route planning (~50 ms for a spline leg, D13's budget 100 ms) and,
+the long one, the dispatch of a smoothed leg -- every motion command waits for
+motmod's echo, one servo cycle per segment, so a leg of a few hundred arcs holds
+the loop for that many milliseconds (up to ~0.8 s on the coating machine,
+2026-11-09; the old ticked loop had the same pauses). 500 ms, the first
+choice, would have faulted normal legs.
 
 RT does **not** touch motion: motmod finishes what is queued and stands, and
 stopping the machine for safety is the estop chain's business.
@@ -609,6 +614,29 @@ rigs and the machine.
    together. Mechanical across the wait loops, but each wait is reviewed for
    its timing assumption. Scenarios unchanged in outcome; the Go unit tests
    gain frame-fed cases with no wall clock.
+   *Built:* the cycle function counts servo time (`servo_ns`), compares a
+   signature of what the loop acts on with the last cycle's (`pnp_rt_sig_t`:
+   the bound inputs, the counters and handshake state, the snapshot without
+   positions and velocity) and rings the doorbell on a difference or at
+   `wake_at`; it latches `TASK_STALLED` (27) for a ring left untaken for
+   `task-timeout`, and computes the teach pins from its snapshot and the
+   offsets the loop hands it. The loop: `tick()` is commit (with its
+   `wake_at`) -- `Doorbell.Wait` -- read; `control.now` is the frame's servo
+   time; every wait for time sets a deadline (`wakeBy`): settle times, dwells,
+   timeouts, the homing handover, the mode switch re-send, the self-disable
+   debounce, the status age (`statusStale`, `commFailure`), awaitDescent's
+   re-check (5 ms; its margin is that plus a doorbell poll instead of two
+   10 ms ticks). A cycle function that stops running (no cycles for 1 s)
+   counts as motion lost. A latched `TASK_STALLED` ends the job in flight
+   (abortCheck). Two deviations: an **idle wake of 100 ms** -- the params
+   (offsets, settle times, `task-timeout`) are not in the frame, and it is a
+   net under a change source that might be missing -- so an idle loop wakes
+   10 times a second, not never; and in the **unit tests** the loop runs the
+   function itself and wakes every cycle (`wakeEveryCycle`), because their
+   motion is a Go fake the function does not see. The frame-driven wake is
+   tested at the function level (`TestCycleChangeCounter`,
+   `TestCycleStallCheck`), with the function on its own goroutine
+   (`TestLoopSleepsUntilAChange`), and by the runtests against real motmod.
 8. **Cleanup.** `PNPTASK_DESIGN.md` §5.2/§5.2.1 rewritten (the timing contract
    mostly disappears), the D-entries touched by this get their superseding
    note, CoatV2conf #25's TODOs and code go.
@@ -627,7 +655,8 @@ step 7 removes the ticker.
 ## 11. Decisions (2026-11-07)
 
 1. **Go stall:** `TASK_STALLED` in the error latch after `task-timeout`
-   (default 500 ms); RT leaves motion alone; a latched error Go did not raise
+   (default 2 s since step 7, 2026-11-09: a smoothed leg's dispatch holds the
+   loop up to ~0.8 s, §7.2); RT leaves motion alone; a latched error Go did not raise
    ends the job in flight (§7.2).
 2. **Refusal:** an edge while an error is latched is ignored, no `refused`
    output. `AUTO_DISABLED` and `MACHINE_OFF` stay in Go's validation only

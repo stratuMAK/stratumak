@@ -458,6 +458,7 @@ normalized to HAL-conventional dashes.
 | `pos-settle-time` | float | dwell after reaching pick/place Z |
 | `pick-settle-time` | float | dwell after picker close/open command |
 | `release-time` | float | dwell after successful place before retract |
+| `task-timeout` | float | seconds the control loop may leave a change of the cycle function untaken before it latches `TASK_STALLED`; 0 off (`[PNPTASK]TASK_TIMEOUT`, default 2; PNPTASK_RT_BOUNDARY.md §7.2) |
 
 **Per picker `n` ∈ {0, 1}** (picker 1 only with `pickers=2`)
 
@@ -508,8 +509,8 @@ normalized to HAL-conventional dashes.
 
 **The edge inputs take a pulse of one servo cycle** (since
 [`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) steps 4 and 5). The
-control loop still runs at `pollInterval`, 10 ms, but the edges are no longer
-its business: the module's cycle function samples every input every servo
+control loop sleeps until the cycle function rings (step 7), but the edges
+are no longer its business either: the module's cycle function samples every input every servo
 cycle and counts each rising edge of `machine-on`, `home`, `error-reset`,
 `picker.N.manual-open`/`manual-close`, `tray.N.set-full`/`set-empty` and
 `proc.N.set-has-material`/`set-empty`, gated in the cycle of the press: on
@@ -980,6 +981,7 @@ fixture never confirmed letting go, so the part belongs to the fixture and
 | 24 | `TARGET_UNREACHABLE` | job accept: an endpoint − a candidate picker's offset is outside the axis limits (D28) |
 | 25 | `WAIT_SCENE_MISMATCH` | reserved, never raised: D29's derived wait point, removed with D46 |
 | 26 | `PARK_NOT_CONFIGURED` | `park` requested without `[PNPTASK]PARK_X/Y/Z` (D34) |
+| 27 | `TASK_STALLED` | latched by the cycle function: the control loop left a change untaken for `task-timeout` (PNPTASK_RT_BOUNDARY.md §7.2); ends a job in flight |
 
 ### 7.6 As built — the model (2026-08-11)
 

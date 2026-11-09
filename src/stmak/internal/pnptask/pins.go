@@ -95,6 +95,8 @@ type pinSet struct {
 
 	pickSettleTime *hal.Param[float64]
 	releaseTime    *hal.Param[float64]
+	// taskTimeout is the stall check's limit, seconds (Config.TaskTimeout).
+	taskTimeout *hal.Param[float64]
 
 	pickers []pickerPins
 	trays   []trayPins
@@ -156,16 +158,17 @@ type pickerPins struct {
 
 	// posX/posY report where this picker actually is (feedback + offset), for
 	// UI display and manual position teaching (D21). Like every float pin they
-	// carry the internal millimetres (D23).
-	posX *outF64
-	posY *outF64
+	// carry the internal millimetres (D23). The cycle function's, every servo
+	// cycle (PNPTASK_RT_BOUNDARY.md §6.1).
+	posX *rtF64
+	posY *rtF64
 
 	// posXMu/posYMu are the same positions in *machine units* (D26, "-mu"
 	// suffix): the teach workflow pastes these into the INI, which is written
 	// in machine units — pasting the mm pins would be 25.4x off on an inch
 	// machine. On a metric machine both pairs carry the same value.
-	posXMu *outF64
-	posYMu *outF64
+	posXMu *rtF64
+	posYMu *rtF64
 
 	xOffset *hal.Param[float64] // this picker's XY offset from the machine position
 	yOffset *hal.Param[float64]
@@ -276,6 +279,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 	p.posSettleTime = mkParam[float64](b, "pos-settle-time", hal.RW)
 	p.pickSettleTime = mkParam[float64](b, "pick-settle-time", hal.RW)
 	p.releaseTime = mkParam[float64](b, "release-time", hal.RW)
+	p.taskTimeout = mkParam[float64](b, "task-timeout", hal.RW)
 
 	for n := 0; n < pickers; n++ {
 		pre := fmt.Sprintf("picker.%d.", n)
@@ -290,10 +294,10 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 			manualClose: mkPin[bool](b, pre+"manual-close", hal.In),
 			holds:       mkOutBit(b, pre+"holds", &op.holds),
 			originID:    mkOutU32(b, pre+"origin-id", &op.origin_id),
-			posX:        mkOutF64(b, pre+"pos-x", &op.pos_x),
-			posY:        mkOutF64(b, pre+"pos-y", &op.pos_y),
-			posXMu:      mkOutF64(b, pre+"pos-x-mu", &op.pos_x_mu),
-			posYMu:      mkOutF64(b, pre+"pos-y-mu", &op.pos_y_mu),
+			posX:        mkRTF64(b, pre+"pos-x", &op.pos_x),
+			posY:        mkRTF64(b, pre+"pos-y", &op.pos_y),
+			posXMu:      mkRTF64(b, pre+"pos-x-mu", &op.pos_x_mu),
+			posYMu:      mkRTF64(b, pre+"pos-y-mu", &op.pos_y_mu),
 			xOffset:     mkParam[float64](b, pre+"x-offset", hal.RW),
 			yOffset:     mkParam[float64](b, pre+"y-offset", hal.RW),
 		})
@@ -351,6 +355,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int, out *outFrame) (*pin
 	p.posSettleTime.Set(cfg.PosSettleTime)
 	p.pickSettleTime.Set(cfg.PickSettleTime)
 	p.releaseTime.Set(cfg.ReleaseTime)
+	p.taskTimeout.Set(cfg.TaskTimeout)
 	for i, s := range cfg.Procs {
 		p.procs[i].releaseSettle.Set(s.ReleaseSettle)
 	}

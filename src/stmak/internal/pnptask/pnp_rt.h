@@ -26,7 +26,9 @@
 //      change together and no reader can see half an update;
 //   7. the dead-zone check runs (pnp_deadzone_rt.h);
 //   8. the input frame is published to Go, and the doorbell's cycle counter
-//      ticks (Go reads it to know a frame postdates a motion command).
+//      ticks (Go reads it to know a frame postdates a motion command); the
+//      doorbell rings when something Go acts on changed, or Go's wake time
+//      came (step 7, the change counter below).
 //
 // The frames have fixed-size arrays; config.go refuses more stations, pickers
 // or axes than they hold. A field no pin is bound to stays 0 in every slot.
@@ -34,6 +36,7 @@
 #ifndef PNP_RT_H
 #define PNP_RT_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "stmak_hal.h"
@@ -130,6 +133,19 @@ typedef struct {
 // low, until Go clears the mask or arms the next watch. Go learns of it from
 // watch_fired and runs its hook, which drops release itself.
 
+// The change counter (step 7, §6.1): the control loop sleeps until the doorbell
+// rings. It rings when anything the loop acts on is different from the last
+// cycle -- an input, an edge count, the handshake and latch state, the scene
+// grant, a fired watch, and the motion snapshot but for its positions and
+// velocity, which move every cycle while the head travels -- and in the cycle
+// servo time reaches the loop's wake_at (a deadline, or the idle wake).
+// `change` counts the rings. The loop says which count it has acted on
+// (taken); a ring it leaves untaken for task_timeout latches TASK_STALLED
+// (§7.2).
+//
+// The teach pins (picker.N.pos-x/-y and -mu) are the function's too: the
+// snapshot's feedback plus the picker's offset, every cycle.
+
 // --- RT -> Go: the inputs of one servo cycle --------------------------------
 
 typedef struct {
@@ -156,6 +172,9 @@ typedef struct {
 typedef struct {
     uint32_t cycle;            // runs of the cycle function; 0 = never ran
     uint32_t go_seq;           // the Go frame this run applied
+    uint64_t servo_ns;         // servo time: the periods of every run so far
+    uint32_t change;           // the change count, with this frame's ring
+    uint32_t pad5_;
 
     double   jog_speed;
     uint32_t process_step, origin_id, dest_id, deadzone_select;
@@ -191,7 +210,8 @@ typedef struct {
 // --- Go -> RT: the outputs of one Go commit ----------------------------------
 
 typedef struct {
-    double   pos_x, pos_y, pos_x_mu, pos_y_mu;
+    double   pos_x, pos_y, pos_x_mu, pos_y_mu;   // RT
+    double   x_offset, y_offset;                 // the picker's offset params
     uint32_t origin_id;
     uint8_t  close, holds;
     uint8_t  missing;          // RT
@@ -228,6 +248,12 @@ typedef struct {
     int32_t  watch_id;         // ... to fire past this segment ...
     uint32_t watch_release;    // ... and hold these stations' release low (bit per proc)
 
+    uint64_t wake_at;          // servo ns to ring at, 0: none
+    uint64_t task_timeout;     // ns a ring may stay untaken, 0: no check
+    uint32_t taken;            // the change count Go has acted on
+    uint32_t pad1_;
+    double   linear_units;     // machine units per mm, for the -mu teach pins
+
     double   plan_time;
     uint32_t sync;             // the cycle of the input frame Go last acted on
     uint32_t cycle;            // RT
@@ -245,6 +271,27 @@ typedef struct {
 } pnp_rt_out_t;
 
 // --- the function's arg block -----------------------------------------------
+
+// What the loop acts on, as one block to compare with the last cycle's: the
+// inputs (the input frame's bound fields, from jog_speed up to the edges), the
+// counters and handshake state, and the motion snapshot but for its positions
+// and velocity.
+#define PNP_RT_SIG_INPUTS (offsetof(pnp_rt_in_t, edges) - offsetof(pnp_rt_in_t, jog_speed))
+
+typedef struct {
+    uint8_t        inputs[PNP_RT_SIG_INPUTS];
+    pnp_rt_edges_t edges;
+    pnp_rt_job_t   job;
+    pnp_rt_latch_t latch;
+    uint32_t       park_seq, raise_seen, watch_fired;
+    uint8_t        busy, busy_park, scene_granted, mot_ok;
+    int32_t        command_num_echo, command_status, motion_state, enabled;
+    int32_t        inpos, queue_depth, id, carte_pos_cmd_ok, carte_pos_fb_ok;
+    uint32_t       joints_homed, joints_homing;
+} pnp_rt_sig_t;
+
+// TASK_STALLED: errors.go's errTaskStalled, latched by the function itself.
+#define PNP_RT_TASK_STALLED 27
 
 typedef struct {
     stmak_tribuf_t *to_go;     // pnp_rt_in_t, RT writes
@@ -273,6 +320,14 @@ typedef struct {
 
     // The output frame as it goes to the pins: Go's, with RT's pins put in.
     pnp_rt_out_t   composed;
+
+    // Step 7: servo time, the change counter, the stall check, the last
+    // cycle's signature of what Go acts on, the teach positions.
+    uint64_t       servo_ns, wake_rung, stall_ns;
+    uint32_t       change;
+    int            stalled;
+    pnp_rt_sig_t   sig, sig_prev;
+    double         pos_x[PNP_RT_MAX_PICKERS], pos_y[PNP_RT_MAX_PICKERS];
 } pnp_rt_t;
 
 void pnp_rt_cycle(void *arg, long period) STMAK_NONBLOCKING;

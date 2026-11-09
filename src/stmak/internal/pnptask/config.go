@@ -22,6 +22,7 @@ import (
 const (
 	defaultHomeTimeout     = 30.0
 	defaultReleaseTimeout  = 5.0
+	defaultTaskTimeout     = 2.0
 	defaultMaxUnpopulated  = 1
 	defaultTrayRowsAndCols = 1
 )
@@ -97,7 +98,14 @@ type Config struct {
 	// ReleaseTimeout is how long a proc station's released feedback may take;
 	// 0 means wait forever. HomeTimeout bounds autohoming.
 	ReleaseTimeout float64
-	HomeTimeout    float64
+
+	// TaskTimeout is [PNPTASK]TASK_TIMEOUT, seconds: how long the control loop
+	// may leave a change untaken before the cycle function latches
+	// TASK_STALLED (PNPTASK_RT_BOUNDARY.md §7.2); 0 switches the check off.
+	// Seeds the task-timeout param. Clear of a smoothed leg's dispatch, which
+	// holds the loop for one servo cycle per segment (up to ~0.8 s measured).
+	TaskTimeout float64
+	HomeTimeout float64
 
 	// Park is [PNPTASK]PARK_X/PARK_Y, a machine position, and ParkZ its
 	// PARK_Z (D34): where the park request sends the head. HasPark says the
@@ -418,6 +426,7 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.PickSettleTime = r.duration(sec, "PICK_SETTLE_TIME", 0)
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
 	cfg.ReleaseTimeout = r.duration(sec, "RELEASE_TIMEOUT", defaultReleaseTimeout)
+	cfg.TaskTimeout = r.duration(sec, "TASK_TIMEOUT", defaultTaskTimeout)
 	cfg.HomeTimeout = r.duration(sec, "HOME_TIMEOUT", defaultHomeTimeout)
 	cfg.EstopKeepsGrip = r.boolean(sec, "ESTOP_KEEPS_GRIP", false)
 	hasPX, hasPY, hasPZ := r.has(sec, "PARK_X"), r.has(sec, "PARK_Y"), r.has(sec, "PARK_Z")

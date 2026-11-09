@@ -20,7 +20,8 @@ import (
 // station's released follows its release request.
 //
 // It steps inside the control loop, at the start of every cycle before the
-// inputs are read (pnptaskModule.tickHook), so a command written in one cycle
+// inputs are read (pnptaskModule.tickHook, run before every servo cycle of the
+// tests' cycle function, see driveRT), so a command written in one cycle
 // is answered in the next one's sample. On a goroutine of its own it raced the
 // loop: a stall of that goroutine longer than a settle budget left the module
 // judging feedback the simulated gripper never had the chance to produce, and
@@ -799,13 +800,14 @@ func TestWaitMotionDoneIgnoresStaleSnapshotAfterDispatch(t *testing.T) {
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.mc, m.ms = mot, mot
 
+	m.rt.runRT = m.rt.invoke // the loop is the servo thread here
+	m.rt.invoke()
 	c := newControl(m)
-	c.ticker = time.NewTicker(pollInterval)
-	defer c.ticker.Stop()
+	c.seenChange = m.rt.bell.Change()
 	c.sample() // one good pre-dispatch snapshot: standing still, queue empty
 
 	// The dispatch happens; every following read fails, so the loop keeps
-	// serving the stale pre-dispatch snapshot within statusStaleTicks.
+	// serving the stale pre-dispatch snapshot within statusStale.
 	c.motionDispatched = true
 	mot.setInFlight(5)
 	mot.setStatusErr(fmt.Errorf("split read"))
