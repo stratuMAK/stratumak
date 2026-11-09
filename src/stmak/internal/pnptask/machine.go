@@ -78,8 +78,12 @@ var (
 
 	// wakeSoon is how soon the loop looks again when it needs the next frame
 	// rather than a change: a status refused as older than the last motion
-	// command, a mode switch re-sent until it takes.
+	// command.
 	wakeSoon = 2 * time.Millisecond
+
+	// modeResend is how often a mode switch motion has not taken yet is sent
+	// again (setMotionMode), the old control cycle's pace.
+	modeResend = 10 * time.Millisecond
 
 	// settleMargin is added to every settle time: the feedback a settle waits
 	// for is judged on the first frame past it.
@@ -250,7 +254,7 @@ type control struct {
 	status     motstat.MotionStatus
 	statusOK   bool
 	commErrors int           // consecutive failed status reads
-	statusAt   time.Duration // the servo time of the last good one
+	failSince  time.Duration // the servo time of the first of them
 
 	// Machine state as this module sees it.
 	estopped bool // estop-on was high and the teardown has run
@@ -426,7 +430,6 @@ func (c *control) start() {
 	// present now are stale boot state (see primeEdges).
 	c.primeEdges()
 	c.now = time.Duration(c.m.rt.in.servo_ns)
-	c.statusAt = c.now
 	c.seenChange = c.m.rt.bell.Change()
 	// Restored held records re-drove their close outputs (world.restore);
 	// schedule the one-shot grip validation for after the pick settle time
@@ -764,13 +767,15 @@ func (c *control) sample() {
 	}
 
 	if st, err := c.m.ms.GetStatus(); err != nil {
+		if c.commErrors == 0 {
+			c.failSince = c.now
+		}
 		c.commErrors++
 		// A frame from before the last motion command: the next one will do,
 		// and nothing has to change for it to come.
 		c.wakeBy(c.now + wakeSoon)
 	} else {
 		c.commErrors = 0
-		c.statusAt = c.now
 		c.status = st
 		// The self-disable watchdog judges only fresh reads: a failed read
 		// re-serves the last snapshot and proves nothing either way. It runs
@@ -792,8 +797,21 @@ func (c *control) sample() {
 	c.statusOK = c.statusAge() <= statusStale
 }
 
-// statusAge is how long ago, in servo time, the last good status was read.
-func (c *control) statusAge() time.Duration { return c.now - c.statusAt }
+// statusAge is how long, in servo time, the status reads have been failing:
+// since the first of the current run of failures, 0 with the last read good.
+// Measured from the first FAILED read, not from the last good one: the loop
+// can be busy for a while between two reads -- a smoothed leg's dispatch holds
+// it for a servo cycle per segment, ~0.8 s at the most -- and the first read
+// after that is routinely refused (a frame from the cycle of the last motion
+// command). Counted from the last good read, that read made the snapshot
+// stale at once and dropped homed for a wake (machine test 2026-11-09: the
+// camera station faulted "portal not homed" and automatic went off).
+func (c *control) statusAge() time.Duration {
+	if c.commErrors == 0 {
+		return 0
+	}
+	return c.now - c.failSince
+}
 
 // commLost reports whether the motion controller counts as gone: no good
 // status for commFailure, or the cycle function not running at all.
@@ -1395,6 +1413,7 @@ func (c *control) runHoming() error {
 // simply be dropped (milltask's guards.go learned the same thing).
 func (c *control) setMotionMode(want int32) error {
 	deadline := c.now + motionModeTimeout
+	send := true
 	for {
 		if c.statusOK && c.status.MotionState == want {
 			return nil
@@ -1405,6 +1424,23 @@ func (c *control) setMotionMode(want int32) error {
 		if c.now > deadline {
 			return faultf(errMotionError, "motion did not switch to mode %d within %v", want, motionModeTimeout)
 		}
+		// Re-sent only on a status read after the last send that still shows
+		// the old mode. The command's echo rings the doorbell at once, and the
+		// frame read then is refused as one from before the command (rtStatus):
+		// re-sending on that would refuse the next one too, and the loop would
+		// never see the switch (a runtest hit exactly that, timing out).
+		if !send {
+			c.wakeBy(c.now + modeResend)
+			if !c.tick() {
+				return errStopping
+			}
+			if err := c.abortCheck(); err != nil {
+				return err
+			}
+			send = c.commErrors == 0
+			continue
+		}
+		send = false
 		var err error
 		switch want {
 		case motstat.MOTION_FREE:
@@ -1418,14 +1454,6 @@ func (c *control) setMotionMode(want int32) error {
 		}
 		if err != nil {
 			return faultf(errMotionError, "switching motion to mode %d: %v", want, err)
-		}
-		// Re-sent on the next frame, change or not.
-		c.wakeBy(c.now + wakeSoon)
-		if !c.tick() {
-			return errStopping
-		}
-		if err := c.abortCheck(); err != nil {
-			return err
 		}
 	}
 }

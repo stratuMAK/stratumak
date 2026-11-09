@@ -1651,3 +1651,50 @@ func TestLoopSleepsUntilAChange(t *testing.T) {
 		t.Errorf("woke %v after the input changed, want within a few servo cycles", d)
 	}
 }
+
+// TestStatusNotStaleAfterABusyLoop: the loop can be busy for a while between
+// two status reads -- a smoothed leg's dispatch holds it for a servo cycle per
+// segment -- and the first read after that is routinely refused (a frame from
+// the cycle of the last motion command). That one read must not make the
+// snapshot stale: on the machine (2026-11-09) it dropped homed for a wake, the
+// camera station faulted "portal not homed" and automatic went off. Staleness
+// counts from the first failed read; failures that persist still count.
+func TestStatusNotStaleAfterABusyLoop(t *testing.T) {
+	fastLoop(t)
+	setupPaths(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc, m.ms = mot, mot
+	m.rt.runRT = m.rt.invoke
+	m.rt.invoke()
+	c := newControl(m)
+	c.sample()
+	if !c.statusOK {
+		t.Fatal("not OK after a good read")
+	}
+
+	// The loop is busy for half a second of servo time, then its first read
+	// is refused.
+	for i := 0; i < 500; i++ {
+		m.rt.invoke()
+	}
+	mot.setStatusErr(errStaleStatus)
+	c.sample()
+	if !c.statusOK {
+		t.Errorf("one refused read after a busy loop made the status stale (age %v)", c.statusAge())
+	}
+
+	// Failing on for longer than statusStale: stale.
+	for i := 0; i < 150; i++ {
+		m.rt.invoke()
+	}
+	c.sample()
+	if c.statusOK {
+		t.Errorf("reads failing for %v still count as OK", c.statusAge())
+	}
+	mot.setStatusErr(nil)
+	c.sample()
+	if !c.statusOK || c.statusAge() != 0 {
+		t.Errorf("a good read: OK=%v age=%v, want OK and 0", c.statusOK, c.statusAge())
+	}
+}
