@@ -799,19 +799,126 @@ func TestCycleStallCheck(t *testing.T) {
 	}
 }
 
-// TestTaskStalledEndsTheWait (§7.2): a TASK_STALLED latched by the cycle
+// TestCycleStallCheckLoopOneRingBehind (§7.2): a loop that takes every ring
+// while the next one is already out -- an input that changes every cycle -- is
+// never caught up, and is not stalled: its taken count keeps moving.
+func TestCycleStallCheckLoopOneRingBehind(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+	m.rt.read()
+	m.rt.setTaskTimeout(0.005)
+	m.rt.commit()
+
+	for i := 0; i < 30; i++ {
+		m.rt.read() // the ring of the last cycle ...
+		m.pins.waitAbort.Set(i%2 == 0)
+		m.rt.invoke()
+		m.rt.commit() // ... taken once the next one is out
+	}
+	if get("error") != 0 {
+		t.Errorf("a loop one ring behind: error=%v id=%v, want none", get("error"), get("error-id"))
+	}
+}
+
+// TestCycleStallComesBackAfterAReset (§7.2): while the loop still takes
+// nothing, an error-reset clears TASK_STALLED for one cycle only, so no
+// request is accepted for a loop that is not running; once the loop has taken
+// the rings a reset clears it for good.
+func TestCycleStallComesBackAfterAReset(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+	m.rt.read()
+	m.rt.setTaskTimeout(0.005)
+	m.rt.commit()
+
+	m.pins.waitAbort.Set(true) // a ring, never taken
+	for i := 0; i < 8; i++ {
+		m.rt.invoke()
+	}
+	if get("error-id") != float64(errTaskStalled) {
+		t.Fatalf("error-id=%v, want TASK_STALLED", get("error-id"))
+	}
+
+	m.pins.errorReset.Set(true)
+	m.rt.invoke()
+	if get("error") != 0 {
+		t.Error("the reset did not clear the latch in its cycle")
+	}
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	if get("error") != 1 || get("error-id") != float64(errTaskStalled) {
+		t.Errorf("the cycle after the reset, loop still stalled: error=%v id=%v, want TASK_STALLED back",
+			get("error"), get("error-id"))
+	}
+	if get("busy") != 0 {
+		t.Error("a job was accepted for a stalled loop")
+	}
+
+	// The loop is back and takes the rings.
+	m.rt.read()
+	m.rt.commit()
+	m.pins.errorReset.Set(false)
+	m.rt.invoke()
+	m.pins.errorReset.Set(true)
+	for i := 0; i < 10; i++ {
+		m.rt.invoke()
+		m.rt.read()
+		m.rt.commit()
+	}
+	if get("error") != 0 {
+		t.Errorf("reset with the loop running again: error-id=%v, want it clear", get("error-id"))
+	}
+}
+
+// TestTaskStalledEndsTheJob (§7.2): a TASK_STALLED latched by the cycle
 // function ends the job in flight at its next abort check -- the PLC has given
-// up on it -- while a fault the loop raised itself does not.
-func TestTaskStalledEndsTheWait(t *testing.T) {
+// up on it -- and stops what the leg has queued; so does an error-reset counted
+// during the job, which can only have cleared that latch. A fault the loop
+// raised itself ends no wait, and neither does TASK_STALLED outside a job:
+// enabling, homing and a jog go on under it as under any latched error.
+func TestTaskStalledEndsTheJob(t *testing.T) {
 	m, _ := rtModule(t)
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc = mot
 	c := newControl(m)
+
+	c.inFlight = true
 	latchIn(&m.rt.in, errTrayEmpty)
 	if err := c.abortCheck(); err != nil {
 		t.Fatalf("a fault of the loop's own ended the wait: %v", err)
 	}
+
+	c.inFlight = false
 	latchIn(&m.rt.in, errTaskStalled)
+	if err := c.abortCheck(); err != nil {
+		t.Fatalf("TASK_STALLED ended a wait outside a job: %v", err)
+	}
+
+	c.inFlight = true
+	c.nearAt = 20
 	var f *pnpFault
 	if err := c.abortCheck(); !errors.As(err, &f) || f.id != errTaskStalled {
-		t.Errorf("abortCheck with TASK_STALLED latched = %v, want TASK_STALLED", err)
+		t.Errorf("abortCheck in a job with TASK_STALLED latched = %v, want TASK_STALLED", err)
+	}
+	if !mot.called("Abort") {
+		t.Error("the job ended with its queued motion left running")
+	}
+	if mot.called("Disable") {
+		t.Error("the machine was taken off")
+	}
+	if c.nearAt != 0 {
+		t.Error("nearAt is still believed after the abort")
+	}
+
+	// The latch reset before the loop looked: the reset's count tells.
+	m.rt.in.latch.set = 0
+	mot.resetCalls()
+	if err := c.abortCheck(); err != nil {
+		t.Fatalf("a clear latch ended the wait: %v", err)
+	}
+	c.seen.errorReset++
+	if err := c.abortCheck(); !errors.As(err, &f) || f.id != errTaskStalled || !mot.called("Abort") {
+		t.Errorf("abortCheck after a reset during the job = %v (Abort %v), want TASK_STALLED and the motion stopped",
+			err, mot.called("Abort"))
 	}
 }

@@ -140,8 +140,8 @@ typedef struct {
 // velocity, which move every cycle while the head travels -- and in the cycle
 // servo time reaches the loop's wake_at (a deadline, or the idle wake).
 // `change` counts the rings. The loop says which count it has acted on
-// (taken); a ring it leaves untaken for task_timeout latches TASK_STALLED
-// (§7.2).
+// (taken); rings outstanding with taken standing still for task_timeout latch
+// TASK_STALLED (§7.2).
 //
 // The teach pins (picker.N.pos-x/-y and -mu) are the function's too: the
 // snapshot's feedback plus the picker's offset, every cycle.
@@ -249,7 +249,7 @@ typedef struct {
     uint32_t watch_release;    // ... and hold these stations' release low (bit per proc)
 
     uint64_t wake_at;          // servo ns to ring at, 0: none
-    uint64_t task_timeout;     // ns a ring may stay untaken, 0: no check
+    uint64_t task_timeout;     // ns taken may stand still behind a ring, 0: no check
     uint32_t taken;            // the change count Go has acted on
     uint32_t pad1_;
     double   linear_units;     // machine units per mm, for the -mu teach pins
@@ -325,7 +325,7 @@ typedef struct {
     // cycle's signature of what Go acts on, the teach positions.
     uint64_t       servo_ns, wake_rung, stall_ns;
     uint32_t       change;
-    int            stalled;
+    uint32_t       taken_seen;   // Go's taken as of the last cycle
     pnp_rt_sig_t   sig, sig_prev;
     double         pos_x[PNP_RT_MAX_PICKERS], pos_y[PNP_RT_MAX_PICKERS];
 } pnp_rt_t;

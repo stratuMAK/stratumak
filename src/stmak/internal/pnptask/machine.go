@@ -336,6 +336,11 @@ type control struct {
 	manualGrip       []time.Duration
 	manualGripWarned []bool
 
+	// inFlight: a job or park is running (runJobHandshake, runParkRequest);
+	// flightResets is the error-reset count as it started. See abortCheck.
+	inFlight     bool
+	flightResets uint32
+
 	// autoLast is auto-enable as step last saw it, for the release of opened
 	// reservations when automatic starts (releaseOpenRetained).
 	autoLast bool
@@ -1748,12 +1753,26 @@ func (c *control) abortCheck() error {
 	if c.commLost() {
 		return faultf(errMotionError, "motion controller stopped responding")
 	}
-	// A fault the loop did not raise ends the job in flight, as estop does:
-	// TASK_STALLED, latched by the cycle function when this loop left a change
-	// untaken for task-timeout (§7.2). The PLC has given up on the job by
-	// then; a loop that recovers must not carry on with it.
-	if l := &c.m.rt.in.latch; l.set != 0 && errorID(l.id) == errTaskStalled {
-		return faultf(errTaskStalled, "the control loop stalled: a change went untaken for task-timeout")
+	// A fault the loop did not raise ends the job or park in flight, as estop
+	// does: TASK_STALLED, latched by the cycle function when this loop took
+	// none of its rings for task-timeout (§7.2). The PLC has given up on the
+	// job by then; a loop that recovers must not carry on with it. An
+	// error-reset counted meanwhile says the same with the latch already clear
+	// again: the function counts one only with a fault latched, and the loop
+	// raises none during a job, so it was this one. Only a job or park:
+	// enabling, homing and a jog go on under this latch as under any other.
+	if c.inFlight {
+		l := &c.m.rt.in.latch
+		if (l.set != 0 && errorID(l.id) == errTaskStalled) || c.seen.errorReset != c.flightResets {
+			// What the leg has queued stops with the job. The head stands
+			// somewhere along the way: where it stayed low is not known any
+			// more, and a deferred lift is not run from there.
+			c.nearAt = 0
+			c.lowAt = 0
+			c.dropLift()
+			_ = c.m.mc.Abort()
+			return faultf(errTaskStalled, "the control loop stalled: no change taken for task-timeout")
+		}
 	}
 	return nil
 }

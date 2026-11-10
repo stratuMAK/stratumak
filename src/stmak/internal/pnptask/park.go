@@ -26,7 +26,9 @@ func (c *control) runParkRequest(seq uint32) {
 		return
 	}
 	c.parked = false
+	c.inFlight, c.flightResets = true, c.seen.errorReset
 	err := c.runPark()
+	c.inFlight = false
 	switch {
 	case err == nil:
 		c.parked = true
