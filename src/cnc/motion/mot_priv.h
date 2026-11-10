@@ -151,6 +151,18 @@ typedef struct motmod_inst {
 ************************************************************************/
 
 extern void emcmotCommandHandler(void *arg, long period) STMAK_NONBLOCKING;
+
+/* The planner intake of EMCMOT_SET_TERM_COND / _SET_LINE / _SET_CIRCLE
+   (command.c), shared by the command handler and mot's traj_* calls. Servo
+   thread only; each returns the EMCMOT_COMMAND_* status. */
+extern int emcmotSetTermCond(motmod_inst_t *inst, int cond, double tolerance) STMAK_NONBLOCKING;
+extern int emcmotSetLine(motmod_inst_t *inst, const EmcPose *pos, int id,
+                         int motion_type, int turn, double vel, double ini_maxvel,
+                         double acc, double feed_mm_per_min, int spindle) STMAK_NONBLOCKING;
+extern int emcmotSetCircle(motmod_inst_t *inst, const EmcPose *pos,
+                           const PmCartesian *center, const PmCartesian *normal,
+                           int id, int motion_type, int turn, double vel,
+                           double ini_maxvel, double acc, double feed_mm_per_min) STMAK_NONBLOCKING;
 extern void emcmotController(void *arg, long period) STMAK_NONBLOCKING;
 extern void emcmotSetCycleTime(motmod_inst_t *inst, unsigned long nsec) STMAK_NONBLOCKING;
 

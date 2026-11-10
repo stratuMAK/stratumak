@@ -337,6 +337,66 @@ static int32_t gmi_mot_status_get_snapshot(void *ctx, mot_snapshot_t *snap) STMA
     return 0;
 }
 
+/* --- Trajectory intake from the servo thread (mot v4) ---
+
+   A cyclic function in this servo thread hands the planner a segment without
+   the command slot (pnptask's leg feed, docs/dev/PNPTASK_RT_BOUNDARY.md §13).
+   The work is command.c's, the same functions the command handler runs for
+   motctl's commands of these names; the slot and its echo (commandNumEcho,
+   commandStatus) stay motctl's. The status changes are bracketed with
+   head/tail as the handler brackets a command's. */
+
+static void traj_begin(motmod_inst_t *inst) STMAK_NONBLOCKING
+{
+    inst->status->head++;
+    inst->internal->head++;
+}
+
+static void traj_end(motmod_inst_t *inst) STMAK_NONBLOCKING
+{
+    inst->status->tail = inst->status->head;
+    inst->internal->tail = inst->internal->head;
+}
+
+static int32_t gmi_mot_traj_set_term_cond(void *ctx, int32_t cond, double tolerance) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+    traj_begin(inst);
+    int status = emcmotSetTermCond(inst, cond, tolerance);
+    traj_end(inst);
+    return status;
+}
+
+static int32_t gmi_mot_traj_add_line(void *ctx, const mot_line_seg_t *seg) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+    EmcPose pos;
+    memcpy(&pos, &seg->pos, sizeof(EmcPose));
+    traj_begin(inst);
+    /* spindle 0: what motctl's set_line leaves in the command */
+    int status = emcmotSetLine(inst, &pos, seg->id, seg->motion_type, seg->turn,
+                               seg->vel, seg->ini_maxvel, seg->acc,
+                               seg->feed_mm_per_min, 0);
+    traj_end(inst);
+    return status;
+}
+
+static int32_t gmi_mot_traj_add_circle(void *ctx, const mot_circle_seg_t *seg) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+    EmcPose pos;
+    PmCartesian center, normal;
+    memcpy(&pos, &seg->pos, sizeof(EmcPose));
+    center.x = seg->center.x; center.y = seg->center.y; center.z = seg->center.z;
+    normal.x = seg->normal.x; normal.y = seg->normal.y; normal.z = seg->normal.z;
+    traj_begin(inst);
+    int status = emcmotSetCircle(inst, &pos, &center, &normal, seg->id,
+                                 seg->motion_type, seg->turn, seg->vel,
+                                 seg->ini_maxvel, seg->acc, seg->feed_mm_per_min);
+    traj_end(inst);
+    return status;
+}
+
 /* --- Status setters --- */
 
 static void gmi_mot_status_set_current_vel(void *ctx, double vel) STMAK_NONBLOCKING
