@@ -200,8 +200,12 @@ type rtIO struct {
 	// dispatchCycle is the doorbell's cycle count right after the last motion
 	// command returned (committedMotion). motctl returns only once motmod has
 	// taken the command, so a frame of a later cycle includes it; rtStatus
-	// refuses older ones.
-	dispatchCycle uint32
+	// refuses older ones while dispatchPending: until read has seen such a
+	// frame. Only until then -- the cycle count wraps, and a comparison with
+	// a command long past would turn around after 2^31 cycles (24.9 days at
+	// 1 kHz) and refuse every frame, with no command coming to end it.
+	dispatchCycle   uint32
+	dispatchPending bool
 }
 
 // build allocates the buffers and maps, binds every pin of the set, and links
@@ -346,25 +350,32 @@ func (r *rtIO) commit() {
 	r.sentCycle = r.bell.Cycle()
 }
 
-// applyWait bounds applyBeforeMotion's wait. Two servo cycles normally; the
-// bound only matters if the function stopped running, and then the command
-// goes out anyway rather than hanging the loop.
+// applyWait bounds waitApplied. Two servo cycles normally; the bound only
+// matters if the function stopped running, and then the caller goes on -- a
+// motion command goes out anyway -- rather than hanging the loop.
 const applyWait = 20 * time.Millisecond
 
 // applyBeforeMotion makes sure what the control loop wrote is on the pins
 // before a motion command goes out: commit what changed since the last commit,
-// and wait until the cycle function has started a run after the last commit
-// (two cycle counts) -- for a commit from an earlier tick that is long past. Motion commands reach motmod at once,
-// through motctl; without this an output written before a command -- scene-busy
-// dropped before a descent -- could read its old value while the head already
-// moved, to a reader outside the servo thread even within the cycle the
-// command is taken in (motion-controller runs before the cycle function).
+// and wait until the cycle function has applied it (waitApplied). Motion
+// commands reach motmod at once, through motctl; without this an output
+// written before a command -- scene-busy dropped before a descent -- could
+// read its old value while the head already moved, to a reader outside the
+// servo thread even within the cycle the command is taken in
+// (motion-controller runs before the cycle function).
 // Nothing changed, nothing to wait for: most commands of a leg go straight
 // out.
 func (r *rtIO) applyBeforeMotion() {
 	if r.out != r.sent {
 		r.commit()
 	}
+	r.waitApplied()
+}
+
+// waitApplied waits until the cycle function has started a run after the last
+// commit (two cycle counts), so that commit is on the pins -- for a commit from
+// an earlier tick that is long past. Bounded by applyWait.
+func (r *rtIO) waitApplied() {
 	deadline := time.Now().Add(applyWait)
 	for r.bell.Cycle()-r.sentCycle < 2 {
 		if r.runRT != nil {
@@ -456,12 +467,14 @@ func (r *rtIO) disarmWatch() {
 
 func (r *rtIO) watchFired() bool { return r.in.watch_fired == r.out.watch_seq }
 
-// raise asks the cycle function to latch a fault. It reports false, and sends
-// nothing, when a fault is already latched or one sent earlier is not yet
-// taken: the first wins (§6.5), and a second raise in the same frame would
-// overwrite the first one's fields.
+// raise asks the cycle function to latch a fault. Whether it latches is the
+// function's to say: the first fault wins there (§6.5), and the loop's own
+// view of the latch can be a cycle old -- an error-reset may have cleared it
+// since -- so a fault is sent whatever the last frame shows. It reports false,
+// and sends nothing, only while a raise sent earlier is not yet taken: a
+// second one in the same frame would overwrite the first one's fields.
 func (r *rtIO) raise(id, station uint32, missing uint8) bool {
-	if r.in.latch.set != 0 || r.raisePending() {
+	if r.raisePending() {
 		return false
 	}
 	r.out.raise_seq++
@@ -486,6 +499,9 @@ func (r *rtIO) read() {
 	r.out.sync = r.in.cycle
 	// Acting on this frame takes its rings (the stall check, §7.2).
 	r.out.taken = r.in.change
+	if r.dispatchPending && int32(uint32(r.in.cycle)-r.dispatchCycle) > 0 {
+		r.dispatchPending = false
+	}
 }
 
 // waitFirstFrame waits for the cycle function's first run, so the first read
@@ -567,6 +583,7 @@ type committedMotion struct {
 // includes it (rtIO.dispatchCycle), and passes the command's error through.
 func (m committedMotion) note(err error) error {
 	m.rt.dispatchCycle = m.rt.bell.Cycle()
+	m.rt.dispatchPending = true
 	m.rt.cmds++
 	return err
 }
@@ -649,7 +666,7 @@ func (s *rtStatus) GetStatus() (motstat.MotionStatus, error) {
 	if f.mot_ok == 0 {
 		return motstat.MotionStatus{}, errNoSnapshot
 	}
-	if int32(uint32(f.cycle)-s.rt.dispatchCycle) <= 0 {
+	if s.rt.dispatchPending {
 		return motstat.MotionStatus{}, errStaleStatus
 	}
 	m := &f.mot

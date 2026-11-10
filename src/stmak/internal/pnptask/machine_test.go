@@ -1528,10 +1528,9 @@ func TestModuleStopDisablesMotion(t *testing.T) {
 	f.machineOn()
 	f.mot.resetCalls()
 
+	// Stop returns with the loop's last commit on the pins: on a runtime
+	// unload the cycle function is removed right after it.
 	f.m.Stop()
-	// The servo thread is still running during Stop; it carries the loop's
-	// last commit out to the pins.
-	f.m.rt.invoke()
 
 	if !f.mot.called("Abort") || !f.mot.called("Disable") {
 		t.Errorf("Stop did not abort and disable motion: %v", f.mot.callList())

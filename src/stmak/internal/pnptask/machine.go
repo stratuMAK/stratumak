@@ -1851,15 +1851,19 @@ func (c *control) raise(err error) {
 		fault = f
 	}
 	// The cycle function latches it, flag, id, station and missing in one
-	// servo cycle, and keeps the first: a further fault while one is latched,
-	// or on its way, is only logged.
+	// servo cycle, and keeps the first. As far as the loop's last frame tells,
+	// a fault with one latched or on its way is a further one, and only
+	// logged at debug level; it is sent all the same, unless one is on its way
+	// (rtIO.raise).
 	var missing uint8
 	for i, m := range c.missing {
 		if m {
 			missing |= 1 << i
 		}
 	}
-	if !c.m.rt.raise(uint32(fault.id), fault.station, missing) {
+	further := c.m.rt.latched()
+	c.m.rt.raise(uint32(fault.id), fault.station, missing)
+	if further {
 		c.m.logger.Debug("pnptask: further fault while one is latched",
 			"error_id", uint32(fault.id), "error", fault.id.String(), "detail", fault.msg)
 		return
@@ -1894,8 +1898,10 @@ func (c *control) park() {
 	c.m.pins.machineIsOn.Set(false)
 	// Nobody takes the cycle function's rings any more: no stall check.
 	c.m.rt.setTaskTimeout(0)
-	// The last commit. Stop runs ahead of the launcher's RT barrier, so the
-	// cycle function still carries it out to the pins.
+	// The last commit. Stop runs ahead of the launcher's RT barrier, but on a
+	// runtime unload the function is removed right after Stop returns: the
+	// loop waits here until it has carried this frame out to the pins.
 	c.m.rt.commit()
+	c.m.rt.waitApplied()
 	c.m.logger.Debug("pnptask control loop stopped")
 }
