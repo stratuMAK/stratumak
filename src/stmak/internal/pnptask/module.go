@@ -125,11 +125,11 @@ type pnptaskModule struct {
 	// ctl is the control loop; nil until Start.
 	ctl *control
 
-	// tickHook, when set, runs at the start of every control cycle, before
-	// the inputs are read. Nil in production. The unit tests step their
-	// simulated gripper and fixtures here, so the simulated hardware answers
-	// in the control loop's own time instead of on a goroutine the scheduler
-	// can hold back past a settle budget. Set before startControl only.
+	// tickHook is the unit tests' simulated hardware: driveRT runs it before
+	// every servo cycle of the cycle function the loop runs itself, so the
+	// simulated gripper and fixtures answer in the loop's own time instead of
+	// on a goroutine the scheduler can hold back past a settle budget. Nil in
+	// production. Set before driveRT and startControl only.
 	tickHook func()
 
 	// handshakes counts the jobs and parks the control loop has ended, after

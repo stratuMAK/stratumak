@@ -27,22 +27,22 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D8 | Tray reset pins | Two pins per tray station: `set-full` → all slots = current `process-step` pin value; `set-empty` → all slots = −1. (The earlier third pin `set-process-step` is merged into `set-full`.) |
 | D9 | Slot search | Tracked slot state is authoritative for *which* slots to try; the picker material-present feedback (closed = gripped nothing) only validates and corrects it. |
 | D10 | Pick Z | Per tray **station** in INI (like process stations). Both pickers share the machine Z axis; `picker.1` differs only by its x/y offset params. |
-| D11 | Error reset | Dedicated `error-reset` input pin, edge-triggered (wireable to `machine-on` for auto-reset). |
-| D12 | Job model | Strictly one job at a time via the `start-job` handshake. No queueing. |
-| D13 | Planning latency | Plan time adds to cycle time (planning starts at the `start-job` edge). Budget: **< 100 ms**; precompute everything static (Phase 1). |
+| D11 | Error reset | Dedicated `error-reset` input pin, edge-triggered (wireable to `machine-on` for auto-reset). **Since the RT boundary (PNPTASK_RT_BOUNDARY.md step 5):** the error latch is the cycle function's; the edge clears `error`, `error-id`, `error-station` and `picker.N.missing` in its own servo cycle, and is counted only with an error latched. |
+| D12 | Job model | Strictly one job at a time via the `start-job` handshake. No queueing. **Since PNPTASK_RT_BOUNDARY.md step 5:** `start-job` is an in pin; the cycle function accepts a rising edge (busy low, no error latched) in its servo cycle, latches the parameters from that sample, and drops `busy` in the cycle that carries the outcome (§5.2.1). |
+| D13 | Planning latency | Plan time adds to cycle time (planning starts at the `start-job` edge). Budget: **< 100 ms**; precompute everything static (Phase 1). Not counted in `plan-time`: dispatching a leg, one servo cycle per segment (motctl waits for motmod's echo), which holds the control loop up to ~0.8 s for a long smoothed leg but runs while the head moves, so it costs no cycle time (PNPTASK_RT_BOUNDARY.md §7.2, §12). |
 | D14 | Manual mode | `auto-enable` input pin: low → new jobs rejected, manual jog + manual picker control enabled; a running job **finishes first** (no abort) when it goes low. Picker `close` outputs keep their state across machine-off (held material stays held); they are cleared on estop. Manual picker control works even with the machine off, but not during estop. |
 | D15 | Wait positions | No free-standing wait-point stations. A process station optionally defines `WAIT_X`/`WAIT_Y` and has a `busy` input pin; a job targeting a busy station waits there (holding the material) until `busy` clears. `auto-enable` going low aborts the wait (error `WAIT_ABORTED`). Superseded for enclosure-gated stations by D29's derived wait position. |
-| D16 | Abort semantics | No abort request besides estop and machine-off. Externally clearing `start-job` mid-job is ignored. |
+| D16 | Abort semantics | No abort request besides estop and machine-off. Externally clearing `start-job` mid-job is ignored. **Since PNPTASK_RT_BOUNDARY.md step 5** there is nothing to clear: the module never writes `start-job`, and dropping it mid-job is the requester's business. A `TASK_STALLED` latched by the cycle function (§7.5) also ends a job in flight. |
 | D17 | Tray geometry | TRAYDEF `FIRST`/`LAST` are **absolute machine coordinates** (`LAST` optional — single-position tray), `LAST` being the *taught* position of the far corner slot (D24); tray stations have no X/Y of their own, only `Z_PICK` and pins. A `tray-id` change resets all slots to −1 (the startup state). |
 | D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
 | D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
-| D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. **Teaching into the INI uses the `-mu` siblings** (D26): the INI is written in machine units. |
+| D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. **Teaching into the INI uses the `-mu` siblings** (D26): the INI is written in machine units. **Since PNPTASK_RT_BOUNDARY.md step 7** the cycle function computes them every servo cycle from its motion snapshot and the offset params. |
 | D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
 | D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene is scaled to mm when the planners are built; `CLEARANCE`, like every INI length, is already mm by then (converted at parse time — scaling it again would square the factor). Everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
 | D24 | Tray geometry fit | The grid is built from its **step widths**, not interpolated between two taught corners: `slot(c,r) = FIRST + R(θ)·(COL_STEP·c, ROW_STEP·r)`. The tilt θ is **derived, never configured** — it is the angle from the corner the steps compute, `(COL_STEP·(COLS−1), ROW_STEP·(ROWS−1))`, to the taught `LAST−FIRST`, bearing on `FIRST`. A rotation cannot change a vector's length, so whatever separation is left between the rotated corner and `LAST` is the two descriptions disagreeing (a mistyped step, a mis-taught `LAST`, the wrong `ROWS`/`COLS`): more than `[PNPTASK]POS_TOLERANCE` of it fails the load. Steps are positive and at least 0.1 mm; which way the tray runs on the table is θ's business. A tray without `LAST` has nothing to fit and stays at θ = 0. |
-| D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. |
-| D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
+| D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. A press while busy (a job or park) is not counted (the cycle function's gate, PNPTASK_RT_BOUNDARY.md step 5). |
+| D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`, and since PNPTASK_RT_BOUNDARY.md step 5 `start-job` and `park`) are edge-triggered against their *startup* state -- the cycle function's first run only primes: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
 | D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
 | D28 | Machine-frame planning + reachability at accept (2026-08-18) | Dead zones and the outer limit are **machine-position geometry**: the operator teaches them by driving the machine and noting machine positions into the DXF, so the outlines already embody the head's physical extent, both pickers included (picker offsets define pick *points*, never outlines). The route planner therefore runs **in machine coordinates per picker** — plan `cmdPos → target − offset` against the scene as-drawn, command the waypoints directly. (Planning in the pick-point frame and shifting the waypoints afterwards translated the polyline by the offset and let the machine cut a zone corner by up to \|offset\|.) On top of that, job **accept** validates every endpoint the job could command (every slot of an involved tray, proc position, wait point; travel height and station Z) minus every picker's offset against the **axis limits** — refusal is `TARGET_UNREACHABLE` (24), naming station, picker and limit, before any motion. The dead-zone *scene* is deliberately not part of that accept check: the selector describes the machine per leg (D15's enclosure workflow starts jobs whose destination is unreachable in the currently selected drawing), so scene reachability stays `PLANNING_FAILED` at leg time. |
 | D29 | Wait position derived from a dead zone (2026-08-28) | **Superseded by D46 (2026-10-29): removed, `WAIT_DEADZONE` is gone.** Kept for the record: A process station may replace D15's taught `WAIT_X`/`WAIT_Y` with a pair of drawing indices, `WAIT_DEADZONE`/`WAIT_CLEAR_DEADZONE` (mutually exclusive with the taught pair). The approach is then planned as **two legs**: up to the last point on the way in that is still clear of the zone the station sits inside, and from there into the station — with the second leg queued into the TP **without draining the first**, the instant `busy` reads clear, so the two blend and the head does not stop. The wait point is where a reference route planned in the *clear* drawing (the station is not a legal goal in the blocked one, so no route to it exists there) first meets the *blocked* drawing's **offset** zone, pulled back by `BLEND_TOLERANCE`; taking the crossing on the offset zone rather than the drawn one is what leaves a full `CLEARANCE` after the TP rounds the corner inward. Leg 1 is replanned normally against the scene of the moment, so it is collision-free in the blocked drawing whatever the two drawings disagree about. Load time refuses a station that is not inside exactly one zone of `WAIT_DEADZONE` (a route in would never cross a boundary, so the head would drive straight through) or not reachable in `WAIT_CLEAR_DEADZONE` — asked in the frame and against the geometry the crossing itself uses (§13): the station's **machine point** (station minus picker offset, D28) against the **offset** zone, with no offset at load (the picker params do not exist yet) and again per picker at start, once the HAL file's `setp` lines have run; an offset changed afterwards that carries the point out of its zone is a `PLANNING_FAILED` naming the offset at leg time. Such a station also needs `BLEND_TOLERANCE > 0`: the wait point is the boundary pulled back by it, and at 0 it would sit exactly on the boundary, where the planner cannot say whether it is inside. Leg time refuses a selector that is not `WAIT_CLEAR_DEADZONE` when the station clears (`WAIT_SCENE_MISMATCH`, 25). This does **not** remove the velocity dip when the clear lands inside the braking ramp — that needs a conditional segment gate in motmod/TP and should not be built on a hunch — so the module publishes `wait-stops` instead: how often the queue really ran dry at the wait point, which is the frequency that would justify the change. A station that is **not busy** is driven to in one continuous leg, which for such a station is already the outcome the two legs exist to produce — but the scene check still runs, so a station reporting done in the wrong drawing is `WAIT_SCENE_MISMATCH` rather than a `PLANNING_FAILED` about an obstructed route. Splitting unconditionally was considered and rejected: two approaches legitimately BEGIN inside the nominated zone — the second job at the same station, and the placer after a §8 swap — and there is no boundary crossing to derive a wait point from in there. The placer after a swap is for the same reason not gated at all: the removal already served the gate and left the head at the station. The picker the second leg is planned for has to be the one going in, so `placeToProc` resolves the swap's remover **before** the gate rather than inside `swapOut` (D20's re-ask). The two legs are made to blend by ending the first with a segment long enough to be ENTERED at travel speed. That length is derived: a segment's velocity ceiling in the planner is its triangle velocity `sqrt(L * a_eff)` (`tpCalculateOptimizationInitialVel`), and `a_eff` is half the commanded acceleration because a blended segment gets `tc->maxaccel * 0.5` (`tcGetOverallMaxAccel`, measured exactly by `tests/trajectory-planner/decel-rate`). Setting the ceiling equal to the leg's own speed gives `L = v^2/(a/2) = 2*v^2/a`, with no constant in it and correct at any speed. It was a tuned number first — braking distances, found on a machine at 2, 3, 4 — which was the right scale by accident: at 50 mm/s the factor 4 happens to reproduce the triangle length, and at 250 mm/s it is half of what is needed. The termination condition needs no help: the planner already promotes both joins to tangent itself (`acc_scale 0`, `Kink acceleration within 0.1`), which is why declaring it changed nothing. |
@@ -507,61 +507,72 @@ normalized to HAL-conventional dashes.
 
 ### 5.2.1 Timing contract
 
-**The edge inputs take a pulse of one servo cycle** (since
-[`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md) steps 4 and 5). The
-control loop sleeps until the cycle function rings (step 7), but the edges
-are no longer its business either: the module's cycle function samples every input every servo
-cycle and counts each rising edge of `machine-on`, `home`, `error-reset`,
-`picker.N.manual-open`/`manual-close`, `tray.N.set-full`/`set-empty` and
-`proc.N.set-has-material`/`set-empty`, gated in the cycle of the press: on
-estop and auto, home also on busy, error-reset on an error being latched (and
-it clears the latch in that cycle). `start-job` and `park` it accepts itself
-(the job handshake below). The loop takes the counts, so a pulse between two
-of its samples is not lost. A pulse must still last one run of the cycle
-function: a producer outside the servo thread that sets a pin and clears it
-again within a millisecond can still go unseen. A press refused at its gate
-is gone, not kept.
+All of the module's pins are read and written by its cycle function, in the
+servo thread, once per servo cycle and all at once
+([`PNPTASK_RT_BOUNDARY.md`](PNPTASK_RT_BOUNDARY.md)). A component later in the
+same thread sees this cycle's outputs together; one earlier, or outside the
+thread, sees them together one cycle later. A reader can no longer catch one
+output of a group updated and another not.
 
-The station resets are applied between jobs (see the end of this section), so
-"seen" and "applied" are two moments; what a producer watches to know a reset
-has been applied:
+**Every edge input takes a pulse of one servo cycle.** The cycle function
+counts the rising edges of `machine-on`, `home`, `error-reset`,
+`picker.N.manual-open`/`manual-close`, `tray.N.set-full`/`set-empty` and
+`proc.N.set-has-material`/`set-empty`, and accepts those of `start-job` and
+`park`, each judged in the cycle of the press:
+
+| Input | Counted / accepted when |
+|---|---|
+| `machine-on` | no estop (held high at startup it is the boot edge, D26) |
+| `home` | no estop, not busy |
+| `error-reset` | an error is latched -- and it clears the latch in that cycle |
+| `picker.N.manual-open` / `manual-close` | no estop, not in auto |
+| `tray.N.set-full` / `set-empty`, `proc.N.set-has-material` / `set-empty` | always; set-full carries the tray's `step` of that cycle; both in one cycle is ignored |
+| `start-job` | not busy, no error latched |
+| `park` | no estop, not busy, no error latched |
+
+A press refused at its gate is gone, not kept. A one-shot input already high
+when the module starts is no edge (D26). A producer outside the servo thread
+that sets a pin and clears it again within a millisecond can still go unseen.
+
+**What a producer watches to know a command has been applied:**
 
 | Command | Applied when |
 |---|---|
-| `home` | `homed` |
-| `error-reset` | `error` low |
-| `tray.N.set-full` / `set-empty` | `tray.N.resets` counts up (and `avail` / `count` change) |
-| `proc.N.set-has-material` / `set-empty` | `proc.N.resets` counts up (and `has-material` follows) |
-| `picker.N.manual-open` / `manual-close` | `picker.N.close` follows |
 | `start-job`, `park` | `busy` rises in the same servo cycle (or `error` is high: ignored) |
+| `home` | `homed` |
+| `error-reset` | `error` low, in the cycle of the press |
+| `tray.N.set-full` / `set-empty` | `tray.N.resets` counts up, with `avail` / `count` in the same cycle |
+| `proc.N.set-has-material` / `set-empty` | `proc.N.resets` counts up, with `has-material` |
+| `picker.N.manual-open` / `manual-close` | `picker.N.close` follows |
 
-**The job handshake is the cycle function's** (PNPTASK_RT_BOUNDARY.md §4.4).
-A `start-job` rising edge with `busy` low and no error latched is accepted in
-its own servo cycle: `busy` rises, and `origin-id`, `dest-id`,
-`process-step`, `stay-near` and `deadzone-select` are latched from that same
-sample, so the order a PLC writes them in no longer matters as long as they
-are there in the cycle of the edge. The control loop runs the job and ends it
-in one commit with the outcome: `busy` falls in the servo cycle that also
-carries `error`/`error-id`/`error-station` and every model output. An edge
-while busy or latched is ignored; the requester sees `busy` or `error` in the
-same frame. A level already high when the function starts only primes (D26).
-`start-job` is never written by the module: the requester drops it when it
-likes, and the next request is the next rising edge. A job the loop refuses
-before it moves (validation, manual mode, an unknown id) still raises `busy`
-for at least one control cycle -- a reader in the servo thread cannot miss it,
-a slow poller can: it waits for `sync` past the cycle of its request with
-`busy` low, read in one listing. `park` is the same handshake, ending with
-`parked`.
+**The job handshake.** A `start-job` rising edge is accepted in its own servo
+cycle: `busy` rises, and `origin-id`, `dest-id`, `process-step`, `stay-near`
+and `deadzone-select` are latched from that same sample -- they only have to be
+there in the cycle of the edge, in any order. The job ends with its outcome:
+`busy` falls in the servo cycle that also carries `error`/`error-id`/
+`error-station` and every model output (pickers, stations, trays). `start-job`
+is never written by the module; the requester drops it when it likes, and the
+next request is the next rising edge. A job refused before it moves
+(validation, manual mode, an unknown id) still raises `busy` for at least one
+wake of the control loop: a reader in the servo thread cannot miss it, a slow
+poller can -- it waits for `sync` past the cycle of its request with `busy`
+low, read in one listing. `park` is the same handshake, ending with `parked`.
 
-Station resets have a second property worth knowing: they are latched when
-sampled but consumed **between jobs** (`updateStations` runs from `step()`, not
-from the `tick()` a running action spins on). A reset pressed mid-job therefore
-takes effect when that job ends, deliberately — so a job cannot have the tray or
-the fixture it is working on changed underneath it.
+**`sync`** is the `cycle` of the input sample the module's latest outputs
+were computed from: an input changed in cycle *k* has been seen once `sync` −
+*k* ≥ 0 (wrap-safe). It answers any "has the module seen this" question.
 
-None of this is a latency limit: holding does not make the module respond any
-sooner, and nothing here is meant to. It is the handshake being explicit, which
-is also what makes it survive a missed cycle or a restart.
+**Station resets are applied between jobs** (`updateStations` runs from
+`step()`, not from inside a job's actions): a reset pressed mid-job takes
+effect when that job ends -- so a job cannot have the tray or the fixture it is
+working on changed underneath it -- and the `resets` count says when.
+
+None of this is a latency limit: the handshake is explicit, which is also what
+makes it survive a missed cycle or a restart. The control loop's own reaction
+-- to a sensor in a wait, to an estop's teardown -- comes at its next wake: a
+few servo cycles, except while it dispatches a leg (one servo cycle per
+segment, up to ~0.8 s for a long smoothed leg; everything time-critical is the
+cycle function's and does not wait for it).
 
 ### 5.3 As built (2026-08-10)
 
@@ -760,12 +771,13 @@ with a 40 mm offset param), stops a Y jog at the pushed soft limit, releases a
 manually closed picker on estop, and refuses to come back until `machine-on`
 is cycled.
 
-- **One goroutine owns everything.** The module runs a single 100 Hz control
-  loop; no state in it is locked because nothing else touches it. Long
-  operations (the enable handshake, homing, and the job actions of the later
-  phases) do not run *beside* the loop — they run *inside* it, ticking the
-  same cycle through `waitUntil`, so every one of them re-samples the inputs
-  and re-runs the abort check every 10 ms. That is what makes "an estop ends
+- **One goroutine owns everything.** The module runs a single control loop
+  (a 100 Hz ticker then; since PNPTASK_RT_BOUNDARY.md step 7 it wakes on the
+  cycle function's doorbell); no state in it is locked because nothing else
+  touches it. Long operations (the enable handshake, homing, and the job
+  actions of the later phases) do not run *beside* the loop — they run
+  *inside* it, ticking the same loop through `waitUntil`, so every one of them
+  re-samples the inputs and re-runs the abort check at every wake. That is what makes "an estop ends
   any wait" structural rather than something each wait has to remember.
 - **Every input is sampled once per cycle** into one snapshot, and the
   decisions of that cycle read only the snapshot. The first version read the
@@ -1032,9 +1044,9 @@ goroutine from then on like everything else in §6.5.
   renamed after what D20 made it store — one record per picker, each naming its
   picker explicitly so a load line changed between `pickers=1` and `pickers=2`
   cannot shift a record onto the wrong picker.
-  - Writes are **coalesced per control cycle** rather than issued per assignment:
-    the several changes of one pick cost one write, and nothing is ever more than
-    10 ms behind. The flush hangs off `tick`, not `step`, so it keeps running
+  - Writes are **coalesced per wake of the loop** rather than issued per
+    assignment: the several changes of one pick cost one write, made at the
+    next wake. The flush hangs off `tick`, not `step`, so it keeps running
     through the long actions of a job.
   - A storage failure is logged and swallowed. The machine's state is the tracked
     model, not the database; losing a write costs state at the next restart,
@@ -1094,7 +1106,7 @@ machine and completes the pick/place cycle (`has-material` set, a slot consumed,
   first while the last is queued; `cmdPos` carries the module's own notion and is
   re-anchored from `GetPosCmd` once per job, because a manual jog moves the
   machine without going through motion.go.
-- **A zero settle time still costs one control cycle.** Every dwell is followed by
+- **A zero settle time still costs a fresh frame.** Every dwell is followed by
   a check of the picker or fixture feedback, and that feedback comes out of the
   input snapshot — returning without ticking would have the check judge a sample
   taken before the command it is checking, so a machine with the settle times
@@ -1362,7 +1374,7 @@ manual mode that needs it.
 - **Feedback settles a `settle-time` after the command.** Looping the command
   straight back — what the phase-2 config did — would let a machine with
   PICK_SETTLE_TIME at 0 pass tests a real one fails (§7.7's "a zero settle time
-  still costs one control cycle" is exactly that bug from the other side).
+  still costs a fresh frame" is exactly that bug from the other side).
 - **The drivers reach pins over the halcmd REST API, not by forking halcmd.**
   A fork costs tens of milliseconds and these drivers poll in loops;
   `GET /pins?pattern=pnp.task.*` also returns the whole tree as *one* sample,
@@ -1372,10 +1384,10 @@ manual mode that needs it.
   `stmak_test.getp`/`wait_pin`, which read *signals* via `halcmd gets` — most
   pnptask pins are unlinked, and `wait_ready` cannot ask a GMI status buffer
   pnptask does not have. Readiness here is `machine-is-on` going high.
-- **`start-job` is driven low before every job, not just raised.** It is armed
-  rather than edge-detected (§7.7), and the module clearing it at the end of
-  the previous job is not enough: a driver that raises it again inside the same
-  10 ms control cycle is a job the module never sees.
+- **`start-job` is driven low before every job, not just raised.** The
+  request is its rising edge (§5.2.1): the driver drops it and waits until the
+  module has seen the low (`sync`) before raising it again; a low and a high
+  inside one servo cycle are no edge.
 - **A skipped pick is proved by making the gripper unable to pick.** "The
   material was already held, so no pick happened" has no pin to read; setting
   `miss-count = -1` for the job gives it one — a job that approached the tray
@@ -1796,7 +1808,8 @@ arcs) adds 7–16 % per leg on top.
   (`placeDescent`, `awaitDescent`): the leg is queued without its last line,
   and the arc and the descent are added as soon as `released` is high --
   unless the head is first within braking distance (current speed,
-  min(ax, ay)) plus two control cycles and 2 mm of the end of what is
+  min(ax, ay)) plus what the speed covers until the next look (the 5 ms
+  re-check and a doorbell poll) and 2 mm of the end of what is
   queued; then the last line is queued as the exact stop and the descent is a
   stroke after `waitReleased`. The distance left is motion's `distance_to_go`
   of the running segment plus the lengths of the leg's segments behind it

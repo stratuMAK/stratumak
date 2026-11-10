@@ -501,8 +501,8 @@ func (c *control) verifyRestoredHeld() (pending bool) {
 // before the caller may trust the held records. The countdown normally ticks in
 // step(), but a job blocks step() for its whole duration — a start-job arriving
 // inside the settle window would otherwise validate against records nothing has
-// verified yet (runJob is the caller). The wait is bounded by the settle ticks
-// scheduled at start and still runs the abort check every cycle.
+// verified yet (runJob is the caller). The wait is bounded by the settle time
+// scheduled at start and still runs the abort check at every wake.
 //
 // A validation that re-arms — the gripper has not actuated — ends the job
 // with PICKER_CLOSE_FAILED rather than waiting on: the auto path faults the
@@ -702,7 +702,7 @@ func (c *control) sample() {
 	// machine at estop clear, the post-estop cycle rule of §6.2; a home press
 	// during estop must not home on reset), the manual picker presses neither
 	// under estop nor in auto (§6.4). A pulse of one servo cycle counts, and
-	// none is lost between two ticks.
+	// none is lost between two wakes of the loop.
 	//
 	// What the latches are FOR -- a valid press surviving a long job's nested
 	// ticks -- is unchanged: the edges are OR-ed into them. The gates on the
@@ -1292,8 +1292,8 @@ func (c *control) publish() {
 
 	// Dead-zone clearance is NOT published here. It is computed in the servo
 	// cycle by the cyclic function this module exports (deadzone_rt.go), from
-	// motmod's RT-side Cartesian feedback — a value recomputed every cycle
-	// instead of read off a 10 ms snapshot, for a pin that gates something
+	// motmod's RT-side Cartesian feedback — a value recomputed every servo
+	// cycle instead of read off the loop's snapshot, for a pin that gates something
 	// physically moving into the machine. Writing the pins here as well would
 	// make two writers of one pin, each overwriting the other at its own rate.
 }

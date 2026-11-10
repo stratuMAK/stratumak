@@ -111,7 +111,7 @@ var persistRetryDelay = time.Second
 // Writes go through a dedicated goroutine, never the caller: SetEntry can
 // block for seconds on a contended database (persist_sqlite's busy_timeout is
 // 5 s under a module-wide mutex), and the caller is the control loop — whose
-// 10 ms cycle is what bounds the reaction time to an estop. store() only
+// wakes bound its reaction time to an estop. store() only
 // updates a map and pokes the writer. The writer keeps the latest value per
 // key and retries failed writes until they land, so a transient failure heals
 // itself instead of silently costing the write (the old synchronous path
@@ -504,9 +504,9 @@ func (w *world) adoptTray(t *trayState, rec trayRecord) bool {
 }
 
 // flush hands whatever changed since the last call to the store's writer. It
-// runs once per control cycle rather than at every assignment, so the several
-// state changes of one pick (slot emptied, held record set) cost one write
-// instead of three and nothing is ever more than a cycle behind. Clearing the
+// runs once per wake of the control loop rather than at every assignment, so
+// the several state changes of one pick (slot emptied, held record set) cost
+// one write instead of three and nothing is ever more than a wake behind. Clearing the
 // dirty flags here is safe because store() never fails and never blocks: the
 // writer keeps the latest value per key and retries until it lands.
 func (w *world) flush() {

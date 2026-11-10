@@ -1,6 +1,10 @@
 # pnptask: the RT/non-RT boundary
 
-**Status:** design, for discussion (2026-11-07). Nothing here is built.
+**Status:** built (designed 2026-11-07; steps 1–7 machine-tested and merged
+by 2026-11-09 -- stratumak #59–#62, CoatV2conf #34, #37, #39 -- step 8 the
+documentation and config cleanup after them). The sections
+below are the design as decided; each step in §9 says how it was built and
+where it differs, and §12 lists what is still open.
 **Related:** [`GOMOD_RT_DESIGN.md`](GOMOD_RT_DESIGN.md) (RT functions in Go
 modules, first customer `deadzone-check`), [`PNPTASK_DESIGN.md`](PNPTASK_DESIGN.md)
 (§5.2 pins, §5.2.1 timing contract, D11/D12/D16/D19/D25/D26/D33/D34/D45/D53),
@@ -640,6 +644,12 @@ rigs and the machine.
 8. **Cleanup.** `PNPTASK_DESIGN.md` §5.2/§5.2.1 rewritten (the timing contract
    mostly disappears), the D-entries touched by this get their superseding
    note, CoatV2conf #25's TODOs and code go.
+   *Built:* §5.2.1 is the contract as it stands (gates, applied-when, the job
+   handshake, `sync`); D11/D12/D13/D16/D21/D25/D26 carry their note; the
+   as-built passages that described the 10 ms loop as current say what it is
+   now. CoatV2conf: pnp.main reads pnptask's busy, error and error id straight
+   off the pins (#25's once-per-run copies go); its other TODO (main.params'
+   limits) is not pnptask's and stays.
 
 Step 2 alone already removes the bug class; steps 3–6 remove the workarounds;
 step 7 removes the ticker.
@@ -690,3 +700,6 @@ step ticks off what it settles.
 | 9 | step 3 | The test fake of `mot` (`dztest`) had no `status_get_snapshot`; a NULL callback would have crashed the cycle function. A version-3 provider always has it, but the cycle function checks for NULL anyway, and the fake can now serve a snapshot. | done in step 3 |
 | 10 | step 3 | `mot` v3 shifts nothing for tpmod/homemod (rebuilt with the generated header), but any out-of-tree consumer of `mot` v2 is refused at lookup until rebuilt. | note for the release |
 | 11 | step 3 | The scenegate runtest read `scene-busy` and `in-position` with two REST calls, so its "leg under way" condition could combine two moments; the hold then landed before the leg took the lock and the job waited forever. It reads both from one listing now. | done in step 3 |
+| 12 | step 7 | Dispatching a leg holds the control loop one servo cycle per segment: motctl's `send_command` waits for motmod's echo, and motmod takes one command per cycle. A long smoothed leg is up to ~0.8 s (coating machine, 2026-11-09). It costs no cycle time -- motion starts with the first segment and the feed stays ahead (the arcs run for several ms each) -- and nothing time-critical waits for the loop any more (handshakes, latch, scene lock, lift watch are the cycle function's). What it costs: the loop's own reactions (an estop's teardown, a sensor in a wait) come only after the leg is out, and `task-timeout` defaults to 2 s instead of 500 ms. If that ever matters, the cheap fix is on the Go side: a feeder that tops up motion's queue a few segments per wake while the loop keeps running (motctl to one owner, abort/estop stop the feeder, the drain and lift-watch waits count unsent segments). Batching in motmod, or feeding from the cycle function, gains nothing over that and changes the `mot` interface. | open, not needed today |
+| 13 | step 7 | The idle wake (100 ms) exists because the params (picker offsets, settle times, `task-timeout`) are not in the frame. Putting them there would let an idle loop sleep for good. | open, cosmetic |
+| 14 | step 7 | Two races of the frame-driven loop, found on the machine and in CI: the status age counted the time the loop was busy dispatching (homed dropped for a wake after a long leg), and a mode switch re-sent on a refused read never saw the switch. | fixed in step 7 before merge (`TestStatusNotStaleAfterABusyLoop`; setMotionMode re-sends only after a fresh status) |
