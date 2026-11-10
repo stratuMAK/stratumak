@@ -5,7 +5,8 @@ by 2026-11-09 -- stratumak #59–#62, CoatV2conf #34, #37, #39 -- step 8 the
 documentation and config cleanup after them). The sections
 below are the design as decided; each step in §9 says how it was built and
 where it differs, and §12 lists what is still open. §13, the leg feed, is
-designed and not built.
+built (2026-11-10, machine test open); §13.11 says how it differs from the
+design.
 **Related:** [`GOMOD_RT_DESIGN.md`](GOMOD_RT_DESIGN.md) (RT functions in Go
 modules, first customer `deadzone-check`), [`PNPTASK_DESIGN.md`](PNPTASK_DESIGN.md)
 (§5.2 pins, §5.2.1 timing contract, D11/D12/D16/D19/D25/D26/D33/D34/D45/D53),
@@ -334,7 +335,9 @@ Go then drops `motstat` (`GetStatus`, `GetPosFb`, `GetPosCmd`) completely:
   command numbers — motctl assigns them — so the cycle count is the handle.)
 - `awaitDescent`'s margin shrinks to what a Go wake really costs (§6.1).
 
-Commands still go through `motctl` (non-RT, as today).
+Commands still go through `motctl` (non-RT, as today) -- all but a leg's
+segments, which since §13 are records the cycle function hands motmod (the leg
+feed).
 
 ## 5. The new pin contract
 
@@ -394,7 +397,10 @@ reader ever need it.
   so the call sites did not change. The wait (§6.1) commits before it blocks:
   copy into the write slot, publish. A step's writes become visible together.
 - **Outputs are on the pins before a motion command goes out**
-  (`committedMotion` wraps the motion stack; `rtIO.applyBeforeMotion`).
+  (`committedMotion` wraps the motion stack; `rtIO.applyBeforeMotion`). Since
+  the leg feed (§13) this is about the motctl commands only; a leg's segments
+  go out with the commit that carries their outputs, applied a servo cycle
+  before motion runs the first of them (§13.4).
   Motion commands reach motmod at once, the outputs at a commit; an output
   written before a command — scene-busy dropped before a descent — must not
   read its old value while the head already moves. The wrapper commits what
@@ -491,15 +497,15 @@ An idle Go does not commit (§6.1), so the age of `sync` alone says nothing.
 The stall is defined by work Go has not taken: the Go frame carries the change
 counter of the RT frame it last acted on, and when RT has a change (or a
 `wake_at` that came) that Go has not taken for longer than `task-timeout`
-(param, `[PNPTASK]TASK_TIMEOUT`, default 2 s), RT raises `TASK_STALLED` in the
+(param, `[PNPTASK]TASK_TIMEOUT`, default 0.5 s), RT raises `TASK_STALLED` in the
 error latch, so the PLC's existing error path reacts; no separate pin and no
 heartbeat. The default stays clear of what runs inside the Go loop with no wake
-in between: route planning (~50 ms for a spline leg, D13's budget 100 ms) and,
-the long one, the dispatch of a smoothed leg -- every motion command waits for
-motmod's echo, one servo cycle per segment, so a leg of a few hundred arcs holds
-the loop for that many milliseconds (up to ~0.8 s on the coating machine,
-2026-11-09; the old ticked loop had the same pauses). 500 ms, the first
-choice, would have faulted normal legs.
+in between: route planning (~50 ms for a spline leg, D13's budget 100 ms).
+From step 7 until the leg feed (§13) it was 2 s: the dispatch of a smoothed
+leg held the loop for one servo cycle per segment, every motion command
+waiting for motmod's echo -- up to ~0.8 s on the coating machine
+(2026-11-09) -- and 500 ms would have faulted normal legs. The leg feed hands
+the segments over as data, so the loop is not held by a leg any more.
 
 RT does **not** touch motion: motmod finishes what is queued and stands, and
 stopping the machine for safety is the estop chain's business.
@@ -666,8 +672,8 @@ step 7 removes the ticker.
 ## 11. Decisions (2026-11-07)
 
 1. **Go stall:** `TASK_STALLED` in the error latch after `task-timeout`
-   (default 2 s since step 7, 2026-11-09: a smoothed leg's dispatch holds the
-   loop up to ~0.8 s, §7.2); RT leaves motion alone; a latched error Go did not raise
+   (default 0.5 s; 2 s from step 7 until the leg feed, §7.2, §13); RT leaves
+   motion alone; a latched error Go did not raise
    ends the job in flight (§7.2).
 2. **Refusal:** an edge while an error is latched is ignored, no `refused`
    output. `AUTO_DISABLED` and `MACHINE_OFF` stay in Go's validation only
@@ -701,7 +707,7 @@ step ticks off what it settles.
 | 9 | step 3 | The test fake of `mot` (`dztest`) had no `status_get_snapshot`; a NULL callback would have crashed the cycle function. A version-3 provider always has it, but the cycle function checks for NULL anyway, and the fake can now serve a snapshot. | done in step 3 |
 | 10 | step 3 | `mot` v3 shifts nothing for tpmod/homemod (rebuilt with the generated header), but any out-of-tree consumer of `mot` v2 is refused at lookup until rebuilt. | note for the release |
 | 11 | step 3 | The scenegate runtest read `scene-busy` and `in-position` with two REST calls, so its "leg under way" condition could combine two moments; the hold then landed before the leg took the lock and the job waited forever. It reads both from one listing now. | done in step 3 |
-| 12 | step 7 | Dispatching a leg holds the control loop one servo cycle per segment: motctl's `send_command` waits for motmod's echo, and motmod takes one command per cycle. A long smoothed leg is up to ~0.8 s (coating machine, 2026-11-09). It costs no cycle time -- motion starts with the first segment and the feed stays ahead (the arcs run for several ms each) -- and nothing time-critical waits for the loop any more (handshakes, latch, scene lock, lift watch are the cycle function's). What it costs: the loop's own reactions (an estop's teardown, a sensor in a wait) come only after the leg is out, and `task-timeout` defaults to 2 s instead of 500 ms. | designed: the leg feed, §13 |
+| 12 | step 7 | Dispatching a leg holds the control loop one servo cycle per segment: motctl's `send_command` waits for motmod's echo, and motmod takes one command per cycle. A long smoothed leg is up to ~0.8 s (coating machine, 2026-11-09). It costs no cycle time -- motion starts with the first segment and the feed stays ahead (the arcs run for several ms each) -- and nothing time-critical waits for the loop any more (handshakes, latch, scene lock, lift watch are the cycle function's). What it costs: the loop's own reactions (an estop's teardown, a sensor in a wait) come only after the leg is out, and `task-timeout` defaults to 2 s instead of 500 ms. | done: the leg feed, §13 (task-timeout 0.5 s again) |
 | 13 | step 7 | The idle wake (100 ms) exists because the params (picker offsets, settle times, `task-timeout`) are not in the frame. Putting them there would let an idle loop sleep for good. | open, cosmetic |
 | 14 | step 7 | Two races of the frame-driven loop, found on the machine and in CI: the status age counted the time the loop was busy dispatching (homed dropped for a wake after a long leg), and a mode switch re-sent on a refused read never saw the switch. | fixed in step 7 before merge (`TestStatusNotStaleAfterABusyLoop`; setMotionMode re-sends only after a fresh status) |
 | 15 | review | The stall check counted a loop as stalled until it had caught up (`change == taken`): a loop that takes every ring while the next is already out -- an input that changes every cycle -- got `TASK_STALLED` after `task-timeout`. Stalled is `taken` standing still behind a ring. | fixed (`TestCycleStallCheckLoopOneRingBehind`) |
@@ -714,9 +720,11 @@ step ticks off what it settles.
 | 22 | review | `park()` made the loop's last commit and returned; on a runtime unload the function is removed right after `Stop`, so that frame (machine-is-on low, release low, the stall check off) might never reach the pins. It waits until the function has applied it, bounded as before a motion command (`waitApplied`). | fixed (`TestModuleStopDisablesMotion`) |
 | 23 | review | The loop dropped a fault itself when its last frame showed the latch set; an error-reset can have cleared it in a cycle the loop has not read, and the fault was lost although the function would have latched it. A fault is sent unless a raise is still on its way; the function keeps the first, as it always did. | fixed (`TestRaiseAfterAResetNotYetRead`) |
 
-## 13. The leg feed (designed 2026-11-10, not built)
+## 13. The leg feed (designed and built 2026-11-10)
 
-**Status:** design for sign-off. It settles §12 item 12.
+**Status:** built as designed below, signed off 2026-11-10; §13.11 lists how
+the build differs and what it settled. It settles §12 item 12. Machine test
+open (§13.9).
 
 ### 13.1 Why
 
@@ -952,3 +960,84 @@ Falling back is redeploying the previous stmakd; there is no switch.
    loop-level tests.
 4. Docs: §4.5, §6, §7.2, §11, §12 of this file as built; `PNPTASK_DESIGN.md`
    where it describes dispatch.
+
+### 13.11 As built
+
+The four steps of §13.10, one commit each. Where the build differs from the
+text above, or settles what it left open:
+
+- **motmod (step 1).** The three handler bodies are `emcmotSetTermCond`,
+  `emcmotSetLine` and `emcmotSetCircle` in `command.c`, extern rather than
+  static (the `mot` provider lives in `motion.c`), declared in `mot_priv.h`.
+  Their code is the handler's, unchanged; the handler stores what they return
+  in `commandStatus`. A line from the feed passes spindle 0, which is what
+  motctl's `set_line` leaves in the command. The IDL takes the segment as
+  `seg: LineSeg` (a const pointer in C); `in` is not IDL syntax.
+  - *`head`/`tail`:* nothing reads the status bracket any more -- readers get
+    the status through the triple buffer `motion-controller` publishes. The
+    `mot` calls bracket their changes all the same, as the handler does.
+  - *`motcmd_trace`:* fed segments do not appear in it. It is the
+    compile-time milltask parity trace, compiled out of every real build.
+  - pnptask looks `mot` up at version 4 from step 1 on: the lookup is an
+    exact match, so a v3 consumer is refused.
+- **The frame's `fed` (step 2).** It counts a record from the frame *after*
+  the run that fed it: the motion snapshot is read at the start of the run,
+  before the feed, so a frame showing `fed == feed_end` has a snapshot that
+  `motion-controller` made with every record in its queue. Counted in the
+  same frame, the last record could read as fed while the snapshot still
+  showed the queue empty from before it, and the drain would pass early.
+- **What waits for the feed (step 3).** `motionDrained` is `fed == feed_end`,
+  in position, the queue empty, and no refusal the loop has not taken yet
+  (so a drain cannot pass over a refused last segment before `abortCheck`
+  has turned it into the job's error). `queueDistance`, which decides a
+  held-back descent on the way (D52), counts the records still in the feed:
+  a machine standing with an empty queue while the leg is on its way has the
+  whole leg ahead of it, not nothing. The status frame is not refused during
+  a feed, as designed; `rtStatus`'s staleness check (`dispatchPending`) is
+  for the motctl commands only.
+- **The room check.** `dispatchLeg` refuses a leg with more than
+  `PNP_RT_FEED_CAP` − `legFeedExtra` (8) records free (one per route segment
+  or waypoint, plus the term conds, the lift, the descent or the tail) with
+  `MOTION_ERROR` before any of it is written (`checkLegRoom`). The coating
+  machine's longest legs are far below it (§13.12).
+- **The refusal.** `abortCheck` takes it (`rtIO.takeFeedErr`), cancels the
+  feed and returns `MOTION_ERROR` "motion refused segment N of the leg
+  (status S)"; motmod has logged why, as it did for a refused `SetLine`.
+- **The scene gate.** Nothing to hold back: the leg is planned again and
+  written only after `acquireScene` has the grant, so `feed_end` cannot move
+  before it.
+- **The tests.** Function level in `feed_test.go`; at the loop level the
+  fixtures attach the fake provider (`attachFeed`) and hand what it is fed to
+  the scripted motion after every run of the function (`rtIO.afterInvoke`),
+  so every scripted-motion test runs through the feed. New: a motctl command
+  cancels the feed and none follows it (`TestMotctlCommandCancelsTheFeed`);
+  machine-on dropped at the first arc of a long leg -- the loop's teardown
+  comes with records still in the feed, and no move follows the Abort
+  (`TestLegFeedLoopActsMidLeg`); a refused segment ends the job with
+  `MOTION_ERROR`, and the next job runs (`TestLegFeedRefusedSegmentEndsTheJob`);
+  a held-back descent decided while the leg is fed
+  (`TestZCornerArcDescentDecidedWhileTheLegIsFed`); a leg that does not fit
+  (`TestLegFeedRefusesALegThatDoesNotFit`). `TestOutputsBeforeMotion` uses a
+  motctl command now. Each new test fails with the code it covers mutated
+  away.
+
+### 13.12 Checked before the machine
+
+- **Ring size.** The coating machine's longest leg, planned with its
+  drawings (spline paths, both scenes, every pair of tray corners, chucks,
+  wait position, park and trash, both pickers), has 164 segments (park to
+  the tray's far corner): 172 records with the term conds and the Z arcs,
+  of 1024.
+- **Against the recordings.** The slow production run of 2026-11-09
+  (CoatV2conf `siglog-20261109-182913`) replayed on a sim of the coating
+  machine's portal (its pnptask config, real motmod and tpmod): the recorded
+  job, park and set-full requests in order, the deadzone-select and station
+  busy changes at their recorded time into each job, each picker close with
+  its recorded outcome. Commanded X/Y/Z compared move by move. The sim
+  reproduces the machine (the moves that start and end where a recorded
+  move does run the same path, median deviation 0.0000 mm), and the leg feed
+  against the build before it gives the same paths: identical end points,
+  at most 0.00016 mm apart, the same as two runs of the old build apart. Two
+  runs of the leg-feed build are identical in every servo cycle; the old
+  build's intake makes a few moves differ by up to 5 cycles from run to run.
+  Job times equal within the replay's noise (±0.3 %).
