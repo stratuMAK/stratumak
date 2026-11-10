@@ -4,7 +4,8 @@
 by 2026-11-09 -- stratumak #59–#62, CoatV2conf #34, #37, #39 -- step 8 the
 documentation and config cleanup after them). The sections
 below are the design as decided; each step in §9 says how it was built and
-where it differs, and §12 lists what is still open.
+where it differs, and §12 lists what is still open. §13, the leg feed, is
+designed and not built.
 **Related:** [`GOMOD_RT_DESIGN.md`](GOMOD_RT_DESIGN.md) (RT functions in Go
 modules, first customer `deadzone-check`), [`PNPTASK_DESIGN.md`](PNPTASK_DESIGN.md)
 (§5.2 pins, §5.2.1 timing contract, D11/D12/D16/D19/D25/D26/D33/D34/D45/D53),
@@ -700,6 +701,245 @@ step ticks off what it settles.
 | 9 | step 3 | The test fake of `mot` (`dztest`) had no `status_get_snapshot`; a NULL callback would have crashed the cycle function. A version-3 provider always has it, but the cycle function checks for NULL anyway, and the fake can now serve a snapshot. | done in step 3 |
 | 10 | step 3 | `mot` v3 shifts nothing for tpmod/homemod (rebuilt with the generated header), but any out-of-tree consumer of `mot` v2 is refused at lookup until rebuilt. | note for the release |
 | 11 | step 3 | The scenegate runtest read `scene-busy` and `in-position` with two REST calls, so its "leg under way" condition could combine two moments; the hold then landed before the leg took the lock and the job waited forever. It reads both from one listing now. | done in step 3 |
-| 12 | step 7 | Dispatching a leg holds the control loop one servo cycle per segment: motctl's `send_command` waits for motmod's echo, and motmod takes one command per cycle. A long smoothed leg is up to ~0.8 s (coating machine, 2026-11-09). It costs no cycle time -- motion starts with the first segment and the feed stays ahead (the arcs run for several ms each) -- and nothing time-critical waits for the loop any more (handshakes, latch, scene lock, lift watch are the cycle function's). What it costs: the loop's own reactions (an estop's teardown, a sensor in a wait) come only after the leg is out, and `task-timeout` defaults to 2 s instead of 500 ms. If that ever matters, the cheap fix is on the Go side: a feeder that tops up motion's queue a few segments per wake while the loop keeps running (motctl to one owner, abort/estop stop the feeder, the drain and lift-watch waits count unsent segments). Batching in motmod, or feeding from the cycle function, gains nothing over that and changes the `mot` interface. | open, not needed today |
+| 12 | step 7 | Dispatching a leg holds the control loop one servo cycle per segment: motctl's `send_command` waits for motmod's echo, and motmod takes one command per cycle. A long smoothed leg is up to ~0.8 s (coating machine, 2026-11-09). It costs no cycle time -- motion starts with the first segment and the feed stays ahead (the arcs run for several ms each) -- and nothing time-critical waits for the loop any more (handshakes, latch, scene lock, lift watch are the cycle function's). What it costs: the loop's own reactions (an estop's teardown, a sensor in a wait) come only after the leg is out, and `task-timeout` defaults to 2 s instead of 500 ms. | designed: the leg feed, §13 |
 | 13 | step 7 | The idle wake (100 ms) exists because the params (picker offsets, settle times, `task-timeout`) are not in the frame. Putting them there would let an idle loop sleep for good. | open, cosmetic |
 | 14 | step 7 | Two races of the frame-driven loop, found on the machine and in CI: the status age counted the time the loop was busy dispatching (homed dropped for a wake after a long leg), and a mode switch re-sent on a refused read never saw the switch. | fixed in step 7 before merge (`TestStatusNotStaleAfterABusyLoop`; setMotionMode re-sends only after a fresh status) |
+
+## 13. The leg feed (designed 2026-11-10, not built)
+
+**Status:** design for sign-off. It settles §12 item 12.
+
+### 13.1 Why
+
+Every motion command goes through motctl's `send_command`: one command slot,
+taken by `motion-command-handler` once per servo cycle, and the sender polls
+the status for the echo. A leg of a few hundred segments therefore holds the
+control loop for that many milliseconds (up to ~0.8 s on the coating machine),
+which is why `task-timeout` had to be 2 s, and why the loop's own reactions
+(a sensor in a wait, an estop's teardown) come only after the leg is out.
+The feed also depends on Go being scheduled in time for every single segment.
+
+motmod takes one segment per servo cycle, and the cycle function runs in that
+same thread. So the boundary moves once more: **Go hands over the planned
+segments as data, the cycle function hands them to motmod, one per cycle.**
+
+Considered and not chosen:
+
+- **A feeder goroutine in pnptask.** No motmod change, but a second goroutine
+  owning motctl and the abort coordination that comes with it, in the code
+  this design just made sequential; and the feed still depends on Go's
+  scheduling.
+- **A batch command in motmod** (a whole leg appended in one cycle, or a
+  queue drained inside motmod). Appending is where the planner does its
+  per-segment work (blend arc, lookahead optimization, `tp.c`); a few hundred
+  of those do not fit one servo cycle, so the intake has to be spread over
+  cycles anyway. What that should look like belongs to a review of motmod's
+  command intake and planner split, which is its own project. The leg feed
+  needs only a small, additive `mot` call and can be handed to such a design
+  later: the records stay, the consumer changes.
+
+### 13.2 What changes, in one picture
+
+```
+Go (control loop)                    servo thread, per cycle
+-----------------                    -----------------------
+plan the leg                         motion-command-handler   (motctl: modes, abort, jog)
+write records into the feed ring     motion-controller        (runs the planner)
+commit: feed_end = n                 pnp.task.cycle:
+  (with the outputs of that step)      apply Go's frame to the pins
+go on at once                          one record below feed_end -> mot.traj_add_*
+                                       publish: fed, feed_err
+```
+
+A record added in cycle *k* is in the planner's queue for `motion-controller`
+in cycle *k+1*. That is the timing a command taken by the command handler in
+*k+1* has today, so motmod sees its segments no later than it does now, and
+exactly one per cycle instead of at most one.
+
+### 13.3 The feed ring
+
+One `RTCalloc` block of `PNP_RT_FEED_CAP` records (1024), written by Go, read
+by the cycle function. It needs no atomics of its own: the **frames carry the
+indices**, and the triple buffer's publish orders the records before them.
+
+```c
+/* pnp_rt.h */
+typedef struct {
+    uint8_t  kind;          /* PNP_FEED_LINE, PNP_FEED_CIRCLE, PNP_FEED_TERM_COND */
+    uint8_t  pad_[3];
+    int32_t  id;            /* the segment id (moveID); 0 for a term cond */
+    int32_t  motion_type, turn, term_cond;
+    double   tolerance;
+    double   vel, ini_maxvel, acc, feed_mm_per_min;
+    mot_pose_t      pos;
+    mot_cartesian_t center, normal;
+} pnp_rt_feed_rec_t;
+```
+
+Counters are `u32`, counting records since the module started (they wrap; all
+comparisons are differences):
+
+| Field | In | Meaning |
+|---|---|---|
+| `feed_end` | Go frame | records written; the function may feed those below it |
+| `feed_begin` | Go frame | records below it are void: a cancel moves it to `feed_end` |
+| `fed` | RT frame | records taken out of the ring (fed, or skipped by a cancel) |
+| `feed_err_seq`, `feed_err_id`, `feed_err_status` | RT frame | counts a refused record, with its segment id and motmod's status |
+
+Go writes record *i* into slot *i* mod cap only while `feed_end − fed` < cap
+(`fed` from the frame it read last, so it errs on the safe side); a leg that
+does not fit is refused with `MOTION_ERROR` before anything of it is written.
+The planner's own queue (2000) is not the limit: the function feeds one record
+per cycle and the head runs them off.
+
+### 13.4 The cycle function
+
+After the scene lock and lift watch, before the outputs are composed:
+
+1. `fed` below `feed_begin`: skip to `feed_begin` (a cancel).
+2. Estop up: skip to `feed_end` (nothing of a leg survives an estop; Go's
+   teardown sends the abort as today).
+3. A refused record not yet acknowledged (below): do nothing.
+4. Otherwise, with `fed` below `feed_end` and `mot` resolved: take **one**
+   record, call the `mot` function for its kind, count `fed`. A status other
+   than OK counts `feed_err_seq` with the record's id and the status, and the
+   feed holds until Go has moved `feed_begin` past the record (its cancel).
+
+The change signature takes "the feed is through" (`fed` equal to `feed_end`)
+and `feed_err_seq`, not `fed` itself: the loop is woken when the last record
+is out and when one is refused, not for each record.
+
+**Outputs before motion, exactly.** The function feeds only records below the
+`feed_end` of the frame it applied in this run, and the outputs of that frame
+go to the pins in the same run; `motion-controller` runs the segment in the
+next cycle. So an output written before a leg is on the pins a cycle before
+the head moves, by construction, and `applyBeforeMotion`'s two-cycle wait is
+not needed for fed motion. It stays for the commands that still go through
+motctl.
+
+### 13.5 motmod: three calls in the `mot` API (version 4)
+
+```
+@rt_safe "true"
+func traj_set_term_cond(cond: i32, tolerance: f64) -> i32
+@rt_safe "true"
+func traj_add_line(seg: LineSeg in) -> i32
+@rt_safe "true"
+func traj_add_circle(seg: CircleSeg in) -> i32
+```
+
+`LineSeg` and `CircleSeg` carry what motctl's `SetLine` and `SetCircle` carry
+(a `Cartesian` type joins `Pose` in the IDL). They return an
+`EMCMOT_COMMAND_*` status. To be called **only from a function
+in motmod's own servo thread** (the same rule as `status_get_snapshot`); they
+take no lock and touch neither the command slot nor `commandNumEcho` /
+`commandStatus`, which stay motctl's echo protocol.
+
+In `command.c` the bodies of `EMCMOT_SET_LINE`, `EMCMOT_SET_CIRCLE` and
+`EMCMOT_SET_TERM_COND` move into static functions taking the instance and the
+parameters and returning the status; the `switch` calls them and stores the
+result in `commandStatus`, the `mot` calls return it. **Both paths run the same
+code**: the mode and enable check, `inRange`, `limits_ok`, the at-speed
+bookkeeping, `set_id`, the planner's add, the abort and error flag on a
+refusal, `rehomeAll`, and the operator messages (the log ring is RT-safe; the
+handler logs from the servo thread today).
+
+To check while building, not assumed here:
+
+- `status->head`/`tail`: the handler brackets its changes to the status
+  struct with them. Find out what still reads the bracket and give the direct
+  calls the same.
+- motctl's command trace (`motcmd_trace`) sees only slot commands. Decide
+  whether fed segments should appear in it (a debugging aid, no function).
+- A v3 consumer of `mot` is refused at lookup until rebuilt (tpmod, homemod
+  are rebuilt with the tree) -- as with v3, a note for the release.
+
+### 13.6 The Go side
+
+- `line`, `lineCapped`, `arc`, `zArc` and the term-cond changes of
+  `dispatchLeg` **write records** instead of calling motctl. Everything they
+  do before -- the finite and limit checks, `moveID`, `cmdPos`, `noteQueued`,
+  `motionDispatched` -- stays as it is. `motionControl` loses `SetLine`,
+  `SetCircle` and `SetTermCond`; there is one path for a segment, not two.
+- **Motctl keeps** enable/disable, the mode switches, homing, jog and abort.
+  `committedMotion` cancels the feed (`feed_begin = feed_end`) in the commit
+  it already makes before each of them and waits for it to be applied, so the
+  function never feeds behind an abort or a mode switch.
+- **The gate stays Go's decision.** A leg that needs the scene lock is
+  written into the ring but `feed_end` is committed only once the grant is in
+  the frame, as dispatching waits for it today. (Granting and starting in one
+  cycle would now be possible; it is not part of this step.)
+- **A descent decided on the way** (`queueDescent` from `awaitDescent`) is
+  more records and a later `feed_end`: the ring is a stream, not one leg.
+- **Drained** is "everything written is fed, and motion is in position with
+  an empty queue": `waitDrained` and the other waits that mean "the motion I
+  asked for is over" add `fed == feed_end` to what they test. The status
+  frame is not refused while a feed is under way (that would age `homed`
+  out); only these conditions look at the feed.
+- **A refused record** (`feed_err_seq` moved) is the error `SetLine` returns
+  today, one wake later: `abortCheck` turns it into `MOTION_ERROR` naming the
+  segment and the status, cancels the feed, and the job ends through the
+  usual path (motmod has already aborted its queue).
+- **The lift watch** needs no change: it compares the running segment's id,
+  and an id not fed yet cannot be running.
+- `task-timeout` defaults to **0.5 s** again (§7.2, §11 decision 1): nothing
+  holds the loop for longer than a route plan any more.
+
+### 13.7 What does not change
+
+The planned path (the records carry exactly what the motctl calls carried),
+the pin contract, the config, the handshakes, and the order of what a job
+does. The intake differs in one way: exactly one record per servo cycle from
+the cycle the feed starts, where today Go's round trip sometimes takes two.
+The planner therefore knows the leg no later than it does now; job times
+should be equal or marginally shorter, and the velocity profile at the start
+of a leg may differ within that.
+
+### 13.8 Tests
+
+- **Function level** (`rtio_test.go`): one record per cycle; nothing fed
+  beyond `feed_end`; a cancel skips; estop skips; a refused record holds the
+  feed and counts the error, a cancel releases it; the ring wraps; `fed`
+  rings at the end of a feed and not per record.
+- **Loop level:** the unit tests' motion is a Go fake the function does not
+  see. The fake `mot` provider (`dztest`) gets the three calls and records
+  what it is fed; the loop's test hook (`driveRT`) hands those to the Go fake
+  after each run, so the scripted-motion tests keep working and now go
+  through the feed. New cases: an abort between two records never lets a
+  record follow it; a refused segment ends the job with `MOTION_ERROR`; the
+  loop takes a change (an input) while a long leg is still being fed.
+- **Runtests** (`tests/pnptask/*`, real motmod): all scenarios unchanged in
+  outcome; the `idleWork` count stays 0. One scenario records job time before
+  and after.
+- **motmod:** the milltask runtests pass unchanged (the slot path runs the
+  same functions).
+- **Against the machine's recordings** (CoatV2conf `siglog/`, 2026-11-09):
+  the same job on the sim, compared on segment ids over time and commanded
+  positions.
+
+### 13.9 On the machine
+
+One run, first at slow speed, together with the review fixes:
+
+1. `pnp.task.cycle`'s time (`halcmd show funct`): it was 8.5–9 µs (max ~41),
+   and the planner's add now runs in it instead of in the command handler.
+   This is the one thing the sim cannot show.
+2. A production run at slow speed, recorded, compared with the slow recording
+   of 2026-11-09 (`siglog-20261109-182913`): paths, segment ids, job times.
+3. E-stop and Stopp during a leg; a sphere passage; a deferred descent.
+4. Normal speed: job times against 2750 ms (3→4 median), no `TASK_STALLED`
+   with `task-timeout` 0.5 s.
+
+Falling back is redeploying the previous stmakd; there is no switch.
+
+### 13.10 Steps
+
+1. motmod: the three functions factored out of the command handler, the `mot`
+   v4 calls, the fake provider. Milltask and pnptask runtests unchanged.
+2. The ring and the feed in the cycle function, the frame fields, the
+   function-level tests.
+3. The Go side: records instead of motctl calls, the cancel before motctl
+   commands, the drain conditions, the error path, `task-timeout` 0.5 s; the
+   loop-level tests.
+4. Docs: §4.5, §6, §7.2, §11, §12 of this file as built; `PNPTASK_DESIGN.md`
+   where it describes dispatch.
