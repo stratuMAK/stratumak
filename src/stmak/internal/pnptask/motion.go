@@ -36,11 +36,12 @@ const (
 var (
 	// dispatchSettleTicks is how many good status reads pass between
 	// dispatching motion and the first in-position check. Status published
-	// before the dispatch still describes the machine standing still; rtStatus
+	// before a motctl command still describes the machine before it; rtStatus
 	// refuses such a frame (it knows the cycle the command was taken in), so
-	// the first good read already describes the machine after it. (The tests'
-	// scripted motion updates its status inside the dispatch call itself, so
-	// it needs no settling either.)
+	// the first good read already describes the machine after it. A leg's
+	// segments go through the leg feed instead, and what is still in it
+	// counts with the drain and the distance left (motionDrained,
+	// queueDistance), whatever the status says meanwhile.
 	dispatchSettleTicks = 1
 
 	// descentRecheck is how often awaitDescent looks at the distance left
@@ -150,7 +151,7 @@ func (c *control) lineCapped(to motctl.Pose, velReq, accReq, pathVel float64) er
 	c.moveID++
 	// iniMaxvel is the same as vel: there is no feed override to scale here, so
 	// the blended axis limit is both the commanded and the maximum velocity.
-	if err := c.m.mc.SetLine(to, vel, vel, acc, motionTypeTraverse, c.moveID, 0, -1); err != nil {
+	if err := c.m.rt.feedLine(to, vel, vel, acc, motionTypeTraverse, c.moveID, 0, -1); err != nil {
 		return faultf(errMotionError, "commanding a move to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
 	}
 	c.noteQueued(math.Sqrt((to.X-c.cmdPos.X)*(to.X-c.cmdPos.X) + (to.Y-c.cmdPos.Y)*(to.Y-c.cmdPos.Y) + (to.Z-c.cmdPos.Z)*(to.Z-c.cmdPos.Z)))
@@ -416,8 +417,11 @@ func (c *control) awaitDescent(d descent) (bool, error) {
 
 // queueDistance is how far the machine still has to go along what is queued:
 // the running segment's distance to go and every queued segment behind it.
+// The segments still in the leg feed count with the rest: a machine standing
+// with an empty queue while records are on their way to motmod has the whole
+// leg ahead of it, not nothing.
 func (c *control) queueDistance() float64 {
-	if !c.statusOK || (c.status.Inpos != 0 && c.status.QueueDepth == 0) {
+	if !c.statusOK || (c.status.Inpos != 0 && c.status.QueueDepth == 0 && c.m.rt.feedThrough()) {
 		return 0
 	}
 	rem := c.status.DistanceToGo
@@ -435,7 +439,7 @@ func (c *control) queueDescent(lg *leg, d descent) error {
 	if err := c.zArc(pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}, lg.d1, lg.r1, false); err != nil {
 		return err
 	}
-	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+	if err := c.m.rt.feedTermCond(tpTermCondStop, 0); err != nil {
 		return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
 	}
 	to := c.cmdPos
@@ -446,7 +450,7 @@ func (c *control) queueDescent(lg *leg, d descent) error {
 // queueTail ends a leg whose held-back descent did not come: the last line
 // to the target at the travel height, as the exact-stop last segment.
 func (c *control) queueTail(j *job, lg *leg) error {
-	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+	if err := c.m.rt.feedTermCond(tpTermCondStop, 0); err != nil {
 		return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
 	}
 	goal := lg.route.Waypoints[len(lg.route.Waypoints)-1]
@@ -741,11 +745,19 @@ func (c *control) pathLimits() pnproute.Limits {
 // path's first and last r0/r1 mm, which the planner checked against the zones
 // with the rest; that the head only moves sideways in the top r of a stroke is
 // what the travel height has to leave room for.
+//
+// The segments are written into the leg feed (PNPTASK_RT_BOUNDARY.md §13):
+// dispatchLeg returns once the leg is written, the next commit carries it out,
+// and the cycle function hands motmod one record per servo cycle while the
+// loop goes on. A leg that does not fit the ring is refused whole.
 func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
-	if err := c.m.mc.SetTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
+	if err := c.checkLegRoom(lg); err != nil {
+		return err
+	}
+	if err := c.m.rt.feedTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)
 	}
 	// The last segment of a leg ends at a standstill, so it is queued as an
@@ -756,7 +768,7 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	// the planner decides a join by the term cond of the segment BEFORE it,
 	// which stays parabolic.
 	lastStop := func() error {
-		if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+		if err := c.m.rt.feedTermCond(tpTermCondStop, 0); err != nil {
 			return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
 		}
 		return nil
@@ -877,6 +889,27 @@ func (c *control) dispatchLeg(j *job, lg *leg, d descent) error {
 	return c.queueDescent(lg, d)
 }
 
+// checkLegRoom refuses a leg the leg feed cannot take whole: it is refused
+// before any of it is written, not cut off halfway. One record per route
+// segment or waypoint, and at most legFeedExtra more.
+func (c *control) checkLegRoom(lg *leg) error {
+	n := len(lg.route.Waypoints)
+	if lg.route.Segments != nil {
+		n = len(lg.route.Segments)
+	}
+	if need, room := n+legFeedExtra, c.m.rt.feedRoom(); need > room {
+		return faultf(errMotionError,
+			"the leg has %d segments, more than the leg feed takes (%d records free of %d)", n, room, feedCap)
+	}
+	return nil
+}
+
+// legFeedExtra is how many feed records a leg can need beyond one per route
+// segment: the blend term cond, the lift's line and arc (or the height
+// correction), the exact-stop term cond of the last segment, and the
+// descent's arc, term cond and line (or the tail's term cond and line).
+const legFeedExtra = 8
+
 // zArc queues a Z corner arc of radius r (D52) from the tracked commanded
 // position, at XY `at`, in the vertical plane of the horizontal direction
 // dir: up (from a vertical stroke onto the travel height, ending r further
@@ -927,7 +960,7 @@ func (c *control) zArc(at, dir pnproute.Point, r float64, up bool) error {
 	iniMaxvel := math.Min(vel, math.Sqrt(math.Sqrt(0.75)*acc*r))
 	c.moveID++
 	normal := motctl.Cartesian{X: -dir.Y, Y: dir.X}
-	if err := c.m.mc.SetCircle(to, center, normal, 0, vel, iniMaxvel, acc, motionTypeTraverse, c.moveID, 0); err != nil {
+	if err := c.m.rt.feedCircle(to, center, normal, 0, vel, iniMaxvel, acc, motionTypeTraverse, c.moveID, 0); err != nil {
 		return faultf(errMotionError, "commanding a Z corner arc to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
 	}
 	c.noteQueued(r * math.Pi / 2)
@@ -981,7 +1014,7 @@ func (c *control) arc(to motctl.Pose, sg pnproute.Segment, lim pnproute.Limits) 
 	}
 	c.moveID++
 	center := motctl.Cartesian{X: sg.Center.X, Y: sg.Center.Y, Z: to.Z}
-	if err := c.m.mc.SetCircle(to, center, motctl.Cartesian{Z: 1}, turn,
+	if err := c.m.rt.feedCircle(to, center, motctl.Cartesian{Z: 1}, turn,
 		vel, pnproute.ArcMaxVel(sg.Radius, vel, lim), acc, motionTypeTraverse, c.moveID, 0); err != nil {
 		return faultf(errMotionError, "commanding an arc to (%.3f, %.3f, %.3f): %v", to.X, to.Y, to.Z, err)
 	}
@@ -1007,7 +1040,7 @@ func (c *control) zStroke(z float64) error {
 	if err := c.waitMotionDone(); err != nil {
 		return err
 	}
-	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+	if err := c.m.rt.feedTermCond(tpTermCondStop, 0); err != nil {
 		return faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
 	}
 	to := c.cmdPos
@@ -1037,10 +1070,14 @@ func (c *control) retract(height float64) error {
 // Waiting for motion
 // ---------------------------------------------------------------------------
 
-// motionDrained reports whether the machine is in position with an empty TP
-// queue right now.
+// motionDrained reports whether everything written into the leg feed has
+// reached motmod, and the machine is in position with an empty TP queue, in
+// the same frame (rtIO.feedThrough: the frame's snapshot has seen every
+// record). A refusal the loop has not taken yet is not drained: abortCheck
+// turns it into the job's error first.
 func (c *control) motionDrained() bool {
-	return c.statusOK && c.status.Inpos != 0 && c.status.QueueDepth == 0
+	return c.statusOK && c.status.Inpos != 0 && c.status.QueueDepth == 0 &&
+		c.m.rt.feedThrough() && !c.m.rt.feedErrPending()
 }
 
 // waitMotionDone waits until the queue has drained and the machine is in

@@ -63,6 +63,8 @@ type fakeMotion struct {
 	// onMove, if set, sees every dispatched move (f.mu held): for the cases
 	// that need the module's state at the moment a move was commanded.
 	onMove func(moveCall)
+	// onAbort, if set, runs when Abort arrives (f.mu held).
+	onAbort func()
 
 	// homingGapFrom/homingGapLen script a HOME_SEQUENCE group handover: for
 	// homingGapLen status reads, starting when the countdown reaches
@@ -184,6 +186,9 @@ func (f *fakeMotion) Abort() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record("Abort")
+	if f.onAbort != nil {
+		f.onAbort()
+	}
 	// Motion stops and drops its queue: whatever was in flight, held or not,
 	// is over.
 	f.moving, f.held, f.holdWhen = 0, false, nil
@@ -517,6 +522,8 @@ type machineFixture struct {
 	sim *machineSim
 	// mark is the module's handshake count when request raised start-job.
 	mark uint32
+	// feed is the fake mot provider the leg feed goes to (attachFeed).
+	feed *dztest.FakeMot
 }
 
 // The control loop is time-driven; the tests run it far faster than the machine
@@ -549,6 +556,49 @@ func driveRT(m *pnptaskModule) {
 	}
 	m.rt.wakeEveryCycle = true
 	m.rt.invoke()
+}
+
+// attachFeed gives the fixture's cycle function the fake mot provider with its
+// trajectory intake (dztest), and hands what it is fed to the scripted motion
+// after every run: the leg feed's records reach fakeMotion one per servo
+// cycle, as they reach motmod, and keep the names motctl's calls had
+// (SetTermCond, SetLine, SetCircle). The fake reports no position, so the
+// dead-zone pins stay "not clear" as without a provider. Call it before
+// driveRT or servoThread, so its cleanup runs after theirs.
+func attachFeed(t *testing.T, m *pnptaskModule, mot *fakeMotion) *dztest.FakeMot {
+	fm := dztest.NewFakeMot()
+	fm.EnableTraj()
+	fm.Set(0, 0, false)
+	m.deadzone.setMot(fm.Ptr())
+	m.rt.afterInvoke = func() { replayFed(t, fm, mot) }
+	t.Cleanup(func() {
+		m.rt.afterInvoke = nil
+		m.deadzone.setMot(nil)
+		fm.Free()
+	})
+	return fm
+}
+
+// replayFed hands the scripted motion what the fake provider was fed.
+func replayFed(t *testing.T, fm *dztest.FakeMot, mot *fakeMotion) {
+	fed, err := fm.Take()
+	if err != nil {
+		t.Error(err)
+	}
+	for _, f := range fed {
+		pos := motctl.Pose{X: f.Pos[0], Y: f.Pos[1], Z: f.Pos[2], A: f.Pos[3], B: f.Pos[4],
+			C: f.Pos[5], U: f.Pos[6], V: f.Pos[7], W: f.Pos[8]}
+		switch f.Kind {
+		case dztest.FedTermCond:
+			_ = mot.SetTermCond(f.Cond, f.Tolerance)
+		case dztest.FedLine:
+			_ = mot.SetLine(pos, f.Vel, f.IniMaxvel, f.Acc, f.MotionType, f.ID, f.FeedMm, f.Turn)
+		case dztest.FedCircle:
+			center := motctl.Cartesian{X: f.Center[0], Y: f.Center[1], Z: f.Center[2]}
+			normal := motctl.Cartesian{X: f.Normal[0], Y: f.Normal[1], Z: f.Normal[2]}
+			_ = mot.SetCircle(pos, center, normal, f.Turn, f.Vel, f.IniMaxvel, f.Acc, f.MotionType, f.ID, f.FeedMm)
+		}
+	}
 }
 
 // servoThread runs the module's cycle function once a millisecond on a
@@ -665,6 +715,7 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.mc, m.ms = mot, mot
+	feed := attachFeed(t, m, mot)
 	if o.prep != nil {
 		o.prep(t, m)
 	}
@@ -681,7 +732,7 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 		t.Fatalf("startControl: %v", err)
 	}
 	t.Cleanup(m.Stop)
-	return &machineFixture{t: t, m: m, mot: mot, name: name, sim: sim}
+	return &machineFixture{t: t, m: m, mot: mot, feed: feed, name: name, sim: sim}
 }
 
 // setBit and setFloat write an input pin the way halcmd setp would: the pins

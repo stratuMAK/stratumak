@@ -22,7 +22,7 @@ import (
 const (
 	defaultHomeTimeout     = 30.0
 	defaultReleaseTimeout  = 5.0
-	defaultTaskTimeout     = 2.0
+	defaultTaskTimeout     = 0.5
 	defaultMaxUnpopulated  = 1
 	defaultTrayRowsAndCols = 1
 )
@@ -102,8 +102,9 @@ type Config struct {
 	// TaskTimeout is [PNPTASK]TASK_TIMEOUT, seconds: how long the control loop
 	// may leave a change untaken before the cycle function latches
 	// TASK_STALLED (PNPTASK_RT_BOUNDARY.md §7.2); 0 switches the check off.
-	// Seeds the task-timeout param. Clear of a smoothed leg's dispatch, which
-	// holds the loop for one servo cycle per segment (up to ~0.8 s measured).
+	// Seeds the task-timeout param. Clear of a route plan (up to ~50 ms),
+	// the longest thing the loop does with no wake in between: a leg's
+	// segments go out through the leg feed, which holds it no more.
 	TaskTimeout float64
 	HomeTimeout float64
 

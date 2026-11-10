@@ -201,6 +201,9 @@ type rtIO struct {
 	// progress rings nothing.
 	runRT          func()
 	wakeEveryCycle bool
+	// afterInvoke, when set, runs after every invoke (tests): it hands what
+	// the fake mot provider was fed to the scripted motion.
+	afterInvoke func()
 
 	// cmds counts the motion commands sent (committedMotion.note).
 	cmds uint32
@@ -214,6 +217,10 @@ type rtIO struct {
 	// 1 kHz) and refuse every frame, with no command coming to end it.
 	dispatchCycle   uint32
 	dispatchPending bool
+
+	// feedErrTaken is the leg feed's refusal count the loop has acted on
+	// (takeFeedErr).
+	feedErrTaken uint32
 }
 
 // build allocates the buffers and maps, binds every pin of the set, and links
@@ -583,6 +590,20 @@ func (r *rtIO) feedErr() (seq uint32, id, status int32) {
 	return uint32(r.in.feed_err_seq), int32(r.in.feed_err_id), int32(r.in.feed_err_status)
 }
 
+// takeFeedErr reports a refusal the frame shows and the loop has not acted
+// on yet, and takes it.
+func (r *rtIO) takeFeedErr() (id, status int32, ok bool) {
+	seq, id, status := r.feedErr()
+	if seq == r.feedErrTaken {
+		return 0, 0, false
+	}
+	r.feedErrTaken = seq
+	return id, status, true
+}
+
+// feedErrPending reports a refusal the loop has not taken yet.
+func (r *rtIO) feedErrPending() bool { return uint32(r.in.feed_err_seq) != r.feedErrTaken }
+
 // read takes the latest input frame into r.in, and makes it the frame the next
 // commit says it was computed from (sync).
 func (r *rtIO) read() {
@@ -612,7 +633,12 @@ func (r *rtIO) waitFirstFrame(timeout time.Duration) bool {
 }
 
 // invoke runs the cycle function once, without a HAL thread (tests).
-func (r *rtIO) invoke() { C.pnp_rt_invoke(r.blk, C.long(time.Millisecond)) }
+func (r *rtIO) invoke() {
+	C.pnp_rt_invoke(r.blk, C.long(time.Millisecond))
+	if r.afterInvoke != nil {
+		r.afterInvoke()
+	}
+}
 
 // free releases everything; from Destroy, past the launcher's RT barrier.
 func (r *rtIO) free() {
@@ -655,15 +681,21 @@ func (r *rtIO) trayIDs(n int) []uint32 {
 // Motion commands after the outputs
 // ---------------------------------------------------------------------------
 
-// committedMotion commits the output frame before every motion command.
+// committedMotion commits the output frame before every motctl command, with
+// the leg feed cancelled.
 //
-// Motion commands reach motmod at once, through motctl; the outputs reach the
-// pins at the next commit. Without this, an output written before a command —
-// scene-busy dropped before a descent, a release before a travel — could still
-// read its old value while the head already moved. Committed first, it reaches
-// the pins in the same servo cycle motmod takes the command (the cycle function
-// runs after the command handler in the thread), so pins and motion change
-// together.
+// motctl commands reach motmod at once; the outputs reach the pins at the next
+// commit. Without this, an output written before a command could still read
+// its old value while motion already acted on it. Committed first, and waited
+// for (applyBeforeMotion), it is on the pins before motmod takes the command.
+// A leg's segments do not come through here: they are leg feed records, which
+// go out with the commit that carries their outputs (PNPTASK_RT_BOUNDARY.md
+// §13.4).
+//
+// What is left on motctl -- enable, disable, the mode switches, homing, jog,
+// abort -- is never meant to run behind a leg still being fed: the feed is
+// cancelled in the same commit, and that commit is applied before the command
+// goes out, so the function feeds nothing behind an abort or a mode switch.
 //
 // It wraps the motion stack once the configuration push is done, and is used
 // on the control goroutine only, like the frame it commits.
@@ -681,51 +713,48 @@ func (m committedMotion) note(err error) error {
 	return err
 }
 
-func (m committedMotion) Abort() error {
+// before cancels the leg feed and puts everything on the pins ahead of a
+// motctl command.
+func (m committedMotion) before() {
+	m.rt.cancelFeed()
 	m.rt.applyBeforeMotion()
+}
+
+func (m committedMotion) Abort() error {
+	m.before()
 	return m.note(m.motionControl.Abort())
 }
 func (m committedMotion) Enable() error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.Enable())
 }
 func (m committedMotion) Disable() error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.Disable())
 }
 func (m committedMotion) SetFree() error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.SetFree())
 }
 func (m committedMotion) SetTeleop() error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.SetTeleop())
 }
 func (m committedMotion) SetCoord() error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.SetCoord())
 }
 func (m committedMotion) JointHome(joint int32) error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.JointHome(joint))
 }
 func (m committedMotion) JogCont(num int32, vel float64, isTeleop int32) error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.JogCont(num, vel, isTeleop))
 }
 func (m committedMotion) JogAbort(num int32, isTeleop int32) error {
-	m.rt.applyBeforeMotion()
+	m.before()
 	return m.note(m.motionControl.JogAbort(num, isTeleop))
-}
-func (m committedMotion) SetLine(pos motctl.Pose, vel, iniMaxvel, acc float64,
-	motionType, id int32, feedMmPerMin float64, indexerJnum int32) error {
-	m.rt.applyBeforeMotion()
-	return m.note(m.motionControl.SetLine(pos, vel, iniMaxvel, acc, motionType, id, feedMmPerMin, indexerJnum))
-}
-func (m committedMotion) SetCircle(pos motctl.Pose, center, normal motctl.Cartesian, turn int32,
-	vel, iniMaxvel, acc float64, motionType, id int32, feedMmPerMin float64) error {
-	m.rt.applyBeforeMotion()
-	return m.note(m.motionControl.SetCircle(pos, center, normal, turn, vel, iniMaxvel, acc, motionType, id, feedMmPerMin))
 }
 
 // ---------------------------------------------------------------------------

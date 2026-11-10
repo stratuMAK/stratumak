@@ -322,6 +322,29 @@ func TestZCornerArcPlaceWaitsForReleased(t *testing.T) {
 	}
 }
 
+// TestZCornerArcDescentDecidedWhileTheLegIsFed: a held-back descent is
+// decided on the way, from how much of the leg is left -- and the part of the
+// leg still in the leg feed counts. Released comes a few cycles into a long
+// leg, when motion has not yet seen all of it (or any): the descent still
+// joins the leg as its corner arc, rather than being decided at once on a
+// machine that only looks as if it had nothing left to run.
+func TestZCornerArcDescentDecidedWhileTheLegIsFed(t *testing.T) {
+	o := zCornerOpts(10, nil, nil)
+	o.sim = func(s *machineSim) { s.fixtureLag = 5 }
+	f := newJobFixtureOpts(t, o)
+	f.homed()
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.setPos(100, 100, 60)
+	f.mot.setMoveCycles(60)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc, the fixture released early in the leg")
+	if _, descents := zArcCheck(t, f.mot.moveList(), motctl.Pose{X: 100, Y: 100, Z: 60}, 15); descents != 2 {
+		t.Errorf("%d descent arcs, want two: the slot's and the station's", descents)
+	}
+}
+
 // TestZCornerArcLiftAfterAFailedJob: a job that fails between a deferred lift
 // and the travel it was waiting for still takes the head up -- here wait-abort
 // is already raised when the job reaches the busy station's gate, after the

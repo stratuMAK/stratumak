@@ -5,10 +5,12 @@ package pnptask
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pnptask/dztest"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // The leg feed at the function level (pnp_rt.h, the leg feed;
@@ -318,5 +320,155 @@ func TestFeedRefusalRings(t *testing.T) {
 	}
 	if uint32(m.rt.in.change) == before {
 		t.Error("the refusal did not ring")
+	}
+}
+
+// TestMotctlCommandCancelsTheFeed: a motctl command -- an abort here -- goes
+// out only once the cycle function has applied the cancel of the leg feed,
+// so no record follows it into motmod.
+func TestMotctlCommandCancelsTheFeed(t *testing.T) {
+	m, mot := feedModule(t)
+	for id := int32(1); id <= 5; id++ {
+		feedLineID(t, m, id)
+	}
+	m.rt.commit()
+	runFeed(t, m, mot)
+	runFeed(t, m, mot) // 1 and 2 are out
+
+	var fedAfter []int32
+	hook := homeHook{fakeMotion: newFakeMotion(m.cfg.NumJoints), at: func() {
+		// The command is being sent: whatever is fed from here on follows it.
+		m.rt.runRT = func() {
+			m.rt.invoke()
+			fed, _ := mot.Take()
+			fedAfter = append(fedAfter, fedIDs(fed)...)
+		}
+	}}
+	m.rt.runRT = func() { // the runs before the command is sent
+		m.rt.invoke()
+		_, _ = mot.Take()
+	}
+	cm := committedMotion{motionControl: hook, rt: m.rt}
+	if err := cm.JointHome(-1); err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 5; run++ {
+		m.rt.runRT()
+	}
+	if len(fedAfter) != 0 {
+		t.Fatalf("records %v went to motmod after the command", fedAfter)
+	}
+	m.rt.read()
+	if !m.rt.feedThrough() {
+		t.Error("the feed is not through after the cancel")
+	}
+}
+
+// --- the loop with the feed ----------------------------------------------------
+
+// newSmoothLegFixture is a job fixture whose job 10 -> 20 has a leg around
+// the zone of zones_between.dxf, smoothed: a chain of arcs and lines, many
+// records long.
+func newSmoothLegFixture(t *testing.T) *jobFixture {
+	t.Helper()
+	f := newJobFixtureOpts(t, fixtureOpts{
+		files: map[string]string{zonesA: "zones_between.dxf", zonesB: fixtureClear},
+		tweak: func(c *Config) { c.SmoothPaths = true },
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.resetCalls()
+	return f
+}
+
+// TestLegFeedLoopActsMidLeg: the loop is not held while a leg goes out. Its
+// machine-on drops as the first arc of a long leg reaches motion; the loop's
+// teardown comes while records of that leg are still in the feed, and none
+// of them follows the Abort.
+func TestLegFeedLoopActsMidLeg(t *testing.T) {
+	f := newSmoothLegFixture(t)
+	var hooked bool
+	var pending, movesAtAbort atomic.Int32
+	pending.Store(-1)
+	f.mot.onMove = func(mc moveCall) { // the control goroutine, f.mu held
+		if mc.arc && !hooked {
+			hooked = true
+			f.m.pins.machineOn.Set(false)
+		}
+	}
+	f.mot.onAbort = func() { // the control goroutine, after the cancel was applied
+		if pending.Load() < 0 {
+			pending.Store(int32(uint32(f.m.rt.out.feed_end) - uint32(f.m.rt.in.fed)))
+			movesAtAbort.Store(int32(len(f.mot.moves)))
+		}
+	}
+
+	startJobTo(f, 10, 20)
+	f.eventually("the abort", func() bool { return pending.Load() >= 0 })
+	f.cycles(20)
+	if p := pending.Load(); p <= 0 {
+		t.Errorf("the abort came with %d records of the leg outstanding: the loop waited for the leg to go out", p)
+	}
+	if n, at := len(f.mot.moveList()), int(movesAtAbort.Load()); n != at {
+		t.Errorf("%d moves reached motion after the Abort", n-at)
+	}
+}
+
+// TestLegFeedRefusedSegmentEndsTheJob: a segment motmod refuses ends the job
+// with MOTION_ERROR, and nothing of the leg behind it reaches motion. After
+// Quittieren the next job runs: the loop's cancel let go of the held feed.
+func TestLegFeedRefusedSegmentEndsTheJob(t *testing.T) {
+	f := newSmoothLegFixture(t)
+	f.feed.Refuse(3, 4) // EMCMOT_COMMAND_BAD_EXEC
+
+	f.runJob(10, 20, 0)
+	if id := f.errorID(); id != errMotionError {
+		t.Fatalf("error-id %d (%v), want MOTION_ERROR", id, id)
+	}
+	for _, m := range f.mot.moveList() {
+		if m.id >= 3 {
+			t.Errorf("segment %d reached motion after segment 3 was refused", m.id)
+		}
+	}
+	if f.bit("busy") {
+		t.Error("busy still up")
+	}
+
+	f.feed.Refuse(0, 0)
+	f.clearError()
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("the job after the refusal")
+	if len(f.mot.moveList()) == 0 {
+		t.Error("no move reached motion in the job after the refusal")
+	}
+}
+
+// TestLegFeedRefusesALegThatDoesNotFit: a leg with more segments than the
+// ring has room for is refused with MOTION_ERROR before any of it is written;
+// what is still in the ring counts against the room.
+func TestLegFeedRefusesALegThatDoesNotFit(t *testing.T) {
+	m, _ := feedModule(t)
+	c := newControl(m)
+	legOf := func(n int) *leg {
+		return &leg{route: &pnproute.Route{Waypoints: make([]pnproute.Point, n)}}
+	}
+
+	if err := c.checkLegRoom(legOf(feedCap - legFeedExtra)); err != nil {
+		t.Fatalf("a leg that fits the empty ring: %v", err)
+	}
+	var f *pnpFault
+	if err := c.checkLegRoom(legOf(feedCap - legFeedExtra + 1)); !errors.As(err, &f) || f.id != errMotionError {
+		t.Fatalf("a leg one record too long: %v, want MOTION_ERROR", err)
+	}
+	if m.rt.out.feed_end != 0 {
+		t.Fatalf("records written for a refused leg: feed_end %d", m.rt.out.feed_end)
+	}
+
+	feedLineID(t, m, 1) // one record not yet fed
+	if err := c.checkLegRoom(legOf(feedCap - legFeedExtra)); err == nil {
+		t.Error("a leg that fits only an empty ring accepted with a record outstanding")
 	}
 }

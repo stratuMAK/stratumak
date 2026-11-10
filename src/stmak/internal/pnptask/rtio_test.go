@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pnptask/dztest"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 )
@@ -294,29 +293,41 @@ func TestStartControlNeedsTheCycleFunction(t *testing.T) {
 	}
 }
 
-// TestOutputsBeforeMotion: an output written before a motion command is on its
+// homeHook is the fake motion with a hook on JointHome, called as the command
+// is sent.
+type homeHook struct {
+	*fakeMotion
+	at func()
+}
+
+func (h homeHook) JointHome(joint int32) error {
+	h.at()
+	return h.fakeMotion.JointHome(joint)
+}
+
+// TestOutputsBeforeMotion: an output written before a motctl command is on its
 // pin before motmod takes the command -- already when the command is sent, not
-// only in the servo cycle that takes it. Motion commands go out at once and the
-// outputs at a commit, so without committedMotion the head could move with
-// an output still reading the value from before the write (the scenegate
-// runtest caught a descent under a scene-busy that had already been dropped,
-// when scene-busy was still the loop's).
+// only in the servo cycle that takes it. motctl commands go out at once and the
+// outputs at a commit, so without committedMotion motion could act with an
+// output still reading the value from before the write (the scenegate runtest
+// caught a descent under a scene-busy that had already been dropped, when
+// scene-busy was still the loop's and the descent still went through motctl).
+// A leg's segments go through the leg feed, which carries its outputs in the
+// same commit (TestFeedOneRecordPerCycle and pnp_rt.h).
 func TestOutputsBeforeMotion(t *testing.T) {
 	m, get := rtModule(t)
-	mot := newFakeMotion(m.cfg.NumJoints)
+	seen := -1.0
+	mot := homeHook{fakeMotion: newFakeMotion(m.cfg.NumJoints), at: func() {
+		seen = get("proc.20.release") // the pin as the command is sent
+	}}
 	cm := committedMotion{motionControl: mot, rt: m.rt}
 
-	seen := -1.0
-	mot.onMove = func(moveCall) {
-		seen = get("proc.20.release") // the pin as the command is sent
-	}
-
 	m.pins.procs[0].release.Set(true)
-	if err := cm.SetLine(motctl.Pose{X: 1}, 10, 10, 100, 0, 1, 0, -1); err != nil {
-		t.Fatalf("SetLine: %v", err)
+	if err := cm.JointHome(-1); err != nil {
+		t.Fatalf("JointHome: %v", err)
 	}
 	if seen != 1 {
-		t.Errorf("release = %v when the move was taken, want 1", seen)
+		t.Errorf("release = %v when the command was sent, want 1", seen)
 	}
 }
 
@@ -461,8 +472,8 @@ func TestRTStatusStaleAfterDispatch(t *testing.T) {
 	m.rt.read() // the frame of the cycle before the command
 
 	cm := committedMotion{motionControl: newFakeMotion(m.cfg.NumJoints), rt: m.rt}
-	if err := cm.SetLine(motctl.Pose{X: 1}, 10, 10, 100, 0, 2, 0, -1); err != nil {
-		t.Fatalf("SetLine: %v", err)
+	if err := cm.SetCoord(); err != nil {
+		t.Fatalf("SetCoord: %v", err)
 	}
 	if _, err := st.GetStatus(); !errors.Is(err, errStaleStatus) {
 		t.Errorf("frame from before the command: got %v, want errStaleStatus", err)
