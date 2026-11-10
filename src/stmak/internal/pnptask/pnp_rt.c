@@ -300,6 +300,9 @@ void pnp_rt_cycle(void *arg, long period)
     // The change counter: what the loop acts on changed, or its wake time came
     // (once per wake_at).
     int ring = pnp_rt_changed(r, in);
+    if (ring)
+        r->sig_changes++;
+    in->sig_changes = r->sig_changes;
     if (go->wake_at != 0 && r->servo_ns >= go->wake_at && r->wake_rung != go->wake_at) {
         r->wake_rung = go->wake_at;
         ring = 1;

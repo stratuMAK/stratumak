@@ -27,6 +27,7 @@ PYTHONPATH)::
     pnpdrv.done()
 """
 
+import os
 import sys
 import urllib.error
 
@@ -114,10 +115,26 @@ def check_eq(actual, expected, label):
           lambda: "expected %r, got %r" % (expected, actual))
 
 
+# The warning the module logs when its control loop changed an output or sent a
+# motion command on a wake only its idle wake caused (control.noteIdleWork):
+# something it acts on has no wake source and came up to 100 ms late. Nothing
+# else shows that -- the scenario still passes, only slower -- so every
+# scenario ends on it.
+_IDLE_WORK = "acted on an idle wake"
+
+
 def done():
-    """Close the report. Refuses to sign off on a scenario that asserted nothing."""
+    """Close the report. Refuses to sign off on a scenario that asserted
+    nothing, or whose server (pnp_start's log) reported work on an idle wake."""
     if _checks == 0:
         raise Error("scenario made no assertions")
+    log = os.environ.get("PNP_LOG", "server.log")
+    text = log_text(log)
+    if not text:
+        raise Error("no server log %r to check for idle-wake work" % log)
+    hits = [l for l in text.splitlines() if _IDLE_WORK in l]
+    check(not hits, "the control loop did no work that waited for its idle wake",
+          lambda: "%d in %s, the first: %s" % (len(hits), log, hits[0]))
     print("ALL OK")
     sys.stdout.flush()
 

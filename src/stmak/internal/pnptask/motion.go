@@ -1098,17 +1098,20 @@ func (c *control) waitDrained() error {
 // dwell holds for a settle time, ticking the control loop so the wait is
 // abortable and the output pins keep being published.
 //
-// A settle time of 0 still costs one cycle. Every dwell in an action sequence is
-// followed by a check of the picker or fixture feedback, and that feedback comes
-// out of the input snapshot: returning without ticking would have the check judge
-// a sample taken *before* the command it is checking was even issued, so a
+// A settle time of 0 still waits for the feedback of the command. Every dwell
+// in an action sequence is followed by a check of the picker or fixture
+// feedback, and that feedback comes out of the input frame: the command goes
+// out with the dwell's first commit and reaches the pins a cycle later, in a
+// run that has sampled its inputs before -- so the first frame that can show
+// the answer is the one after it. That is settleTime's margin; without it a
 // machine with the settle times left at 0 would fail every pick with
-// PICKER_CLOSE_FAILED.
+// PICKER_CLOSE_FAILED, and a settle time above 0 would be short by the time
+// the command takes to the pins.
 func (c *control) dwell(seconds float64) error {
 	if err := c.flushLift(); err != nil {
 		return err
 	}
-	deadline := c.now + time.Duration(seconds*float64(time.Second))
+	deadline := c.now + settleTime(seconds)
 	for {
 		c.wakeBy(deadline)
 		if !c.tick() {

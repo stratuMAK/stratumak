@@ -222,6 +222,15 @@ type control struct {
 	seenChange uint32
 	rtStalled  bool
 
+	// idleOnly: nothing but the idle wake rang for the wake being acted on --
+	// no change (seenSig is the frame's sig_changes as last read), no deadline
+	// a wait asked for. idleBase and idleCmds are the outputs and the motion
+	// command count as that wake found them (noteIdleWork).
+	idleOnly bool
+	seenSig  uint32
+	idleBase outFrame
+	idleCmds uint32
+
 	// This cycle's inputs.
 	in inputs
 
@@ -435,7 +444,9 @@ func (c *control) start() {
 	// present now are stale boot state (see primeEdges).
 	c.primeEdges()
 	c.now = time.Duration(c.m.rt.in.servo_ns)
-	c.seenChange = c.m.rt.bell.Change()
+	// The first step is due at once: machine-on's boot edge and what the
+	// model publishes wait for no change.
+	c.wakeBy(c.now)
 	// Restored held records re-drove their close outputs (world.restore);
 	// schedule the one-shot grip validation for after the pick settle time
 	// has given the gripper feedback a chance to arrive. Only records that
@@ -498,6 +509,7 @@ func (c *control) verifyRestoredHeld() (pending bool) {
 	}
 	if pending {
 		c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
+		c.wakeBy(c.heldVerify)
 	}
 	return pending
 }
@@ -583,10 +595,20 @@ func settleTime(seconds float64) time.Duration {
 func (c *control) tick() bool {
 	// What the step wrote since the last tick goes out together, before the
 	// wait: a picker closed and a dwell started reach the pins in the same
-	// servo cycle, never one without the other.
-	wake := c.now + idleWake
-	if c.wakeAt != 0 && c.wakeAt < wake {
-		wake = c.wakeAt
+	// servo cycle, never one without the other. The model with them: what an
+	// action recorded -- a part placed, a slot emptied -- is on the pins with
+	// the command it follows from, not a wake later.
+	c.publish()
+	c.noteIdleWork()
+	wake, due := c.now+idleWake, c.wakeAt
+	if due != 0 && due < wake {
+		wake = due
+	}
+	// A deadline already due rings in the next cycle. Sent as it is it could
+	// be the very time the function rang for last -- it rings once per
+	// wake_at -- and nothing would end the wait.
+	if wake <= c.now {
+		wake = c.now + time.Nanosecond
 	}
 	c.wakeAt = 0
 	c.m.rt.setWake(wake)
@@ -596,6 +618,16 @@ func (c *control) tick() bool {
 	}
 	c.m.wakes.Add(1)
 	c.sample()
+	// Was it the idle wake alone: servo time at the idle wake, no change in
+	// the frame, and short of any deadline a wait asked for (one beyond the
+	// idle wake can have come by the frame read). The unit tests' loop wakes
+	// every cycle with no ring at all.
+	sig := uint32(c.m.rt.in.sig_changes)
+	c.idleOnly = c.now >= wake && sig == c.seenSig && (due == 0 || c.now < due) && !c.m.rt.wakeEveryCycle
+	c.seenSig = sig
+	if c.idleOnly {
+		c.idleBase, c.idleCmds = c.m.rt.sent, c.m.rt.cmds
+	}
 	c.checkLiftWatch()
 	c.publish()
 	// Persisting from here rather than from step() is what keeps the state of
@@ -605,6 +637,23 @@ func (c *control) tick() bool {
 	c.m.world.flush()
 	c.m.rt.commit()
 	return true
+}
+
+// noteIdleWork is the detector for a missing wake source. The idle wake turns
+// one into a delay of up to idleWake that nothing shows; so when the loop has
+// changed an output or sent a motion command on a wake that only the idle wake
+// caused, it acted on something no ring announced, and says so.
+func (c *control) noteIdleWork() {
+	if !c.idleOnly {
+		return
+	}
+	c.idleOnly = false
+	cmd := c.m.rt.cmds != c.idleCmds
+	if !cmd && !c.m.rt.actedSince(&c.idleBase) {
+		return
+	}
+	c.m.logger.Warn("pnptask: the loop acted on an idle wake: something it acts on has no wake source",
+		"count", c.m.idleWork.Add(1), "motion_command", cmd, "servo_time", c.now)
 }
 
 // wait sleeps until the doorbell rings past seenChange. In the unit tests
@@ -791,8 +840,12 @@ func (c *control) sample() {
 			c.disabledSince = 0
 		case c.disabledSince == 0:
 			c.disabledSince = c.now
-			c.wakeBy(c.now + motionDisabledDebounce)
 		}
+	}
+	// The debounce's end is asked for at every wake until it comes: a wake
+	// for something else in between takes the deadline with it.
+	if c.enabled && c.disabledSince != 0 && c.now < c.disabledSince+motionDisabledDebounce {
+		c.wakeBy(c.disabledSince + motionDisabledDebounce)
 	}
 	// A failed read keeps serving the last good snapshot for a bounded time
 	// (statusStale) instead of invalidating it outright: a single one must not
@@ -850,6 +903,11 @@ func (c *control) primeEdges() {
 	// (D26): it only primed.
 	c.seen.job = uint32(f.job.seq)
 	c.seen.park = uint32(f.park_seq)
+	// The rings up to this frame are taken with it. Not the doorbell's count
+	// of now: a change since the frame -- a job accepted, even -- has rung
+	// already, and must end the loop's first wait.
+	c.seenChange = uint32(f.change)
+	c.seenSig = uint32(f.sig_changes)
 	if b8(f.busy) {
 		if b8(f.busy_park) {
 			c.seen.park--
@@ -1095,6 +1153,7 @@ func (c *control) leaveEstop() {
 	}
 	if pending {
 		c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
+		c.wakeBy(c.heldVerify)
 	}
 }
 
@@ -1603,6 +1662,7 @@ func (c *control) manualPickers() {
 			if c.m.world.held[i].retained {
 				c.manualGrip[i] = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 				c.manualGripWarned[i] = false
+				c.wakeBy(c.manualGrip[i])
 			}
 		}
 	}
@@ -1674,6 +1734,7 @@ func (c *control) updateManualGrip() {
 					"picker", i)
 			}
 			c.manualGrip[i] = c.now + settleTime(c.m.pins.pickSettleTime.Get())
+			c.wakeBy(c.manualGrip[i])
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
 				// The close output stays high: the operator closed the picker

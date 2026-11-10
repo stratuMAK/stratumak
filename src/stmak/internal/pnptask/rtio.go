@@ -194,6 +194,9 @@ type rtIO struct {
 	runRT          func()
 	wakeEveryCycle bool
 
+	// cmds counts the motion commands sent (committedMotion.note).
+	cmds uint32
+
 	// dispatchCycle is the doorbell's cycle count right after the last motion
 	// command returned (committedMotion). motctl returns only once motmod has
 	// taken the command, so a frame of a later cycle includes it; rtStatus
@@ -407,6 +410,20 @@ func (r *rtIO) setTaskTimeout(seconds float64) {
 // change counter).
 func (r *rtIO) setWake(t time.Duration) { r.out.wake_at = C.uint64_t(t) }
 
+// actedSince reports whether the loop has changed an output since base, an
+// output frame as committed earlier (control.noteIdleWork). The frame's
+// bookkeeping does not count, and neither does what publish copies from the
+// params: they are not in the input frame, the idle wake is what carries them.
+func (r *rtIO) actedSince(base *outFrame) bool {
+	a, b := r.out, *base
+	b.seq, b.sync, b.taken, b.wake_at = a.seq, a.sync, a.taken, a.wake_at
+	b.task_timeout, b.linear_units = a.task_timeout, a.linear_units
+	for i := range a.picker {
+		b.picker[i].x_offset, b.picker[i].y_offset = a.picker[i].x_offset, a.picker[i].y_offset
+	}
+	return a != b
+}
+
 // requestScene sets the scene lock request (pnp_rt.h, scene lock); the lock is
 // the function's to grant, sceneGranted says when the frame read last shows it.
 func (r *rtIO) requestScene(want bool) {
@@ -550,6 +567,7 @@ type committedMotion struct {
 // includes it (rtIO.dispatchCycle), and passes the command's error through.
 func (m committedMotion) note(err error) error {
 	m.rt.dispatchCycle = m.rt.bell.Cycle()
+	m.rt.cmds++
 	return err
 }
 

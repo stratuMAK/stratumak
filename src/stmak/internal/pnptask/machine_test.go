@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1696,5 +1697,315 @@ func TestStatusNotStaleAfterABusyLoop(t *testing.T) {
 	c.sample()
 	if !c.statusOK || c.statusAge() != 0 {
 		t.Errorf("a good read: OK=%v age=%v, want OK and 0", c.statusOK, c.statusAge())
+	}
+}
+
+// loopByHand is a control loop driven by the test, with the cycle function
+// run by the loop's own waits one servo cycle at a time and ringing as on the
+// machine (no wakeEveryCycle): what a wait asked for is what ends it. A wait
+// nothing ends closes the loop's stop after limit cycles, so the tick reports
+// false instead of hanging the test.
+func loopByHand(t *testing.T, limit int) (*pnptaskModule, *control, *fakeMotion) {
+	t.Helper()
+	fastLoop(t)
+	setupPaths(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.ms = mot
+	m.mc = committedMotion{motionControl: mot, rt: m.rt}
+	oldPoll := pollInterval
+	pollInterval = 0
+	t.Cleanup(func() { pollInterval = oldPoll })
+
+	m.rt.invoke()
+	c := newControl(m)
+	n := 0
+	m.rt.runRT = func() {
+		if n++; n == limit {
+			close(c.stop)
+		}
+		m.rt.invoke()
+	}
+	c.primeEdges()
+	c.sample()
+	return m, c, mot
+}
+
+// TestDeadlineAlreadyDueRings: a wait whose deadline is the servo time the
+// last wait ended on -- a settle of whole milliseconds ends exactly on its
+// deadline, and a dwell of 0 then asks for that same time -- ends in the next
+// cycle. The cycle function rings once per wake time; sent the same one again,
+// with the idle wake displaced by it, nothing rang.
+func TestDeadlineAlreadyDueRings(t *testing.T) {
+	_, c, _ := loopByHand(t, 1000)
+
+	deadline := c.now + 3*time.Millisecond
+	c.wakeBy(deadline)
+	if !c.tick() || c.now != deadline {
+		t.Fatalf("the first wait ended at %v, want its deadline %v", c.now, deadline)
+	}
+	c.wakeBy(c.now)
+	if !c.tick() {
+		t.Fatal("a wait for a deadline already due never ended")
+	}
+	if c.now != deadline+time.Millisecond {
+		t.Errorf("the wait ended at %v, want the next cycle (%v)", c.now, deadline+time.Millisecond)
+	}
+}
+
+// TestDwellZeroWaitsForTheFeedback: a dwell of 0 ends on the first frame that
+// can show the answer to a command written just before it -- sampled after the
+// cycle that put the command on the pins -- also when the wait before it ended
+// exactly on its deadline.
+func TestDwellZeroWaitsForTheFeedback(t *testing.T) {
+	m, c, _ := loopByHand(t, 1000)
+
+	c.wakeBy(c.now + 3*time.Millisecond)
+	if !c.tick() {
+		t.Fatal("the first wait did not end")
+	}
+	// The cycle that puts the close on its pin sampled its inputs before it
+	// wrote: the answer is in the frame of a later one.
+	inner, applied := m.rt.runRT, uint32(0)
+	m.rt.runRT = func() {
+		inner()
+		if applied == 0 && m.pins.pickers[0].close.pin.Get() {
+			applied = m.rt.bell.Cycle()
+		}
+	}
+	m.pins.pickers[0].close.Set(true)
+	if err := c.dwell(0); err != nil {
+		t.Fatalf("dwell(0): %v", err)
+	}
+	if got := uint32(m.rt.in.cycle); applied == 0 || got <= applied {
+		t.Errorf("the dwell ended on the frame of cycle %d, the close reached its pin in cycle %d: want a later frame",
+			got, applied)
+	}
+}
+
+// TestSelfDisableDebounceStaysArmed: the debounce's end is asked for at every
+// wake while it is pending, so a wake for something else in between does not
+// leave it to the idle wake.
+func TestSelfDisableDebounceStaysArmed(t *testing.T) {
+	m, c, mot := loopByHand(t, 1000)
+	c.enabled = true
+	mot.setSelfDisabled()
+
+	m.rt.invoke()
+	c.sample()
+	end := c.disabledSince + motionDisabledDebounce
+	if c.disabledSince == 0 || c.wakeAt != end {
+		t.Fatalf("first disabled read: since %v, wake %v; want the debounce's end %v", c.disabledSince, c.wakeAt, end)
+	}
+	// Another change wakes the loop first: its tick consumes the deadline.
+	c.wakeAt = 0
+	m.rt.invoke()
+	c.sample()
+	if c.wakeAt != end {
+		t.Errorf("after a wake in between the deadline is %v, want it asked for again (%v)", c.wakeAt, end)
+	}
+}
+
+// TestDeadlinesArmedWhereTheyAreSet: the grip checks after an estop with
+// ESTOP_KEEPS_GRIP and after a manual close are set past the point in step
+// that arms pending ones; they ask for their wake themselves.
+func TestDeadlinesArmedWhereTheyAreSet(t *testing.T) {
+	m, c, _ := loopByHand(t, 1000)
+
+	m.cfg.EstopKeepsGrip = true
+	m.world.held[0] = heldMaterial{present: true, station: 10}
+	c.leaveEstop()
+	if c.heldVerify == 0 || c.wakeAt != c.heldVerify {
+		t.Errorf("leaving estop: check at %v, wake at %v", c.heldVerify, c.wakeAt)
+	}
+
+	// The check found the gripper not actuated and re-armed.
+	c.wakeAt = 0
+	c.in.pickerOpened[0] = true
+	if !c.verifyRestoredHeld() || c.wakeAt != c.heldVerify {
+		t.Errorf("re-armed grip check: at %v, wake at %v", c.heldVerify, c.wakeAt)
+	}
+
+	m.world.held[0] = heldMaterial{}
+	c.wakeAt = 0
+	c.rise.pickerClose[0] = true
+	c.manualPickers()
+	if c.manualGrip[0] == 0 || c.wakeAt != c.manualGrip[0] {
+		t.Errorf("manual close: judged at %v, wake at %v", c.manualGrip[0], c.wakeAt)
+	}
+
+	// Judged with the gripper still open: re-armed.
+	c.wakeAt = 0
+	c.now = c.manualGrip[0]
+	c.updateManualGrip()
+	if c.manualGrip[0] <= c.now || c.wakeAt != c.manualGrip[0] {
+		t.Errorf("re-armed manual close: judged at %v, wake at %v", c.manualGrip[0], c.wakeAt)
+	}
+}
+
+// TestChangeBeforeTheLoopStartsEndsItsFirstWait: the loop starts from the
+// change count of the frame it primed on. A change after that frame -- a job
+// accepted, even -- has rung already; taking the doorbell's count of the
+// moment instead left it to the idle wake.
+func TestChangeBeforeTheLoopStartsEndsItsFirstWait(t *testing.T) {
+	m, _ := rtModule(t)
+	m.rt.invoke()
+	m.pins.waitAbort.Set(true)
+	m.rt.invoke()
+
+	c := newControl(m)
+	c.primeEdges()
+	if c.seenChange != uint32(m.rt.in.change) || c.seenChange == 0 {
+		t.Fatalf("seenChange = %d after priming, want the frame's %d", c.seenChange, uint32(m.rt.in.change))
+	}
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	if m.rt.bell.Change() == c.seenChange {
+		t.Error("a job accepted after the priming frame would not end the first wait")
+	}
+}
+
+// TestIdleWorkDetector: an output changed or a motion command sent on a wake
+// that only the idle wake caused is counted -- whatever the loop acted on had
+// no wake source. A wake for a change or for a deadline a wait asked for is
+// none, and neither is what the idle wake is there for: the params.
+func TestIdleWorkDetector(t *testing.T) {
+	m, c, _ := loopByHand(t, 100000)
+	oldIdle := idleWake
+	idleWake = 5 * time.Millisecond
+	t.Cleanup(func() { idleWake = oldIdle })
+	tick := func() {
+		t.Helper()
+		if !c.tick() {
+			t.Fatal("the wait did not end")
+		}
+	}
+	want := func(what string, n uint32) {
+		t.Helper()
+		tick() // the tick after the work judges it
+		if got := m.idleWork.Load(); got != n {
+			t.Fatalf("%s: idleWork = %d, want %d", what, got, n)
+		}
+	}
+	c.wakeBy(c.now) // as the loop starts: the outputs' first publish
+	tick()
+
+	tick() // an idle wake ...
+	want("nothing done", 0)
+
+	m.pins.taskTimeout.Set(1.5)
+	m.pins.pickers[0].xOffset.Set(3)
+	want("only params", 0)
+
+	tick()
+	m.rt.requestScene(true)
+	want("an output on an idle wake", 1)
+
+	tick()
+	_ = m.mc.Abort()
+	want("a motion command on an idle wake", 2)
+
+	m.pins.waitAbort.Set(true)
+	tick() // a change's wake
+	m.rt.requestScene(false)
+	want("an output after a change", 2)
+
+	c.wakeBy(c.now + 2*time.Millisecond)
+	tick() // a deadline's wake
+	m.rt.requestScene(true)
+	want("an output at a deadline", 2)
+
+	c.wakeBy(c.now + idleWake)
+	tick() // a deadline that is the idle wake's time
+	m.rt.requestScene(false)
+	want("an output at a deadline as far off as the idle wake", 2)
+
+	// A deadline just beyond the idle wake, and the loop a cycle late to
+	// read: the idle wake rang, the frame read is the deadline's.
+	inner := m.rt.runRT
+	m.rt.runRT = func() {
+		ch := m.rt.bell.Change()
+		if inner(); m.rt.bell.Change() != ch {
+			inner()
+		}
+	}
+	due := c.now + idleWake + time.Millisecond
+	c.wakeBy(due)
+	tick()
+	if c.now != due {
+		t.Fatalf("the frame read is of %v, want the deadline %v", c.now, due)
+	}
+	m.rt.runRT = inner
+	m.rt.requestScene(true)
+	want("an output at a deadline that came with the idle wake", 2)
+}
+
+// TestModelOnThePinsWithItsCommand: what the step recorded in the model goes
+// out with the commit a wait starts on, in the servo cycle that carries the
+// command it follows from -- not after the wait, a wake later.
+func TestModelOnThePinsWithItsCommand(t *testing.T) {
+	m, c, _ := loopByHand(t, 1000)
+	c.wakeBy(c.now)
+	if !c.tick() {
+		t.Fatal("the first wait did not end")
+	}
+
+	inner, first, runs := m.rt.runRT, false, 0
+	m.rt.runRT = func() {
+		inner()
+		if runs++; runs == 1 {
+			first = m.pins.pickers[0].holds.pin.Get()
+		}
+	}
+	m.world.held[0] = heldMaterial{present: true, station: 10}
+	c.wakeBy(c.now + 5*time.Millisecond)
+	if !c.tick() {
+		t.Fatal("the wait did not end")
+	}
+	if !first {
+		t.Error("picker.0.holds was not on its pin in the first cycle of the wait that followed the record")
+	}
+}
+
+// enableAt notes the servo cycle of the first Enable.
+type enableAt struct {
+	motionControl
+	rt    *rtIO
+	cycle atomic.Uint32
+}
+
+func (e *enableAt) Enable() error {
+	e.cycle.CompareAndSwap(0, e.rt.bell.Cycle())
+	return e.motionControl.Enable()
+}
+
+// TestFirstStepIsDueAtOnce: the loop's first step -- machine-on's boot edge --
+// waits for no change and not for the idle wake. The loop runs the cycle
+// function itself here and wakes on its rings only, so the cycle of the
+// enable is exact.
+func TestFirstStepIsDueAtOnce(t *testing.T) {
+	fastLoop(t)
+	setupPaths(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	at := &enableAt{motionControl: mot, rt: m.rt}
+	m.mc, m.ms = at, mot
+	m.pins.machineOn.Set(true)
+	m.rt.runRT = m.rt.invoke
+	m.rt.invoke()
+	if err := m.startControl(); err != nil {
+		t.Fatalf("startControl: %v", err)
+	}
+	t.Cleanup(m.Stop)
+
+	deadline := time.Now().Add(eventuallyDeadline)
+	for at.cycle.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the boot edge never enabled the machine")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if n := at.cycle.Load(); n > 10 {
+		t.Errorf("the boot enable came in servo cycle %d, want the loop's first step", n)
 	}
 }
