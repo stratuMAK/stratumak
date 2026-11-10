@@ -110,13 +110,10 @@ type pinSet struct {
 	// around the machine — a sphere, a door, a press — has to know the portal
 	// has left before it moves.
 	//
-	// These are the only pins this module does not write from Go. They are
-	// published by the cyclic function in the servo thread (deadzone_rt.go),
-	// which is why they are created here but never Set anywhere: their names,
-	// direction and meaning are unchanged, only their freshness — every servo
-	// cycle rather than every control cycle. A configuration that does not addf
-	// that function leaves them at "not clear"; Start warns when it finds none
-	// scheduled.
+	// The cycle function computes them every servo cycle (the dead-zone check,
+	// pnp_deadzone_rt.c), from motmod's RT-side feedback, which is why they are
+	// created here but have no handle in the output frame. Without the
+	// function on a thread they stay "not clear" -- and Start refuses anyway.
 	deadzoneFree []*hal.Pin[bool]
 }
 

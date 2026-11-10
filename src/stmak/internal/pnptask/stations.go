@@ -919,7 +919,7 @@ func (w *world) clearAllHeld() {
 	}
 }
 
-// publish writes the station output pins. It runs every control cycle, so the
+// publish writes the station output pins. It runs at every wake of the loop, so the
 // PLC sees a tray fill up slot by slot rather than in one jump at the end of a
 // job.
 //
