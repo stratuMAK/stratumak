@@ -9,7 +9,7 @@ package pnptask
 #include "pnp_rt.h"
 
 static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out,
-                        void *dz, void *bell, int pickers, int trays, int procs) {
+                        void *dz, void *bell, void *feed, int pickers, int trays, int procs) {
     pnp_rt_t *r = (pnp_rt_t *)blk;
     r->to_go     = (stmak_tribuf_t *)to_go;
     r->to_rt     = (stmak_tribuf_t *)to_rt;
@@ -17,12 +17,14 @@ static void pnp_rt_link(void *blk, void *to_go, void *to_rt, void *in, void *out
     r->out       = (stmak_pinmap_t *)out;
     r->dz        = (pnp_dz_t *)dz;
     r->bell      = (stmak_doorbell_t *)bell;
+    r->feed      = (pnp_rt_feed_rec_t *)feed;
     r->n_pickers = pickers;
     r->n_trays   = trays;
     r->n_procs   = procs;
 }
 
 static size_t pnp_rt_size(void) { return sizeof(pnp_rt_t); }
+static size_t pnp_rt_feed_size(void) { return sizeof(pnp_rt_feed_rec_t) * PNP_RT_FEED_CAP; }
 
 // pnp_rt_invoke runs the cycle function once without a HAL thread: the unit
 // tests drive it from the control loop's tick hook.
@@ -61,6 +63,9 @@ const (
 	maxProcs   = C.PNP_RT_MAX_PROCS
 	maxAxes    = C.PNP_RT_MAX_AXES
 )
+
+// feedCap is the leg feed ring's size in records (pnp_rt.h, the leg feed).
+const feedCap = C.PNP_RT_FEED_CAP
 
 // firstFrameTimeout bounds Start's wait for the cycle function's first run.
 // The servo thread runs it every millisecond; a second without it means it is
@@ -178,6 +183,9 @@ type rtIO struct {
 	outMap *hal.PinMap
 	bell   *hal.Doorbell
 	blk    unsafe.Pointer
+	// feed is the leg feed ring (pnp_rt.h): feedCap records in RT memory,
+	// written by the loop, read by the cycle function.
+	feed unsafe.Pointer
 
 	// sent is the output frame of the last commit, sentCycle the doorbell's
 	// cycle count right after it: a run that starts after the commit -- two
@@ -236,12 +244,15 @@ func (r *rtIO) build(p *pinSet, dz *deadzoneRT) error {
 	if r.blk = hal.RTCalloc(uintptr(C.pnp_rt_size())); r.blk == nil {
 		return errors.New("rtapi_calloc for the cycle function failed")
 	}
+	if r.feed = hal.RTCalloc(uintptr(C.pnp_rt_feed_size())); r.feed == nil {
+		return errors.New("rtapi_calloc for the leg feed failed")
+	}
 	var dzBlk unsafe.Pointer
 	if dz != nil {
 		dzBlk = dz.blk
 	}
 	C.pnp_rt_link(r.blk, r.toGo.RTPtr(), r.toRT.RTPtr(), r.inMap.RTPtr(), r.outMap.RTPtr(),
-		dzBlk, r.bell.RTPtr(), C.int(len(p.pickers)), C.int(len(p.trays)), C.int(len(p.procs)))
+		dzBlk, r.bell.RTPtr(), r.feed, C.int(len(p.pickers)), C.int(len(p.trays)), C.int(len(p.procs)))
 	return nil
 }
 
@@ -492,6 +503,86 @@ func (r *rtIO) raisePending() bool { return r.out.raise_seq != r.in.raise_seen }
 // shows the latch, or a raise is on its way to it.
 func (r *rtIO) latched() bool { return r.in.latch.set != 0 || r.raisePending() }
 
+// ---------------------------------------------------------------------------
+// The leg feed (pnp_rt.h, §13)
+// ---------------------------------------------------------------------------
+
+// errFeedFull: a record found the ring full. dispatchLeg checks a leg's room
+// before it writes anything, so this is a backstop.
+var errFeedFull = errors.New("the leg feed is full")
+
+// feedRoom is how many records the ring takes now: the cycle function has
+// fed at least what the last frame says, so this errs on the safe side.
+func (r *rtIO) feedRoom() int {
+	return feedCap - int(uint32(r.out.feed_end)-uint32(r.in.fed))
+}
+
+// feedPut writes one record at feed_end and counts it in. The function feeds
+// it once a commit has carried the new feed_end out; the triple buffer's
+// publish orders the record before that frame.
+func (r *rtIO) feedPut(rec *C.pnp_rt_feed_rec_t) error {
+	if r.feedRoom() <= 0 {
+		return errFeedFull
+	}
+	ring := (*[feedCap]C.pnp_rt_feed_rec_t)(r.feed)
+	ring[uint32(r.out.feed_end)%feedCap] = *rec
+	r.out.feed_end++
+	r.cmds++
+	return nil
+}
+
+// feedTermCond, feedLine and feedCircle write the records of what motctl's
+// SetTermCond, SetLine and SetCircle carry, field for field.
+func (r *rtIO) feedTermCond(cond int32, tolerance float64) error {
+	rec := C.pnp_rt_feed_rec_t{kind: C.PNP_FEED_TERM_COND, term_cond: C.int32_t(cond), tolerance: C.double(tolerance)}
+	return r.feedPut(&rec)
+}
+
+func (r *rtIO) feedLine(pos motctl.Pose, vel, iniMaxvel, acc float64,
+	motionType, id int32, feedMmPerMin float64, indexerJnum int32) error {
+	rec := C.pnp_rt_feed_rec_t{
+		kind: C.PNP_FEED_LINE, id: C.int32_t(id), motion_type: C.int32_t(motionType),
+		turn: C.int32_t(indexerJnum), vel: C.double(vel), ini_maxvel: C.double(iniMaxvel),
+		acc: C.double(acc), feed_mm_per_min: C.double(feedMmPerMin), pos: feedPose(pos),
+	}
+	return r.feedPut(&rec)
+}
+
+func (r *rtIO) feedCircle(pos motctl.Pose, center, normal motctl.Cartesian, turn int32,
+	vel, iniMaxvel, acc float64, motionType, id int32, feedMmPerMin float64) error {
+	rec := C.pnp_rt_feed_rec_t{
+		kind: C.PNP_FEED_CIRCLE, id: C.int32_t(id), motion_type: C.int32_t(motionType),
+		turn: C.int32_t(turn), vel: C.double(vel), ini_maxvel: C.double(iniMaxvel),
+		acc: C.double(acc), feed_mm_per_min: C.double(feedMmPerMin), pos: feedPose(pos),
+		center: feedCart(center), normal: feedCart(normal),
+	}
+	return r.feedPut(&rec)
+}
+
+func feedPose(p motctl.Pose) C.mot_pose_t {
+	return C.mot_pose_t{x: C.double(p.X), y: C.double(p.Y), z: C.double(p.Z),
+		a: C.double(p.A), b: C.double(p.B), c: C.double(p.C),
+		u: C.double(p.U), v: C.double(p.V), w: C.double(p.W)}
+}
+
+func feedCart(c motctl.Cartesian) C.mot_cartesian_t {
+	return C.mot_cartesian_t{x: C.double(c.X), y: C.double(c.Y), z: C.double(c.Z)}
+}
+
+// cancelFeed voids every record written and not yet fed: the function skips to
+// feed_begin in the run that applies the commit carrying it.
+func (r *rtIO) cancelFeed() { r.out.feed_begin = r.out.feed_end }
+
+// feedThrough reports whether the frame read last shows every record written
+// fed, and seen by its motion snapshot.
+func (r *rtIO) feedThrough() bool { return r.in.fed == r.out.feed_end }
+
+// feedErr is the frame's count of refused records, with the last one's
+// segment id and motmod's status.
+func (r *rtIO) feedErr() (seq uint32, id, status int32) {
+	return uint32(r.in.feed_err_seq), int32(r.in.feed_err_id), int32(r.in.feed_err_status)
+}
+
 // read takes the latest input frame into r.in, and makes it the frame the next
 // commit says it was computed from (sync).
 func (r *rtIO) read() {
@@ -542,6 +633,8 @@ func (r *rtIO) free() {
 	}
 	hal.RTFree(r.blk)
 	r.blk = nil
+	hal.RTFree(r.feed)
+	r.feed = nil
 }
 
 // Input frame accessors for the control loop: plain Go values out of the C
