@@ -320,9 +320,14 @@ func (c *control) waitStanding(done func() bool, what string, cleared func()) er
 			return faultf(errWaitAborted, "%s: the wait was aborted by wait-abort", what)
 		}
 		// The head waits up, not down at the station it came from: a lift
-		// deferred for the next travel (D52) runs now.
-		if err := c.flushLift(); err != nil {
-			return err
+		// deferred for the next travel (D52) runs now. It takes wakes of its
+		// own, and what this wait is for may have come with one of them --
+		// its ring is taken: look again, do not sleep for it.
+		if c.lift.on {
+			if err := c.flushLift(); err != nil {
+				return err
+			}
+			continue
 		}
 		if !c.tick() {
 			return errStopping
