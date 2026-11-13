@@ -36,6 +36,8 @@ func (c *control) runParkRequest(seq uint32) {
 	case errors.Is(err, errStopping):
 		c.m.logger.Warn("pnptask: park abandoned, module stopping")
 	default:
+		// As a job (runJobHandshake): nothing of a failed park moves after it.
+		c.m.rt.dropFeed()
 		c.raise(err)
 	}
 	// parked goes out with the end, as a job's outcome does (runJobHandshake):

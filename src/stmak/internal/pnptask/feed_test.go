@@ -516,6 +516,53 @@ func TestLegFeedRefusesALegThatDoesNotFit(t *testing.T) {
 	}
 }
 
+// TestLegFeedLegRefusedInPlanningDoesNotMove: a leg whose planning fails at a
+// middle segment (out of the axis limits) ends the job with MOTION_ERROR, and
+// none of its segments written before the bad one reaches motion -- not with
+// the job's last commit, and not later.
+func TestLegFeedLegRefusedInPlanningDoesNotMove(t *testing.T) {
+	f := newSmoothLegFixture(t)
+	f.m.limits.AxisMinPos[0] = 95 // the leg bulges to X = 86.9
+
+	f.runJob(10, 20, 0)
+	f.requireError("a leg out of the limits", errMotionError)
+	if f.bit("busy") {
+		t.Fatal("busy still up")
+	}
+	f.cycles(300)
+	for _, m := range f.mot.moveList() {
+		t.Errorf("a move reached motion from a leg refused in planning: %+v", m.pos)
+	}
+}
+
+// TestLegFeedParkRefusedInPlanningDoesNotMove: the same for a park, whose
+// leg around the zone bulges to X = 85.3.
+func TestLegFeedParkRefusedInPlanningDoesNotMove(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		files: map[string]string{zonesA: "zones_between.dxf", zonesB: fixtureClear},
+		tweak: func(c *Config) {
+			c.SmoothPaths = true
+			c.HasPark = true
+			c.Park.X, c.Park.Y = 100, 380
+			c.ParkZ = 15
+		},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.m.limits.AxisMinPos[0] = 95
+	f.mot.resetCalls()
+	f.press(f.m.pins.park)
+	f.eventually("the park's error", func() bool { return f.bit("error") })
+	f.eventually("busy to clear", func() bool { return !f.bit("busy") })
+	f.requireError("a park out of the limits", errMotionError)
+	f.cycles(300)
+	for _, m := range f.mot.moveList() {
+		if m.pos.X != 100 || m.pos.Y != 100 {
+			t.Errorf("a move reached motion from a park refused in planning: %+v", m.pos)
+		}
+	}
+}
+
 // TestLegFeedRefusalWithMachineOffIsDropped: a refusal that comes in the
 // frame in which machine-on drops is not the fault (MACHINE_OFF is), and it
 // does not come back later: the next switch-on enables, and no MOTION_ERROR
