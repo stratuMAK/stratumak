@@ -364,6 +364,49 @@ func TestMotctlCommandCancelsTheFeed(t *testing.T) {
 	}
 }
 
+// TestMotctlCommandDropsTheOldLegsRefusals: a motctl command ends the leg
+// feed, and with it the refusals of that leg -- also one made in the run that
+// still fed from Go's frame from before the cancel, after the loop read its
+// last frame. None of them is left pending to fail what comes next.
+func TestMotctlCommandDropsTheOldLegsRefusals(t *testing.T) {
+	m, mot := feedModule(t)
+	mot.Refuse(3, 4)
+	for id := int32(1); id <= 4; id++ {
+		feedLineID(t, m, id)
+	}
+	m.rt.commit()
+	runFeed(t, m, mot)
+	runFeed(t, m, mot) // 1 and 2 are out; the loop's frame is from the run of 2
+
+	before := m.rt.sent
+	stale := true
+	m.rt.runRT = func() {
+		if stale {
+			// The first run after the commit took Go's frame before it was
+			// published, and fed (and had refused) record 3.
+			stale = false
+			m.rt.toRT.Publish(&before)
+			m.rt.invoke()
+			m.rt.toRT.Publish(&m.rt.sent)
+		} else {
+			m.rt.invoke()
+		}
+		_, _ = mot.Take()
+	}
+	cm := committedMotion{motionControl: newFakeMotion(m.cfg.NumJoints), rt: m.rt}
+	if err := cm.SetFree(); err != nil {
+		t.Fatal(err)
+	}
+	m.rt.runRT()
+	m.rt.read()
+	if seq, id, _ := m.rt.feedErr(); seq != 1 || id != 3 {
+		t.Fatalf("refusal: seq %d id %d, want 1 3 (the case did not happen)", seq, id)
+	}
+	if m.rt.feedErrPending() {
+		t.Error("the old leg's refusal is pending after the motctl command")
+	}
+}
+
 // --- the loop with the feed ----------------------------------------------------
 
 // newSmoothLegFixture is a job fixture whose job 10 -> 20 has a leg around
@@ -470,5 +513,34 @@ func TestLegFeedRefusesALegThatDoesNotFit(t *testing.T) {
 	feedLineID(t, m, 1) // one record not yet fed
 	if err := c.checkLegRoom(legOf(feedCap - legFeedExtra)); err == nil {
 		t.Error("a leg that fits only an empty ring accepted with a record outstanding")
+	}
+}
+
+// TestLegFeedRefusalWithMachineOffIsDropped: a refusal that comes in the
+// frame in which machine-on drops is not the fault (MACHINE_OFF is), and it
+// does not come back later: the next switch-on enables, and no MOTION_ERROR
+// is latched.
+func TestLegFeedRefusalWithMachineOffIsDropped(t *testing.T) {
+	f := newSmoothLegFixture(t)
+	f.mot.onMove = func(mc moveCall) { // the control goroutine, f.mu held
+		if mc.id == 3 {
+			f.m.pins.machineOn.Set(false)
+		}
+	}
+	f.feed.Refuse(4, 4)
+
+	f.runJob(10, 20, 0)
+	f.requireError("machine-on dropped mid-leg", errMachineOff)
+
+	f.mot.onMove = nil
+	f.feed.Refuse(0, 0)
+	f.clearError()
+	f.m.pins.machineOn.Set(true)
+	f.cycles(300)
+	if f.bit("error") {
+		t.Fatalf("switching on again latched %s", f.errorID())
+	}
+	if !f.bit("machine-is-on") {
+		t.Error("machine-is-on stays low after switching on again")
 	}
 }

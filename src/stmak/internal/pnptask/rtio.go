@@ -604,6 +604,23 @@ func (r *rtIO) takeFeedErr() (id, status int32, ok bool) {
 // feedErrPending reports a refusal the loop has not taken yet.
 func (r *rtIO) feedErrPending() bool { return uint32(r.in.feed_err_seq) != r.feedErrTaken }
 
+// dropFeed ends whatever of a leg is still in the feed: it cancels the
+// records not yet fed, puts the cancel on the pins (applyBeforeMotion) and
+// discards the refusals of records written before it. Once the function has
+// applied the cancel it feeds none of those records any more, so the refusal
+// count of a frame it published after that is final for them; it is taken
+// from a frame read here, not from the loop's frame (r.in), which may be
+// older than the apply. Whatever ends the feed this way ends the leg with a
+// fault of its own, or with a motion command that a refusal of the old leg
+// must not fail later (the next enable).
+func (r *rtIO) dropFeed() {
+	r.cancelFeed()
+	r.applyBeforeMotion()
+	var f inFrame
+	r.toGo.Read(&f)
+	r.feedErrTaken = uint32(f.feed_err_seq)
+}
+
 // read takes the latest input frame into r.in, and makes it the frame the next
 // commit says it was computed from (sync).
 func (r *rtIO) read() {
@@ -713,12 +730,10 @@ func (m committedMotion) note(err error) error {
 	return err
 }
 
-// before cancels the leg feed and puts everything on the pins ahead of a
-// motctl command.
-func (m committedMotion) before() {
-	m.rt.cancelFeed()
-	m.rt.applyBeforeMotion()
-}
+// before ends the leg feed (rtIO.dropFeed: cancel, apply, the old leg's
+// refusals discarded) and puts everything on the pins ahead of a motctl
+// command.
+func (m committedMotion) before() { m.rt.dropFeed() }
 
 func (m committedMotion) Abort() error {
 	m.before()
