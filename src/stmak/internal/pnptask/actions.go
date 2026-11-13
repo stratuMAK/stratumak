@@ -783,7 +783,7 @@ func (c *control) lowShift(pk int, st *station, target pnproute.Point) (bool, er
 	if err := c.waitMotionDone(); err != nil {
 		return false, err
 	}
-	if err := c.m.mc.SetTermCond(tpTermCondStop, 0); err != nil {
+	if err := c.m.rt.feedTermCond(tpTermCondStop, 0); err != nil {
 		return false, faultf(errMotionError, "setting the exact-stop termination condition: %v", err)
 	}
 	if err := c.line(to, c.m.cfg.ZVel, c.m.cfg.ZAcc); err != nil {

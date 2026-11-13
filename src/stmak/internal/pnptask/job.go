@@ -112,6 +112,10 @@ func (c *control) runJobHandshake(seq uint32) {
 		// but nothing is latched (raise ignores it anyway).
 		c.m.logger.Warn("pnptask: job abandoned, module stopping")
 	default:
+		// Nothing of a job that failed may move after it: records of a leg
+		// whose planning failed at a later segment, or whose wait ended in
+		// a fault without an Abort (commLost), are dropped before busy falls.
+		c.m.rt.dropFeed()
 		c.raise(err)
 	}
 

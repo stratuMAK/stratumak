@@ -6,7 +6,7 @@
 @api mot
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 3
+@version 4
 @prefix mot
 @rest_export false
 
@@ -45,6 +45,40 @@ type Snapshot {
     num_joints: i32
     joints_homed: u32
     joints_homing: u32
+}
+
+type Cartesian {
+    x: f64
+    y: f64
+    z: f64
+}
+
+# A segment handed to the planner by a cyclic function in motmod's own servo
+# thread (traj_add_line / traj_add_circle): what motctl's set_line and
+# set_circle carry, field for field. turn is the circle's turn count; a line
+# carries the indexer joint there, as motctl's set_line does.
+type LineSeg {
+    pos: Pose
+    id: i32
+    motion_type: i32
+    turn: i32
+    vel: f64
+    ini_maxvel: f64
+    acc: f64
+    feed_mm_per_min: f64
+}
+
+type CircleSeg {
+    pos: Pose
+    center: Cartesian
+    normal: Cartesian
+    id: i32
+    motion_type: i32
+    turn: i32
+    vel: f64
+    ini_maxvel: f64
+    acc: f64
+    feed_mm_per_min: f64
 }
 
 # ─── I/O callbacks ───
@@ -186,6 +220,32 @@ func status_get_carte_pos_fb(pos: Pose out) -> i32
 @doc "Get the motion state snapshot (RT-side)"
 @rt_safe "true"
 func status_get_snapshot(snap: Snapshot out) -> i32
+
+# ─── Trajectory intake from the servo thread ───
+#
+# The planner intake of motctl's set_term_cond, set_line and set_circle, for a
+# cyclic function in another module that hands motmod segments one per servo
+# cycle (pnptask's leg feed, docs/dev/PNPTASK_RT_BOUNDARY.md §13). Each runs
+# the code the command handler runs for the motctl command of the same name --
+# the mode and enable check, the range and limit checks, the planner's add,
+# the abort and error flag on a refusal -- and returns the EMCMOT_COMMAND_*
+# status the handler would have stored in commandStatus.
+#
+# To be called ONLY from a function in motmod's own servo thread, as
+# status_get_snapshot: they take no lock, and they leave the command slot and
+# its echo (commandNumEcho, commandStatus) alone, which stay motctl's.
+
+@doc "Set the termination condition for the segments that follow (servo thread)"
+@rt_safe "true"
+func traj_set_term_cond(cond: i32, tolerance: f64) -> i32
+
+@doc "Append a linear segment to the planner (servo thread)"
+@rt_safe "true"
+func traj_add_line(seg: LineSeg) -> i32
+
+@doc "Append a circular segment to the planner (servo thread)"
+@rt_safe "true"
+func traj_add_circle(seg: CircleSeg) -> i32
 
 # ─── Status setters (emcmot_status_t fields, write) ───
 

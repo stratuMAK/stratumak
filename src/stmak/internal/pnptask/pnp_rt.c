@@ -96,6 +96,82 @@ static void pnp_rt_scene_and_watch(pnp_rt_t *r, const pnp_rt_in_t *in,
         r->watch_fired = go->watch_seq;
 }
 
+// pnp_rt_feed_one hands motmod one record (pnp_rt.h, the leg feed) and returns
+// motmod's status, or 1 when the provider has no intake for its kind (a record
+// of an unknown kind counts as refused).
+static int32_t pnp_rt_feed_one(const mot_callbacks_t *mot, const pnp_rt_feed_rec_t *rec) STMAK_NONBLOCKING;
+static int32_t pnp_rt_feed_one(const mot_callbacks_t *mot, const pnp_rt_feed_rec_t *rec)
+{
+    switch (rec->kind) {
+    case PNP_FEED_TERM_COND:
+        return mot->traj_set_term_cond(mot->ctx, rec->term_cond, rec->tolerance);
+    case PNP_FEED_LINE: {
+        mot_line_seg_t seg;
+        seg.pos = rec->pos;
+        seg.id = rec->id;
+        seg.motion_type = rec->motion_type;
+        seg.turn = rec->turn;
+        seg.vel = rec->vel;
+        seg.ini_maxvel = rec->ini_maxvel;
+        seg.acc = rec->acc;
+        seg.feed_mm_per_min = rec->feed_mm_per_min;
+        return mot->traj_add_line(mot->ctx, &seg);
+    }
+    case PNP_FEED_CIRCLE: {
+        mot_circle_seg_t seg;
+        seg.pos = rec->pos;
+        seg.center = rec->center;
+        seg.normal = rec->normal;
+        seg.id = rec->id;
+        seg.motion_type = rec->motion_type;
+        seg.turn = rec->turn;
+        seg.vel = rec->vel;
+        seg.ini_maxvel = rec->ini_maxvel;
+        seg.acc = rec->acc;
+        seg.feed_mm_per_min = rec->feed_mm_per_min;
+        return mot->traj_add_circle(mot->ctx, &seg);
+    }
+    default:
+        return 1;
+    }
+}
+
+// pnp_rt_feed is the leg feed for one run (pnp_rt.h): skip what a cancel
+// voided, skip everything under estop, hold behind a refusal until the loop
+// cancels, else feed one record below feed_end.
+static void pnp_rt_feed(pnp_rt_t *r, const pnp_rt_in_t *in, const pnp_rt_out_t *go,
+                        const mot_callbacks_t *mot) STMAK_NONBLOCKING;
+static void pnp_rt_feed(pnp_rt_t *r, const pnp_rt_in_t *in, const pnp_rt_out_t *go,
+                        const mot_callbacks_t *mot)
+{
+    if ((int32_t)(go->feed_begin - r->fed) > 0)
+        r->fed = go->feed_begin;
+    if (r->feed_hold && (int32_t)(go->feed_begin - r->hold_at) >= 0)
+        r->feed_hold = 0;
+    if (in->estop_on) {
+        if ((int32_t)(go->feed_end - r->fed) > 0)
+            r->fed = go->feed_end;
+        return;
+    }
+    if (r->feed_hold || (int32_t)(go->feed_end - r->fed) <= 0 || r->feed == NULL)
+        return;
+    // A truth test on each slot, as for status_get_snapshot (a provider
+    // older than mot version 4 has none of them).
+    if (mot == NULL || !mot->traj_set_term_cond || !mot->traj_add_line || !mot->traj_add_circle)
+        return;
+
+    const pnp_rt_feed_rec_t *rec = &r->feed[r->fed % PNP_RT_FEED_CAP];
+    int32_t status = pnp_rt_feed_one(mot, rec);
+    r->fed++;
+    if (status != 0) {
+        r->feed_err_seq++;
+        r->feed_err_id = rec->id;
+        r->feed_err_status = status;
+        r->feed_hold = 1;
+        r->hold_at = r->fed;
+    }
+}
+
 // pnp_rt_stall is the stall check (§7.2): rings outstanding and the loop's
 // taken count standing still for task_timeout latch TASK_STALLED. What counts
 // is that taken moves, not that it has caught up: a loop that takes every ring
@@ -125,8 +201,8 @@ static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period)
 
 // pnp_rt_changed builds this cycle's signature of what the loop acts on
 // (pnp_rt_sig_t) and reports whether it differs from the last cycle's.
-static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in) STMAK_NONBLOCKING;
-static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in)
+static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in, const pnp_rt_out_t *go) STMAK_NONBLOCKING;
+static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in, const pnp_rt_out_t *go)
 {
     pnp_rt_sig_t *g = &r->sig;
     const uint8_t *src = (const uint8_t *)in + offsetof(pnp_rt_in_t, jog_speed);
@@ -154,6 +230,8 @@ static int pnp_rt_changed(pnp_rt_t *r, const pnp_rt_in_t *in)
     g->carte_pos_fb_ok = in->mot.carte_pos_fb_ok;
     g->joints_homed = in->mot.joints_homed;
     g->joints_homing = in->mot.joints_homing;
+    g->feed_err_seq = in->feed_err_seq;
+    g->feed_through = in->fed == go->feed_end;
 
     const uint8_t *a = (const uint8_t *)&r->sig;
     uint8_t       *b = (uint8_t *)&r->sig_prev;
@@ -251,6 +329,15 @@ void pnp_rt_cycle(void *arg, long period)
     pnp_rt_scene_and_watch(r, in, go);
     pnp_rt_edges(r, in);
 
+    // 5a. The leg feed. The frame says what the snapshot above has seen:
+    //    a record fed now is motion-controller's in the next cycle, so it
+    //    counts from the next frame on.
+    in->fed = r->fed;
+    pnp_rt_feed(r, in, go, mot);
+    in->feed_err_seq    = r->feed_err_seq;
+    in->feed_err_id     = r->feed_err_id;
+    in->feed_err_status = r->feed_err_status;
+
     // 6. The outputs, all at once: Go's frame with RT's pins put in.
     pnp_rt_out_t *o = &r->composed;
     *o = *go;
@@ -299,7 +386,7 @@ void pnp_rt_cycle(void *arg, long period)
 
     // The change counter: what the loop acts on changed, or its wake time came
     // (once per wake_at).
-    int ring = pnp_rt_changed(r, in);
+    int ring = pnp_rt_changed(r, in, go);
     if (ring)
         r->sig_changes++;
     in->sig_changes = r->sig_changes;

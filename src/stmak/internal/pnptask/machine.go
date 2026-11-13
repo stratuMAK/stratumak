@@ -108,14 +108,9 @@ type motionControl interface {
 	JogCont(num int32, vel float64, isTeleop int32) error
 	JogAbort(num int32, isTeleop int32) error
 
-	// Job motion (§7.3). A route is queued as straight lines, its corners
-	// rounded by the TP's blending; a smoothed path (D47/D48) as a tangent
-	// chain of lines and arcs in the XY plane.
-	SetTermCond(cond int32, tolerance float64) error
-	SetLine(pos motctl.Pose, vel, iniMaxvel, acc float64,
-		motionType, id int32, feedMmPerMin float64, indexerJnum int32) error
-	SetCircle(pos motctl.Pose, center, normal motctl.Cartesian, turn int32,
-		vel, iniMaxvel, acc float64, motionType, id int32, feedMmPerMin float64) error
+	// Job motion (§7.3) does not go through motctl: a leg's segments and term
+	// conds are records in the leg feed, which the cycle function hands motmod
+	// one per servo cycle (rtIO.feedLine, PNPTASK_RT_BOUNDARY.md §13).
 }
 
 // motionStatus is the motstat subset this module reads.
@@ -858,12 +853,13 @@ func (c *control) sample() {
 // statusAge is how long, in servo time, the status reads have been failing:
 // since the first of the current run of failures, 0 with the last read good.
 // Measured from the first FAILED read, not from the last good one: the loop
-// can be busy for a while between two reads -- a smoothed leg's dispatch holds
-// it for a servo cycle per segment, ~0.8 s at the most -- and the first read
-// after that is routinely refused (a frame from the cycle of the last motion
-// command). Counted from the last good read, that read made the snapshot
-// stale at once and dropped homed for a wake (machine test 2026-11-09: the
-// camera station faulted "portal not homed" and automatic went off).
+// can be busy for a while between two reads -- a route plan; before the leg
+// feed, a smoothed leg's dispatch held it for a servo cycle per segment, ~0.8 s
+// at the most -- and the first read after a motctl command is routinely
+// refused (a frame from the cycle of that command). Counted from the last good
+// read, that read made the snapshot stale at once and dropped homed for a wake
+// (machine test 2026-11-09: the camera station faulted "portal not homed" and
+// automatic went off).
 func (c *control) statusAge() time.Duration {
 	if c.commErrors == 0 {
 		return 0
@@ -1813,6 +1809,13 @@ func (c *control) abortCheck() error {
 	}
 	if c.commLost() {
 		return faultf(errMotionError, "motion controller stopped responding")
+	}
+	// A segment motmod refused from the leg feed: the error SetLine returned
+	// when it went through motctl, a wake later. motmod has stopped its queue
+	// (and logged why); what the leg still has in the feed is void.
+	if id, status, ok := c.m.rt.takeFeedErr(); ok {
+		c.m.rt.cancelFeed()
+		return faultf(errMotionError, "motion refused segment %d of the leg (status %d)", id, status)
 	}
 	// A fault the loop did not raise ends the job or park in flight, as estop
 	// does: TASK_STALLED, latched by the cycle function when this loop took

@@ -23,12 +23,98 @@ package dztest
 
 // fake_mot_ctx_t stands in for motmod's instance: a position and the
 // carte_pos_fb_ok flag that decides whether it means anything.
+// fake_fed_t is one call of the trajectory intake (mot v4) as the fake
+// received it.
+typedef struct {
+    int              kind;      // 0 term cond, 1 line, 2 circle
+    int32_t          cond;
+    double           tolerance;
+    mot_line_seg_t   line;
+    mot_circle_seg_t circle;
+} fake_fed_t;
+
+#define FAKE_FED_CAP 64
+
 typedef struct {
     double x, y;
     int    ok;
     int    has_snap;
     mot_snapshot_t snap;
+
+    // The trajectory intake: what was fed since the last take, and a segment
+    // id to refuse with a status (refuse_status 0: none).
+    fake_fed_t fed[FAKE_FED_CAP];
+    int        n_fed, lost;
+    int32_t    refuse_id, refuse_status;
 } fake_mot_ctx_t;
+
+static void fake_note(fake_mot_ctx_t *c, const fake_fed_t *f) {
+    if (c->n_fed < FAKE_FED_CAP)
+        c->fed[c->n_fed++] = *f;
+    else
+        c->lost++;
+}
+
+static int32_t fake_traj_set_term_cond(void *ctx, int32_t cond, double tolerance) {
+    fake_fed_t f;
+    memset(&f, 0, sizeof(f));
+    f.kind = 0;
+    f.cond = cond;
+    f.tolerance = tolerance;
+    fake_note((fake_mot_ctx_t *)ctx, &f);
+    return 0;
+}
+
+static int32_t fake_traj_add_line(void *ctx, const mot_line_seg_t *seg) {
+    fake_mot_ctx_t *c = (fake_mot_ctx_t *)ctx;
+    if (c->refuse_status != 0 && seg->id == c->refuse_id)
+        return c->refuse_status;
+    fake_fed_t f;
+    memset(&f, 0, sizeof(f));
+    f.kind = 1;
+    f.line = *seg;
+    fake_note(c, &f);
+    return 0;
+}
+
+static int32_t fake_traj_add_circle(void *ctx, const mot_circle_seg_t *seg) {
+    fake_mot_ctx_t *c = (fake_mot_ctx_t *)ctx;
+    if (c->refuse_status != 0 && seg->id == c->refuse_id)
+        return c->refuse_status;
+    fake_fed_t f;
+    memset(&f, 0, sizeof(f));
+    f.kind = 2;
+    f.circle = *seg;
+    fake_note(c, &f);
+    return 0;
+}
+
+// fake_mot_enable_traj fills in the trajectory intake, as a mot version 4
+// provider has it.
+static void fake_mot_enable_traj(mot_callbacks_t *cb) {
+    cb->traj_set_term_cond = fake_traj_set_term_cond;
+    cb->traj_add_line = fake_traj_add_line;
+    cb->traj_add_circle = fake_traj_add_circle;
+}
+
+static void fake_mot_refuse(mot_callbacks_t *cb, int32_t id, int32_t status) {
+    fake_mot_ctx_t *c = (fake_mot_ctx_t *)cb->ctx;
+    c->refuse_id = id;
+    c->refuse_status = status;
+}
+
+// fake_mot_take copies what was fed since the last take into out (up to
+// FAKE_FED_CAP) and clears it; it returns the count, and the calls lost to a
+// full buffer in *lost.
+static int fake_mot_take(mot_callbacks_t *cb, fake_fed_t *out, int *lost) {
+    fake_mot_ctx_t *c = (fake_mot_ctx_t *)cb->ctx;
+    int n = c->n_fed;
+    memcpy(out, c->fed, (size_t)n * sizeof(fake_fed_t));
+    *lost = c->lost;
+    c->n_fed = 0;
+    c->lost = 0;
+    return n;
+}
 
 static int32_t fake_get_snapshot(void *ctx, mot_snapshot_t *s) {
     fake_mot_ctx_t *c = (fake_mot_ctx_t *)ctx;
@@ -95,7 +181,10 @@ static void invoke(void *arg, long period) {
 */
 import "C"
 
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 // FakeMot is a stand-in motmod callback table.
 type FakeMot struct{ cb *C.mot_callbacks_t }
@@ -134,4 +223,78 @@ func (f *FakeMot) Free() { C.fake_mot_free(f.cb); f.cb = nil }
 // Invoke runs the cyclic function once, as a HAL thread would.
 func Invoke(arg unsafe.Pointer, periodNsec int64) {
 	C.invoke(arg, C.long(periodNsec))
+}
+
+// Fed is one call of the trajectory intake (mot version 4) the fake took:
+// a term cond, or a line or circle segment with what motctl's set_line and
+// set_circle carry.
+type Fed struct {
+	Kind      FedKind
+	Cond      int32
+	Tolerance float64
+
+	Pos            [9]float64 // x y z a b c u v w
+	Center, Normal [3]float64 // circle only
+	ID, MotionType int32
+	Turn           int32
+	Vel, IniMaxvel float64
+	Acc, FeedMm    float64
+}
+
+// FedKind tells the three calls apart.
+type FedKind int
+
+const (
+	FedTermCond FedKind = iota
+	FedLine
+	FedCircle
+)
+
+// EnableTraj makes the fake a mot version 4 provider: it takes segments
+// through traj_set_term_cond, traj_add_line and traj_add_circle and records
+// them until Take. Without it the three slots stay NULL.
+func (f *FakeMot) EnableTraj() { C.fake_mot_enable_traj(f.cb) }
+
+// Refuse makes the fake refuse the segment with this id, returning status
+// (an EMCMOT_COMMAND_* code); status 0 refuses none.
+func (f *FakeMot) Refuse(id, status int32) { C.fake_mot_refuse(f.cb, C.int32_t(id), C.int32_t(status)) }
+
+// Take returns what was fed since the last Take, oldest first. The fake holds
+// 64 calls between two takes; more is an error, as a test that takes after
+// every cycle can never see it.
+func (f *FakeMot) Take() ([]Fed, error) {
+	var buf [C.FAKE_FED_CAP]C.fake_fed_t
+	var lost C.int
+	n := int(C.fake_mot_take(f.cb, &buf[0], &lost))
+	out := make([]Fed, n)
+	for i := 0; i < n; i++ {
+		b := &buf[i]
+		o := &out[i]
+		o.Kind = FedKind(b.kind)
+		switch o.Kind {
+		case FedTermCond:
+			o.Cond, o.Tolerance = int32(b.cond), float64(b.tolerance)
+		case FedLine:
+			l := &b.line
+			o.Pos = pose9(&l.pos)
+			o.ID, o.MotionType, o.Turn = int32(l.id), int32(l.motion_type), int32(l.turn)
+			o.Vel, o.IniMaxvel, o.Acc, o.FeedMm = float64(l.vel), float64(l.ini_maxvel), float64(l.acc), float64(l.feed_mm_per_min)
+		case FedCircle:
+			c := &b.circle
+			o.Pos = pose9(&c.pos)
+			o.Center = [3]float64{float64(c.center.x), float64(c.center.y), float64(c.center.z)}
+			o.Normal = [3]float64{float64(c.normal.x), float64(c.normal.y), float64(c.normal.z)}
+			o.ID, o.MotionType, o.Turn = int32(c.id), int32(c.motion_type), int32(c.turn)
+			o.Vel, o.IniMaxvel, o.Acc, o.FeedMm = float64(c.vel), float64(c.ini_maxvel), float64(c.acc), float64(c.feed_mm_per_min)
+		}
+	}
+	if lost != 0 {
+		return out, fmt.Errorf("dztest: %d trajectory calls lost (more than %d between two takes)", int(lost), C.FAKE_FED_CAP)
+	}
+	return out, nil
+}
+
+func pose9(p *C.mot_pose_t) [9]float64 {
+	return [9]float64{float64(p.x), float64(p.y), float64(p.z), float64(p.a), float64(p.b),
+		float64(p.c), float64(p.u), float64(p.v), float64(p.w)}
 }

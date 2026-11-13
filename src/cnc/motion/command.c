@@ -411,6 +411,165 @@ static int is_feed_type(int motion_type)
 }
 
 
+/* ================================================================
+ * The planner intake: EMCMOT_SET_TERM_COND, EMCMOT_SET_LINE and
+ * EMCMOT_SET_CIRCLE.
+ *
+ * Two callers run exactly this code: the command handler, for the motctl
+ * commands of these names (it stores the result in commandStatus), and mot's
+ * traj_set_term_cond / traj_add_line / traj_add_circle, which a cyclic
+ * function in this servo thread calls to hand the planner a segment without
+ * the command slot (pnptask's leg feed, docs/dev/PNPTASK_RT_BOUNDARY.md §13).
+ * Each returns the EMCMOT_COMMAND_* status.
+ *
+ * Servo thread only: they write the TP and the status struct with no lock,
+ * as the handler does.
+ * ================================================================ */
+
+int emcmotSetTermCond(motmod_inst_t *inst, int cond, double tolerance)
+{
+    /* sets termination condition for motion inst->internal->coord_tp */
+    stmak_log_debugf(inst->log, inst->name, "SET_TERM_COND");
+    inst->tp_api->set_term_cond(inst->tp_api->ctx, cond, tolerance);
+    return EMCMOT_COMMAND_OK;
+}
+
+int emcmotSetLine(motmod_inst_t *inst, const EmcPose *pos, int id,
+                  int motion_type, int turn, double vel, double ini_maxvel,
+                  double acc, double feed_mm_per_min, int spindle)
+{
+    char issue_atspeed = 0;
+
+    /* inst->internal->coord_tp up a linear move */
+    /* requires motion enabled, coordinated mode, not on limits */
+    stmak_log_debugf(inst->log, inst->name, "SET_LINE");
+    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
+	stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("need to be enabled, in coord mode for linear move"));
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_INVALID_COMMAND;
+    } else if (!inRange(inst, *pos, id, "Linear")) {
+	stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("invalid params in linear command"));
+	inst->tp_api->abort(inst->tp_api->ctx);
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_INVALID_PARAMS;
+    } else if (!limits_ok(inst)) {
+	stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't do linear move with limits exceeded"));
+	inst->tp_api->abort(inst->tp_api->ctx);
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_INVALID_PARAMS;
+    }
+
+	if(inst->status->atspeed_next_feed && is_feed_type(motion_type) ) {
+		issue_atspeed = 1;
+		inst->status->atspeed_next_feed = 0;
+	}
+	if(!is_feed_type(motion_type) &&
+			spindle >= 0 &&
+			spindle < inst->config->numSpindles &&
+			inst->status->spindle_status[spindle].css_factor) {
+		inst->status->atspeed_next_feed = 1;
+	}
+
+    /* append it to the inst->internal->coord_tp */
+    inst->tp_api->set_id(inst->tp_api->ctx, id);
+    int res_addline = inst->tp_api->add_line(inst->tp_api->ctx, 
+				(const tp_pose_t *)pos,
+				motion_type,
+				vel,
+				ini_maxvel,
+				acc,
+				inst->status->enables_new,
+				(int8_t)issue_atspeed,
+				turn,
+				feed_mm_per_min);
+    //KLUDGE ignore zero length line
+    if (res_addline < 0) {
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't add linear move (segment %d), error code %d"),
+                id, res_addline);
+        inst->tp_api->abort(inst->tp_api->ctx);
+        SET_MOTION_ERROR_FLAG(1);
+        return EMCMOT_COMMAND_BAD_EXEC;
+    } else if (res_addline != 0) {
+        //TODO make this hand-shake more explicit
+        //KLUDGE Non fatal error, need to restore state so that the next
+        //line properly handles at_speed
+        if (issue_atspeed) {
+            inst->status->atspeed_next_feed = 1;
+        }
+    } else {
+	SET_MOTION_ERROR_FLAG(0);
+	/* set flag that indicates all joints need rehoming, if any
+	   joint is moved in joint mode, for machines with no forward
+	   kins */
+	rehomeAll = 1;
+    }
+    return EMCMOT_COMMAND_OK;
+}
+
+int emcmotSetCircle(motmod_inst_t *inst, const EmcPose *pos,
+                    const PmCartesian *center, const PmCartesian *normal,
+                    int id, int motion_type, int turn, double vel,
+                    double ini_maxvel, double acc, double feed_mm_per_min)
+{
+    char issue_atspeed = 0;
+
+    /* inst->internal->coord_tp up a circular move */
+    /* requires coordinated mode, enable on, not on limits */
+    stmak_log_debugf(inst->log, inst->name, "SET_CIRCLE");
+    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
+	stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("need to be enabled, in coord mode for circular move"));
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_INVALID_COMMAND;
+    } else if (!inRange(inst, *pos, id, "Circular")) {
+	inst->tp_api->abort(inst->tp_api->ctx);
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_INVALID_PARAMS;
+    } else if (!limits_ok(inst)) {
+	stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't do circular move with limits exceeded"));
+	inst->tp_api->abort(inst->tp_api->ctx);
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_INVALID_PARAMS;
+    }
+        if(inst->status->atspeed_next_feed) {
+            issue_atspeed = 1;
+            inst->status->atspeed_next_feed = 0;
+        }
+    /* append it to the inst->internal->coord_tp */
+    inst->tp_api->set_id(inst->tp_api->ctx, id);
+    int res_addcircle = inst->tp_api->add_circle(inst->tp_api->ctx, 
+                        (const tp_pose_t *)pos,
+                        (const tp_cartesian_t *)center,
+                        (const tp_cartesian_t *)normal,
+                        turn, motion_type,
+                        vel, ini_maxvel,
+                        acc, inst->status->enables_new,
+		    (int8_t)issue_atspeed,
+                        feed_mm_per_min);
+    if (res_addcircle < 0) {
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't add circular move (segment %d), error code %d"),
+                id, res_addcircle);
+	inst->tp_api->abort(inst->tp_api->ctx);
+	SET_MOTION_ERROR_FLAG(1);
+	return EMCMOT_COMMAND_BAD_EXEC;
+    } else if (res_addcircle != 0) {
+        //FIXME! This is a band-aid for a single issue, but there may be
+        //other consequences of non-fatal errors from AddXXX functions. We
+        //either need to fix the root cause (subtle position error after
+        //homing), or have a full restore here.
+        if (issue_atspeed) {
+            inst->status->atspeed_next_feed = 1;
+        }
+    } else {
+	SET_MOTION_ERROR_FLAG(0);
+	/* set flag that indicates all joints need rehoming, if any
+	   joint is moved in joint mode, for machines with no forward
+	   kins */
+	rehomeAll = 1;
+    }
+    return EMCMOT_COMMAND_OK;
+}
+
+
 /*
   emcmotCommandHandler() is called each main cycle to read the
   shared memory buffer
@@ -504,7 +663,6 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
     emcmot_joint_t *joint;
     double tmp1;
     emcmot_comp_entry_t *comp_entry;
-    char issue_atspeed = 0;
     int abort = 0;
     char* emsg = "";
 
@@ -1136,9 +1294,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
             break;
 
 	case EMCMOT_SET_TERM_COND:
-	    /* sets termination condition for motion inst->internal->coord_tp */
-	    stmak_log_debugf(inst->log, inst->name, "SET_TERM_COND");
-	    inst->tp_api->set_term_cond(inst->tp_api->ctx, inst->command->termCond, inst->command->tolerance);
+	    inst->status->commandStatus = emcmotSetTermCond(inst, inst->command->termCond, inst->command->tolerance);
 	    break;
 
 	case EMCMOT_SET_SPINDLESYNC:
@@ -1146,133 +1302,18 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 		break;
 
 	case EMCMOT_SET_LINE:
-	    /* inst->internal->coord_tp up a linear move */
-	    /* requires motion enabled, coordinated mode, not on limits */
-	    stmak_log_debugf(inst->log, inst->name, "SET_LINE");
-	    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
-		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("need to be enabled, in coord mode for linear move"));
-		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-	    } else if (!inRange(inst, inst->command->pos, inst->command->id, "Linear")) {
-		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("invalid params in linear command"));
-		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
-		inst->tp_api->abort(inst->tp_api->ctx);
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-	    } else if (!limits_ok(inst)) {
-		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't do linear move with limits exceeded"));
-		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
-		inst->tp_api->abort(inst->tp_api->ctx);
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-	    }
-
-		if(inst->status->atspeed_next_feed && is_feed_type(inst->command->motion_type) ) {
-			issue_atspeed = 1;
-			inst->status->atspeed_next_feed = 0;
-		}
-		if(!is_feed_type(inst->command->motion_type) &&
-				inst->command->spindle >= 0 &&
-				inst->command->spindle < inst->config->numSpindles &&
-				inst->status->spindle_status[inst->command->spindle].css_factor) {
-			inst->status->atspeed_next_feed = 1;
-		}
-
-	    /* append it to the inst->internal->coord_tp */
-	    inst->tp_api->set_id(inst->tp_api->ctx, inst->command->id);
-	    int res_addline = inst->tp_api->add_line(inst->tp_api->ctx, 
-					(const tp_pose_t *)&inst->command->pos,
-					inst->command->motion_type,
-					inst->command->vel,
-					inst->command->ini_maxvel,
-					inst->command->acc,
-					inst->status->enables_new,
-					(int8_t)issue_atspeed,
-					inst->command->turn,
-					inst->command->feed_mm_per_min);
-        //KLUDGE ignore zero length line
-        if (res_addline < 0) {
-            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't add linear move (segment %d), error code %d"),
-                    inst->command->id, res_addline);
-            inst->status->commandStatus = EMCMOT_COMMAND_BAD_EXEC;
-            inst->tp_api->abort(inst->tp_api->ctx);
-            SET_MOTION_ERROR_FLAG(1);
-            break;
-        } else if (res_addline != 0) {
-            //TODO make this hand-shake more explicit
-            //KLUDGE Non fatal error, need to restore state so that the next
-            //line properly handles at_speed
-            if (issue_atspeed) {
-                inst->status->atspeed_next_feed = 1;
-            }
-        } else {
-		SET_MOTION_ERROR_FLAG(0);
-		/* set flag that indicates all joints need rehoming, if any
-		   joint is moved in joint mode, for machines with no forward
-		   kins */
-		rehomeAll = 1;
-	    }
+	    inst->status->commandStatus = emcmotSetLine(inst, &inst->command->pos,
+		inst->command->id, inst->command->motion_type, inst->command->turn,
+		inst->command->vel, inst->command->ini_maxvel, inst->command->acc,
+		inst->command->feed_mm_per_min, inst->command->spindle);
 	    break;
 
 	case EMCMOT_SET_CIRCLE:
-	    /* inst->internal->coord_tp up a circular move */
-	    /* requires coordinated mode, enable on, not on limits */
-	    stmak_log_debugf(inst->log, inst->name, "SET_CIRCLE");
-	    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
-		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("need to be enabled, in coord mode for circular move"));
-		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-	    } else if (!inRange(inst, inst->command->pos, inst->command->id, "Circular")) {
-		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
-		inst->tp_api->abort(inst->tp_api->ctx);
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-	    } else if (!limits_ok(inst)) {
-		stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't do circular move with limits exceeded"));
-		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
-		inst->tp_api->abort(inst->tp_api->ctx);
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-	    }
-            if(inst->status->atspeed_next_feed) {
-                issue_atspeed = 1;
-                inst->status->atspeed_next_feed = 0;
-            }
-	    /* append it to the inst->internal->coord_tp */
-	    inst->tp_api->set_id(inst->tp_api->ctx, inst->command->id);
-	    int res_addcircle = inst->tp_api->add_circle(inst->tp_api->ctx, 
-                            (const tp_pose_t *)&inst->command->pos,
-                            (const tp_cartesian_t *)&inst->command->center,
-                            (const tp_cartesian_t *)&inst->command->normal,
-                            inst->command->turn, inst->command->motion_type,
-                            inst->command->vel, inst->command->ini_maxvel,
-                            inst->command->acc, inst->status->enables_new,
-			    (int8_t)issue_atspeed,
-                            inst->command->feed_mm_per_min);
-        if (res_addcircle < 0) {
-            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("can't add circular move (segment %d), error code %d"),
-                    inst->command->id, res_addcircle);
-		inst->status->commandStatus = EMCMOT_COMMAND_BAD_EXEC;
-		inst->tp_api->abort(inst->tp_api->ctx);
-		SET_MOTION_ERROR_FLAG(1);
-		break;
-        } else if (res_addcircle != 0) {
-            //FIXME! This is a band-aid for a single issue, but there may be
-            //other consequences of non-fatal errors from AddXXX functions. We
-            //either need to fix the root cause (subtle position error after
-            //homing), or have a full restore here.
-            if (issue_atspeed) {
-                inst->status->atspeed_next_feed = 1;
-            }
-        } else {
-		SET_MOTION_ERROR_FLAG(0);
-		/* set flag that indicates all joints need rehoming, if any
-		   joint is moved in joint mode, for machines with no forward
-		   kins */
-		rehomeAll = 1;
-	    }
+	    inst->status->commandStatus = emcmotSetCircle(inst, &inst->command->pos,
+		&inst->command->center, &inst->command->normal,
+		inst->command->id, inst->command->motion_type, inst->command->turn,
+		inst->command->vel, inst->command->ini_maxvel, inst->command->acc,
+		inst->command->feed_mm_per_min);
 	    break;
 
 	case EMCMOT_SET_VEL:

@@ -76,8 +76,9 @@ const (
 	motctlVersion = 1
 	// mot is the motion controller's RT-side interface, consumed by the cycle
 	// function: the Cartesian feedback for the dead-zone check, and the motion
-	// snapshot the control loop reads instead of motstat (version 3).
-	motVersion = 3
+	// snapshot the control loop reads instead of motstat (version 3), and the
+	// trajectory intake the leg feed hands segments to (version 4).
+	motVersion = 4
 )
 
 // pnptaskModule is one loaded pnptask instance.

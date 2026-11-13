@@ -20,6 +20,7 @@
 //      the lift watch (step 6);
 //   5. the rising edges of the other command inputs are counted
 //      (pnp_rt_edges_t);
+//   5a. one record of the leg feed goes to motmod (§13, the feed below);
 //   6. the output pins are written from Go's frame, with the pins RT owns
 //      (busy, the error latch, picker.N.missing, cycle, scene-busy, and a
 //      fired lift watch's release override) put in: one pin map, so they all
@@ -136,7 +137,8 @@ typedef struct {
 // The change counter (step 7, §6.1): the control loop sleeps until the doorbell
 // rings. It rings when anything the loop acts on is different from the last
 // cycle -- an input, an edge count, the handshake and latch state, the scene
-// grant, a fired watch, and the motion snapshot but for its positions and
+// grant, a fired watch, the leg feed being through or refused (not each
+// record), and the motion snapshot but for its positions and
 // velocity, which move every cycle while the head travels -- and in the cycle
 // servo time reaches the loop's wake_at (a deadline, or the idle wake).
 // `change` counts the rings, `sig_changes` those a difference caused: a wake
@@ -146,6 +148,56 @@ typedef struct {
 //
 // The teach pins (picker.N.pos-x/-y and -mu) are the function's too: the
 // snapshot's feedback plus the picker's offset, every cycle.
+
+// --- the leg feed (§13) ----------------------------------------------------------
+//
+// The control loop plans a leg and writes its segments, and the term cond
+// changes between them, as records into the feed ring; it says how far it has
+// written with feed_end in its frame. The function hands motmod one record per
+// run through mot's trajectory intake (traj_add_line, traj_add_circle,
+// traj_set_term_cond), only records below the feed_end of the frame it applied
+// in that run -- so an output committed with them is on the pins a cycle
+// before motion runs the first one.
+//
+// Counters count records since the module started and wrap; every comparison
+// is a difference. Record i sits in slot i % PNP_RT_FEED_CAP.
+//
+//   feed_end   (Go)  records written: the function may feed those below it
+//   feed_begin (Go)  records below it are void: a cancel moves it to feed_end
+//   fed        (RT)  records taken out of the ring (fed, or skipped), as far as
+//                    the frame's motion snapshot has seen them: a record fed in
+//                    a run counts from the next frame on, whose snapshot comes
+//                    after motion-controller has run with it. fed == feed_end
+//                    with an empty queue in the same frame is "drained".
+//   feed_err_seq ... counts a record motmod refused, with its segment id and
+//                    motmod's status.
+//
+// Per run, after the scene lock and the lift watch: records below feed_begin
+// are skipped (a cancel); under estop everything below feed_end is (nothing of
+// a leg survives an estop, the loop's teardown sends the abort); after a
+// refusal the feed holds until feed_begin has moved past the refused record
+// (the loop's cancel); otherwise, with mot's intake resolved, one record goes
+// to motmod.
+
+#define PNP_RT_FEED_CAP 1024
+
+enum {
+    PNP_FEED_TERM_COND = 1,
+    PNP_FEED_LINE      = 2,
+    PNP_FEED_CIRCLE    = 3,
+};
+
+typedef struct {
+    uint8_t  kind;             // PNP_FEED_*
+    uint8_t  pad_[3];
+    int32_t  id;               // the segment id (moveID); 0 for a term cond
+    int32_t  motion_type, turn, term_cond;
+    int32_t  pad1_;
+    double   tolerance;        // a term cond's
+    double   vel, ini_maxvel, acc, feed_mm_per_min;
+    mot_pose_t      pos;
+    mot_cartesian_t center, normal;   // a circle's
+} pnp_rt_feed_rec_t;
 
 // --- RT -> Go: the inputs of one servo cycle --------------------------------
 
@@ -205,7 +257,13 @@ typedef struct {
 
     mot_snapshot_t     mot;     // motmod's state this cycle, valid with mot_ok
     uint8_t            mot_ok;
-    uint8_t            pad3_[7];
+    uint8_t            pad3_[3];
+
+    // The leg feed: records the snapshot has seen, and the last refusal.
+    uint32_t           fed;
+    uint32_t           feed_err_seq;
+    int32_t            feed_err_id, feed_err_status;
+    uint32_t           pad5_;
 } pnp_rt_in_t;
 
 // --- Go -> RT: the outputs of one Go commit ----------------------------------
@@ -249,6 +307,9 @@ typedef struct {
     int32_t  watch_id;         // ... to fire past this segment ...
     uint32_t watch_release;    // ... and hold these stations' release low (bit per proc)
 
+    uint32_t feed_end;         // the leg feed: records written ...
+    uint32_t feed_begin;       // ... and the first one not void (a cancel)
+
     uint64_t wake_at;          // servo ns to ring at, 0: none
     uint64_t task_timeout;     // ns taken may stand still behind a ring, 0: no check
     uint32_t taken;            // the change count Go has acted on
@@ -289,6 +350,9 @@ typedef struct {
     int32_t        command_num_echo, command_status, motion_state, enabled;
     int32_t        inpos, queue_depth, id, carte_pos_cmd_ok, carte_pos_fb_ok;
     uint32_t       joints_homed, joints_homing;
+    uint32_t       feed_err_seq;
+    uint8_t        feed_through;  // fed == feed_end: the leg is out
+    uint8_t        pad_[3];
 } pnp_rt_sig_t;
 
 // TASK_STALLED: errors.go's errTaskStalled, latched by the function itself.
@@ -301,6 +365,7 @@ typedef struct {
     stmak_pinmap_t *out;       // pnp_rt_out_t -> output pins
     pnp_dz_t       *dz;        // the dead-zone check's block, and mot
     stmak_doorbell_t *bell;    // cycle ticks after every publish
+    pnp_rt_feed_rec_t *feed;   // the feed ring, PNP_RT_FEED_CAP records
 
     uint32_t cycle;
 
@@ -330,6 +395,14 @@ typedef struct {
     uint32_t       sig_changes;
     pnp_rt_sig_t   sig, sig_prev;
     double         pos_x[PNP_RT_MAX_PICKERS], pos_y[PNP_RT_MAX_PICKERS];
+
+    // The leg feed (§13): records taken, the last refusal, and whether the
+    // feed holds for the loop's cancel (until feed_begin reaches hold_at).
+    uint32_t       fed;
+    uint32_t       feed_err_seq;
+    int32_t        feed_err_id, feed_err_status;
+    int            feed_hold;
+    uint32_t       hold_at;
 } pnp_rt_t;
 
 void pnp_rt_cycle(void *arg, long period) STMAK_NONBLOCKING;
