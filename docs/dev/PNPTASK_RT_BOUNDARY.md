@@ -881,7 +881,15 @@ To check while building, not assumed here:
 - **Motctl keeps** enable/disable, the mode switches, homing, jog and abort.
   `committedMotion` cancels the feed (`feed_begin = feed_end`) in the commit
   it already makes before each of them and waits for it to be applied, so the
-  function never feeds behind an abort or a mode switch.
+  function never feeds behind an abort or a mode switch. The refusals of the
+  records it cancelled go with them (§13.11, ending the feed): a refusal
+  that came with an estop or a machine-off is not left pending to fail the
+  next enable.
+- **A job or park that ends in an error** ends its feed the same way before
+  busy falls. Nothing of it moves after the error: not the records of a leg
+  whose planning failed at a later segment (they would otherwise go out
+  with the job's last commit), not the rest of a leg whose wait ended in a
+  fault without an Abort.
 - **The gate stays Go's decision.** A leg that needs the scene lock is
   written into the ring but `feed_end` is committed only once the grant is in
   the frame, as dispatching waits for it today. (Granting and starting in one
@@ -947,7 +955,9 @@ One run, first at slow speed, together with the review fixes:
 4. Normal speed: job times against 2750 ms (3→4 median), no `TASK_STALLED`
    with `task-timeout` 0.5 s.
 
-Falling back is redeploying the previous stmakd; there is no switch.
+Falling back is redeploying the previous stmakd; there is no switch. A
+`TASK_STALLED` alone is not a reason to: the machine has only ever run with
+2 s, so `[PNPTASK]TASK_TIMEOUT = 2` in the INI first.
 
 ### 13.10 Steps
 
@@ -1003,6 +1013,32 @@ text above, or settles what it left open:
 - **The refusal.** `abortCheck` takes it (`rtIO.takeFeedErr`), cancels the
   feed and returns `MOTION_ERROR` "motion refused segment N of the leg
   (status S)"; motmod has logged why, as it did for a refused `SetLine`.
+- **Ending the feed** (added after review, 2026-11-13). `rtIO.dropFeed`
+  cancels, applies the cancel (`applyBeforeMotion`) and then marks every
+  refusal up to that point taken. Once the function has applied the cancel
+  it feeds none of the cancelled records, so the refusal count of a frame
+  read after the apply is final for them; it is read for this from the
+  triple buffer, not taken from the loop's frame, which can be older than
+  the apply. Two places end the feed:
+  - `committedMotion.before()`, ahead of every motctl command. Before the
+    fix, a refusal in the frame in which estop, machine-off, the motion
+    enable or `commLost` ended the job was never taken (`abortCheck` returns
+    for those first) and failed the next enable with `MOTION_ERROR`.
+  - The error end of a job (`runJobHandshake`) and of a park
+    (`runParkRequest`), before the fault is raised and the end committed.
+    Before the fix, `dispatchLeg` failing at a later segment (the limit
+    check, a non-finite point) left the records before it written, and the
+    job's last commit published them: they ran after busy fell with
+    `MOTION_ERROR`. Of the faults that can end a job with records in the
+    feed, only estop, machine-off, the motion enable, `TASK_STALLED` and an
+    error-reset during the flight abort motion; a refused segment cancels.
+    The rest -- `dispatchLeg` and a descent decided on the way (D52) failing
+    their checks, `commLost` -- ended it without either. A deferred lift is
+    not written behind a failed leg: `dispatchLeg` takes the lift into the
+    leg before it writes anything, so `liftAfterError` finds none.
+  A job or park whose error end has something to apply waits for it (two
+  servo cycles) before busy falls; one whose last commit is already applied
+  (an estop's or a machine-off's Abort did it) does not.
 - **The scene gate.** Nothing to hold back: the leg is planned again and
   written only after `acquireScene` has the grant, so `feed_end` cannot move
   before it.
@@ -1017,7 +1053,14 @@ text above, or settles what it left open:
   `MOTION_ERROR`, and the next job runs (`TestLegFeedRefusedSegmentEndsTheJob`);
   a held-back descent decided while the leg is fed
   (`TestZCornerArcDescentDecidedWhileTheLegIsFed`); a leg that does not fit
-  (`TestLegFeedRefusesALegThatDoesNotFit`). `TestOutputsBeforeMotion` uses a
+  (`TestLegFeedRefusesALegThatDoesNotFit`). After review: a leg and a park
+  refused in planning at a middle segment do not move
+  (`TestLegFeedLegRefusedInPlanningDoesNotMove`,
+  `TestLegFeedParkRefusedInPlanningDoesNotMove`); a refusal in the frame of
+  a machine-off does not fail the next switch-on
+  (`TestLegFeedRefusalWithMachineOffIsDropped`); a motctl command drops the
+  refusal of a run that still fed from the frame before the cancel
+  (`TestMotctlCommandDropsTheOldLegsRefusals`). `TestOutputsBeforeMotion` uses a
   motctl command now. Each new test fails with the code it covers mutated
   away.
 
