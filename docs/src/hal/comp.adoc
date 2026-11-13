@@ -297,6 +297,16 @@ r"\fIexample\fB"
 * 'option extra_cleanup yes' - (default: no) +
   If specified, call the function defined by 'EXTRA_CLEANUP' when the instance is destroyed.
 
+* 'option run_after_stop yes' - (default: no) +
+  A component's realtime functions stop being executed once stmakd, shutting
+  down, has stopped every module: its outputs keep their last values, as a
+  PLC's do when its application is stopped. From that point the fieldbus goes
+  down while the realtime threads still cycle, and inputs die -- a drive's
+  position reads 0, a sensor reads off -- which logic must not act on.
+  Specify this for the component whose function carries a stop to the outside
+  over several cycles and has to finish it: a ramp that brings a drive down,
+  a hardware driver, a commutation.
+
 * 'option userspace yes' - (default: no) +
   If specified, this file describes a non-realtime component rather than a realtime one.
   A non-realtime component may not have functions defined by the 'function' directive.

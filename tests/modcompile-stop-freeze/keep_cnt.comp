@@ -1,0 +1,7 @@
+component keep_cnt "counts its servo cycles, to the end (option run_after_stop)";
+pin out u32 count;
+option run_after_stop yes;
+function _;
+license "GPL";
+;;
+FUNCTION(_) { count = count + 1; }

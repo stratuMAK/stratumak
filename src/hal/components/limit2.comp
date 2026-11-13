@@ -7,6 +7,9 @@ pin in float max_=1e20;
 pin in float maxv=1e20;
 option data limit2_data;
 function _;
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a ramp or filter can be carrying a stop to a drive.
+option run_after_stop yes;
 license "GPL";
 author "Jeff Epler";
 ;;

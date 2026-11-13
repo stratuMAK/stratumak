@@ -31,6 +31,9 @@ variable double value;
 
 function _ "Update the output based on the input and parameters.";
 
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a ramp or filter can be carrying a stop to a drive.
+option run_after_stop yes;
 license "GPL";
 author "Jeff Epler";
 ;;

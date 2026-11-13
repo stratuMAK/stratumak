@@ -34,6 +34,9 @@ Read the documents on "halcompile" for help with writing realtime components:
 http://linuxcnc.org/docs/html/hal/comp.html""";
 
 author "Andy Pugh andy@bodgesoc.org";
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a hardware driver.
+option run_after_stop yes;
 license "GPL";
 
 gmi_consume hm2_serial from hostmot2;

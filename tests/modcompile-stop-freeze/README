@@ -1,0 +1,4 @@
+modcompile: a component's realtime functions stop executing once stmakd has
+stopped every module (its LateStop), so application logic does not act on
+inputs that die while the fieldbus goes down; "option run_after_stop yes"
+keeps a component running to the end.

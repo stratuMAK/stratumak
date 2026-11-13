@@ -51,6 +51,9 @@ loadrt pcl720 names=pcl720.0 ioaddr=0x200
 loadrt pcl720 names=pcl720.1 ioaddr=0x210
 .RE""";
 
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a hardware driver.
+option run_after_stop yes;
 license "GPL";
 author "Andy Pugh";
 ;;

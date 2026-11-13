@@ -29,6 +29,9 @@ pin out float current-pos "position commanded at this point in time.";
 pin out float current-vel "velocity commanded at this moment in time.";
 pin out bit active "if active is true, the planner is requesting movement.";
 function update;
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a ramp or filter can be carrying a stop to a drive.
+option run_after_stop yes;
 license "GPL";
 author "Chris S Morley";
 ;;

@@ -36,6 +36,9 @@ pin out float out " out += (in - out) * gain ";
 pin in bit load "When TRUE, copy \\fBin\\fR to \\fBout\\fR instead of applying the filter equation.";
 param rw float gain;
 function _;
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a ramp or filter can be carrying a stop to a drive.
+option run_after_stop yes;
 license "GPL";
 author "Jeff Epler";
 notes "The effect of a specific \\fBgain\\fR value is dependent on the period of the function that \\fBlowpass.\\fIN\\fR is added to.";

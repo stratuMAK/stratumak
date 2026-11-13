@@ -269,6 +269,28 @@ func (g *generator) hasExtraCleanup() bool {
 	return g.comp.Options["extra_cleanup"] != ""
 }
 
+// freezesAfterStop reports whether the component's realtime functions stop
+// executing once the launcher has stopped every module (LateStop).
+//
+// On shutdown the launcher runs every module's Stop(), waits a full cycle of
+// the realtime threads, and then every module's LateStop(), in which the
+// fieldbus driver takes the bus out of OP -- with the threads still cycling,
+// because the transition needs their frames. From there on inputs die: a
+// drive's position reads 0, a sensor reads off. Application logic that still
+// ran would act on that (a station closing onto a head it reads as gone,
+// 2026-11-13). So a component's functions return at once from its own
+// LateStop() on: its outputs keep their last values, as a PLC's do when its
+// application is stopped. LateStop() runs in reverse load order like Stop(),
+// so this needs the bus driver loaded before the components, which it is in
+// every configuration (the pins a component is netted to have to exist).
+//
+// 'option run_after_stop yes' is for the component whose function carries a
+// stop to the outside over several cycles and has to finish it: a ramp that
+// brings a drive down, a hardware driver, a commutation.
+func (g *generator) freezesAfterStop() bool {
+	return g.hasFunctions() && g.comp.Options["run_after_stop"] == ""
+}
+
 func (g *generator) compType() string {
 	if g.isUserspace() {
 		return "STMAK_HAL_COMP_USER"
@@ -439,6 +461,10 @@ func (g *generator) emitInstanceStruct() {
 		g.printf("    pthread_t thread;   /* user_mainloop thread */\n")
 	}
 
+	if g.freezesAfterStop() {
+		g.printf("    volatile int app_stopped;  /* set by LateStop: the functions return at once */\n")
+	}
+
 	if g.hasPersonality() {
 		g.printf("    int _personality;\n")
 	}
@@ -531,6 +557,9 @@ func (g *generator) emitConvenienceDefines() {
 		g.printf("#define FUNCTION(name_) \\\n")
 		g.printf("    static void funct_ ## name_ ## _body(inst_t *__comp_inst, long period) STMAK_NONBLOCKING; \\\n")
 		g.printf("    static void funct_ ## name_(void *arg, long period) STMAK_NONBLOCKING { \\\n")
+		if g.freezesAfterStop() {
+			g.printf("        if (((inst_t *)arg)->app_stopped) return; \\\n")
+		}
 		g.printf("        funct_ ## name_ ## _body((inst_t *)arg, period); \\\n")
 		g.printf("    } \\\n")
 		g.printf("    static void funct_ ## name_ ## _body(inst_t *__comp_inst, long period)\n\n")
@@ -913,6 +942,14 @@ func (g *generator) emitInitStartStopDestroy() {
 		g.printf("}\n\n")
 	}
 
+	if g.freezesAfterStop() {
+		// LateStop: every module has had its Stop() and a full cycle has put
+		// what they wrote on the wire. The functions stop executing here.
+		g.printf("static void inst_late_stop(cmod_t *self) {\n")
+		g.printf("    ((inst_t *)self)->app_stopped = 1;\n")
+		g.printf("}\n\n")
+	}
+
 	g.printf("static void inst_destroy(cmod_t *self) {\n")
 	g.printf("    inst_t *inst = (inst_t *)self;\n")
 	if g.hasExtraCleanup() {
@@ -958,6 +995,9 @@ func (g *generator) emitNew() {
 	}
 	g.printf("    inst->base.Start   = inst_start;\n")
 	g.printf("    inst->base.Stop    = inst_stop;\n")
+	if g.freezesAfterStop() {
+		g.printf("    inst->base.LateStop = inst_late_stop;\n")
+	}
 	g.printf("    inst->base.Destroy = inst_destroy;\n")
 	g.printf("    inst->env = env;\n")
 	g.printf("    snprintf(inst->name, sizeof(inst->name), \"%%s\", name);\n\n")
