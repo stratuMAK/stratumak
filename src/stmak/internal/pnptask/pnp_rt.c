@@ -96,27 +96,30 @@ static void pnp_rt_scene_and_watch(pnp_rt_t *r, const pnp_rt_in_t *in,
         r->watch_fired = go->watch_seq;
 }
 
-// pnp_rt_stall is the stall check (§7.2): a ring the loop leaves untaken for
-// task_timeout latches TASK_STALLED, once per episode. The function leaves
-// motion alone -- motmod finishes what is queued and stands -- and the latch is
-// what the PLC's error path already reacts to.
+// pnp_rt_stall is the stall check (§7.2): rings outstanding and the loop's
+// taken count standing still for task_timeout latch TASK_STALLED. What counts
+// is that taken moves, not that it has caught up: a loop that takes every ring
+// while the next one is already out (an input that changes every cycle) is
+// running. While the stall lasts the fault comes back the cycle after an
+// error-reset, so no request is accepted for a loop that is not there to run
+// it. The function leaves motion alone -- motmod finishes what is queued and
+// stands -- and the latch is what the PLC's error path already reacts to.
 static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period) STMAK_NONBLOCKING;
 static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period)
 {
-    if (go->task_timeout == 0 || r->change == go->taken) {
+    int took = go->taken != r->taken_seen;
+
+    r->taken_seen = go->taken;
+    if (go->task_timeout == 0 || r->change == go->taken || took) {
         r->stall_ns = 0;
-        r->stalled = 0;
         return;
     }
     r->stall_ns += (uint64_t)period;
-    if (r->stall_ns >= go->task_timeout && !r->stalled) {
-        r->stalled = 1;
-        if (!r->latch.set) {
-            r->latch.set = 1;
-            r->latch.id = PNP_RT_TASK_STALLED;
-            r->latch.station = 0;
-            r->latch.missing = 0;
-        }
+    if (r->stall_ns >= go->task_timeout && !r->latch.set) {
+        r->latch.set = 1;
+        r->latch.id = PNP_RT_TASK_STALLED;
+        r->latch.station = 0;
+        r->latch.missing = 0;
     }
 }
 
@@ -297,6 +300,9 @@ void pnp_rt_cycle(void *arg, long period)
     // The change counter: what the loop acts on changed, or its wake time came
     // (once per wake_at).
     int ring = pnp_rt_changed(r, in);
+    if (ring)
+        r->sig_changes++;
+    in->sig_changes = r->sig_changes;
     if (go->wake_at != 0 && r->servo_ns >= go->wake_at && r->wake_rung != go->wake_at) {
         r->wake_rung = go->wake_at;
         ring = 1;

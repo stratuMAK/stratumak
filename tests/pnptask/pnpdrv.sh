@@ -53,6 +53,8 @@ pnp_start() {
         rm -rf "$(cd "$(dirname "$ini")" && pwd)/db"
     fi
 
+    # The drivers' closing check reads this server's log (pnpdrv.done).
+    export PNP_LOG
     stmak_start_server "${log[@]}" "$ini"
     pnp_wait_ready
 }

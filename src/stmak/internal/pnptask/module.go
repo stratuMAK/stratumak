@@ -142,6 +142,12 @@ type pnptaskModule struct {
 	// sleeps while nothing changes.
 	wakes atomic.Uint32
 
+	// idleWork counts the wakes on which the loop changed an output or sent a
+	// motion command although only the idle wake had rung: something it acts
+	// on has no wake source, and came up to idleWake late (control.tick). 0 on
+	// a sound module; the runtests fail on the warning that goes with it.
+	idleWork atomic.Uint32
+
 	// motInstance and persistInstance are resolved in the later phases; they
 	// are parsed here so a typo on the load line is at least recorded next to
 	// the config it belongs to.

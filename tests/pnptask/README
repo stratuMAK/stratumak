@@ -161,7 +161,10 @@ Python driver that commands jobs over the handshake pins and asserts what came
 back. They share pnpdrv.sh (server lifecycle) and pnpdrv.py (pin access over
 the halcmd REST API) from this directory. Each checkresult links to
 shared-checkresult, which passes a run with no FAIL line that ends in "ALL OK",
-so there is no expected file to keep in step with the checks. Run them all with
+so there is no expected file to keep in step with the checks. Every driver
+closes with pnpdrv.done(), which also fails the run when the server logged that
+its control loop acted on an idle wake: something the loop acts on had no wake
+source, and came up to 100 ms late without any other sign. Run them all with
 
     scripts/runtests tests/pnptask
 

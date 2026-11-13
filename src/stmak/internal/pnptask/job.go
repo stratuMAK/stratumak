@@ -99,7 +99,9 @@ func (c *control) runJobHandshake(seq uint32) {
 	}
 
 	c.parked = false
+	c.inFlight, c.flightResets = true, c.seen.errorReset
 	j, err := c.runJob()
+	c.inFlight = false
 
 	switch {
 	case err == nil:

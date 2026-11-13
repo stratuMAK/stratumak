@@ -139,9 +139,10 @@ typedef struct {
 // grant, a fired watch, and the motion snapshot but for its positions and
 // velocity, which move every cycle while the head travels -- and in the cycle
 // servo time reaches the loop's wake_at (a deadline, or the idle wake).
-// `change` counts the rings. The loop says which count it has acted on
-// (taken); a ring it leaves untaken for task_timeout latches TASK_STALLED
-// (§7.2).
+// `change` counts the rings, `sig_changes` those a difference caused: a wake
+// with that count standing was for wake_at alone. The loop says which count
+// it has acted on (taken); rings outstanding with taken standing still for
+// task_timeout latch TASK_STALLED (§7.2).
 //
 // The teach pins (picker.N.pos-x/-y and -mu) are the function's too: the
 // snapshot's feedback plus the picker's offset, every cycle.
@@ -174,7 +175,7 @@ typedef struct {
     uint32_t go_seq;           // the Go frame this run applied
     uint64_t servo_ns;         // servo time: the periods of every run so far
     uint32_t change;           // the change count, with this frame's ring
-    uint32_t pad5_;
+    uint32_t sig_changes;      // ... and how many of the rings a change caused
 
     double   jog_speed;
     uint32_t process_step, origin_id, dest_id, deadzone_select;
@@ -249,7 +250,7 @@ typedef struct {
     uint32_t watch_release;    // ... and hold these stations' release low (bit per proc)
 
     uint64_t wake_at;          // servo ns to ring at, 0: none
-    uint64_t task_timeout;     // ns a ring may stay untaken, 0: no check
+    uint64_t task_timeout;     // ns taken may stand still behind a ring, 0: no check
     uint32_t taken;            // the change count Go has acted on
     uint32_t pad1_;
     double   linear_units;     // machine units per mm, for the -mu teach pins
@@ -325,7 +326,8 @@ typedef struct {
     // cycle's signature of what Go acts on, the teach positions.
     uint64_t       servo_ns, wake_rung, stall_ns;
     uint32_t       change;
-    int            stalled;
+    uint32_t       taken_seen;   // Go's taken as of the last cycle
+    uint32_t       sig_changes;
     pnp_rt_sig_t   sig, sig_prev;
     double         pos_x[PNP_RT_MAX_PICKERS], pos_y[PNP_RT_MAX_PICKERS];
 } pnp_rt_t;

@@ -164,9 +164,9 @@ func TestCycleStartJobHeldAtStartIsNoRequest(t *testing.T) {
 	}
 }
 
-// TestCycleErrorLatch: the first fault wins, a reset edge clears the whole
-// latch in one run and is counted only then, and a raise in the frame a reset
-// is applied with latches after it.
+// TestCycleErrorLatch: the first fault wins -- a further one is taken and
+// dropped -- a reset edge clears the whole latch in one run and is counted only
+// then, and a raise in the frame a reset is applied with latches after it.
 func TestCycleErrorLatch(t *testing.T) {
 	m, get := rtModule(t)
 	m.rt.invoke()
@@ -175,11 +175,13 @@ func TestCycleErrorLatch(t *testing.T) {
 	m.rt.commit()
 	m.rt.invoke()
 	m.rt.read()
-	if m.rt.raise(uint32(errMotionError), 0, 0) {
-		t.Error("a second raise was sent with one latched")
-	}
-	if get("error") != 1 || get("error-id") != float64(errReleaseTimeout) {
-		t.Fatalf("latched: error=%v id=%v", get("error"), get("error-id"))
+	m.rt.raise(uint32(errMotionError), 0, 0)
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.read()
+	if get("error") != 1 || get("error-id") != float64(errReleaseTimeout) || m.rt.raisePending() {
+		t.Fatalf("a further fault: error=%v id=%v pending=%v, want the first kept and the raise taken",
+			get("error"), get("error-id"), m.rt.raisePending())
 	}
 
 	// A reset with nothing else: cleared, and counted.
@@ -799,19 +801,206 @@ func TestCycleStallCheck(t *testing.T) {
 	}
 }
 
-// TestTaskStalledEndsTheWait (§7.2): a TASK_STALLED latched by the cycle
+// TestCycleStallCheckLoopOneRingBehind (§7.2): a loop that takes every ring
+// while the next one is already out -- an input that changes every cycle -- is
+// never caught up, and is not stalled: its taken count keeps moving.
+func TestCycleStallCheckLoopOneRingBehind(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+	m.rt.read()
+	m.rt.setTaskTimeout(0.005)
+	m.rt.commit()
+
+	for i := 0; i < 30; i++ {
+		m.rt.read() // the ring of the last cycle ...
+		m.pins.waitAbort.Set(i%2 == 0)
+		m.rt.invoke()
+		m.rt.commit() // ... taken once the next one is out
+	}
+	if get("error") != 0 {
+		t.Errorf("a loop one ring behind: error=%v id=%v, want none", get("error"), get("error-id"))
+	}
+}
+
+// TestCycleStallComesBackAfterAReset (§7.2): while the loop still takes
+// nothing, an error-reset clears TASK_STALLED for one cycle only, so no
+// request is accepted for a loop that is not running; once the loop has taken
+// the rings a reset clears it for good.
+func TestCycleStallComesBackAfterAReset(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+	m.rt.read()
+	m.rt.setTaskTimeout(0.005)
+	m.rt.commit()
+
+	m.pins.waitAbort.Set(true) // a ring, never taken
+	for i := 0; i < 8; i++ {
+		m.rt.invoke()
+	}
+	if get("error-id") != float64(errTaskStalled) {
+		t.Fatalf("error-id=%v, want TASK_STALLED", get("error-id"))
+	}
+
+	m.pins.errorReset.Set(true)
+	m.rt.invoke()
+	if get("error") != 0 {
+		t.Error("the reset did not clear the latch in its cycle")
+	}
+	m.pins.startJob.Set(true)
+	m.rt.invoke()
+	if get("error") != 1 || get("error-id") != float64(errTaskStalled) {
+		t.Errorf("the cycle after the reset, loop still stalled: error=%v id=%v, want TASK_STALLED back",
+			get("error"), get("error-id"))
+	}
+	if get("busy") != 0 {
+		t.Error("a job was accepted for a stalled loop")
+	}
+
+	// The loop is back and takes the rings.
+	m.rt.read()
+	m.rt.commit()
+	m.pins.errorReset.Set(false)
+	m.rt.invoke()
+	m.pins.errorReset.Set(true)
+	for i := 0; i < 10; i++ {
+		m.rt.invoke()
+		m.rt.read()
+		m.rt.commit()
+	}
+	if get("error") != 0 {
+		t.Errorf("reset with the loop running again: error-id=%v, want it clear", get("error-id"))
+	}
+}
+
+// TestTaskStalledEndsTheJob (§7.2): a TASK_STALLED latched by the cycle
 // function ends the job in flight at its next abort check -- the PLC has given
-// up on it -- while a fault the loop raised itself does not.
-func TestTaskStalledEndsTheWait(t *testing.T) {
+// up on it -- and stops what the leg has queued; so does an error-reset counted
+// during the job, which can only have cleared that latch. A fault the loop
+// raised itself ends no wait, and neither does TASK_STALLED outside a job:
+// enabling, homing and a jog go on under it as under any latched error.
+func TestTaskStalledEndsTheJob(t *testing.T) {
 	m, _ := rtModule(t)
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc = mot
 	c := newControl(m)
+
+	c.inFlight = true
 	latchIn(&m.rt.in, errTrayEmpty)
 	if err := c.abortCheck(); err != nil {
 		t.Fatalf("a fault of the loop's own ended the wait: %v", err)
 	}
+
+	c.inFlight = false
 	latchIn(&m.rt.in, errTaskStalled)
+	if err := c.abortCheck(); err != nil {
+		t.Fatalf("TASK_STALLED ended a wait outside a job: %v", err)
+	}
+
+	c.inFlight = true
+	c.nearAt = 20
 	var f *pnpFault
 	if err := c.abortCheck(); !errors.As(err, &f) || f.id != errTaskStalled {
-		t.Errorf("abortCheck with TASK_STALLED latched = %v, want TASK_STALLED", err)
+		t.Errorf("abortCheck in a job with TASK_STALLED latched = %v, want TASK_STALLED", err)
+	}
+	if !mot.called("Abort") {
+		t.Error("the job ended with its queued motion left running")
+	}
+	if mot.called("Disable") {
+		t.Error("the machine was taken off")
+	}
+	if c.nearAt != 0 {
+		t.Error("nearAt is still believed after the abort")
+	}
+
+	// The latch reset before the loop looked: the reset's count tells.
+	m.rt.in.latch.set = 0
+	mot.resetCalls()
+	if err := c.abortCheck(); err != nil {
+		t.Fatalf("a clear latch ended the wait: %v", err)
+	}
+	c.seen.errorReset++
+	if err := c.abortCheck(); !errors.As(err, &f) || f.id != errTaskStalled || !mot.called("Abort") {
+		t.Errorf("abortCheck after a reset during the job = %v (Abort %v), want TASK_STALLED and the motion stopped",
+			err, mot.called("Abort"))
+	}
+}
+
+// TestRTStatusLongAfterTheLastCommand: the frame is compared with the cycle of
+// the last motion command only until a newer frame has been seen. The cycle
+// count wraps: compared for good, every frame from 2^31 cycles after the last
+// command on (24.9 days at 1 kHz) read as older than it, for as long again,
+// and no command came to end that.
+func TestRTStatusLongAfterTheLastCommand(t *testing.T) {
+	m, _ := rtModule(t)
+	st := &rtStatus{rt: m.rt, numJoints: m.cfg.NumJoints}
+	mot := dztest.NewFakeMot()
+	defer mot.Free()
+	m.deadzone.setMot(mot.Ptr())
+	defer m.deadzone.setMot(nil)
+	mot.SetSnapshot(true, 0, 1, 0, 0, 0b111)
+
+	m.rt.invoke()
+	cm := committedMotion{motionControl: newFakeMotion(m.cfg.NumJoints), rt: m.rt}
+	if err := cm.Abort(); err != nil {
+		t.Fatalf("Abort: %v", err)
+	}
+	m.rt.invoke()
+	m.rt.read()
+	if _, err := st.GetStatus(); err != nil {
+		t.Fatalf("the frame after the command: %v", err)
+	}
+
+	// 2^31 cycles on, as the comparison would see it: the command's cycle
+	// half the counter's range away from the frame's.
+	m.rt.dispatchCycle += 1 << 31
+	m.rt.invoke()
+	m.rt.read()
+	if _, err := st.GetStatus(); err != nil {
+		t.Errorf("a frame 2^31 cycles after the last command: %v", err)
+	}
+}
+
+// TestRaiseAfterAResetNotYetRead: the loop sends a fault whatever its last
+// frame says of the latch. An error-reset can have cleared it in a cycle the
+// loop has not read; the cycle function, which knows, latches the fault then,
+// and drops it while the first one stands.
+func TestRaiseAfterAResetNotYetRead(t *testing.T) {
+	m, get := rtModule(t)
+	m.rt.invoke()
+
+	m.rt.raise(uint32(errReleaseTimeout), 20, 0)
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.read() // the loop's view: latched
+
+	// A further fault with the first standing: sent, and dropped there.
+	if !m.rt.raise(uint32(errMotionError), 0, 0) {
+		t.Fatal("a fault was not sent because the last frame shows a latch")
+	}
+	if m.rt.raise(uint32(errTrayEmpty), 0, 0) {
+		t.Error("a second raise went into a frame that still carries one")
+	}
+	m.rt.commit()
+	m.rt.invoke()
+	m.rt.read()
+	if get("error-id") != float64(errReleaseTimeout) || m.rt.raisePending() {
+		t.Fatalf("a further fault: error-id=%v pending=%v, want the first kept and the raise taken",
+			get("error-id"), m.rt.raisePending())
+	}
+
+	// The reset clears the latch in a cycle the loop does not read.
+	m.pins.errorReset.Set(true)
+	m.rt.invoke()
+	if m.rt.in.latch.set == 0 {
+		t.Fatal("the loop's frame is meant to still show the latch")
+	}
+	if !m.rt.raise(uint32(errTrayEmpty), 10, 0) {
+		t.Fatal("the fault after the reset was not sent")
+	}
+	m.rt.commit()
+	m.rt.invoke()
+	if get("error") != 1 || get("error-id") != float64(errTrayEmpty) || get("error-station") != 10 {
+		t.Errorf("a fault raised after a reset the loop had not read: error=%v id=%v station=%v, want it latched",
+			get("error"), get("error-id"), get("error-station"))
 	}
 }

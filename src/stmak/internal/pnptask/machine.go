@@ -222,6 +222,15 @@ type control struct {
 	seenChange uint32
 	rtStalled  bool
 
+	// idleOnly: nothing but the idle wake rang for the wake being acted on --
+	// no change (seenSig is the frame's sig_changes as last read), no deadline
+	// a wait asked for. idleBase and idleCmds are the outputs and the motion
+	// command count as that wake found them (noteIdleWork).
+	idleOnly bool
+	seenSig  uint32
+	idleBase outFrame
+	idleCmds uint32
+
 	// This cycle's inputs.
 	in inputs
 
@@ -336,6 +345,11 @@ type control struct {
 	manualGrip       []time.Duration
 	manualGripWarned []bool
 
+	// inFlight: a job or park is running (runJobHandshake, runParkRequest);
+	// flightResets is the error-reset count as it started. See abortCheck.
+	inFlight     bool
+	flightResets uint32
+
 	// autoLast is auto-enable as step last saw it, for the release of opened
 	// reservations when automatic starts (releaseOpenRetained).
 	autoLast bool
@@ -430,7 +444,9 @@ func (c *control) start() {
 	// present now are stale boot state (see primeEdges).
 	c.primeEdges()
 	c.now = time.Duration(c.m.rt.in.servo_ns)
-	c.seenChange = c.m.rt.bell.Change()
+	// The first step is due at once: machine-on's boot edge and what the
+	// model publishes wait for no change.
+	c.wakeBy(c.now)
 	// Restored held records re-drove their close outputs (world.restore);
 	// schedule the one-shot grip validation for after the pick settle time
 	// has given the gripper feedback a chance to arrive. Only records that
@@ -493,6 +509,7 @@ func (c *control) verifyRestoredHeld() (pending bool) {
 	}
 	if pending {
 		c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
+		c.wakeBy(c.heldVerify)
 	}
 	return pending
 }
@@ -578,10 +595,20 @@ func settleTime(seconds float64) time.Duration {
 func (c *control) tick() bool {
 	// What the step wrote since the last tick goes out together, before the
 	// wait: a picker closed and a dwell started reach the pins in the same
-	// servo cycle, never one without the other.
-	wake := c.now + idleWake
-	if c.wakeAt != 0 && c.wakeAt < wake {
-		wake = c.wakeAt
+	// servo cycle, never one without the other. The model with them: what an
+	// action recorded -- a part placed, a slot emptied -- is on the pins with
+	// the command it follows from, not a wake later.
+	c.publish()
+	c.noteIdleWork()
+	wake, due := c.now+idleWake, c.wakeAt
+	if due != 0 && due < wake {
+		wake = due
+	}
+	// A deadline already due rings in the next cycle. Sent as it is it could
+	// be the very time the function rang for last -- it rings once per
+	// wake_at -- and nothing would end the wait.
+	if wake <= c.now {
+		wake = c.now + time.Nanosecond
 	}
 	c.wakeAt = 0
 	c.m.rt.setWake(wake)
@@ -591,6 +618,16 @@ func (c *control) tick() bool {
 	}
 	c.m.wakes.Add(1)
 	c.sample()
+	// Was it the idle wake alone: servo time at the idle wake, no change in
+	// the frame, and short of any deadline a wait asked for (one beyond the
+	// idle wake can have come by the frame read). The unit tests' loop wakes
+	// every cycle with no ring at all.
+	sig := uint32(c.m.rt.in.sig_changes)
+	c.idleOnly = c.now >= wake && sig == c.seenSig && (due == 0 || c.now < due) && !c.m.rt.wakeEveryCycle
+	c.seenSig = sig
+	if c.idleOnly {
+		c.idleBase, c.idleCmds = c.m.rt.sent, c.m.rt.cmds
+	}
 	c.checkLiftWatch()
 	c.publish()
 	// Persisting from here rather than from step() is what keeps the state of
@@ -600,6 +637,23 @@ func (c *control) tick() bool {
 	c.m.world.flush()
 	c.m.rt.commit()
 	return true
+}
+
+// noteIdleWork is the detector for a missing wake source. The idle wake turns
+// one into a delay of up to idleWake that nothing shows; so when the loop has
+// changed an output or sent a motion command on a wake that only the idle wake
+// caused, it acted on something no ring announced, and says so.
+func (c *control) noteIdleWork() {
+	if !c.idleOnly {
+		return
+	}
+	c.idleOnly = false
+	cmd := c.m.rt.cmds != c.idleCmds
+	if !cmd && !c.m.rt.actedSince(&c.idleBase) {
+		return
+	}
+	c.m.logger.Warn("pnptask: the loop acted on an idle wake: something it acts on has no wake source",
+		"count", c.m.idleWork.Add(1), "motion_command", cmd, "servo_time", c.now)
 }
 
 // wait sleeps until the doorbell rings past seenChange. In the unit tests
@@ -786,8 +840,12 @@ func (c *control) sample() {
 			c.disabledSince = 0
 		case c.disabledSince == 0:
 			c.disabledSince = c.now
-			c.wakeBy(c.now + motionDisabledDebounce)
 		}
+	}
+	// The debounce's end is asked for at every wake until it comes: a wake
+	// for something else in between takes the deadline with it.
+	if c.enabled && c.disabledSince != 0 && c.now < c.disabledSince+motionDisabledDebounce {
+		c.wakeBy(c.disabledSince + motionDisabledDebounce)
 	}
 	// A failed read keeps serving the last good snapshot for a bounded time
 	// (statusStale) instead of invalidating it outright: a single one must not
@@ -845,6 +903,11 @@ func (c *control) primeEdges() {
 	// (D26): it only primed.
 	c.seen.job = uint32(f.job.seq)
 	c.seen.park = uint32(f.park_seq)
+	// The rings up to this frame are taken with it. Not the doorbell's count
+	// of now: a change since the frame -- a job accepted, even -- has rung
+	// already, and must end the loop's first wait.
+	c.seenChange = uint32(f.change)
+	c.seenSig = uint32(f.sig_changes)
 	if b8(f.busy) {
 		if b8(f.busy_park) {
 			c.seen.park--
@@ -1090,6 +1153,7 @@ func (c *control) leaveEstop() {
 	}
 	if pending {
 		c.heldVerify = c.now + settleTime(c.m.pins.pickSettleTime.Get())
+		c.wakeBy(c.heldVerify)
 	}
 }
 
@@ -1598,6 +1662,7 @@ func (c *control) manualPickers() {
 			if c.m.world.held[i].retained {
 				c.manualGrip[i] = c.now + settleTime(c.m.pins.pickSettleTime.Get())
 				c.manualGripWarned[i] = false
+				c.wakeBy(c.manualGrip[i])
 			}
 		}
 	}
@@ -1669,6 +1734,7 @@ func (c *control) updateManualGrip() {
 					"picker", i)
 			}
 			c.manualGrip[i] = c.now + settleTime(c.m.pins.pickSettleTime.Get())
+			c.wakeBy(c.manualGrip[i])
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
 				// The close output stays high: the operator closed the picker
@@ -1748,12 +1814,26 @@ func (c *control) abortCheck() error {
 	if c.commLost() {
 		return faultf(errMotionError, "motion controller stopped responding")
 	}
-	// A fault the loop did not raise ends the job in flight, as estop does:
-	// TASK_STALLED, latched by the cycle function when this loop left a change
-	// untaken for task-timeout (§7.2). The PLC has given up on the job by
-	// then; a loop that recovers must not carry on with it.
-	if l := &c.m.rt.in.latch; l.set != 0 && errorID(l.id) == errTaskStalled {
-		return faultf(errTaskStalled, "the control loop stalled: a change went untaken for task-timeout")
+	// A fault the loop did not raise ends the job or park in flight, as estop
+	// does: TASK_STALLED, latched by the cycle function when this loop took
+	// none of its rings for task-timeout (§7.2). The PLC has given up on the
+	// job by then; a loop that recovers must not carry on with it. An
+	// error-reset counted meanwhile says the same with the latch already clear
+	// again: the function counts one only with a fault latched, and the loop
+	// raises none during a job, so it was this one. Only a job or park:
+	// enabling, homing and a jog go on under this latch as under any other.
+	if c.inFlight {
+		l := &c.m.rt.in.latch
+		if (l.set != 0 && errorID(l.id) == errTaskStalled) || c.seen.errorReset != c.flightResets {
+			// What the leg has queued stops with the job. The head stands
+			// somewhere along the way: where it stayed low is not known any
+			// more, and a deferred lift is not run from there.
+			c.nearAt = 0
+			c.lowAt = 0
+			c.dropLift()
+			_ = c.m.mc.Abort()
+			return faultf(errTaskStalled, "the control loop stalled: no change taken for task-timeout")
+		}
 	}
 	return nil
 }
@@ -1771,15 +1851,19 @@ func (c *control) raise(err error) {
 		fault = f
 	}
 	// The cycle function latches it, flag, id, station and missing in one
-	// servo cycle, and keeps the first: a further fault while one is latched,
-	// or on its way, is only logged.
+	// servo cycle, and keeps the first. As far as the loop's last frame tells,
+	// a fault with one latched or on its way is a further one, and only
+	// logged at debug level; it is sent all the same, unless one is on its way
+	// (rtIO.raise).
 	var missing uint8
 	for i, m := range c.missing {
 		if m {
 			missing |= 1 << i
 		}
 	}
-	if !c.m.rt.raise(uint32(fault.id), fault.station, missing) {
+	further := c.m.rt.latched()
+	c.m.rt.raise(uint32(fault.id), fault.station, missing)
+	if further {
 		c.m.logger.Debug("pnptask: further fault while one is latched",
 			"error_id", uint32(fault.id), "error", fault.id.String(), "detail", fault.msg)
 		return
@@ -1814,8 +1898,10 @@ func (c *control) park() {
 	c.m.pins.machineIsOn.Set(false)
 	// Nobody takes the cycle function's rings any more: no stall check.
 	c.m.rt.setTaskTimeout(0)
-	// The last commit. Stop runs ahead of the launcher's RT barrier, so the
-	// cycle function still carries it out to the pins.
+	// The last commit. Stop runs ahead of the launcher's RT barrier, but on a
+	// runtime unload the function is removed right after Stop returns: the
+	// loop waits here until it has carried this frame out to the pins.
 	c.m.rt.commit()
+	c.m.rt.waitApplied()
 	c.m.logger.Debug("pnptask control loop stopped")
 }
