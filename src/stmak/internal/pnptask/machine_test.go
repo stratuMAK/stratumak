@@ -2059,3 +2059,28 @@ func TestFirstStepIsDueAtOnce(t *testing.T) {
 		t.Errorf("the boot enable came in servo cycle %d, want the loop's first step", n)
 	}
 }
+
+// TestWaitStandingLooksAgainAfterTheLift: a standing wait runs a deferred
+// lift first (D52), and the lift takes wakes of its own. What the wait is for
+// can come during the lift, with its ring taken there: the wait looks again
+// when the lift is up, it does not sleep for a ring that has been. (Machine
+// run 2026-11-13: the scene was granted during the lift after a tray pick,
+// and the leg started only on the idle wake, about 0.25 s late, on most
+// parts.)
+func TestWaitStandingLooksAgainAfterTheLift(t *testing.T) {
+	_, c, _ := loopByHand(t, 1000)
+	c.in.autoEnable = true
+
+	var liftEnd time.Duration
+	lifted := false
+	c.lift = pendingLift{on: true, to: c.cmdPos.Z, after: func() { lifted, liftEnd = true, c.now }}
+	if err := c.waitStanding(func() bool { return lifted }, "the test", nil); err != nil {
+		t.Fatalf("waitStanding: %v", err)
+	}
+	if !lifted {
+		t.Fatal("the deferred lift did not run")
+	}
+	if c.now != liftEnd {
+		t.Errorf("the wait ended %v after the lift was up, want at once: it slept for a ring", c.now-liftEnd)
+	}
+}
