@@ -345,6 +345,8 @@ typedef struct lcec_master_data {
   stmak_hal_bit_t *state_op;          /**< TRUE when at least one slave is in OP state. */
   stmak_hal_bit_t *link_up;           /**< TRUE when the EtherCAT physical link is up. */
   stmak_hal_bit_t *all_op;            /**< TRUE when every @em configured slave is in OP state. */
+  stmak_hal_bit_t *data_ok;           /**< TRUE while the cyclic process data exchange is complete
+                                           (see lcec_data_ok_update()). */
 #ifdef STMAK_RTAPI_TASK_PLL_SUPPORT
   stmak_hal_s32_t *pll_err;           /**< Current PLL phase error in nanoseconds. */
   stmak_hal_s32_t *pll_out;           /**< Current PLL correction output in nanoseconds. */
@@ -418,6 +420,9 @@ typedef struct lcec_master {
   long period_last;                /**< Servo period measured during the previous cycle (ns). */
   ec_master_state_t ms;            /**< Most-recently read EtherCAT master state snapshot. */
   int all_op;                      /**< Non-zero while every configured slave of this master reports AL state OP. */
+  int data_ok;                     /**< Non-zero while the domain's working counter is complete, see data_ok.h. */
+  int data_bad_cycles;             /**< Incomplete working counters in a row, saturating at data_loss_cycles. */
+  int data_loss_cycles;            /**< Incomplete working counters in a row that clear data_ok. */
   lcec_dcsync_callbacks_t dcsync_callbacks; /**< Optional callbacks for DC synchronisation events. */
   int ref_clock_sync_counter;               /**< Remaining cycles before the next DC ref-clock sync. */
   uint64_t app_time_ns;    /**< Application time written to the EtherCAT master each cycle (ns). */

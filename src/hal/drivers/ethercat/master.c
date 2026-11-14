@@ -41,6 +41,7 @@ static const lcec_pindesc_t master_global_pins[] = {
   { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, state_op), "%s.state-op" },
   { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, link_up), "%s.link-up" },
   { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, all_op), "%s.all-op" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, data_ok), "%s.data-ok" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
@@ -113,13 +114,17 @@ lcec_master_data_t *lcec_init_master_hal(const cmod_env_t *env, int comp_id, con
  * a bus it could never become TRUE.  The caller evaluates the same predicate
  * over the configured slaves only and passes the result in.
  *
+ * The @c data_ok pin is the caller's too: unlike the others it is evaluated
+ * every cycle, from the domain's working counter (see lcec_read_master()).
+ *
  * @param hal_data  Pointer to the HAL data block whose pins will be written.
  * @param ms        Pointer to the master state snapshot (read-only).
  * @param all_op    Non-zero when every configured slave reports AL state OP.
+ * @param data_ok   Non-zero while the cyclic process data exchange is complete.
  *
  * @note Called from the real-time read function; must not block or allocate.
  */
-void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms, int all_op) {
+void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms, int all_op, int data_ok) {
   *(hal_data->slaves_responding) = ms->slaves_responding;
   *(hal_data->state_init) = (ms->al_states & 0x01) != 0;
   *(hal_data->state_preop) = (ms->al_states & 0x02) != 0;
@@ -127,6 +132,7 @@ void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms,
   *(hal_data->state_op) = (ms->al_states & 0x08) != 0;
   *(hal_data->link_up) = ms->link_up;
   *(hal_data->all_op) = all_op != 0;
+  *(hal_data->data_ok) = data_ok != 0;
 }
 
 /**
@@ -171,6 +177,8 @@ lcec_master_t * lcec_create_master(const cmod_env_t *env, LCEC_CONF_MASTER_T *ma
   master->app_time_period = master_conf->appTimePeriod;
   master->ref_clock_sync_cycles = master_conf->refClockSyncCycles;
   master->ref_clock_slave_idx = master_conf->refClockSlaveIdx;
+  master->data_loss_cycles = master_conf->dataLossCycles;
+  master->data_bad_cycles = master->data_loss_cycles; // low until the first complete cycle
 #ifdef EC_USPACE_MASTER
   master->transport_type = master_conf->transportType;
   strncpy(master->interface, master_conf->interface, LCEC_CONF_STR_MAXLEN);
@@ -347,7 +355,8 @@ void lcec_shutdown_master(lcec_master_t *master) {
  *  -# Periodically (every @c LCEC_STATE_UPDATE_PERIOD nanoseconds) queries
  *     @c ecrt_master_state() and @c ecrt_slave_config_state() for each slave.
  *  -# Calls @c ecrt_master_receive() and @c ecrt_domain_process() under the
- *     master mutex to latch fresh PDO data.
+ *     master mutex to latch fresh PDO data, and reads the domain's working
+ *     counter state for @c data-ok (every cycle).
  *  -# Iterates over all slaves, refreshing state pins and calling each slave's
  *     @c proc_read callback, accumulating @c master->all_op along the way.
  *  -# Updates the master-level AL-state HAL pins.
@@ -377,6 +386,7 @@ void lcec_read_master(void *arg, long period) {
   lcec_master_t *master = (lcec_master_t *) arg;
   lcec_slave_t *slave;
   int check_states;
+  ec_domain_state_t ds;
 
   // check for initialized proc data pointer
   if (master->process_data == NULL) {
@@ -408,10 +418,19 @@ void lcec_read_master(void *arg, long period) {
   lcec_master_rt_lock(master);
   ecrt_master_receive(master->master);
   ecrt_domain_process(master->domain);
+  ecrt_domain_state(master->domain, &ds);
   if (check_states) {
     ecrt_master_state(master->master, &master->ms);
   }
   rtapi_mutex_give(&master->mutex);
+
+  // data-ok: this cycle's process data came back complete -- every slave
+  // exchanged its part.  Every cycle, where all-op above is refreshed once per
+  // LCEC_STATE_UPDATE_PERIOD; a slave that drops out shows here within
+  // data_loss_cycles cycles.  A lost frame counts as incomplete (the master
+  // adds no working counter for a datagram it did not receive).
+  master->data_ok = lcec_data_ok_update(&master->data_bad_cycles,
+      ds.wc_state == EC_WC_COMPLETE, master->data_loss_cycles);
 
   // process slaves
   // all-op applies the master's own "AL state is OP" test to the configured
@@ -440,7 +459,7 @@ void lcec_read_master(void *arg, long period) {
   }
 
   // update state pins
-  lcec_update_master_hal(master->hal_data, &master->ms, master->all_op);
+  lcec_update_master_hal(master->hal_data, &master->ms, master->all_op, master->data_ok);
 }
 
 /**
