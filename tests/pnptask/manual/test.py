@@ -80,6 +80,10 @@ pk = held[0]
 m.set("auto-enable", False)
 m.pulse("picker.%d.manual-open" % pk)
 m.wait(lambda s: not s["picker.%d.close" % pk], "the picker to open")
+# The output low is not yet a part released (wait_gripper): closing again
+# before the simulated gripper has let go keeps the part in it, and the check
+# below then finds it holding -- on a loaded host, now and then.
+m.wait_gripper(pk, False)
 
 # The part is in the operator's hands now, so the close finds nothing — which is
 # what the sim's miss injection is: a gripper that meets its own jaws.
