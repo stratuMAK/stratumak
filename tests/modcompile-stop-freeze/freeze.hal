@@ -1,0 +1,13 @@
+newthread servo 1000000
+
+load freeze_watch <watch>
+load freeze_cnt <frozen>
+load keep_cnt <running>
+
+net frozen  frozen.count  => watch.frozen
+net running running.count => watch.running
+
+addf frozen  servo
+addf running servo
+addf watch   servo
+start

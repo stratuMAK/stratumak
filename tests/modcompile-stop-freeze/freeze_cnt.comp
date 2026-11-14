@@ -1,0 +1,6 @@
+component freeze_cnt "counts its servo cycles; stops counting once stmakd has stopped the modules";
+pin out u32 count;
+function _;
+license "GPL";
+;;
+FUNCTION(_) { count = count + 1; }

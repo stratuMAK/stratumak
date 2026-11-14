@@ -41,6 +41,9 @@ variable unsigned data_frame [15];
 variable unsigned state = 1;
 
 function bitbang_spi fp;
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a hardware driver.
+option run_after_stop yes;
 license "GPL";
 author "Joseph Calderon";
 

@@ -1,0 +1,46 @@
+component freeze_watch "holds stmakd's second stop phase open and says which counter still moved";
+// Loaded first, so its LateStop runs last, after every other component's --
+// where the fieldbus driver's stands on a machine.  It keeps that phase open
+// for 200 ms with the threads cycling and reports how far the two counters
+// got in it.
+pin in u32 frozen;
+pin in u32 running;
+option run_after_stop yes;
+option extra_setup yes;
+option data freeze_watch_data;
+function _;
+license "GPL";
+;;
+#include <unistd.h>
+
+typedef struct {
+  volatile int watch;
+  volatile unsigned frozen0, frozen1, running0, running1;
+} freeze_watch_data;
+
+static void watch_late_stop(cmod_t *self) {
+  inst_t *__comp_inst = (inst_t *)self;
+  data.watch = 1;
+  usleep(200000);
+  data.watch = 2;
+  usleep(5000);
+  STMAK_LOG(STMAK_LOG_INFO, "freeze_watch: frozen moved %s, running moved %s",
+            data.frozen1 != data.frozen0 ? "yes" : "no",
+            data.running1 - data.running0 > 50 ? "yes" : "no");
+}
+
+EXTRA_SETUP() {
+  __comp_inst->base.LateStop = watch_late_stop;
+  return 0;
+}
+
+FUNCTION(_) {
+  if (data.watch == 1) {
+    if (data.frozen0 == 0 && data.running0 == 0) {
+      data.frozen0 = frozen;
+      data.running0 = running;
+    }
+    data.frozen1 = frozen;
+    data.running1 = running;
+  }
+}

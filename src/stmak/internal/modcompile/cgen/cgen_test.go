@@ -306,3 +306,49 @@ FUNCTION(_) { }
 		t.Errorf("Generate error = %v, want it to contain %q", err, want)
 	}
 }
+
+// A component's realtime functions stop executing once the launcher has
+// stopped every module: LateStop sets a flag and the function wrapper returns
+// on it, so application logic does not act on inputs that die while the bus
+// goes down. 'option run_after_stop yes' leaves the component out of it.
+func TestGenerate_FunctionsFreezeAfterStop(t *testing.T) {
+	src := `component tc "t";
+pin in bit ok;
+function _;
+license "GPL";
+;;
+FUNCTION(_) { }
+`
+	out := gen(t, src)
+	for _, want := range []string{
+		"volatile int app_stopped;",
+		"if (((inst_t *)arg)->app_stopped) return;",
+		"((inst_t *)self)->app_stopped = 1;",
+		"inst->base.LateStop = inst_late_stop;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q; generated:\n%s", want, out)
+		}
+	}
+
+	out = gen(t, strings.Replace(src, "function _;", "function _;\noption run_after_stop yes;", 1))
+	for _, not := range []string{"app_stopped", "LateStop"} {
+		if strings.Contains(out, not) {
+			t.Errorf("run_after_stop component still has %q; generated:\n%s", not, out)
+		}
+	}
+}
+
+// A component with no realtime function has nothing to freeze.
+func TestGenerate_NoFreezeWithoutFunctions(t *testing.T) {
+	out := gen(t, `component tc "t";
+pin out bit ok;
+option userspace yes;
+license "GPL";
+;;
+void user_mainloop(void) { }
+`)
+	if strings.Contains(out, "app_stopped") || strings.Contains(out, "LateStop") {
+		t.Errorf("userspace component got the freeze; generated:\n%s", out)
+	}
+}

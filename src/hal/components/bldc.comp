@@ -340,6 +340,9 @@ motor zero. Unfortunately the motor is rather \\fIspringy\\fR in this mode and
 so alignment is likely to be fairly sensitive to load.
 """;
 
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): the commutation must not stand still on a fixed field.
+option run_after_stop yes;
 license "GPL";
 
 author "Andy Pugh";

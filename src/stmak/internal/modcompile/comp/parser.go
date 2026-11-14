@@ -451,10 +451,11 @@ func (p *parser) parseVariable() error {
 // error, because it fails at load time (or not at all) instead of at compile
 // time, with nothing pointing back at the line that caused it.
 var knownOptions = map[string]bool{
-	"userspace":     true,
-	"extra_setup":   true,
-	"extra_cleanup": true,
-	"data":          true,
+	"userspace":      true,
+	"extra_setup":    true,
+	"extra_cleanup":  true,
+	"data":           true,
+	"run_after_stop": true,
 }
 
 // boolOptions are the known options that are flags: a value, if present, must
@@ -463,9 +464,10 @@ var knownOptions = map[string]bool{
 // stored as "yes", a falsy one is not stored at all, and anything else is an
 // error instead of silently meaning yes.
 var boolOptions = map[string]bool{
-	"userspace":     true,
-	"extra_setup":   true,
-	"extra_cleanup": true,
+	"userspace":      true,
+	"extra_setup":    true,
+	"extra_cleanup":  true,
+	"run_after_stop": true,
 }
 
 // ignoredOptions are classic halcompile options that a .comp may still carry

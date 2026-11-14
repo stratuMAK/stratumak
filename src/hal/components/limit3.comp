@@ -21,6 +21,9 @@ slightly more slowly.""";
 variable double in_pos_old;
 variable double out_old;
 function _;
+// Keeps running after the launcher has stopped the modules (modcompile,
+// "option run_after_stop"): a ramp or filter can be carrying a stop to a drive.
+option run_after_stop yes;
 license "GPL";
 author "John Kasunich";
 ;;
