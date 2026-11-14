@@ -86,6 +86,37 @@ See the [`examples/`](examples/) directory for sample configurations.
 
 ---
 
+## Bus state pins: all-op and data-ok
+
+Each master exports `<instance>.<master>.all-op` and `<instance>.<master>.data-ok`;
+`<instance>.all-op` and `<instance>.data-ok` are the AND over all masters.
+Both are FALSE on a master without configured slaves, and on an instance
+without masters; `data-ok` also on a master whose slaves exchange no process
+data.
+
+- **`all-op`** — every configured slave reports AL state `OP`. It comes from
+  the master's slave state, which the driver reads once per second, so a
+  slave that drops out shows here up to a second late.
+- **`data-ok`** — the cyclic process data exchange is complete: the domain's
+  working counter (`ecrt_domain_state()`, `EC_WC_COMPLETE`) is checked in
+  every read cycle. It goes FALSE after `dataLossCycles` incomplete cycles in
+  a row (a lost frame counts as one) and TRUE again on the first complete
+  cycle. It is FALSE from the start until the first complete cycle, and FALSE
+  while the bus is not in `OP` — while it comes up, and during the shutdown
+  below. A slave that drops out takes it down within `dataLossCycles`
+  cycles. With a redundant link, the working counters of both links are
+  summed, so traffic that only comes back over the backup link still counts
+  as complete.
+
+`dataLossCycles` is an attribute of `<master>` in the XML configuration,
+at least 1, default 3: a single lost frame does not take `data-ok` down.
+
+```xml
+<master idx="0" appTimePeriod="1000000" dataLossCycles="3" ...>
+```
+
+---
+
 ## Shutdown
 
 The driver takes the bus out of `OP` before the cyclic task stops. Slaves are

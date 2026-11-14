@@ -812,12 +812,14 @@ static void lcec_read_all(void *arg, long period) {
   lcec_rt_context_t *ctx = (lcec_rt_context_t *)arg;
   lcec_master_t *master;
   int global_all_op;
+  int global_data_ok;
 
   // initialize global state
   ctx->global_ms.slaves_responding = 0;
   ctx->global_ms.al_states = 0;
   ctx->global_ms.link_up = (ctx->first_master != NULL);
   global_all_op = (ctx->first_master != NULL);
+  global_data_ok = (ctx->first_master != NULL);
 
   // process masters
   for (master = ctx->first_master; master != NULL; master = master->next) {
@@ -828,10 +830,11 @@ static void lcec_read_all(void *arg, long period) {
     ctx->global_ms.al_states |= master->ms.al_states;
     ctx->global_ms.link_up = ctx->global_ms.link_up && master->ms.link_up;
     global_all_op = global_all_op && master->all_op;
+    global_data_ok = global_data_ok && master->data_ok;
   }
 
   // update global state pins
-  lcec_update_master_hal(ctx->global_hal_data, &ctx->global_ms, global_all_op);
+  lcec_update_master_hal(ctx->global_hal_data, &ctx->global_ms, global_all_op, global_data_ok);
 }
 
 /**
