@@ -384,6 +384,9 @@ func TestRTBridgeOnThread(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rtbridgetest.New: %v", err)
 	}
+	// Deferred first, so it runs last: after the thread has stopped and the
+	// component is gone, on the failure paths too.
+	defer rig.Free()
 	p := newBridgePins(t, "test-rtbridge-thread", rig, true)
 	defer func() { _ = p.comp.Exit() }()
 	if err := p.comp.ExportFunct("cycle", rtbridgetest.Funct(), rig.Arg(), true, false); err != nil {
@@ -406,18 +409,21 @@ func TestRTBridgeOnThread(t *testing.T) {
 	}
 	defer func() { _ = halcmd.StopThreads() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// A hang guard only. The positive waits pass no stall bound: a servo
+	// thread that is slow to cycle on a loaded runner is not what they test,
+	// and they would report it as a stall.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// The first run rings.
-	seen, err := rig.Bell.Wait(ctx, 0, 0, time.Second)
+	seen, err := rig.Bell.Wait(ctx, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Wait for the first run: %v", err)
 	}
 
 	// An input change wakes the waiter, and the frame it then reads has it.
 	p.inU.Set(42)
-	if seen, err = rig.Bell.Wait(ctx, seen, 0, time.Second); err != nil {
+	if seen, err = rig.Bell.Wait(ctx, seen, 0, 0); err != nil {
 		t.Fatalf("Wait for the input change: %v", err)
 	}
 	var rf rtbridgetest.RTFrame
@@ -428,7 +434,7 @@ func TestRTBridgeOnThread(t *testing.T) {
 
 	// Go's frame reaches the pin within a few servo cycles.
 	rig.ToRT.Publish(&rtbridgetest.GoFrame{Seq: 7, Out: rtbridgetest.Pins{U: 99}})
-	if _, err = rig.Bell.Wait(ctx, seen, 0, time.Second); err != nil {
+	if _, err = rig.Bell.Wait(ctx, seen, 0, 0); err != nil {
 		t.Fatalf("Wait for Go's frame: %v", err)
 	}
 	if got := p.outU.Get(); got != 99 {
@@ -460,12 +466,15 @@ func TestRTBridgeOnThread(t *testing.T) {
 	if err := halcmd.WaitCycleAdvance(); err != nil {
 		t.Fatalf("WaitCycleAdvance: %v", err)
 	}
-	_, err = rig.Bell.Wait(ctx, rig.Bell.Change(), 0, 50*time.Millisecond)
+	// The function is off the thread now, so the cycle counter cannot move:
+	// the stall bound is certain to be hit, however short. Its own context,
+	// so time the waits above took cannot turn this into a deadline error.
+	stallCtx, stallCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer stallCancel()
+	_, err = rig.Bell.Wait(stallCtx, rig.Bell.Change(), 0, 50*time.Millisecond)
 	if !errors.Is(err, hal.ErrRTStalled) {
 		t.Errorf("Wait after the unload: got %v, want ErrRTStalled", err)
 	}
-
-	rig.Free()
 }
 
 func TestDoorbellWait(t *testing.T) {

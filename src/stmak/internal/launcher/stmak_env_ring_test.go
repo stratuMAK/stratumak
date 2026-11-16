@@ -263,7 +263,9 @@ func TestLogRingConcurrentProducersLoseNothing(t *testing.T) {
 	var wg sync.WaitGroup
 	var dropped atomic.Int64
 	stop := make(chan struct{})
+	consumerDone := make(chan struct{})
 	go func() {
+		defer close(consumerDone)
 		for {
 			select {
 			case <-stop:
@@ -293,6 +295,10 @@ func TestLogRingConcurrentProducersLoseNothing(t *testing.T) {
 	}
 	wg.Wait()
 	close(stop)
+	// Join the consumer before the last drain and the deferred destroy: a
+	// drain it started after its last stop check would otherwise run beside
+	// ours, or on the freed ring.
+	<-consumerDone
 	r.drainAll(logger)
 
 	got := int64(h.count("msg "))

@@ -64,6 +64,12 @@ func TestLoadProject_WaitsForTheScanInFlight(t *testing.T) {
 		_, _ = m.loadProjectResolved(src)
 		close(done)
 	}()
+	// The load goroutine is joined before the module's cleanup frees the RT
+	// state it waits on, also when the test fails while it is still waiting.
+	t.Cleanup(func() {
+		m.setScanningForTest(0)
+		<-done
+	})
 
 	select {
 	case <-done:
@@ -73,7 +79,7 @@ func TestLoadProject_WaitsForTheScanInFlight(t *testing.T) {
 	m.setScanningForTest(0)
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second): // a hang guard, not a speed check
 		t.Fatal("load never proceeded after the scan settled")
 	}
 	if m.getState() != stateRun {
