@@ -1,3 +1,40 @@
+stratumak (0.1.5) UNRELEASED; urgency=medium
+
+  * BEHAVIOR CHANGE for pnptask: the module exports a realtime function,
+    <instance>.cycle, that has to be added to the servo thread after the motion
+    functions; without it the module refuses to start. Every pin of the module
+    is read and written there, so its pins always belong to one servo cycle.
+    start-job is an input now and the module no longer resets it: a job or a
+    park is accepted in the servo cycle of the rising edge (busy rises), and its
+    outcome arrives in the cycle busy falls. New pins cycle and sync say which
+    input sample the published outputs belong to. The scene lock and the lift
+    watch run in the cycle function as well.
+  * BEHAVIOR CHANGE for pnptask: a job that goes down at a tray station -- a
+    pick there, or its place -- while another picker holds a part is refused at
+    its start with SECOND_PICKER_LOADED (28). The pickers share the head, and
+    the loaded one would set its part onto the part standing under it. A tray
+    station that is a bin sets ALLOW_2ND_LOADED = 1.
+  * BEHAVIOR CHANGE for modcompile: the functions of a .comp component stop
+    executing once the modules are stopped at shutdown, and its outputs hold
+    what they last wrote. Application logic no longer reacts to the inputs of a
+    bus that is going down. option run_after_stop yes keeps a component running;
+    the drivers, filters and ramps in the tree set it. The components of a
+    machine config have to be rebuilt.
+  * pnptask: a leg's segments are fed to motion by the cycle function, one per
+    servo cycle, so a long leg no longer blocks the control loop while it is
+    queued. mot.gmi is at @version 4 for it (traj_set_term_cond, traj_add_line,
+    traj_add_circle).
+  * New for pnptask: [PNPTASK]TASK_TIMEOUT (default 0.5 s). A change the control
+    loop leaves untaken for that long latches TASK_STALLED (27) and ends the job
+    in flight.
+  * EtherCAT: new pin data-ok, per master and global, next to all-op. It is the
+    working counter of the cyclic process data, checked every cycle, and goes
+    low after dataLossCycles incomplete cycles in a row (a <master> attribute,
+    default 3). all-op is refreshed once a second, so a slave that drops out
+    shows on data-ok first.
+
+ -- Sascha Ittner <sascha.ittner@modusoft.de>  Mon, 16 Nov 2026 13:58:52 +0100
+
 stratumak (0.1.4) UNRELEASED; urgency=medium
 
   * BEHAVIOR CHANGE: every C module has to be rebuilt, the components of a
