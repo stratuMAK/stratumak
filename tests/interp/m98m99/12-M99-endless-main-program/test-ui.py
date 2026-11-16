@@ -16,6 +16,7 @@ from gmi.constants import *
 import sys
 import subprocess
 
+import os
 import stmak_test
 
 c = stmak_test.Command()
@@ -53,11 +54,10 @@ c.program_open('test.ngc')
 c.auto(AUTO_RUN, 4)
 wait_idle()
 
-# motion-logger is a different process's writes: the interpreter going idle does
-# not mean its trailing lines have been flushed. Sleeping ~0.2s and hoping
-# truncates the tail on a slow flush and fails the diff below. Wait for the log
-# to stop growing instead.
-stmak_test.wait_file_stable("out.motion-logger")
+# The interceptor writes each motion command, flushed, as task sends it, so
+# what this run sent is in the file by now; the wait for the golden file's
+# length is the guard on that, not a guess that the writer has gone quiet.
+stmak_test.wait_file_length("out.motion-logger", os.path.getsize("expected.motion-logger"))
 
 status = subprocess.call(
     ["diff", "-u", "expected.motion-logger", "out.motion-logger"],

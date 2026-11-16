@@ -42,12 +42,16 @@ for i, z in enumerate((1.0, 2.0, 3.0)):
     c.mdi('G0 Z%.1f' % z)
     # The rig must have hit the window it exists for: the stop takes over
     # 6 s (see above), so the MDI is queued while the machine still
-    # moves. If it ever was not, this run proved nothing — say so.
+    # moves. If it ever was not, this run proved nothing — say so. The MDI
+    # moves Z only, so X changing after the position read below proves the
+    # stop was still running after the MDI went out. Waited for with the
+    # default hang guard, not a short deadline: a slow status update is not
+    # a missed window, and a machine that really stood still never changes X.
     s.poll()
     x_sent = s.actual_position[0]
     try:
         stmak_test.wait_stat(s, lambda st: st.actual_position[0] != x_sent,
-                             "run %d: X to change" % i, timeout=1.0)
+                             "run %d: X to change" % i)
         moving = True
     except stmak_test.Timeout:
         moving = False

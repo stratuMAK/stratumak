@@ -127,5 +127,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	_ = conn.Close(websocket.StatusNormalClosure, "done")
+	// The close handshake is the delivery confirmation: the server reads this
+	// connection's messages in order, so its answer to the close frame comes
+	// after every sample sent above went into the ring. A close that fails
+	// leaves that unconfirmed, which a caller starting the threads next must
+	// hear about rather than run on a ring that may be short.
+	if err := conn.Close(websocket.StatusNormalClosure, "done"); err != nil {
+		fmt.Fprintf(os.Stderr, "halstreamer: closing the stream (delivery unconfirmed): %v\n", err)
+		os.Exit(1)
+	}
 }

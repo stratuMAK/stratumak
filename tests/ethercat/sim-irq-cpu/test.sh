@@ -18,6 +18,15 @@ trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
 stmak_wait_until 30 "stmakd to be ready" 'grep -q "ready, waiting for shutdown" server.log'
 
+# The three lines come from different threads (the plugin at load, the
+# master's idle thread for the scan), in no order relative to "ready": each
+# is waited for, then their order is judged.
+stmak_wait_until 30 "the plugin to derive the IRQ CPU" \
+    'grep -q "NIC IRQs to CPU 0, where ethercat.read-all runs" server.log'
+stmak_wait_until 30 "the master to pin the IRQs" \
+    'grep -q "Pinned 1 transport IRQ(s) of bus.sim to CPU 0" server.log'
+stmak_wait_until 30 "the bus scan" 'grep -q "Scanning bus" server.log'
+
 fail=0
 line_of() { grep -n -m1 "$1" server.log | cut -d: -f1; }
 

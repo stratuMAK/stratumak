@@ -81,18 +81,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
 
-def free_port():
+def hold_port():
+    """A port for a server that is not up yet: bound, not listening.
+
+    A connect to it is refused, as to no server at all, and start_server
+    later listens on this very socket -- no window in which another process
+    could take the port between choosing it and serving on it.
+    """
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    return s, s.getsockname()[1]
 
 
-def start_server(port):
+def start_server(sock):
     srv = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", port),
-        functools.partial(Handler, directory=os.path.join(HERE, "www")))
+        sock.getsockname(),
+        functools.partial(Handler, directory=os.path.join(HERE, "www")),
+        bind_and_activate=False)
+    srv.socket.close()
+    srv.socket = sock
+    srv.server_address = sock.getsockname()
+    srv.server_activate()
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -210,7 +219,7 @@ if not wait_for(lambda: root.focus_get() is not None):
 stmakui = shutil.which("stmakui")
 if not stmakui:
     fail("setup", "stmakui not on PATH")
-port = free_port()
+held, port = hold_port()
 env = dict(os.environ,
            STMAK_REST_URL="http://127.0.0.1:%d/" % port,
            AXIS_FORWARD_EVENTS_TO=str(root.winfo_id()))
@@ -221,7 +230,7 @@ try:
     # Connection refused meanwhile: stmakui must retry.  The window can only
     # make the check weaker on a slow start, never fail a good run.
     pump(1.5)
-    start_server(port)
+    start_server(held)
 
     if not wait_for(lambda: requests):
         fail("page-loads-once-server-answers", "no request within %ds" % TIMEOUT)

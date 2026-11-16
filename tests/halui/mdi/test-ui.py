@@ -35,7 +35,7 @@ def wait_for_joint_to_stop_at(joint, target):
     # inch config, matching 2.9); the sampled joint positions are stmak-mm.
     # Scale the tolerance too — it was an inch tolerance.
     target *= 25.4
-    timeout, tol = 10.0, 0.0001 * 25.4
+    timeout, tol = 10.0 * stmak_test.scale(), 0.0001 * 25.4
     start = time.time(); curr_pos = 0
     while (time.time() - start) < timeout:
         prev_pos = curr_pos; curr_pos = h['joint-%d-position' % joint]
@@ -47,7 +47,7 @@ def wait_for_joint_to_stop_at(joint, target):
 
 def wait_for_task_mode(target):
     start = time.time()
-    while (time.time() - start) < 10.0:
+    while (time.time() - start) < 10.0 * stmak_test.scale():
         s.poll()
         if s.task_mode == target: return
         time.sleep(0.1)
@@ -55,7 +55,7 @@ def wait_for_task_mode(target):
 
 def wait_for_halui_mode(pin_name):
     start = time.time()
-    while (time.time() - start) < 10.0:
+    while (time.time() - start) < 10.0 * stmak_test.scale():
         if h[pin_name]:
             print("halui reports mode {}".format(pin_name)); return
         time.sleep(0.1)

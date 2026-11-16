@@ -15,24 +15,18 @@ halcmd start
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 pin_exists() { halcmd show pin 2>/dev/null | grep -qw "$1"; }
 
-deadline=$(( SECONDS + $(stmak_scale 20) ))
-while [ $SECONDS -lt $deadline ]; do
-    [ "$(getp ethercat.0.all-op)" = TRUE ] && break
-    sleep 0.1
+# Each value is waited for, not read once after all-op: all-op, each slave's
+# state and the responding count are derived separately and need not be
+# published in the same cycle (see sim-unconfigured-slave). Each is final
+# once reached.
+stmak_wait_until 30 "the master to reach OP" '[ "$(getp ethercat.0.all-op)" = TRUE ]'
+stmak_wait_until 30 "three slaves responding" '[ "$(getp ethercat.0.slaves-responding)" = 3 ]'
+for s in "do" "di" "io"; do
+    stmak_wait_until 30 "slave '$s' to reach OP" "[ \"\$(getp ethercat.0.$s.slave-oper)\" = TRUE ]"
 done
+echo "all-op=$(getp ethercat.0.all-op) slaves-responding=$(getp ethercat.0.slaves-responding)"
 
 fail=0
-[ "$(getp ethercat.0.all-op)" = TRUE ] || { echo "FAIL: master did not reach OP" >&2; fail=1; }
-resp=$(getp ethercat.0.slaves-responding)
-echo "all-op=$(getp ethercat.0.all-op) slaves-responding=$resp"
-[ "$resp" = 3 ] || { echo "FAIL: expected 3 slaves responding, got '$resp'" >&2; fail=1; }
-
-# Every slave reached OP.
-for s in "do" "di" "io"; do
-    o=$(getp ethercat.0.$s.slave-oper)
-    echo "  $s.slave-oper=$o"
-    [ "$o" = TRUE ] || { echo "FAIL: slave '$s' did not reach OP" >&2; fail=1; }
-done
 
 # Per-slave PDO pins exist with the expected directions.
 for pin in ethercat.0.do.out ethercat.0.di.in ethercat.0.io.out ethercat.0.io.in; do

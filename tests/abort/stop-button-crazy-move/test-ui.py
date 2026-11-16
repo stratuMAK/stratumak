@@ -74,6 +74,13 @@ sys.stderr.write("Starting at X=%.3f Y=%.3f\n" % (px, py))
 #
 # Run the generated program and wait for the read-ahead queue to fill up.
 #
+# With feed and rapid override at 0 the machine stands at the program's first
+# move while the read-ahead fills the queue: how full it gets no longer races
+# how fast motion empties it. (After the T1M6 at its top, which finds the
+# queue empty and the tool loaded, the program is G0/G1 only: nothing in it
+# waits for motion before the queue is full.)
+c.feedrate(0.0)
+c.rapidrate(0.0)
 c.mode(MODE_AUTO)
 c.program_open('3D_Chips.ngc')
 c.auto(AUTO_RUN, 0)
@@ -98,6 +105,14 @@ c.auto(AUTO_PAUSE)
 stmak_test.wait_stat(s, lambda st: st.paused and st.current_vel == 0.0,
                      "the paused program to stand still",
                      detail=lambda st: "paused=%s current_vel=%r" % (st.paused, st.current_vel))
+# Full overrides again, with the pause holding the machine: a segment the
+# abort lets through must move at full speed, or the check below would pass
+# on the bug.
+c.feedrate(1.0)
+c.rapidrate(1.0)
+stmak_test.wait_stat(s, lambda st: st.feedrate == 1.0 and st.rapidrate == 1.0,
+                     "the overrides back at 100%",
+                     detail=lambda st: "feedrate=%r rapidrate=%r" % (st.feedrate, st.rapidrate))
 px, py = xy()
 stmak_test.setp("watch-reset", False)
 c.abort()

@@ -17,8 +17,12 @@ stmak_wait_until --pid $SRV 10 "and2 to load" \
     'halcmd show comp 2>/dev/null | grep -q and2'
 
 halcmd start
-sleep 1                       # accumulate ~1000 invocations of the 1ms thread
 # stratuMAK's `getp` does not resolve RW params (e.g. and2.0.tmax); read the value
 # from `show param` instead.  Column layout: Type Dir Name Value.
-halcmd show param | awk '$3=="and2.0.tmax"{print $4}'
+tmax() { halcmd show param | awk '$3=="and2.0.tmax"{print $4}'; }
+# tmax is recorded by the thread's first run of and2 and never goes back to 0:
+# wait for it, instead of a sleep that assumes the thread has run by then.
+stmak_wait_until --pid $SRV 30 "and2 to have run on the thread" \
+    '[ -n "$(tmax)" ] && [ "$(tmax)" != 0 ]'
+tmax
 halcmd stop

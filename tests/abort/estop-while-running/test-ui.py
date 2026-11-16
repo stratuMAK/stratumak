@@ -14,6 +14,7 @@ import time
 
 
 def wait_for_startup(s, timeout=10.0):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()
@@ -26,6 +27,7 @@ def wait_for_startup(s, timeout=10.0):
 
 
 def wait_for(s, cond, what, timeout=15.0):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()
@@ -67,10 +69,13 @@ wait_for(s, lambda s: s.interp_state == INTERP_IDLE and s.exec_state == EXEC_DON
          "interp idle / exec done after estop (commanded estop is not an error stop)",
          timeout=5.0)
 
-# Motion must actually be stopped: two samples well apart must match.
+# Motion must actually be stopped. Waited for, not judged from two samples a
+# fixed time apart: estop disables motion, and with motion disabled and in
+# position nothing moves, so the position read after that is final.
+wait_for(s, lambda s: not s.enabled and s.inpos, "motion disabled and at rest after estop",
+         timeout=5.0)
 s.poll()
 x1 = s.actual_position[0]
-time.sleep(0.5)
 s.poll()
 x2 = s.actual_position[0]
 assert abs(x2 - x1) < 0.01, "still moving after estop: x %.3f -> %.3f" % (x1, x2)

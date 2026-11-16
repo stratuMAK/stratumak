@@ -71,7 +71,9 @@ sets arm-stall 0
 
 # Every servo cycle: phase mark, Z, spindle speed, both inhibits, feed hold,
 # the task's paused report.
-load filestream sample_cfg=sffbbbb outfile=trace.txt depth=32768 samples=0
+# depth: ~130 s of servo cycles at 1 kHz -- the I/O thread draining the ring
+# may fall that far behind before a sample is lost (stmak_check_filestream).
+load filestream sample_cfg=sffbbbb outfile=trace.txt depth=131072 samples=0
 net phase                               => filestream.sample.0
 net zpos                                => filestream.sample.1
 net speed-out <= spindle.0.speed-out    => filestream.sample.2

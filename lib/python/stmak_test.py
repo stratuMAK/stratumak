@@ -404,42 +404,27 @@ class Hal:
 hal = Hal()
 
 
-# ─── Files written by another process ────────────────────────────────────────
+# ─── Files another writer appends to ─────────────────────────────────────────
 
 
-def wait_file_stable(path, timeout=None, settle=0.15, samples=3):
-    """Wait for `path` to exist and stop growing, then return its contents.
+def wait_file_length(path, length, timeout=None):
+    """Wait until `path` holds at least `length` bytes; return its contents.
 
-    For logs a *different* process appends to (motion-logger, halsampler, the
-    stratuMAK server log). The suite used to sleep ~0.2s and read, which truncates
-    the tail whenever the writer is behind.
-
-    CONTRACT, because this one is a heuristic and the subtlety bites: "finished"
-    is inferred from the size holding steady across `samples` consecutive reads
-    `settle` apart — a quiet window of (samples-1) * settle. That is only sound
-    if the quiet window exceeds the writer's largest gap between writes. Too
-    small a window and this returns a half-written file, which is exactly the
-    bug it exists to prevent.
-
-    Prefer wait_file_contains() whenever you know what the output should say: a
-    real predicate beats inferring completion from silence.
+    For output whose final size is known -- a golden file to compare against:
+    the wait ends when everything the golden file says has had room to arrive,
+    and a writer that is merely slow just takes longer. A short, wrong output
+    fails at the timeout, with the comparison still showing what it lacks.
+    Completion is never inferred from the file going quiet.
     """
-    def _stable():
+    def _long_enough():
         try:
-            size = os.path.getsize(path)
+            return os.path.getsize(path) >= length
         except OSError:
             return False
-        for _ in range(samples - 1):
-            time.sleep(settle)
-            try:
-                if os.path.getsize(path) != size:
-                    return False
-            except OSError:
-                return False
-        return True
 
-    wait_until(_stable, "%s to be written and stop growing" % path,
-               timeout=timeout, interval=settle)
+    wait_until(_long_enough, "%s to reach %d bytes" % (path, length),
+               timeout=timeout, interval=_PIN_INTERVAL,
+               detail=lambda: "%d bytes" % (os.path.getsize(path) if os.path.exists(path) else -1))
     with open(path) as f:
         return f.read()
 

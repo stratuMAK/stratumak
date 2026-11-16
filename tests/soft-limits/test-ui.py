@@ -226,6 +226,19 @@ def outside_and_off():
         fail("the hand did not move X outside; joint 0 at %.3f mm" % joint_pos())
 
 
+def wait_trip_abort(desc):
+    """Wait for the task monitor's abort after a soft-limit trip.
+
+    The enable with an axis outside its limit trips, and the monitor -- on its
+    own tick -- aborts and leaves EXEC_ERROR (an off/on cleared the previous
+    one). Waiting for rest instead orders nothing: the machine already stood
+    before the abort, which can then still land on the next jog.
+    """
+    if not wait_for(lambda: (s.poll(), s.exec_state)[1] == EXEC_ERROR, desc):
+        fail("timed out waiting for %s; exec_state=%d" % (desc, s.exec_state))
+    wait_rest("the machine to settle after %s" % desc)
+
+
 def hand_push_outside():
     """Switch off, shove X past its limit, switch on, let go."""
     c.state(STATE_OFF)
@@ -240,6 +253,7 @@ def hand_push_outside():
     sets("hand-sel", 0)
     if not joint_pos() > X_MAX:
         fail("the hand did not leave X outside; joint 0 at %.3f mm" % joint_pos())
+    wait_trip_abort("the monitor's abort after the enable outside the limit")
 
 
 c = stmak_test.Command()
@@ -310,7 +324,7 @@ check(joint_pos() > X_MAX,
 if not wait_for(lambda: any("soft limit" in m for m in collect_errors(0.1)),
                 "the enable's soft-limit report"):
     fail("the enable outside the limit was not reported")
-wait_rest("the machine to settle after the enable")
+wait_trip_abort("the monitor's abort after the enable outside the limit")
 sets("trace-mark", 1)
 before = joint_pos()
 # Until the axis is 2 mm back inside: the window then holds the re-entry and

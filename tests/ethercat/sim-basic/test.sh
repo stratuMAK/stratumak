@@ -14,23 +14,17 @@ halcmd start
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 pin_exists() { halcmd show pin 2>/dev/null | grep -qw "$1"; }
 
-# The AL state machine advances on the servo thread; wait for OP on a deadline
-# rather than a fixed sleep.
-deadline=$(( SECONDS + $(stmak_scale 15) ))
-while [ $SECONDS -lt $deadline ]; do
-    [ "$(getp ethercat.0.all-op)" = TRUE ] && break
-    sleep 0.1
-done
-
-allop=$(getp ethercat.0.all-op)
-oper=$(getp ethercat.0.io.slave-oper)
-responding=$(getp ethercat.0.slaves-responding)
-echo "all-op=$allop slave-oper=$oper slaves-responding=$responding"
+# The AL state machine advances on the servo thread. Each value is waited
+# for, not read once after all-op: the master's all-op, the slave's state and
+# the responding count are derived separately and need not be published in
+# the same cycle (see sim-unconfigured-slave). Each is final once reached.
+stmak_wait_until 30 "the master to reach OP" '[ "$(getp ethercat.0.all-op)" = TRUE ]'
+stmak_wait_until 30 "the slave to reach OP" '[ "$(getp ethercat.0.io.slave-oper)" = TRUE ]'
+stmak_wait_until 30 "one slave responding" '[ "$(getp ethercat.0.slaves-responding)" = 1 ]'
+echo "all-op=$(getp ethercat.0.all-op) slave-oper=$(getp ethercat.0.io.slave-oper)" \
+     "slaves-responding=$(getp ethercat.0.slaves-responding)"
 
 fail=0
-[ "$allop" = TRUE ] || { echo "FAIL: master did not reach OP" >&2; fail=1; }
-[ "$oper" = TRUE ]  || { echo "FAIL: slave did not reach OP" >&2; fail=1; }
-[ "$responding" = 1 ] || { echo "FAIL: expected 1 slave responding, got '$responding'" >&2; fail=1; }
 
 # The configured PDO entries must surface as HAL pins (output 0x7000:01 -> dout,
 # input 0x6000:01 -> din).

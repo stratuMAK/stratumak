@@ -144,10 +144,19 @@ c.wait_complete()
 c.mdi("G0 X0")
 c.wait_complete()
 stmak_test.drain_mdi(s)
-c.mdi("G1 F60 X5")  # 5 s in flight
+# Feed override 0 holds the move at its start until the abort, however long
+# this script takes to get there (feed override is not program flow: the pin
+# does not lock it). It goes back to 100% after the abort, so a move the abort
+# did not stop would run on to X5 and fail the check below.
+c.feedrate(0.0)
+stmak_test.wait_stat(s, lambda st: st.feedrate == 0.0, "feed override at 0")
+c.mdi("G1 F60 X5")
 interp_is((INTERP_READING, INTERP_WAITING), "the MDI move to run")
 c.abort()
 interp_is((INTERP_IDLE,), "the MDI abort")
+c.feedrate(1.0)
+stmak_test.wait_stat(s, lambda st: st.feedrate == 1.0 and st.inpos and st.queue == 0,
+                     "feed override back at 100% and motion at rest")
 s.poll()
 if abs(s.position[0] - 5.0) < 1e-3:
     stmak_test.fail("the MDI move ran to its end instead of being aborted")

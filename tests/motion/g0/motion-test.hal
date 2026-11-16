@@ -5,7 +5,9 @@
 # halsampler WebSocket stream this replaced needed a subscribe-before-motion
 # sleep, and failed the test whenever it lost a sample under load).
 
-load filestream sample_cfg=ff outfile=result.halsamples tag depth=65536 samples=0
+# depth: ~130 s of servo cycles at 1 kHz -- the I/O thread draining the ring
+# may fall that far behind before a sample is lost (stmak_check_filestream).
+load filestream sample_cfg=ff outfile=result.halsamples tag depth=131072 samples=0
 
 addf filestream.read      servo-thread
 
