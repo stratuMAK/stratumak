@@ -238,6 +238,12 @@ type TrayStation struct {
 	// to the next job's pick on this tray. 0 (the default) is off.
 	LowMoveMax float64
 
+	// AllowSecondLoaded is ALLOW_2ND_LOADED (D55), trays: a job may go down
+	// here while another picker holds a part. Off by default -- the other
+	// picker goes down with the head, onto whatever stands in the slots under
+	// it; a tray that is a bin (the trash) sets it.
+	AllowSecondLoaded bool
+
 	// DefaultTrayDef is the TrayDef id the station's tray-id pin is seeded
 	// with, or 0 for none. A station that only ever holds one tray geometry
 	// has nothing to select at runtime, and without a seed its selector would
@@ -756,6 +762,7 @@ func loadStations(r *iniReader, cfg *Config) error {
 			return err
 		}
 		s.LowMoveMax = r.lengthNonNeg(sec, "LOW_MOVE_MAX", 0)
+		s.AllowSecondLoaded = r.boolean(sec, "ALLOW_2ND_LOADED", false)
 		if r.has(sec, "DEFAULT_TRAYDEF") {
 			// stationID's checks are the right ones: the key carries a
 			// TRAYDEF id, and 0 is as reserved here as it is there.

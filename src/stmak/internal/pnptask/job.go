@@ -315,7 +315,50 @@ func (c *control) validateJob(j *job) error {
 	if err := c.checkPickers(j); err != nil {
 		return err
 	}
+	if err := c.checkSecondLoaded(j); err != nil {
+		return err
+	}
 	return c.checkReach(j)
+}
+
+// checkSecondLoaded is D55: the pickers share the head, so every stroke takes
+// all of them down. A free one is opened first and straddles the part under it
+// (openFreePickers); one that holds a part would set it onto the part standing
+// in that slot. A job that goes down at a tray -- a physical pick there, or
+// its place -- is therefore refused while any picker other than the one
+// carrying the job's own material holds something, unless the tray says
+// ALLOW_2ND_LOADED (a bin: the trash).
+//
+// A well-formed job sequence never loads two pickers outside a swap at a
+// process station; what gets here is the recovery after a job that failed
+// between its swap-out and its place.
+func (c *control) checkSecondLoaded(j *job) error {
+	carrier := -1
+	if j.skipPick {
+		if pk, ok := c.m.world.holderOf(j.originID); ok {
+			carrier = pk
+		}
+	}
+	check := func(st *station, id uint32) error {
+		if !st.isTray() || st.tray.cfg.AllowSecondLoaded {
+			return nil
+		}
+		for n := range c.m.world.held {
+			if n != carrier && c.m.world.held[n].occupied() {
+				f := faultf(errSecondLoaded,
+					"picker %d holds a part: no stroke at tray station %d with it (ALLOW_2ND_LOADED is off)", n, id)
+				f.atStation(id)
+				return f
+			}
+		}
+		return nil
+	}
+	if !j.skipPick {
+		if err := check(j.origin, j.originID); err != nil {
+			return err
+		}
+	}
+	return check(j.dest, j.destID)
 }
 
 // checkReach is the per-picker reachability validation (once §12.3's first

@@ -588,7 +588,11 @@ func TestJobStartsJustOutsideALimit(t *testing.T) {
 // one here, so a correct engine picks and places with it and applies its offsets.
 func TestJobUsesTheHoldingPicker(t *testing.T) {
 	// Picker 0 is loaded (a manual intervention, say), so the free picker is 1.
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 21, false, 0, true) }, "pickers=2")
+	// The tray allows the stroke with it (D55), which is not what this is about.
+	f := newJobFixtureSeeded(t, func(w *world) {
+		w.station(10).tray.cfg.AllowSecondLoaded = true
+		w.setHeld(0, 21, false, 0, true)
+	}, "pickers=2")
 	f.m.pins.pickers[1].xOffset.Set(40)
 	f.m.pins.pickers[1].yOffset.Set(-15)
 	f.selectTray(1)
