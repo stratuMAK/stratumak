@@ -28,10 +28,9 @@ The times are counted in servo cycles (the capture's tags).
 """
 
 import math
-import os
-import time
 
 import pnpdrv
+import stmak_test
 
 CLEARANCE = 12.0
 ZONES = [(340.0, 300.0, 420.0, 370.0), (500.0, 60.0, 560.0, 140.0)]
@@ -75,13 +74,19 @@ pnpdrv.check_eq(m.run_job(21, 11), 0, "the station 21 -> tray 11 job completed w
 # The capture is written by the filestream I/O thread; wait until it has
 # caught up with the machine standing up at tray 11 again.
 m.wait_still()
-deadline = time.monotonic() + 10 * float(os.environ.get("STMAK_TEST_TIMEOUT_SCALE", "1"))
-rows = load_capture()
-while time.monotonic() < deadline:
-    if rows and abs(rows[-1][1] - B[0]) < 1e-6 and abs(rows[-1][2] - B[1]) < 1e-6 and rows[-1][3] >= TRAVEL_Z - 1e-6:
-        break
-    time.sleep(0.05)
-    rows = load_capture()
+# The capture only grows, so this waits for the row the machine stands at; a
+# capture that never gets there fails here, by name, instead of handing the
+# checks below a partial one.
+rows = []
+
+
+def caught_up():
+    rows[:] = load_capture()
+    return bool(rows) and abs(rows[-1][1] - B[0]) < 1e-6 and abs(rows[-1][2] - B[1]) < 1e-6 \
+        and rows[-1][3] >= TRAVEL_Z - 1e-6
+
+
+stmak_test.wait_until(caught_up, "the capture to reach the machine standing at tray 11", interval=0.05)
 
 tags = [r[0] for r in rows]
 pnpdrv.check(all(b - a == 1 for a, b in zip(tags, tags[1:])), "the capture lost no servo cycle")
@@ -126,21 +131,11 @@ ms = (leg[-1][0] - leg[0][0]) * CYCLE * 1000
 pnpdrv.check(ms <= 0.98 * SEPARATE_MS, "the stream is faster than separate strokes",
              lambda: "%.0f ms, separate strokes %.0f ms" % (ms, SEPARATE_MS))
 
-# ── the place into station 21: its descent waits for the fixture ────────────
-#
-# The descent into a process station may only start with the fixture open;
-# the simulated fixture opens as soon as it is asked, while the head is still
-# on its way, so the place too runs from the bottom of the tray slot to the
-# bottom of the station without a stop.
-
-T = (100.0, 380.0, 2.5)    # tray 10, first slot, bottom
-k0 = max(i for i in range(i0) if at(rows[i], T))
-k1 = next((i for i in range(k0, i0 + 1) if at(rows[i], A)), None)
-pnpdrv.check(k1 is not None, "the head went from the bottom of the tray slot to the bottom of station 21")
-place = rows[k0:k1 + 1]
-pspeed = [math.dist(a[1:], b[1:]) / CYCLE for a, b in zip(place, place[1:])]
-pinner = pspeed[len(pspeed) // 20: -len(pspeed) // 20]
-pnpdrv.check(min(pinner) > 0.1 * max(pspeed), "the place runs its descent as part of the leg, without a stop",
-             lambda: "slowest %.1f mm/s, peak %.1f" % (min(pinner), max(pspeed)))
+# The place into station 21 -- its descent too a corner arc of the leg when
+# the fixture reports released while the head is on its way -- is not checked
+# here: whether it is depends on the control loop seeing released before the
+# head nears the end of the queue, which on a loaded host it may not, and then
+# the module rightly makes the descent a stroke of its own. The decision is
+# covered where servo time is the test's to control (TestZCornerArcs).
 
 pnpdrv.done()

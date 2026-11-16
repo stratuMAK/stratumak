@@ -8,8 +8,9 @@ report format the `expected` files are compared against.
 
 Pins are reached over the halcmd REST API rather than by forking `halcmd`:
 a fork costs tens of milliseconds per pin, and these scenarios read whole pin
-trees in loops. `snapshot()` fetches every pin of a component in one request,
-which is also the only way to read several pins as one consistent sample. The
+trees in loops. `snapshot()` fetches every pin of a component in one request
+-- one request, not one servo cycle's sample: pins that must be ordered are
+read by separate requests (see Machine.await_job). The
 wire protocol lives in the GENERATED client (gmi.halcmd_client, from
 src/gmi/idl/halcmd.gmi — D27's "the generated GMI REST client"), so a change
 to the IDL updates this suite together with every other consumer.
@@ -189,7 +190,9 @@ def wait_raw(name, value, desc, timeout=None):
 
 
 def raw_snapshot(pattern):
-    """Read every pin matching a glob, as one request: {name: value}."""
+    """Read every pin matching a glob, as one request: {name: value}.
+
+    Not one servo cycle's sample -- see Machine.snapshot."""
     return {p.name: _decode(p) for p in _halcmd().list_pins(pattern)}
 
 
@@ -230,7 +233,13 @@ class Machine:
         raw_set(self.sim_pin(name), value)
 
     def snapshot(self):
-        """Every task pin in one sample, keyed without the instance prefix."""
+        """Every task pin in one listing, keyed without the instance prefix.
+
+        One request, but not one servo cycle: the servo thread runs on while
+        the listing is read, so two pins of it can come from different cycles.
+        A check that needs one pin ordered after another reads them by
+        separate requests, in that order (see await_job).
+        """
         pre = TASK + "."
         return {k[len(pre):]: v for k, v in raw_snapshot(TASK + ".*").items()}
 
@@ -287,29 +296,33 @@ class Machine:
         self.wait(lambda s: _after(s["sync"], c0), "the module to sample")
 
     def wait_manual_judged(self, log="server.log"):
-        """Wait for the module to judge a manual close against the gripper.
+        """Wait for the module to judge a manual close; return its verdict.
 
         §8.1: a manual close over a retained record is judged once the gripper
         feedback has settled — pick-settle-time later, in the control loop. The
         verdict is a record, not a pin, but the module LOGS it ("held record
         restored" / "held record is gone"), so the wait polls the server log
-        for one more verdict line than this Machine has already waited out.
-        A polled wait, unlike the fixed sleep it replaces, honours
-        STMAK_TEST_TIMEOUT_SCALE like every other deadline in the suite.
+        for one more verdict line than this Machine has already waited out and
+        returns that verdict's marker. The caller checks it is the one it
+        expects: a wrong verdict is a failure that names it, not a wait that
+        accepts it and leaves a later check to find the consequence.
         """
         self._judged += 1
         want = self._judged
+        verdicts = []
 
         def _seen():
             try:
                 with open(log, errors="replace") as f:
-                    data = f.read()
+                    lines = f.readlines()
             except OSError:
                 return False
-            return sum(data.count(m) for m in _JUDGED_MARKERS) >= want
+            verdicts[:] = [m for line in lines for m in _JUDGED_MARKERS if m in line]
+            return len(verdicts) >= want
 
         stmak_test.wait_until(_seen, "manual close %d to be judged (%s)" % (want, log),
                               interval=0.05)
+        return verdicts[want - 1]
 
     def _state(self):
         """The pins a failing wait wants named — the machine in one line."""
@@ -403,13 +416,22 @@ class Machine:
         A job the module refuses at once raises busy for a few milliseconds,
         too short to poll for. What a poller can see instead is the module
         past the request -- sync after the cycle at the raise, so the edge was
-        sampled and, if accepted, busy rose -- with busy low, in one listing:
-        busy and sync are written by the same run. busy falls with the outcome
-        (§4.4), so the error id read here describes this job.
+        sampled and, if accepted, busy rose in that run -- and then busy low.
+        The two are read in that order, by separate requests: a pin listing
+        is not one servo cycle's sample (the servo thread runs on while it is
+        read, and busy is listed before sync), so busy from the same listing
+        could predate the acceptance. Read after sync showed the edge taken,
+        busy low means the job is over. busy falls with the outcome (§4.4),
+        so the error id read after it describes this job.
         """
         c0 = self._job_cycle
-        self.wait(lambda s: _after(s["sync"], c0) and not s["busy"], "the job to complete",
-                  timeout=JOB_TIMEOUT if timeout is None else timeout)
+
+        def done():
+            return _after(self.get("sync"), c0) and not self.get("busy")
+
+        stmak_test.wait_until(done, "the job to complete",
+                              timeout=JOB_TIMEOUT if timeout is None else timeout,
+                              interval=0.02, detail=self._state)
         self.set("start-job", False)
         return self.get("error-id")
 
@@ -441,8 +463,27 @@ class Machine:
     # ── the simulated field devices (pnpsim) ──
 
     def miss(self, gripper, count):
-        """Make the gripper's next `count` closes grip nothing (-1 = all)."""
-        self.sim_set("%d.gripper.miss-count" % gripper, count)
+        """Make the gripper's next `count` closes grip nothing (-1 = all).
+
+        pnpsim reloads its schedule on a *change* of miss-count, in the servo
+        thread. Two writes can land in one servo cycle, so a 0 written before
+        the same count again may never be seen and the reload never happen;
+        and a count equal to the one already requested is no change at all.
+        So the schedule is read back (miss-left) after every write, and the
+        same count is re-armed through 0 -- each step waited for, not assumed.
+        """
+        req = "%d.gripper.miss-count" % gripper
+        left = "%d.gripper.miss-left" % gripper
+
+        def arm(n):
+            self.sim_set(req, n)
+            stmak_test.wait_until(lambda: self.sim_get(left) == n,
+                                  "gripper %d's miss schedule to load %d" % (gripper, n),
+                                  interval=0.01)
+
+        if count != 0 and self.sim_get(req) == count and self.sim_get(left) != count:
+            arm(0)
+        arm(count)
 
     def holding(self, gripper):
         """Whether the simulated gripper physically holds a part."""

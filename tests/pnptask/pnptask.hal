@@ -92,6 +92,23 @@ addf pnp.sim.0 servo-thread
 addf pnp.sim.1 servo-thread
 addf pnp.sim.2 servo-thread
 
+# Scene lock instruments (scenegate): scene-busy is up only while a gated leg
+# runs, which a REST poll can miss. Counted here, in the servo thread after
+# the task's cycle, so a test waits for a count to grow instead of trying to
+# catch the pulse: grants counts each time the lock is taken, moving each
+# time the head is under way under it (scene-busy and not in position).
+load updown <pnp.scene.grants,pnp.scene.moving>
+load not    <pnp.scene.notinpos>
+load and2   <pnp.scene.busymoving>
+addf pnp.scene.notinpos   servo-thread
+addf pnp.scene.busymoving servo-thread
+addf pnp.scene.grants     servo-thread
+addf pnp.scene.moving     servo-thread
+net pnp-scene-busy  pnp.task.scene-busy          => pnp.scene.grants.countup pnp.scene.busymoving.in0
+net pnp-inpos       pnp.mot.motion.in-position   => pnp.scene.notinpos.in
+net pnp-notinpos    pnp.scene.notinpos.out       => pnp.scene.busymoving.in1
+net pnp-busymoving  pnp.scene.busymoving.out     => pnp.scene.moving.countup
+
 net pnp-p0-close  pnp.task.picker.0.close    => pnp.sim.0.gripper.close
 net pnp-p0-opened pnp.sim.0.gripper.opened   => pnp.task.picker.0.opened
 net pnp-p0-closed pnp.sim.0.gripper.closed   => pnp.task.picker.0.closed

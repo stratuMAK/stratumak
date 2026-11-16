@@ -54,7 +54,8 @@ m.pulse("picker.%d.manual-open" % pk)
 m.set("auto-enable", False)
 m.pulse("picker.%d.manual-close" % pk)
 m.wait(lambda s: s["picker.%d.close" % pk], "the picker to close")
-m.wait_manual_judged()
+pnpdrv.check_eq(m.wait_manual_judged(), "held record restored",
+                "the manual close found the part")
 m.set("auto-enable", True)
 
 pnpdrv.check(m.holding(pk), "the gripper closed onto the part")
@@ -96,7 +97,8 @@ m.wait_gripper(pk, False)
 # the picker closed without racing the pin.
 m.miss(pk, -1)
 m.pulse("picker.%d.manual-close" % pk)
-m.wait_manual_judged()
+pnpdrv.check_eq(m.wait_manual_judged(), "held record is gone",
+                "the manual close found nothing")
 pnpdrv.check(not m.holding(pk), "the gripper gripped nothing")
 
 # §8.1's workflow ends here: gripping nothing IS the verdict. The picker stays
