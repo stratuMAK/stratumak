@@ -56,6 +56,12 @@ const (
 	// change the control loop left untaken for task-timeout (pnp_rt.h,
 	// PNPTASK_RT_BOUNDARY.md §7.2). It ends a job in flight (abortCheck).
 	errTaskStalled errorID = 27 // = PNP_RT_TASK_STALLED
+
+	// errSecondLoaded refuses a job that goes down at a tray while another
+	// picker holds a part: that picker goes down with the head, and its part
+	// would meet the parts standing on the tray (D55). ALLOW_2ND_LOADED on
+	// the tray lifts it.
+	errSecondLoaded errorID = 28
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -89,6 +95,7 @@ var errorNames = map[errorID]string{
 	errWaitSceneMismatch:     "WAIT_SCENE_MISMATCH",
 	errParkNotConfigured:     "PARK_NOT_CONFIGURED",
 	errTaskStalled:           "TASK_STALLED",
+	errSecondLoaded:          "SECOND_PICKER_LOADED",
 }
 
 func (id errorID) String() string {
