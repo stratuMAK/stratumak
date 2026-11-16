@@ -466,7 +466,9 @@ func TestLegFeedLoopActsMidLeg(t *testing.T) {
 // Quittieren the next job runs: the loop's cancel let go of the held feed.
 func TestLegFeedRefusedSegmentEndsTheJob(t *testing.T) {
 	f := newSmoothLegFixture(t)
-	f.feed.Refuse(3, 4) // EMCMOT_COMMAND_BAD_EXEC
+	// The fake motmod's refusal is read by the cycle function: set between
+	// two of its runs, on the goroutine that runs it.
+	f.sim.inLoop(t, func() { f.feed.Refuse(3, 4) }) // EMCMOT_COMMAND_BAD_EXEC
 
 	f.runJob(10, 20, 0)
 	if id := f.errorID(); id != errMotionError {
@@ -481,7 +483,7 @@ func TestLegFeedRefusedSegmentEndsTheJob(t *testing.T) {
 		t.Error("busy still up")
 	}
 
-	f.feed.Refuse(0, 0)
+	f.sim.inLoop(t, func() { f.feed.Refuse(0, 0) })
 	f.clearError()
 	f.mot.resetCalls()
 	f.runJob(10, 20, 0)

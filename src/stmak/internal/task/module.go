@@ -465,13 +465,10 @@ func (m *milltaskModule) Stop() {
 	if m.task != nil {
 		// Join everything the task runs -- the sequencer, a program producer
 		// or MDI completion still unwinding, the fault recovery, a filter
-		// still converting: after this point the interpreter gets destroyed
+		// still converting, the M-code worker: after this point the interpreter gets destroyed
 		// and the output directory removed, and a goroutine still holding
 		// either would be a use-after-free, not a race to win.
 		m.task.Shutdown()
-		if m.task.mcode != nil {
-			m.task.mcode.Stop()
-		}
 		// Drop only THIS instance's output directory — another milltask in
 		// the same process may still be serving its own filtered program.
 		// Best effort: the process is going away either way, and a directory

@@ -241,6 +241,12 @@ func TestAutoRun_RejectedWhileRunning(t *testing.T) {
 	fi.onExecute = func(call int) (int, error) { return InterpOK, nil }
 
 	task, _, _ := newTestTask(t)
+	// Registered after newTestTask's Shutdown, so it runs first: a failure
+	// before the release below must not leave Shutdown waiting on a producer
+	// held in onRead.
+	var releaseOnce sync.Once
+	releaseRun := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseRun)
 	task.SetPollInterval(time.Millisecond)
 	task.noForceHoming = true
 	task.SetInterpreter(fi)
@@ -263,7 +269,7 @@ func TestAutoRun_RejectedWhileRunning(t *testing.T) {
 		t.Fatalf("second run: want ErrBusy, got %v", err)
 	}
 
-	close(release)
+	releaseRun()
 	waitIdle(t, task, 5*time.Second)
 	task.StopSequencer()
 }

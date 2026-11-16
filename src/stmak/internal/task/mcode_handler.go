@@ -43,6 +43,8 @@ type mcodeHandler struct {
 	jobCh   chan mcodeJob
 	abortCh chan struct{} // closed to signal abort to running handler
 	doneCh  chan struct{} // closed when worker exits
+
+	stopOnce sync.Once
 }
 
 type mcodeJob struct {
@@ -168,8 +170,10 @@ func (h *mcodeHandler) Abort() {
 
 // Stop shuts down the worker goroutine.
 func (h *mcodeHandler) Stop() {
-	close(h.jobCh)
-	h.Abort()
+	h.stopOnce.Do(func() {
+		close(h.jobCh)
+		h.Abort()
+	})
 	<-h.doneCh
 }
 

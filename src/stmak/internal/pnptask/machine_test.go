@@ -39,6 +39,10 @@ type fakeMotion struct {
 	refuseEnable bool // Enable() is accepted but never shows up in status
 	homingCycles int  // how many status reads report "homing" before homed
 	statusErr    error
+	// statusErrCycles, when > 0, ends statusErr after that many servo
+	// cycles (cycle, run before each one by the fixture): a glitch whose
+	// length is servo time, like the staleness it is judged against.
+	statusErrCycles int
 
 	// moveCycles is how many status reads a dispatched move stays in flight
 	// before it reports drained; 0 completes it instantly, which is what most
@@ -395,6 +399,33 @@ func (f *fakeMotion) setStatusErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.statusErr = err
+	f.statusErrCycles = 0
+}
+
+// glitch fails every status read for the next n servo cycles.
+func (f *fakeMotion) glitch(err error, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusErr, f.statusErrCycles = err, n
+}
+
+// glitchOver reports whether a glitch started by glitch has run out.
+func (f *fakeMotion) glitchOver() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.statusErr == nil
+}
+
+// cycle advances the fake by one servo cycle (the fixture runs it before
+// each run of the cycle function).
+func (f *fakeMotion) cycle() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.statusErrCycles > 0 {
+		if f.statusErrCycles--; f.statusErrCycles == 0 {
+			f.statusErr = nil
+		}
+	}
 }
 
 // setInFlight scripts a move in progress: status reports not-in-position for
@@ -720,6 +751,15 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	if o.servo {
 		servoThread(t, m)
 	} else {
+		// The fake motion stack counts servo cycles too (fakeMotion.cycle),
+		// ahead of whatever the fixture already simulates.
+		sim := m.tickHook
+		m.tickHook = func() {
+			mot.cycle()
+			if sim != nil {
+				sim()
+			}
+		}
 		driveRT(m)
 	}
 	if err := m.startControl(); err != nil {
@@ -1215,10 +1255,10 @@ func TestStatusGlitchDoesNotDisturbHomedOrJog(t *testing.T) {
 	f.setBit(f.m.pins.jog[0].pos, true)
 	f.eventually("jog started", func() bool { return f.mot.callCount("JogCont") == 1 })
 
-	// A glitch well inside the staleness tolerance.
-	f.mot.setStatusErr(fmt.Errorf("split read"))
-	time.Sleep(statusStale / 2)
-	f.mot.setStatusErr(nil)
+	// A glitch well inside the staleness tolerance: half of it, in servo
+	// cycles (1 ms each), however late this goroutine gets to run.
+	f.mot.glitch(fmt.Errorf("split read"), int(statusStale/2/time.Millisecond))
+	f.eventually("the glitch over", f.mot.glitchOver)
 
 	f.consistently("jog undisturbed and homed held", func() bool {
 		return f.mot.callCount("JogAbort") == 0 && f.bit("homed")

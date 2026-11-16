@@ -544,18 +544,26 @@ func TestSetMode_MDIRefusedKeepsPreviousMode(t *testing.T) {
 // An abort must not queue behind the wait for coordinated mode (the wait
 // holds cmdMu, which the abort takes next): it ends the wait at once.
 func TestSetMode_AbortEndsCoordWait(t *testing.T) {
-	task, _ := refuseCoordTask(t, 5*time.Second)
+	// The wait must be the full timeout's worth away from ending on its own,
+	// so only the abort can end it: errCoordAborted then says it did.
+	task, mot := refuseCoordTask(t, time.Hour)
+	sent := mot.countCall("SetCoord")
+	done := make(chan struct{})
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		defer close(done)
+		// enterCoord sends SetCoord once after reading abortSeq; the wait loop
+		// re-sends it. A re-send is the wait running past that read, so an
+		// abort from here on is one the wait must see -- not a sleep that
+		// hopes SetMode has got that far.
+		for mot.countCall("SetCoord") < sent+2 {
+			time.Sleep(time.Millisecond)
+		}
 		task.signalAbort()
 	}()
-	start := time.Now()
 	err := task.SetMode(int32(ModeMDI))
+	<-done
 	if !errors.Is(err, errCoordAborted) {
 		t.Fatalf("SetMode(MDI) = %v, want errCoordAborted", err)
-	}
-	if time.Since(start) > 2*time.Second {
-		t.Fatal("abort did not end the coord wait")
 	}
 }
 

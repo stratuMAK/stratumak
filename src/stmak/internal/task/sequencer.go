@@ -165,7 +165,8 @@ func (t *Task) goBG(fn func()) bool {
 // clients, the filter output or any field. Order: refuse new sequencer
 // generations and goroutines first, then abort -- which makes every wait and
 // enqueue of the producer, the MDI completion and the recovery return -- join
-// the sequencer, and wait for the rest. Safe to call more than once.
+// the sequencer, wait for the rest, and stop the M-code worker. Safe to call
+// more than once.
 func (t *Task) Shutdown() {
 	t.seqLifeMu.Lock()
 	t.mu.Lock()
@@ -178,6 +179,11 @@ func (t *Task) Shutdown() {
 	t.bg.Wait()
 	t.cancelFiltering()
 	t.filterWG.Wait()
+	// Last: the sequencer and the background goroutines are what submit
+	// M-codes, and all of them have returned.
+	if t.mcode != nil {
+		t.mcode.Stop()
+	}
 }
 
 // AbortSequencer signals the sequencer to stop and drain.

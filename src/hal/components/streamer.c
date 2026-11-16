@@ -46,6 +46,7 @@ typedef hal_stream_pin_t pin_ptr_t;
 typedef struct {
     // HAL pins
     volatile int32_t *curr_depth;
+    volatile int32_t *received;   // written only by on_data_received
     volatile unsigned *empty;
     volatile unsigned *enable;
     volatile int32_t *underruns;
@@ -133,6 +134,10 @@ static int32_t on_data_received(void *ctx, uint32_t conn_id,
         // Memory barrier: ensure data is written before advancing write_pos
         __sync_synchronize();
         inst->write_pos = wp + 1;
+        // Counted as it enters the ring: a client can wait for the samples it
+        // sent to be there before it starts the threads. Only this callback
+        // writes it, so the increment needs no lock.
+        *(inst->received) = *(inst->received) + 1;
     }
 
     return len;
@@ -318,6 +323,12 @@ int New(const cmod_env_t *env, const char *name,
                  (void **)&inst->curr_depth, priv->comp_id);
     if (retval != 0) goto fail;
 
+    snprintf(pin_name, sizeof(pin_name), "%s.received", name);
+    retval = env->hal->pin_new(env->hal->ctx, pin_name,
+                 STMAK_HAL_S32, STMAK_HAL_OUT,
+                 (void **)&inst->received, priv->comp_id);
+    if (retval != 0) goto fail;
+
     snprintf(pin_name, sizeof(pin_name), "%s.underruns", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
                  STMAK_HAL_S32, STMAK_HAL_IO,
@@ -340,6 +351,7 @@ int New(const cmod_env_t *env, const char *name,
     *(inst->empty) = 1;
     *(inst->enable) = 1;
     *(inst->curr_depth) = 0;
+    *(inst->received) = 0;
     *(inst->underruns) = 0;
     *(inst->clock) = 0;
     *(inst->clock_mode) = 0;

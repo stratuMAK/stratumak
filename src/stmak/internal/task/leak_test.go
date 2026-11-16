@@ -57,7 +57,8 @@ func taskGoroutineStacks() string {
 		if strings.Contains(g, "leakedTaskGoroutines") {
 			continue // this goroutine
 		}
-		if strings.Contains(g, "internal/task.(*Task).") || strings.Contains(g, "internal/task.(*monitor).") {
+		if strings.Contains(g, "internal/task.(*Task).") || strings.Contains(g, "internal/task.(*monitor).") ||
+			strings.Contains(g, "internal/task.(*mcodeHandler).") {
 			leaked = append(leaked, g)
 		}
 	}

@@ -64,7 +64,15 @@ hal_start_server() {
 # hal_feed_streamer: read streamer values from stdin and push them into the
 # streamer FIFO while threads are still stopped.
 hal_feed_streamer() {
-    halstreamer
+    # Feed stdin to the streamer, then wait until every sample is in its FIFO
+    # (streamer.received): halstreamer returning only means the stream was
+    # sent, and the threads started next must find all of it there.
+    local data n
+    data=$(cat)
+    n=$(printf '%s\n' "$data" | grep -c '[^[:space:]]')
+    printf '%s\n' "$data" | halstreamer || { echo "*** halstreamer failed" >&2; exit 1; }
+    stmak_wait_until 30 "the streamer to take $n samples" \
+        "[ \"\$(halcmd getp streamer.received 2>/dev/null | awk '{print \$NF}')\" = $n ]"
 }
 
 # hal_sample <N> [extra halsampler args...]: connect halsampler for N samples
