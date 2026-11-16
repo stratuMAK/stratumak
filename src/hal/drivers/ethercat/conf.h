@@ -33,6 +33,7 @@
 // ECRT_RT_ATTR -> STMAK_NONBLOCKING override is in force before the first
 // ecrt declaration, whichever of conf.h / lcec.h a TU pulls first.
 #include "lcec_ecrt.h"
+#include "data_ok.h"
 
 /** @brief Legacy module name constant.
  *  Pin and function names now use the per-instance name from cmod New(). */
@@ -269,6 +270,9 @@ typedef struct {
                                 *   synchronisation calls (0 = disabled). */
   int refClockSlaveIdx;        /**< EtherCAT position of the slave used as DC reference clock,
                                 *   or -1 to use the first DC-capable slave. */
+  int dataLossCycles;          /**< Incomplete working counters in a row that take the
+                                *   master's data-ok pin low (>= 1, default
+                                *   LCEC_DATA_LOSS_CYCLES_DEFAULT). */
   char name[LCEC_CONF_STR_MAXLEN]; /**< Human-readable master name used as the HAL pin prefix.
                                     *   Defaults to the decimal string of @c index. */
 #ifdef EC_USPACE_MASTER

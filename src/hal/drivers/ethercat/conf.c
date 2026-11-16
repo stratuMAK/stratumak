@@ -771,6 +771,9 @@ fail0:
  *  - @c appTimePeriod    — Application time period in ns (uint32).
  *  - @c refClockSyncCycles — DC reference-clock sync cycle count (int).
  *  - @c refClockSlaveIdx — Bus position of DC reference slave, or -1 (int).
+ *  - @c dataLossCycles   — Cycles in a row with an incomplete working counter
+ *                          that take the master's data-ok pin low (int >= 1,
+ *                          default 3).
  *  - @c interface        — (EC_USPACE_MASTER only) Primary NIC name, REQUIRED.
  *  - @c backupInterface  — (EC_USPACE_MASTER only) Backup NIC name, optional.
  *  - @c transportType    — (EC_USPACE_MASTER only) "raw", "xdp-skb", "xdp-native".
@@ -796,6 +799,7 @@ static void parseMasterAttrs(LCEC_CONF_XML_INST_T *inst, int next, const char **
 
   p->confType = lcecConfTypeMaster;
   p->refClockSlaveIdx = -1;
+  p->dataLossCycles = LCEC_DATA_LOSS_CYCLES_DEFAULT;
 #ifdef EC_USPACE_MASTER
   p->transportType = 0;         // EC_TRANSPORT_RAW
   p->interface[0] = 0;
@@ -836,6 +840,17 @@ static void parseMasterAttrs(LCEC_CONF_XML_INST_T *inst, int next, const char **
     // parse refClockSlaveIdx
     if (strcmp(name, "refClockSlaveIdx") == 0) {
       p->refClockSlaveIdx = atoi(val);
+      continue;
+    }
+
+    // parse dataLossCycles (optional, default: LCEC_DATA_LOSS_CYCLES_DEFAULT)
+    if (strcmp(name, "dataLossCycles") == 0) {
+      p->dataLossCycles = atoi(val);
+      if (p->dataLossCycles < 1) {
+        xml_log_error_fmt(inst, "Invalid dataLossCycles '%s' (cycles, at least 1)", val);
+        XML_StopParser(inst->parser, 0);
+        return;
+      }
       continue;
     }
 

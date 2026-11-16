@@ -6,8 +6,10 @@
 # (content "0" = down, "1" = up). The test brings the bus to OP, drops the link
 # and confirms the master reports the slave lost (link-up / slaves-responding /
 # slave-online all fall), then restores the link and confirms the master
-# rescans and drives the slave back to OP. Failure is signalled by the exit
-# value (checkresult is a no-op).
+# rescans and drives the slave back to OP. data-ok, the per-cycle working
+# counter check, has to follow both ways (the conf sets dataLossCycles, so the
+# attribute is parsed; the count itself is tests/ethercat/data-ok-count).
+# Failure is signalled by the exit value (checkresult is a no-op).
 . "$(dirname "$0")/../../hal-stream-driver.sh"
 
 # Start with the link up (no control file); clean up any stale one from a
@@ -32,23 +34,28 @@ fail=0
 
 # 1. Bring the bus to OP.
 wait_pin ethercat.0.all-op TRUE || { echo "FAIL: master never reached OP" >&2; fail=1; }
+wait_pin ethercat.0.data-ok TRUE || { echo "FAIL: data-ok not TRUE in OP" >&2; fail=1; }
+wait_pin ethercat.data-ok TRUE   || { echo "FAIL: global data-ok not TRUE in OP" >&2; fail=1; }
 echo "OP:   link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) oper=$(getp ethercat.0.io.slave-oper)"
 
 # 2. Drop the link — the slave must be reported lost.
 echo 0 > bus.sim.link
 wait_pin ethercat.0.link-up FALSE       || { echo "FAIL: link-up did not drop on link loss" >&2; fail=1; }
+wait_pin ethercat.0.data-ok FALSE       || { echo "FAIL: data-ok stayed TRUE after link loss" >&2; fail=1; }
+wait_pin ethercat.data-ok FALSE         || { echo "FAIL: global data-ok stayed TRUE after link loss" >&2; fail=1; }
 wait_pin ethercat.0.io.slave-online FALSE || { echo "FAIL: slave stayed online after link loss" >&2; fail=1; }
 # all-op is the AND over the configured slaves, so losing one must clear it.
 wait_pin ethercat.0.all-op FALSE        || { echo "FAIL: all-op stayed TRUE after link loss" >&2; fail=1; }
 wait_pin ethercat.0.slaves-responding 0 || { echo "FAIL: slaves-responding not 0 on link loss" >&2; fail=1; }
-echo "DOWN: link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) online=$(getp ethercat.0.io.slave-online) all-op=$(getp ethercat.0.all-op)"
+echo "DOWN: link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) online=$(getp ethercat.0.io.slave-online) all-op=$(getp ethercat.0.all-op) data-ok=$(getp ethercat.0.data-ok)"
 
 # 3. Restore the link — the master must rescan and return the slave to OP.
 echo 1 > bus.sim.link
 wait_pin ethercat.0.link-up TRUE        || { echo "FAIL: link did not recover" >&2; fail=1; }
 wait_pin ethercat.0.io.slave-oper TRUE  || { echo "FAIL: slave did not return to OP after rejoin" >&2; fail=1; }
 wait_pin ethercat.0.all-op TRUE         || { echo "FAIL: all-op did not recover after rejoin" >&2; fail=1; }
-echo "UP:   link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) oper=$(getp ethercat.0.io.slave-oper) all-op=$(getp ethercat.0.all-op)"
+wait_pin ethercat.0.data-ok TRUE        || { echo "FAIL: data-ok did not recover after rejoin" >&2; fail=1; }
+echo "UP:   link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) oper=$(getp ethercat.0.io.slave-oper) all-op=$(getp ethercat.0.all-op) data-ok=$(getp ethercat.0.data-ok)"
 
 rm -f bus.sim.link
 halcmd stop >/dev/null 2>&1
