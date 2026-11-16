@@ -67,10 +67,10 @@ const (
 // feedCap is the leg feed ring's size in records (pnp_rt.h, the leg feed).
 const feedCap = C.PNP_RT_FEED_CAP
 
-// firstFrameTimeout bounds Start's wait for the cycle function's first run.
-// The servo thread runs it every millisecond; a second without it means it is
-// on no thread. A variable so the tests can shorten it.
-var firstFrameTimeout = time.Second
+// firstFrameTimeout is the default for loopTiming.firstFrame: it bounds
+// Start's wait for the cycle function's first run. The servo thread runs it
+// every millisecond; a second without it means it is on no thread.
+const firstFrameTimeout = time.Second
 
 type (
 	inFrame  = C.pnp_rt_in_t

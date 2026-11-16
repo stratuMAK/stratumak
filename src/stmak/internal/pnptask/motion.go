@@ -33,7 +33,7 @@ const (
 	moveFuzz = motsetup.CartFuzz
 )
 
-var (
+const (
 	// dispatchSettleTicks is how many good status reads pass between
 	// dispatching motion and the first in-position check. Status published
 	// before a motctl command still describes the machine before it; rtStatus

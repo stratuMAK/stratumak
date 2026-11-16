@@ -568,8 +568,9 @@ func TestJobPlaceOffset(t *testing.T) {
 func TestJobStartsJustOutsideALimit(t *testing.T) {
 	f := newJobFixtureOpts(t, fixtureOpts{})
 	// The limits are pushed at start; the machine parks at Y 100, 0.05 below
-	// this minimum.  Set before the first job reads them.
-	f.m.limits.AxisMinPos[1] = 100.05
+	// this minimum.  Set before the first job reads them, on the control
+	// goroutine they belong to once it runs.
+	f.sim.inLoop(t, func() { f.m.limits.AxisMinPos[1] = 100.05 })
 	f.homed()
 	f.mot.setPos(100, 100, 60)
 	f.selectTray(1)
@@ -798,7 +799,6 @@ func TestJobNaNZOffsetFaults(t *testing.T) {
 // drain check the PRE-dispatch picture (standing still, queue empty) and let
 // the full-stop barrier pass while the machine is still moving.
 func TestWaitMotionDoneIgnoresStaleSnapshotAfterDispatch(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
 	mot := newFakeMotion(m.cfg.NumJoints)

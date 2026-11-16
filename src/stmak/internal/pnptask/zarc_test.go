@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -109,43 +110,51 @@ func sq(v float64) float64 { return v * v }
 // travel -- the place's descent too, since the simulated fixture reports
 // released while the head is on its way -- and the job ends with the head up.
 func TestZCornerArcs(t *testing.T) {
+	// One subtest per fixture: each one's cleanup stops its control loop
+	// before the next fixture exists, so no two loops ever run side by side.
 	for _, smooth := range []bool{false, true} {
-		f := newJobFixtureOpts(t, zCornerOpts(10, func(c *Config) { c.SmoothPaths = smooth }, nil))
-		f.homed()
-		f.selectTray(1)
-		f.fillTray(0)
-		f.mot.setPos(100, 100, 60)
-		f.mot.resetCalls()
-		f.runJob(10, 20, 0)
-		f.requireOK("tray -> proc with Z corner arcs")
+		t.Run(fmt.Sprintf("smooth=%v", smooth), func(t *testing.T) {
+			testZCornerArcs(t, smooth)
+		})
+	}
+}
 
-		moves := f.mot.moveList()
-		// [PNPTASK_ROUTE_0]: the movement height for 10 -> 20 is 15 mm.
-		const height = 15.0
-		lifts, descents := zArcCheck(t, moves, motctl.Pose{X: 100, Y: 100, Z: 60}, height)
-		if lifts != 1 || descents != 2 {
-			t.Errorf("smooth %v: %d lift and %d descent arcs, want one lift (tray slot) and two descents (slot, station)", smooth, lifts, descents)
+func testZCornerArcs(t *testing.T, smooth bool) {
+	f := newJobFixtureOpts(t, zCornerOpts(10, func(c *Config) { c.SmoothPaths = smooth }, nil))
+	f.homed()
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.setPos(100, 100, 60)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc with Z corner arcs")
+
+	moves := f.mot.moveList()
+	// [PNPTASK_ROUTE_0]: the movement height for 10 -> 20 is 15 mm.
+	const height = 15.0
+	lifts, descents := zArcCheck(t, moves, motctl.Pose{X: 100, Y: 100, Z: 60}, height)
+	if lifts != 1 || descents != 2 {
+		t.Errorf("smooth %v: %d lift and %d descent arcs, want one lift (tray slot) and two descents (slot, station)", smooth, lifts, descents)
+	}
+	// The descent into the slot: the tray's stroke is 15 - 2.5 = 12.5 mm,
+	// so the arc keeps its 10 mm and the stroke below it 2.5 mm. Into the
+	// station: 15 - 5 = 10 mm, so the arc gets 9 and the stroke 1 mm.
+	for i, m := range moves {
+		if !m.arc || m.normal.Z != 0 || m.pos.Z >= moves[i-1].pos.Z {
+			continue
 		}
-		// The descent into the slot: the tray's stroke is 15 - 2.5 = 12.5 mm,
-		// so the arc keeps its 10 mm and the stroke below it 2.5 mm. Into the
-		// station: 15 - 5 = 10 mm, so the arc gets 9 and the stroke 1 mm.
-		for i, m := range moves {
-			if !m.arc || m.normal.Z != 0 || m.pos.Z >= moves[i-1].pos.Z {
-				continue
-			}
-			wantArc, wantStroke := height-10, 2.5
-			if m.pos.X == 300 && m.pos.Y == 200 {
-				wantArc, wantStroke = height-9, 5
-			}
-			if math.Abs(m.pos.Z-wantArc) > 1e-9 || moves[i+1].pos.Z != wantStroke {
-				t.Errorf("smooth %v: descent arc at (%g, %g) to Z %.3f, stroke to %.3f; want %g and %g",
-					smooth, m.pos.X, m.pos.Y, m.pos.Z, moves[i+1].pos.Z, wantArc, wantStroke)
-			}
+		wantArc, wantStroke := height-10, 2.5
+		if m.pos.X == 300 && m.pos.Y == 200 {
+			wantArc, wantStroke = height-9, 5
 		}
-		last := moves[len(moves)-1]
-		if last.pos.Z != height || last.termCond != tpTermCondStop || last.pos.X != 300 || last.pos.Y != 200 {
-			t.Errorf("smooth %v: the job ends with %+v, want the lift at the station, an exact stop", smooth, last)
+		if math.Abs(m.pos.Z-wantArc) > 1e-9 || moves[i+1].pos.Z != wantStroke {
+			t.Errorf("smooth %v: descent arc at (%g, %g) to Z %.3f, stroke to %.3f; want %g and %g",
+				smooth, m.pos.X, m.pos.Y, m.pos.Z, moves[i+1].pos.Z, wantArc, wantStroke)
 		}
+	}
+	last := moves[len(moves)-1]
+	if last.pos.Z != height || last.termCond != tpTermCondStop || last.pos.X != 300 || last.pos.Y != 200 {
+		t.Errorf("smooth %v: the job ends with %+v, want the lift at the station, an exact stop", smooth, last)
 	}
 }
 

@@ -96,7 +96,7 @@ type heldRecord struct {
 // persistRetryDelay is how long the writer backs off after a failed SetEntry
 // before retrying the key. Failures are expected to be transient (a locked
 // sqlite file); the latest value is kept and re-tried until it lands.
-var persistRetryDelay = time.Second
+const persistRetryDelay = time.Second
 
 // persistStore is the optional persist_sqlite backing of the world model (D6).
 // Every method tolerates a nil receiver, which is what "no persist_instance="

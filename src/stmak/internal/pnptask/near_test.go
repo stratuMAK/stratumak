@@ -231,7 +231,8 @@ func TestLowMoveLiftsBeforeOpeningAClosedPicker(t *testing.T) {
 	}
 
 	// The other picker is closed by hand on nothing and stays so (§8).
-	f.m.pins.pickers[1].close.Set(true)
+	// The output stage belongs to the control goroutine (it commits it).
+	f.sim.inLoop(t, func() { f.m.pins.pickers[1].close.Set(true) })
 	f.sampled()
 
 	f.mot.resetCalls()
