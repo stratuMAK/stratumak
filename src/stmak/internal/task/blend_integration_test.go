@@ -104,6 +104,7 @@ func newBlendCanonTask(t *testing.T) (*Task, *recordingMotion) {
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, &mockIO{}, st, logger)
+	t.Cleanup(task.Shutdown)
 	applyBlendLimits(task) // shared axis mask + per-axis vel/acc limits (S2)
 	task.maxAcceleration = 600
 	task.numJoints = 3
@@ -226,6 +227,7 @@ func runNGCViaInterpRec(t *testing.T, program string) *recordingMotion {
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, &mockIO{}, st, logger)
+	t.Cleanup(task.Shutdown)
 	applyBlendLimits(task) // shared axis mask + per-axis vel/acc limits (S2)
 	task.maxAcceleration = 600
 	task.numJoints = 3

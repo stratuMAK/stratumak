@@ -12,7 +12,7 @@ import (
 // pin motion_file — the field a UI must check before it highlights a line.
 
 func TestBuildStatReportsExecutingFile(t *testing.T) {
-	task, ms := newRichTestTask()
+	task, ms := newRichTestTask(t)
 	bringUp(t, task)
 
 	// Segment 7 is the one motion echoes back (richMockStatus Id: 7).
@@ -35,7 +35,7 @@ func TestBuildStatReportsExecutingFile(t *testing.T) {
 }
 
 func TestBuildStatMotionFileEmptyWhenNothingTagged(t *testing.T) {
-	task, ms := newRichTestTask()
+	task, ms := newRichTestTask(t)
 	bringUp(t, task)
 
 	// Nothing registered for this id: idle, or the window before a
@@ -55,7 +55,7 @@ func TestBuildStatMotionFileEmptyWhenNothingTagged(t *testing.T) {
 // branch opened the sub by a cwd-relative path. Clients resolve motion_file
 // against the server to fetch its text, so it must leave here absolute.
 func TestCanonAbsolutisesRelativeFileNames(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	c := task.canon
 
 	c.task.interp = &fakeFileInterp{name: "subs/drill.ngc"}
@@ -86,7 +86,7 @@ func TestCanonAbsolutisesRelativeFileNames(t *testing.T) {
 // mid-execute — an MDI `o<sub> call` runs an entire sub inside one Execute,
 // so a per-line snapshot would attribute all of it to the wrong file.
 func TestCanonFileTracksMidExecuteSwitch(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	c := task.canon
 
 	fi := &fakeFileInterp{name: "/programs/main.ngc"}

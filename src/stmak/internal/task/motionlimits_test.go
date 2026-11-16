@@ -30,16 +30,17 @@ func applyBlendLimits(t *Task) {
 	t.axisMaxAcc = blendMaxAcc
 }
 
-func newBlendTestTask() *Task {
-	t := &Task{}
-	applyBlendLimits(t)
-	return t
+func newBlendTestTask(t *testing.T) *Task {
+	t.Helper()
+	task := &Task{}
+	applyBlendLimits(task)
+	return task
 }
 
 func p(x, y, z float64) Pose { return Pose{X: x, Y: y, Z: z} }
 
 func TestStraightLimits_PerAxisBlend(t *testing.T) {
-	task := newBlendTestTask()
+	task := newBlendTestTask(t)
 	const eps = 1e-6
 	cases := []struct {
 		name             string
@@ -68,7 +69,7 @@ func TestStraightLimits_PerAxisBlend(t *testing.T) {
 
 // A move to nowhere yields zero (caller falls back to the programmed feed).
 func TestStraightLimits_MoveToNowhere(t *testing.T) {
-	task := newBlendTestTask()
+	task := newBlendTestTask(t)
 	velMax, accMax, cart, ang := task.straightLimits(p(1, 2, 3), p(1, 2, 3))
 	if velMax != 0 || accMax != 0 || cart || ang {
 		t.Errorf("move to nowhere: got vel=%v acc=%v cart=%v ang=%v, want all zero/false", velMax, accMax, cart, ang)
@@ -79,8 +80,8 @@ func TestStraightLimits_MoveToNowhere(t *testing.T) {
 // helical/aux-axis traversal time. Expected values hand-derived from the C++
 // ARC_FEED and confirmed byte-for-byte against the old milltask.
 func TestArcLimits(t *testing.T) {
-	task := newBlendTestTask() // X:40/600 Y:25/400 Z:8/120
-	const feed = 800.0 / 60.0  // F800 -> 13.333 mm/s
+	task := newBlendTestTask(t) // X:40/600 Y:25/400 Z:8/120
+	const feed = 800.0 / 60.0   // F800 -> 13.333 mm/s
 	const eps = 1e-3
 	cases := []struct {
 		name                            string

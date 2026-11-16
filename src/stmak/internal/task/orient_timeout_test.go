@@ -24,19 +24,20 @@ func (s *orientStatus) GetStatus() (motstat.MotionStatus, error) {
 	return ms, nil
 }
 
-func newOrientTask(orientState int32) *Task {
+func newOrientTask(t *testing.T, orientState int32) *Task {
+	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	t := NewTask(&testMotion{failAt: -1}, &mockIO{}, &orientStatus{orientState: orientState}, logger)
-	t.seqAbort = make(chan struct{}) // never closed: exercises the timeout/complete paths, not abort
-	return t
+	task := NewTask(&testMotion{failAt: -1}, &mockIO{}, &orientStatus{orientState: orientState}, logger)
+	t.Cleanup(task.Shutdown)
+	task.seqAbort = make(chan struct{}) // never closed: exercises the timeout/complete paths, not abort
+	return task
 }
 
 // A spindle stuck IN_PROGRESS must fault the wait once the M19 timeout elapses,
 // not hang the run forever. Regression guard for the dropped orient timeout.
 func TestWaitSpindleOriented_Timeout(t *testing.T) {
-	restore := SetPollInterval(1 * time.Millisecond)
-	defer restore()
-	task := newOrientTask(1) // OrientState=1: never completes
+	task := newOrientTask(t, 1) // OrientState=1: never completes
+	task.SetPollInterval(1 * time.Millisecond)
 
 	start := time.Now()
 	err := task.waitSpindleOriented(0.03) // 30ms timeout
@@ -62,9 +63,8 @@ func TestWaitSpindleOriented_Timeout(t *testing.T) {
 // The timeout must not disturb the normal completion path: an already-oriented
 // spindle returns cleanly, well within the timeout.
 func TestWaitSpindleOriented_CompletesBeforeTimeout(t *testing.T) {
-	restore := SetPollInterval(1 * time.Millisecond)
-	defer restore()
-	task := newOrientTask(0) // OrientState=0: complete
+	task := newOrientTask(t, 0) // OrientState=0: complete
+	task.SetPollInterval(1 * time.Millisecond)
 
 	if err := task.waitSpindleOriented(10.0); err != nil {
 		t.Fatalf("expected clean completion, got %v", err)
@@ -80,9 +80,8 @@ func TestWaitSpindleOriented_CompletesBeforeTimeout(t *testing.T) {
 // A non-positive timeout keeps the legacy wait-indefinitely behavior; abort
 // still ends it. (Confirms the nil-timer select case never fires spuriously.)
 func TestWaitSpindleOriented_ZeroTimeoutWaitsThenAborts(t *testing.T) {
-	restore := SetPollInterval(1 * time.Millisecond)
-	defer restore()
-	task := newOrientTask(1) // stuck in progress
+	task := newOrientTask(t, 1) // stuck in progress
+	task.SetPollInterval(1 * time.Millisecond)
 
 	done := make(chan error, 1)
 	go func() { done <- task.waitSpindleOriented(0) }()

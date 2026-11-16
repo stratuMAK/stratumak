@@ -25,7 +25,7 @@ func filterTask(t *testing.T, script string) (*Task, string) {
 		t.Fatal(err)
 	}
 	pathres.SetDefaultForTest(t, dir)
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 	task.iniGet = func(section, key string) string {
 		if section == "FILTER" && key == "tst" {
@@ -43,7 +43,10 @@ func filterTask(t *testing.T, script string) (*Task, string) {
 		return ""
 	}, dir)
 	t.Cleanup(func() {
-		task.cancelFiltering()
+		// Shutdown joins the filter goroutine before the directory goes and
+		// before SetDefaultForTest's cleanup (registered earlier, so run
+		// later) restores the path defaults the goroutine reads.
+		task.Shutdown()
 		_ = os.RemoveAll(pathres.FilteredDir())
 	})
 	return task, dir

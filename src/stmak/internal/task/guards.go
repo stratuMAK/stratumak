@@ -143,10 +143,10 @@ func (t *Task) restoreModeTx() {
 	}
 }
 
-// coordSwitchTimeout bounds how long a command waits for motion to enter
+// defaultCoordSwitchTimeout bounds how long a command waits for motion to enter
 // coordinated mode. Motion makes the switch only in position, so this covers
 // a jog still running out (plus the jerk-filter window) when an MDI arrives.
-var coordSwitchTimeout = 2 * time.Second
+const defaultCoordSwitchTimeout = 2 * time.Second
 
 // errNotCoord is returned when motion did not enter coordinated mode.
 var errNotCoord = fmt.Errorf("motion did not enter coordinated mode (axis still moving?)")
@@ -221,7 +221,7 @@ func (t *Task) ensureCoordLocked() error {
 // nothing moves to wait for. errCoordAborted ends the wait when an abort was
 // signalled after abortSeq was read, errNotCoord when the timeout runs out.
 func (t *Task) waitMotionCoord(abortSeq uint64) error {
-	deadline := time.Now().Add(coordSwitchTimeout)
+	deadline := time.Now().Add(t.coordSwitchTimeout())
 	for {
 		ms, err := t.status.GetStatus()
 		if err != nil || ms.Enabled == 0 || (ms.Coord != 0 && ms.Teleop == 0) {
@@ -234,7 +234,7 @@ func (t *Task) waitMotionCoord(abortSeq uint64) error {
 			return errNotCoord
 		}
 		_ = t.motion.SetCoord()
-		time.Sleep(pollInterval)
+		time.Sleep(t.pollInterval())
 	}
 }
 
@@ -250,7 +250,7 @@ func (t *Task) waitMotionFree() {
 		// Retry sending SetFree (motion may have rejected due to !INPOS,
 		// e.g. a teleop jog still running out).
 		_ = t.motion.SetFree()
-		time.Sleep(pollInterval)
+		time.Sleep(t.pollInterval())
 	}
 }
 
@@ -265,7 +265,7 @@ func (t *Task) waitMotionTeleop() bool {
 		}
 		// Retry sending SetTeleop (motion may have rejected due to !INPOS).
 		_ = t.motion.SetTeleop()
-		time.Sleep(pollInterval)
+		time.Sleep(t.pollInterval())
 	}
 	return false
 }

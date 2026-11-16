@@ -132,7 +132,7 @@ func TestTapping_SequencerDefersPauseAndStep(t *testing.T) {
 	for _, mode := range []string{"pause", "step"} {
 		t.Run(mode, func(t *testing.T) {
 			task, mot := newBlendCanonTask(t)
-			defer task.StopSequencer()
+			defer task.Shutdown()
 			mark := func(n string) QueuedCmd { return &markCmd{n, mot} }
 			events := mot.eventLog
 			gate := &gateCmd{make(chan struct{}), make(chan struct{})}

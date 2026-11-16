@@ -9,7 +9,7 @@ import "testing"
 // out of an MDI or a finished program leaves motion in.
 func wheelTestTask(t *testing.T) (*Task, *mockMotion, *mockStatus, *halUI) {
 	t.Helper()
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)

@@ -27,7 +27,7 @@ import (
 // slow value and break the thread. Mutation: reverting RigidTap to feedLimits
 // makes cmd.Vel == the feed rate and this fails.
 func TestCanon_RigidTapVelocityUnclampedByFeed(t *testing.T) {
-	task, _, _ := newCanonTestTask()
+	task, _, _ := newCanonTestTask(t)
 	applyBlendLimits(task) // per-axis straight max: X40 Y25 Z8 (mm/s)
 	c := task.canon
 
@@ -88,12 +88,12 @@ func (s *edgeInputStatus) GetSynchDi(i int32) (int32, error) {
 
 func newEdgeInputTask(t *testing.T, di func() int32) *Task {
 	t.Helper()
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 	stat := &edgeInputStatus{di: di}
 	stat.inPosition.Store(true) // waitMotionDone returns immediately
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(&testMotion{failAt: -1}, &mockIO{}, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.mu.Lock()
 	task.seqAbort = make(chan struct{}) // non-nil so Execute's abort select is valid
 	task.mu.Unlock()
@@ -175,21 +175,21 @@ func TestCanon_WaitInputRiseFallAreEdges(t *testing.T) {
 // Mutation: making the not-was-ON estop branch skip restartSequencer leaves the
 // sequencer dead — EnqueueCmd errors / the move never dispatches — and this fails.
 func TestSetState_EstopWhileEstoppedKeepsSequencerAlive(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &recordMotion{}
 	io := &mockIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.SetIOStatusReader(io)
 	task.noForceHoming = true
 	task.numSpindles = 1
 
 	bringUp(t, task) // estop-reset → on
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// First ESTOP from ON: was-ON, machineShutdown restarts the sequencer.
 	if err := task.SetState(int32(StateEstop)); err != nil {
@@ -226,14 +226,14 @@ func TestSetState_EstopWhileEstoppedKeepsSequencerAlive(t *testing.T) {
 // paths to `setInterpState(InterpIdle); return err` (no faultMDI) leaves
 // motion.Abort uncalled and execState != ExecError — this fails.
 func TestMDI_InterpErrorAbortsMotionAndFaults(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &recordMotion{}
 	io := &mockIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.SetIOStatusReader(io)
 	task.noForceHoming = true
 
@@ -251,7 +251,7 @@ func TestMDI_InterpErrorAbortsMotionAndFaults(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	if err := task.MDI("o<x> call"); err == nil {
 		t.Fatal("MDI with an interpreter error returned nil, want an error")
@@ -280,7 +280,7 @@ func TestMDI_InterpErrorAbortsMotionAndFaults(t *testing.T) {
 // Mutation: dropping the `gen != t.mdiGen` staleness check makes the stale
 // finishMDI drive InterpIdle/ExecDone over MDI-2 and this fails.
 func TestFinishMDI_StaleGenerationIsNoop(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	task.noForceHoming = true
 	task.SetInterpreter(&fakeInterp{})
 
@@ -305,7 +305,7 @@ func TestFinishMDI_StaleGenerationIsNoop(t *testing.T) {
 // removing the `execState == ExecError` early-return in finishMDI makes it
 // commit ExecDone and this fails.
 func TestFinishMDI_DoesNotDowngradeExecError(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	task.noForceHoming = true
 	task.SetInterpreter(&fakeInterp{})
 
@@ -331,14 +331,14 @@ func TestFinishMDI_DoesNotDowngradeExecError(t *testing.T) {
 // cmd3 must never run. Mutation: reverting executeMDI's error path to log-only
 // (no faultMDI flush) leaves cmd3 queued and a subsequent finishMDI would run it.
 func TestFinishMDI_FailedDequeuedMDIFlushesQueue(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &recordMotion{}
 	io := &mockIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.SetIOStatusReader(io)
 	task.noForceHoming = true
 
@@ -357,7 +357,7 @@ func TestFinishMDI_FailedDequeuedMDIFlushesQueue(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// MDI-1 "running" with two more queued; finishMDI(1) dequeues cmd2.
 	task.mu.Lock()

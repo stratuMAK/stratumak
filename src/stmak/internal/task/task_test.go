@@ -273,17 +273,19 @@ func (m *mockStatus) GetCommandStatus() (int32, error)      { return 0, nil }
 func (m *mockStatus) GetSynchDi(int32) (int32, error)       { return 0, nil }
 func (m *mockStatus) GetAnalogInput(int32) (float64, error) { return 0, nil }
 
-func newTestTask() (*Task, *mockMotion, *mockIO) {
+func newTestTask(t *testing.T) (*Task, *mockMotion, *mockIO) {
+	t.Helper()
 	mot := &mockMotion{}
 	io := &mockIO{}
 	stat := &mockStatus{mot: mot}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	t := NewTask(mot, io, stat, logger)
-	t.SetIOStatusReader(io)
+	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetIOStatusReader(io)
 	// Match production's default (config.go: [TRAJ]SPINDLES default 1) so the
 	// task-layer spindle range check accepts spindle 0.
-	t.numSpindles = 1
-	return t, mot, io
+	task.numSpindles = 1
+	return task, mot, io
 }
 
 // bringUp transitions the task from estop to ON.
@@ -298,7 +300,7 @@ func bringUp(t *testing.T, task *Task) {
 }
 
 func TestSetState_PowerOn(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 
 	// Can't go directly to ON from estop
 	err := task.SetState(int32(StateOn))
@@ -328,7 +330,7 @@ func TestSetState_PowerOn(t *testing.T) {
 // enabled so the reported mode tracks the selector; the motion-mode side
 // effects are no-ops while motion is disabled.
 func TestSetMode_AllowedInEstop(t *testing.T) {
-	task, _, _ := newTestTask() // fresh task is in ESTOP
+	task, _, _ := newTestTask(t) // fresh task is in ESTOP
 
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("SetMode(Auto) in estop: unexpected error %v", err)
@@ -339,7 +341,7 @@ func TestSetMode_AllowedInEstop(t *testing.T) {
 }
 
 func TestSetMode_AutoSetCoord(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
@@ -373,7 +375,7 @@ func (h *homedStatus) GetStatus() (motstat.MotionStatus, error) {
 // TELEOP (world/axis jog), otherwise FREE (per-joint jog).
 func TestSetMode_ManualJogMode(t *testing.T) {
 	t.Run("unhomed->SetFree", func(t *testing.T) {
-		task, mot, _ := newTestTask()
+		task, mot, _ := newTestTask(t)
 		task.numJoints = 3 // mockStatus reports all joints unhomed
 		bringUp(t, task)
 		if err := task.SetMode(int32(ModeAuto)); err != nil {
@@ -389,7 +391,7 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 	})
 
 	t.Run("homed->SetTeleop", func(t *testing.T) {
-		task, mot, _ := newTestTask()
+		task, mot, _ := newTestTask(t)
 		task.status = &homedStatus{mockStatus: mockStatus{mot: mot}, homed: 3}
 		task.numJoints = 3
 		bringUp(t, task)
@@ -407,7 +409,7 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 }
 
 func TestJog_RequiresOn(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 
 	err := task.Jog(JogContinuous, true, 0, 100, 0)
 	if !errors.Is(err, ErrNotOn) {
@@ -416,7 +418,7 @@ func TestJog_RequiresOn(t *testing.T) {
 }
 
 func TestJog_ManualMode(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 
 	if err := task.Jog(JogContinuous, true, 0, 100, 0); err != nil {
@@ -428,7 +430,7 @@ func TestJog_ManualMode(t *testing.T) {
 }
 
 func TestJog_MDIBusyRejects(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
@@ -446,7 +448,7 @@ func TestJog_MDIBusyRejects(t *testing.T) {
 // ensureMode used to see "already MDI" and return, and every MDI line after
 // the jog failed in motion with "need to be enabled, in coord mode".
 func TestEnsureMode_MDIAfterJogReentersCoord(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
@@ -478,16 +480,14 @@ func (m *refuseCoordMotion) SetCoord() error { m.setCall("SetCoord"); return nil
 // When motion does not enter coordinated mode, the MDI is refused with a
 // reason instead of queueing lines motion will reject one by one.
 func TestEnsureMode_MDIRefusedWhenMotionStaysOutOfCoord(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	defer restore()
-	old := coordSwitchTimeout
-	coordSwitchTimeout = 20 * time.Millisecond
-	defer func() { coordSwitchTimeout = old }()
 
 	mot := &refuseCoordMotion{}
 	io := &mockIO{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, &mockStatus{mot: &mot.mockMotion}, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
+	task.timing.coordSwitch.Store(int64(20 * time.Millisecond))
 	task.SetIOStatusReader(io)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); !errors.Is(err, errNotCoord) {
@@ -509,16 +509,14 @@ func TestEnsureMode_MDIRefusedWhenMotionStaysOutOfCoord(t *testing.T) {
 // mode, with the coord wait shortened to timeout.
 func refuseCoordTask(t *testing.T, timeout time.Duration) (*Task, *refuseCoordMotion) {
 	t.Helper()
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
-	old := coordSwitchTimeout
-	coordSwitchTimeout = timeout
-	t.Cleanup(func() { coordSwitchTimeout = old })
 
 	mot := &refuseCoordMotion{}
 	io := &mockIO{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, &mockStatus{mot: &mot.mockMotion}, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
+	task.timing.coordSwitch.Store(int64(timeout))
 	task.SetIOStatusReader(io)
 	bringUp(t, task)
 	return task, mot
@@ -577,11 +575,6 @@ func (s *droppingStatus) GetStatus() (motstat.MotionStatus, error) {
 // Motion going off during the wait (an ESTOP) ends it as well: nothing moves
 // to wait for, and the mode is accepted as it is while the machine is off.
 func TestSetMode_EstopEndsCoordWait(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
-	old := coordSwitchTimeout
-	coordSwitchTimeout = 5 * time.Second
-	t.Cleanup(func() { coordSwitchTimeout = old })
 
 	mot := &refuseCoordMotion{}
 	io := &mockIO{}
@@ -589,6 +582,9 @@ func TestSetMode_EstopEndsCoordWait(t *testing.T) {
 	st.enabled.Store(1)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, st, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
+	task.timing.coordSwitch.Store(int64(5 * time.Second))
 	task.SetIOStatusReader(io)
 	bringUp(t, task)
 
@@ -616,7 +612,7 @@ func TestSetMode_EstopEndsCoordWait(t *testing.T) {
 // Verified: with no program loaded the error is ErrNoProgram (the mode switch
 // happened and the run path ran), NOT ErrWrongMode (rejected in manual).
 func TestAutoCommand_EnsureModeWhenIdle(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 
 	err := task.AutoCommand(AutoRun, 0)
@@ -626,7 +622,7 @@ func TestAutoCommand_EnsureModeWhenIdle(t *testing.T) {
 }
 
 func TestEnsureMode_RejectsWhenBusy(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("SetMode(Auto): %v", err)
@@ -645,7 +641,7 @@ func TestEnsureMode_RejectsWhenBusy(t *testing.T) {
 }
 
 func TestAutoCommand_RunRequiresProgram(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("SetMode(Auto): %v", err)
@@ -658,7 +654,7 @@ func TestAutoCommand_RunRequiresProgram(t *testing.T) {
 }
 
 func TestAutoCommand_PauseCallsMotion(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("SetMode(Auto): %v", err)
@@ -681,7 +677,7 @@ func TestAutoCommand_PauseCallsMotion(t *testing.T) {
 // with no program running must NOT set InterpPaused (nothing would ever lift it,
 // wedging programBusy() until Abort/E-stop) and must not call motion.Pause.
 func TestAutoCommand_PauseWhileIdleIsNoop(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("SetMode(Auto): %v", err)
@@ -707,7 +703,7 @@ func TestAutoCommand_PauseWhileIdleIsNoop(t *testing.T) {
 }
 
 func TestFlood_On(t *testing.T) {
-	task, _, io := newTestTask()
+	task, _, io := newTestTask(t)
 	bringUp(t, task)
 
 	if err := task.Flood(true); err != nil {
@@ -719,7 +715,7 @@ func TestFlood_On(t *testing.T) {
 }
 
 func TestAbort_AlwaysSucceeds(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 
 	if err := task.Abort(); err != nil {
 		t.Fatalf("abort: %v", err)
@@ -735,7 +731,7 @@ func TestAbort_AlwaysSucceeds(t *testing.T) {
 }
 
 func TestSpindle_Forward(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 
 	if err := task.Spindle(SpindleForward, 1000, 0, 0); err != nil {
@@ -750,7 +746,7 @@ func TestSpindle_Forward(t *testing.T) {
 // broadcast (accepted end-to-end), and an index past the configured spindle
 // count is rejected by the authoritative task-layer check.
 func TestSpindle_BroadcastAndRange(t *testing.T) {
-	task, mot, _ := newTestTask() // numSpindles = 1
+	task, mot, _ := newTestTask(t) // numSpindles = 1
 	bringUp(t, task)
 
 	if err := task.Spindle(SpindleForward, 1000, -1, 0); err != nil {
@@ -783,7 +779,7 @@ func TestProgramOpen_AnyModeAnyState(t *testing.T) {
 		}
 	}
 
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 
 	// Works in MANUAL mode (no mode guard)
@@ -815,7 +811,7 @@ func TestSetState_EstopKeepsLoadedProgram(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 	if err := task.ProgramOpen("keep.ngc"); err != nil {
 		t.Fatalf("ProgramOpen: %v", err)
@@ -851,21 +847,21 @@ func TestSetState_EstopKeepsLoadedProgram(t *testing.T) {
 // can express (they all restart at zero and can collide with what the client
 // last saw).
 func TestBootID_DistinctPerTaskAndReportedInStat(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	if task.bootID == 0 {
 		t.Fatal("bootID not set")
 	}
 	if got := task.BuildStat().BootId; got != task.bootID {
 		t.Fatalf("stat.BootId = %d, want %d", got, task.bootID)
 	}
-	other, _, _ := newTestTask()
+	other, _, _ := newTestTask(t)
 	if other.bootID == task.bootID {
 		t.Fatal("two tasks report the same bootID — a restart would be invisible")
 	}
 }
 
 func TestHome_RequiresOn(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 
 	err := task.Home(0)
 	if !errors.Is(err, ErrNotOn) {
@@ -874,7 +870,7 @@ func TestHome_RequiresOn(t *testing.T) {
 }
 
 func TestHome_CallsMotion(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	bringUp(t, task)
 
 	if err := task.Home(0); err != nil {
