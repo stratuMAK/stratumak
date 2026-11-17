@@ -105,6 +105,7 @@ type motionControl interface {
 	SetTeleop() error
 	SetCoord() error
 	JointHome(joint int32) error
+	JointUnhome(joint int32) error
 	JogCont(num int32, vel float64, isTeleop int32) error
 	JogAbort(num int32, isTeleop int32) error
 
@@ -458,11 +459,11 @@ func (c *control) start() {
 
 // verifyRestoredHeld is the check behind a restored held record: the record
 // claims a part, the re-driven close output claims a grip — the gripper
-// feedback now says whether the part is actually there. Fully closed means it
-// is not: the jaws met each other, the part was lost in the downtime, so the
-// record is cleared and the picker opened, with a warning naming the station
-// the part came from — the alternative was refusing every job with
-// NO_FREE_PICKER over a phantom part, with nothing telling the operator why.
+// feedback now says whether the part is actually there. Fully closed says it
+// may not be: the jaws met each other, or the sensor reads high on a gripped
+// pin (D43). The record becomes material of unknown origin, with a warning
+// naming the station the part came from, and nothing is opened (D56): the
+// operator's manual open resolves it.
 //
 // Still opened is NOT that (pre-merge review 2026-09-08): it means the gripper
 // has not actuated yet — the close output was re-driven a few cycles ago, and
@@ -485,11 +486,18 @@ func (c *control) verifyRestoredHeld() (pending bool) {
 		}
 		switch {
 		case c.in.pickerClosed[n]:
+			// Nothing is opened here: the check runs when an estop clears or
+			// after a restart, with no command standing, and the closed
+			// sensor has read high on a gripped pin (D43) -- opening on its
+			// word dropped the part where the head stood. The close output
+			// stays as it is and the record becomes material of unknown
+			// origin: the picker counts occupied, no job starts from it, and
+			// the operator's manual open is what lets go of whatever is, or
+			// is not, in the jaws.
 			c.m.world.restoredHeld[n] = false
 			station := c.m.world.held[n].station
-			c.m.world.clearHeld(n)
-			c.m.pins.pickers[n].close.Set(false)
-			c.m.logger.Warn("pnptask: restored held material is gone, record cleared — there is a part to find",
+			c.m.world.unknownHeld(n)
+			c.m.logger.Warn("pnptask: the picker reads closed over its held material, the part may be gone — open the picker by hand",
 				"picker", n, "station", station)
 		case c.in.pickerOpened[n]:
 			if !c.heldVerifyWarned[n] {
@@ -1132,8 +1140,8 @@ func (c *control) enterEstop() {
 // leaveEstop schedules the grip check of D39: with ESTOP_KEEPS_GRIP the held
 // records outlived the estop, but the air behind the grippers may not have —
 // a part can have slipped out meanwhile. The check is the one a restored
-// record gets after a restart (verifyRestoredHeld): closed on nothing clears
-// the record with a warning, still opened waits for the gripper, anything
+// record gets after a restart (verifyRestoredHeld): closed makes it material
+// of unknown origin with a warning, still opened waits for the gripper, anything
 // else confirms it. After the pick settle time, so the feedback has settled
 // on the returning air.
 func (c *control) leaveEstop() {
@@ -1378,6 +1386,18 @@ func (c *control) allHomed() bool {
 	return true
 }
 
+func (c *control) anyHomed() bool {
+	if !c.statusOK {
+		return false
+	}
+	for j := 0; j < c.m.cfg.NumJoints; j++ {
+		if c.status.Joints[j].Homed != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *control) anyHoming() bool {
 	if !c.statusOK {
 		return false
@@ -1421,6 +1441,21 @@ func (c *control) runHoming() error {
 	c.nearAt = 0
 	c.lowAt = 0
 	c.dropLift()
+	// A machine that is homed already is homed again: the PLC asks for it when
+	// it has reason to doubt the reference (D58). motmod's sequence unhomes a
+	// joint only when its step starts, so between two steps every joint reads
+	// homed with none homing -- which is what the end looks like, and the
+	// status of before the command looks the same. All of them unhomed first,
+	// and seen unhomed, makes it the homing of an unhomed machine.
+	if c.anyHomed() {
+		if err := c.m.mc.JointUnhome(-1); err != nil {
+			return faultf(errHomingFailed, "unhoming before the home: %v", err)
+		}
+		if err := c.waitUntil(errHomingFailed, motionModeTimeout, "the joints to read unhomed",
+			func() bool { return c.statusOK && !c.anyHomed() }); err != nil {
+			return err
+		}
+	}
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
@@ -1458,6 +1493,13 @@ func (c *control) runHoming() error {
 		}
 	})
 	if err != nil {
+		// The wait gave up, the homing has not: a drive still in its homing
+		// mode can finish minutes later, and motmod's sequence would then
+		// start the next joints with no command standing. In free mode the
+		// abort cancels every joint's homing and the sequence with it.
+		if !errors.Is(err, errStopping) {
+			_ = c.m.mc.Abort()
+		}
 		return err
 	}
 	if !c.allHomed() {

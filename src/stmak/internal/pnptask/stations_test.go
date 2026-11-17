@@ -870,9 +870,10 @@ func TestEstopKeepsGrip(t *testing.T) {
 	}
 }
 
-// TestEstopKeepsGripPartLost (D39): the part slipped out while the estop had
-// the air off -- the gripper reads fully closed once it clears. The record goes,
-// with the close output, as for a restored record whose part is gone.
+// TestEstopKeepsGripPartLost (D39, D56): the part slipped out while the estop
+// had the air off -- the gripper reads fully closed once it clears. Nothing is
+// opened: the close output stays and the record becomes material of unknown
+// origin, as for a restored record that reads closed.
 func TestEstopKeepsGripPartLost(t *testing.T) {
 	f := newMachineFixtureOpts(t, fixtureOpts{
 		args:  []string{"pickers=2"},
@@ -889,11 +890,16 @@ func TestEstopKeepsGripPartLost(t *testing.T) {
 	f.consistently("closed feedback during the estop judges nothing", func() bool { return f.bit("picker.1.close") })
 
 	f.setBit(f.m.pins.estopOn, false)
-	f.eventually("the lost part's record and close output go", func() bool { return !f.bit("picker.1.close") })
+	f.eventually("the record of unknown origin", func() bool {
+		return f.bit("picker.1.holds") && f.get("picker.1.origin-id") == 0
+	})
+	if !f.bit("picker.1.close") {
+		t.Error("the grip check opened the picker")
+	}
 
 	w := f.stopped()
-	if w.held[1].present {
-		t.Errorf("held record after losing the part = %+v, want none", w.held[1])
+	if !w.held[1].present || w.held[1].station != 0 {
+		t.Errorf("held record after losing the part = %+v, want present with station 0", w.held[1])
 	}
 }
 

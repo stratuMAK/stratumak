@@ -763,6 +763,10 @@ func (m committedMotion) JointHome(joint int32) error {
 	m.before()
 	return m.note(m.motionControl.JointHome(joint))
 }
+func (m committedMotion) JointUnhome(joint int32) error {
+	m.before()
+	return m.note(m.motionControl.JointUnhome(joint))
+}
 func (m committedMotion) JogCont(num int32, vel float64, isTeleop int32) error {
 	m.before()
 	return m.note(m.motionControl.JogCont(num, vel, isTeleop))

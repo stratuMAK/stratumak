@@ -67,6 +67,18 @@ err = m.run_job(10, 20)
 pnpdrv.check_eq(err, 0, "a job on the already-homed machine completes")
 pnpdrv.check(m.get("homed"), "the machine is still homed afterwards")
 
+# ── homed again (D58) ───────────────────────────────────────────────────────
+# A home request on a homed machine homes it again -- the PLC asks when it
+# doubts the reference -- and leaves it ready for jobs.
+m.wait_still()
+m.pulse("home")
+m.cycles(10)
+m.wait(lambda s: s["homed"] and not s["busy"], "homed again")
+pnpdrv.check_eq(m.get("error-id"), 0, "a home request on a homed machine: no error")
+m.fill_tray(10, step=0)
+err = m.run_job(10, 20)
+pnpdrv.check_eq(err, 0, "... and a job runs afterwards")
+
 # The jog pins are inert in auto mode (§6.4).
 m.wait_still()
 at = m.get("picker.0.pos-x")

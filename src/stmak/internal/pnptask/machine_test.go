@@ -249,6 +249,16 @@ func (f *fakeMotion) JointHome(joint int32) error {
 	return nil
 }
 
+func (f *fakeMotion) JointUnhome(int32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("JointUnhome")
+	for j := 0; j < f.numJoints; j++ {
+		f.st.Joints[j].Homed = 0
+	}
+	return nil
+}
+
 func (f *fakeMotion) JogCont(num int32, vel float64, _ int32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1123,6 +1133,45 @@ func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
 	}
 }
 
+// TestHomeAgainUnhomesFirst (D58): a home request on a machine that is homed
+// already homes it again. The joints are unhomed first: motmod unhomes each
+// only when its sequence step starts, so a status with every joint homed is
+// both what stands before the command and what shows between two steps, and
+// neither is the end.
+func TestHomeAgainUnhomesFirst(t *testing.T) {
+	f := newMachineFixture(t)
+	f.machineOn()
+	f.setBit(f.m.pins.home, true)
+	f.eventually("homed", func() bool { return f.bit("homed") })
+	f.setBit(f.m.pins.home, false)
+	f.sampled()
+
+	f.mot.setHomingCycles(200)
+	f.setBit(f.m.pins.home, true)
+	f.eventually("the second home: not homed while it runs", func() bool { return !f.bit("homed") })
+	f.eventually("... and homed again at its end", func() bool { return f.bit("homed") })
+	if f.bit("error") {
+		t.Errorf("error latched by the second home (error-id %v)", f.get("error-id"))
+	}
+	f.mot.mu.Lock()
+	defer f.mot.mu.Unlock()
+	homes, unhomedBefore := 0, false
+	for i, c := range f.mot.calls {
+		if c != "JointHome" {
+			continue
+		}
+		homes++
+		if homes == 2 {
+			for _, b := range f.mot.calls[:i] {
+				unhomedBefore = unhomedBefore || b == "JointUnhome"
+			}
+		}
+	}
+	if homes != 2 || !unhomedBefore {
+		t.Errorf("home commands = %d, unhome before the second = %v (calls %v)", homes, unhomedBefore, f.mot.calls)
+	}
+}
+
 // A home that never completes ends as HOMING_FAILED rather than as a machine
 // that quietly waits forever, and error-reset clears the latch.
 func TestHomeTimeoutAndErrorReset(t *testing.T) {
@@ -1136,6 +1185,22 @@ func TestHomeTimeoutAndErrorReset(t *testing.T) {
 	if !f.bit("error") {
 		t.Error("error flag not set alongside error-id")
 	}
+	// The homing is aborted with the wait (D57): left running, a drive that
+	// finished later would start the sequence's next joints with no command.
+	f.eventually("the abort behind the home command", func() bool {
+		f.mot.mu.Lock()
+		defer f.mot.mu.Unlock()
+		homed := false
+		for _, c := range f.mot.calls {
+			switch {
+			case c == "JointHome":
+				homed = true
+			case c == "Abort" && homed:
+				return true
+			}
+		}
+		return false
+	})
 
 	f.setBit(f.m.pins.errorReset, true)
 	f.eventually("error cleared", func() bool { return !f.bit("error") && f.get("error-id") == 0 })

@@ -470,8 +470,8 @@ func (w *world) restore(trayIDs []uint32) {
 			// held, but a process restart re-exports the close output at its
 			// zero value. Re-drive it from the record — and let the control
 			// loop's first cycles validate the grip (verifyRestoredHeld): if
-			// the part was lost in the downtime, the record is cleared with a
-			// warning instead of refusing every job over a phantom part.
+			// the jaws read closed, the record becomes material of unknown
+			// origin with a warning, for the operator to open by hand (D56).
 			w.pickerClose[r.Picker].Set(true)
 			w.restoredHeld[r.Picker] = true
 			w.logger.Info("pnptask: held material restored, picker re-closed",

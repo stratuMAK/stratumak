@@ -508,9 +508,9 @@ func TestRestoredHeldGripperNotActuated(t *testing.T) {
 }
 
 // TestRestoredHeldPartGone: the part was lost in the downtime — the gripper
-// closes onto nothing. The record is cleared and the picker opened (with a
-// warning naming the station), instead of every job being refused
-// NO_FREE_PICKER over a phantom part.
+// closes onto nothing. Nothing is opened (D56): the close output stays and
+// the record becomes material of unknown origin, for the operator to open by
+// hand.
 func TestRestoredHeldPartGone(t *testing.T) {
 	dir := t.TempDir()
 	persistName := newTestPersist(t, dir)
@@ -537,12 +537,15 @@ func TestRestoredHeldPartGone(t *testing.T) {
 	second.eventually("the restore's close command", func() bool {
 		return !second.sim.closedSince(0).IsZero()
 	})
-	second.eventually("phantom record cleared and picker opened", func() bool {
-		return !second.bit("picker.0.close")
+	second.eventually("the record of unknown origin", func() bool {
+		return second.bit("picker.0.holds") && second.get("picker.0.origin-id") == 0
 	})
+	if !second.bit("picker.0.close") {
+		t.Error("the grip check opened the picker")
+	}
 	w := second.stopped()
-	if w.held[0].present {
-		t.Error("the held record survived a grip that found nothing")
+	if !w.held[0].present || w.held[0].station != 0 {
+		t.Errorf("held record = %+v, want present with station 0", w.held[0])
 	}
 }
 

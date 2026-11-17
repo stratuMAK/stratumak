@@ -88,16 +88,19 @@ func (c *control) waitPickerOpen(pk int) error {
 // into a lie: jaws that are already shut read
 // "closed" whatever lies under the head, which is an empty verdict on a
 // populated slot and, at MAX_UNPOPULATED's default of 1, a whole tray declared
-// empty. Only a standing close is acted on: the output is dropped and the
-// picker waited for, and one that will not open is PICKER_OPEN_FAILED before
-// any descent. A picker whose close output is already low is left to
-// closeAndCheck's own judgement, as before.
+// empty. The output is dropped and the picker waited for, and one that will
+// not open is PICKER_OPEN_FAILED before any descent.
+//
+// The close output being low is not enough either: it is not kept across a
+// restart, the jaws are (bistable valves), so a picker closed by hand before
+// a restart comes back shut with the output low. Only a picker that also
+// reports opened is taken as open.
 func (c *control) openForPick(pk int) error {
-	if !c.m.pins.pickers[pk].close.Get() {
+	if !c.m.pins.pickers[pk].close.Get() && c.in.pickerOpened[pk] {
 		return nil
 	}
-	c.m.logger.Warn("pnptask: a picker counted free was still commanded closed, opening it before the head goes down",
-		"picker", pk)
+	c.m.logger.Warn("pnptask: a picker counted free is not open, opening it before the head goes down",
+		"picker", pk, "close", c.m.pins.pickers[pk].close.Get())
 	// Down in a tray (D38) the jaws would open next to the parts: up first.
 	if err := c.liftFromLow(); err != nil {
 		return err

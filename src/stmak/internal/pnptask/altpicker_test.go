@@ -554,7 +554,7 @@ func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 
 	// The operator opens the picker, and it does not answer: the reservation
 	// survives automatic starting, and jobs are still refused.
-	f.sim.set(func(s *machineSim) { s.jammedOpen = true })
+	f.sim.set(func(s *machineSim) { s.jammedOpen, s.stuck[0] = true, true })
 	f.setBit(f.m.pins.autoEnable, false)
 	f.press(f.m.pins.pickers[0].manualOpen)
 	f.setBit(f.m.pins.autoEnable, true)
@@ -778,7 +778,7 @@ func TestFailedPlaceLeavesTwoRecoverableSwaps(t *testing.T) {
 
 	// The job that should carry 20's material into 21: the swap-out succeeds,
 	// the place fails (the picker will not open).
-	f.sim.set(func(s *machineSim) { s.jammedOpen = true })
+	f.sim.set(func(s *machineSim) { s.jammedOpen, s.stuck[1] = true, true })
 	f.runJob(20, 21, 0)
 	f.requireError("a place that could not open the picker", errPlaceFailed)
 	f.sim.set(func(s *machineSim) { s.jammedOpen = false })

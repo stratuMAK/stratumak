@@ -309,6 +309,7 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
                The test mirrors what START_JOINTS would decide: a step exists
                iff some participating joint carries the next number. */
             int next_step = 0;
+            int failed = 0;
             for (i = 0; i < ALL_JOINTS; i++) {
                 if (inst->joint_in_sequence[i] &&
                     abs(inst->joints[i].home_sequence) == inst->current_sequence + 1) {
@@ -316,7 +317,24 @@ static int do_homing_sequence(motmod_inst_t *inst) STMAK_NONBLOCKING
                     break;
                 }
             }
-            if (next_step) {
+            /* A joint of this step that ended without being homed failed
+               (a homing error, a timeout).  The sequence ends here: the
+               order exists because a later step relies on an earlier one --
+               Z up before X and Y travel -- and a joint that is idle is not
+               a joint that got there. */
+            for (i = 0; i < ALL_JOINTS; i++) {
+                if (!inst->joint_in_sequence[i]) continue;
+                if (abs(inst->joints[i].home_sequence) != inst->current_sequence) continue;
+                const home_callbacks_t *hapi = JOINT_HOME_API(&inst->joints[i]);
+                if (!hapi->get_homed(hapi->ctx)) {
+                    failed = 1;
+                    break;
+                }
+            }
+            if (failed) {
+                inst->sequence_state = HOME_SEQUENCE_IDLE;
+                inst->homing_active = 0;
+            } else if (next_step) {
                 inst->current_sequence++;
                 inst->sequence_state = HOME_SEQUENCE_START_JOINTS;
             } else {
