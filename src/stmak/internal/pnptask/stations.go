@@ -841,6 +841,18 @@ func (w *world) clearHeld(n int) {
 	w.held[n] = heldMaterial{}
 }
 
+// unknownHeld turns picker n's record into material of unknown origin (station
+// 0): the grip check could not confirm what the record says, and nothing else
+// is known about what the jaws hold. The picker counts occupied until a manual
+// open lets it go, as after a manual close that gripped something.
+func (w *world) unknownHeld(n int) {
+	if n < 0 || n >= len(w.held) {
+		return
+	}
+	w.held[n] = heldMaterial{present: true}
+	w.heldDirty = true
+}
+
 // releaseHeld is the manual open of §8: the material has left the picker, but
 // where it came from is kept, so a following manual close that grips something
 // again can restore the record instead of leaving the engine with a loaded

@@ -507,8 +507,9 @@ waiting for motmod's echo -- up to ~0.8 s on the coating machine
 (2026-11-09) -- and 500 ms would have faulted normal legs. The leg feed hands
 the segments over as data, so the loop is not held by a leg any more.
 
-RT does **not** touch motion: motmod finishes what is queued and stands, and
-stopping the machine for safety is the estop chain's business.
+RT does **not** touch motion: motmod finishes what is queued, the feed hands it
+the rest of the committed leg (§13, up to `feed_end`), and it stands; stopping
+the machine for safety is the estop chain's business.
 
 Go gets one new rule with it: a latched error Go did not raise ends the job in
 flight, as estop does. Otherwise a Go that recovers would carry on with a job

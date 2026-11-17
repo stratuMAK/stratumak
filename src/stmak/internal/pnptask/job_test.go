@@ -50,6 +50,9 @@ type machineSim struct {
 	missesLeft int
 	// jammedOpen: the picker never reports opened again once it has closed.
 	jammedOpen bool
+	// stuck: the pickers the jam holds, those closed while it stood. A test
+	// sets it for a picker its seed left holding, which never closed here.
+	stuck []bool
 	// jammedClosed: the picker never leaves opened, i.e. it never closes at all.
 	jammedClosed bool
 	// fixtureStuck: released never follows release.
@@ -85,6 +88,7 @@ func newMachineSim(m *pnptaskModule, prep func(*machineSim)) *machineSim {
 		releasedAt:   make([]time.Time, len(m.pins.procs)),
 		lagLeft:      make([]int, len(m.pins.procs)),
 		closedAt:     make([]time.Time, n),
+		stuck:        make([]bool, n),
 	}
 	if prep != nil {
 		prep(s)
@@ -134,10 +138,14 @@ func (s *machineSim) step() {
 			pk.opened.Set(true)
 			pk.closed.Set(false)
 		case closing:
+			s.stuck[i] = s.jammedOpen
 			pk.opened.Set(false)
 			pk.closed.Set(s.gripMiss[i])
 		default:
-			pk.opened.Set(!s.jammedOpen)
+			// Only a picker that was closed while the jam stood is stuck
+			// there: one that never closed is open, and a job checks that
+			// (D56).
+			pk.opened.Set(!(s.jammedOpen && s.stuck[i]))
 			pk.closed.Set(false)
 		}
 	}
@@ -1529,6 +1537,25 @@ func TestJobPickerFaults(t *testing.T) {
 
 		f.runJob(10, 20, 0)
 		f.requireError("a picker that never closes", errPickerCloseFail)
+	})
+
+	// D56: a picker the model counts free that does not report opened, its
+	// close output low -- closed by hand before a restart. Refused before the
+	// head goes anywhere.
+	t.Run("free picker not open", func(t *testing.T) {
+		f := newJobFixture(t)
+		f.selectTray(1)
+		f.fillTray(0)
+		f.sim.set(func(s *machineSim) { s.jammedOpen, s.stuck[0] = true, true })
+		f.eventually("the picker reads not opened", func() bool {
+			return !f.m.pins.pickers[0].opened.Get()
+		})
+
+		f.runJob(10, 20, 0)
+		f.requireError("a free picker that is not open", errPickerOpenFail)
+		if f.mot.called("SetLine") || f.mot.called("SetCircle") {
+			t.Error("the head moved with a free picker not open")
+		}
 	})
 
 	t.Run("place failed", func(t *testing.T) {

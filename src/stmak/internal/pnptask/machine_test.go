@@ -1136,6 +1136,22 @@ func TestHomeTimeoutAndErrorReset(t *testing.T) {
 	if !f.bit("error") {
 		t.Error("error flag not set alongside error-id")
 	}
+	// The homing is aborted with the wait (D57): left running, a drive that
+	// finished later would start the sequence's next joints with no command.
+	f.eventually("the abort behind the home command", func() bool {
+		f.mot.mu.Lock()
+		defer f.mot.mu.Unlock()
+		homed := false
+		for _, c := range f.mot.calls {
+			switch {
+			case c == "JointHome":
+				homed = true
+			case c == "Abort" && homed:
+				return true
+			}
+		}
+		return false
+	})
 
 	f.setBit(f.m.pins.errorReset, true)
 	f.eventually("error cleared", func() bool { return !f.bit("error") && f.get("error-id") == 0 })

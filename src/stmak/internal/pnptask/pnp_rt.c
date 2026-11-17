@@ -178,8 +178,9 @@ static void pnp_rt_feed(pnp_rt_t *r, const pnp_rt_in_t *in, const pnp_rt_out_t *
 // while the next one is already out (an input that changes every cycle) is
 // running. While the stall lasts the fault comes back the cycle after an
 // error-reset, so no request is accepted for a loop that is not there to run
-// it. The function leaves motion alone -- motmod finishes what is queued and
-// stands -- and the latch is what the PLC's error path already reacts to.
+// it. The function leaves motion alone -- motmod finishes what is queued, the
+// feed hands it the rest of the committed leg (up to feed_end), and it stands
+// -- and the latch is what the PLC's error path already reacts to.
 static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period) STMAK_NONBLOCKING;
 static void pnp_rt_stall(pnp_rt_t *r, const pnp_rt_out_t *go, long period)
 {
