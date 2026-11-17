@@ -32,6 +32,7 @@ func TestSetOverrideEnable(t *testing.T) {
 	mot := &recordingEnableMotion{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, &mockIO{}, &mockStatus{}, logger)
+	t.Cleanup(task.Shutdown)
 
 	if err := task.SetFeedOverrideEnable(false); err != nil {
 		t.Fatal(err)

@@ -39,6 +39,10 @@ type fakeMotion struct {
 	refuseEnable bool // Enable() is accepted but never shows up in status
 	homingCycles int  // how many status reads report "homing" before homed
 	statusErr    error
+	// statusErrCycles, when > 0, ends statusErr after that many servo
+	// cycles (cycle, run before each one by the fixture): a glitch whose
+	// length is servo time, like the staleness it is judged against.
+	statusErrCycles int
 
 	// moveCycles is how many status reads a dispatched move stays in flight
 	// before it reports drained; 0 completes it instantly, which is what most
@@ -383,10 +387,45 @@ func (f *fakeMotion) callList() []string {
 	return append([]string(nil), f.calls...)
 }
 
+// locked runs fn with f.mu held: a test setting a knob or hook the control
+// goroutine reads under the same lock (onMove, onAbort, ...).
+func (f *fakeMotion) locked(fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn()
+}
+
 func (f *fakeMotion) setStatusErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.statusErr = err
+	f.statusErrCycles = 0
+}
+
+// glitch fails every status read for the next n servo cycles.
+func (f *fakeMotion) glitch(err error, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusErr, f.statusErrCycles = err, n
+}
+
+// glitchOver reports whether a glitch started by glitch has run out.
+func (f *fakeMotion) glitchOver() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.statusErr == nil
+}
+
+// cycle advances the fake by one servo cycle (the fixture runs it before
+// each run of the cycle function).
+func (f *fakeMotion) cycle() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.statusErrCycles > 0 {
+		if f.statusErrCycles--; f.statusErrCycles == 0 {
+			f.statusErr = nil
+		}
+	}
 }
 
 // setInFlight scripts a move in progress: status reports not-in-position for
@@ -524,19 +563,6 @@ type machineFixture struct {
 	mark uint32
 	// feed is the fake mot provider the leg feed goes to (attachFeed).
 	feed *dztest.FakeMot
-}
-
-// The control loop is time-driven; the tests run it far faster than the machine
-// would so a case costs milliseconds rather than seconds.
-func fastLoop(t *testing.T) {
-	t.Helper()
-	oldPoll, oldEnable, oldMode := pollInterval, motionEnableTimeout, motionModeTimeout
-	pollInterval = time.Millisecond
-	motionEnableTimeout = 100 * time.Millisecond
-	motionModeTimeout = 100 * time.Millisecond
-	t.Cleanup(func() {
-		pollInterval, motionEnableTimeout, motionModeTimeout = oldPoll, oldEnable, oldMode
-	})
 }
 
 // driveRT stands in for the servo thread: the control loop runs the module's
@@ -701,7 +727,6 @@ type fixtureOpts struct {
 // starts the control loop.
 func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	t.Helper()
-	fastLoop(t)
 	if o.files != nil {
 		setupPathsWith(t, o.files)
 	} else {
@@ -726,6 +751,15 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	if o.servo {
 		servoThread(t, m)
 	} else {
+		// The fake motion stack counts servo cycles too (fakeMotion.cycle),
+		// ahead of whatever the fixture already simulates.
+		sim := m.tickHook
+		m.tickHook = func() {
+			mot.cycle()
+			if sim != nil {
+				sim()
+			}
+		}
 		driveRT(m)
 	}
 	if err := m.startControl(); err != nil {
@@ -947,8 +981,9 @@ func TestMachineEnable(t *testing.T) {
 // interlocks on that pin, and a machine that reports itself on while motion is
 // disabled is one that swallows the next job.
 func TestMachineEnableRefused(t *testing.T) {
-	f := newMachineFixture(t)
-	f.mot.refuseEnable = true
+	f := newMachineFixtureOpts(t, fixtureOpts{prep: func(_ *testing.T, m *pnptaskModule) {
+		m.mc.(*fakeMotion).refuseEnable = true // before the loop reads it
+	}})
 
 	f.setBit(f.m.pins.machineOn, true)
 	f.eventually("MOTION_ERROR", func() bool { return f.get("error-id") == float64(errMotionError) })
@@ -1098,8 +1133,10 @@ func TestHomeSequence(t *testing.T) {
 	if !f.mot.called("SetFree") || !f.mot.called("JointHome") {
 		t.Errorf("home sequence calls = %v, want SetFree and JointHome", f.mot.callList())
 	}
-	if len(f.mot.homeCmds) != 1 || f.mot.homeCmds[0] != -1 {
-		t.Errorf("home commands = %v, want a single home-all (-1)", f.mot.homeCmds)
+	var homeCmds []int32
+	f.mot.locked(func() { homeCmds = append(homeCmds, f.mot.homeCmds...) })
+	if len(homeCmds) != 1 || homeCmds[0] != -1 {
+		t.Errorf("home commands = %v, want a single home-all (-1)", homeCmds)
 	}
 	// Level, not edge: holding the pin high must not re-home every cycle.
 	f.consistently("no repeated homing", func() bool { return f.mot.callCount("JointHome") == 1 })
@@ -1152,13 +1189,14 @@ func TestHomeRequiresMachineOn(t *testing.T) {
 // confirm must cancel the enable: no machine-is-on pulse against the withdrawn
 // request, and no latched fault — the PLC changed its mind, nothing failed.
 func TestEnableCancelledByMachineOnDrop(t *testing.T) {
-	f := newMachineFixture(t)
 	// Motion never confirms, so the enable keeps waiting until the request is
 	// withdrawn. The wait must outlive any scheduling hiccup (race-detector
 	// runs slow the goroutines), or the timeout fault would race the
-	// cancellation this test is about; fastLoop's cleanup restores it.
-	motionEnableTimeout = 10 * time.Second
-	f.mot.refuseEnable = true
+	// cancellation this test is about. Both set before the loop starts.
+	f := newMachineFixtureOpts(t, fixtureOpts{prep: func(_ *testing.T, m *pnptaskModule) {
+		m.timing.motionEnable = 10 * time.Second
+		m.mc.(*fakeMotion).refuseEnable = true
+	}})
 
 	f.setBit(f.m.pins.machineOn, true)
 	f.eventually("Enable commanded", func() bool { return f.mot.called("Enable") })
@@ -1175,7 +1213,6 @@ func TestEnableCancelledByMachineOnDrop(t *testing.T) {
 // first cycle. machine-on is the deliberate exception — held high across a
 // restart it re-enables the machine (D26).
 func TestHeldInputsAtStartupAreNotEdges(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	name := testInstanceName(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name)
@@ -1218,10 +1255,10 @@ func TestStatusGlitchDoesNotDisturbHomedOrJog(t *testing.T) {
 	f.setBit(f.m.pins.jog[0].pos, true)
 	f.eventually("jog started", func() bool { return f.mot.callCount("JogCont") == 1 })
 
-	// A glitch well inside the staleness tolerance.
-	f.mot.setStatusErr(fmt.Errorf("split read"))
-	time.Sleep(statusStale / 2)
-	f.mot.setStatusErr(nil)
+	// A glitch well inside the staleness tolerance: half of it, in servo
+	// cycles (1 ms each), however late this goroutine gets to run.
+	f.mot.glitch(fmt.Errorf("split read"), int(statusStale/2/time.Millisecond))
+	f.eventually("the glitch over", f.mot.glitchOver)
 
 	f.consistently("jog undisturbed and homed held", func() bool {
 		return f.mot.callCount("JogAbort") == 0 && f.bit("homed")
@@ -1342,7 +1379,6 @@ func TestMotionCommLoss(t *testing.T) {
 // stall here: its first call sleeps past the deadline and answers for the
 // sample taken before it.
 func TestWaitUntilJudgesTheSampleNotTheClock(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
 	mot := newFakeMotion(m.cfg.NumJoints)
@@ -1378,7 +1414,6 @@ func TestWaitUntilJudgesTheSampleNotTheClock(t *testing.T) {
 // that goroutine, so a direct call is the same sequence, minus the race a test
 // would otherwise introduce by poking a running loop's state.
 func TestEnsureHomed(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
 	mot := newFakeMotion(m.cfg.NumJoints)
@@ -1606,9 +1641,13 @@ func TestModuleStopDisablesMotion(t *testing.T) {
 // and the pins it publishes on, which is where the answer now comes from.
 func TestDeadzoneFreePins(t *testing.T) {
 	// Scene 0 puts a zone over proc station 20 at (300,200); scene 1 is clear.
-	f := newMachineFixtureOpts(t, fixtureOpts{
-		files: map[string]string{zonesA: fixtureBlock, zonesB: fixtureClear},
-	})
+	// No control loop: the test is the only one running the check, so a pin
+	// read after cycle() is the answer of that cycle, and the fake motmod the
+	// check reads is never freed under a running cycle.
+	setupPathsWith(t, map[string]string{zonesA: fixtureBlock, zonesB: fixtureClear})
+	name := testInstanceName(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name)
+	f := &machineFixture{t: t, m: m, name: name}
 	if n := len(f.m.pins.deadzoneFree); n != 2 {
 		t.Fatalf("%d dead-zone pins for 2 DEADZONE_FILEs", n)
 	}
@@ -1711,7 +1750,6 @@ func TestLoopSleepsUntilAChange(t *testing.T) {
 // camera station faulted "portal not homed" and automatic went off. Staleness
 // counts from the first failed read; failures that persist still count.
 func TestStatusNotStaleAfterABusyLoop(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
 	mot := newFakeMotion(m.cfg.NumJoints)
@@ -1757,15 +1795,12 @@ func TestStatusNotStaleAfterABusyLoop(t *testing.T) {
 // false instead of hanging the test.
 func loopByHand(t *testing.T, limit int) (*pnptaskModule, *control, *fakeMotion) {
 	t.Helper()
-	fastLoop(t)
 	setupPaths(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.ms = mot
 	m.mc = committedMotion{motionControl: mot, rt: m.rt}
-	oldPoll := pollInterval
-	pollInterval = 0
-	t.Cleanup(func() { pollInterval = oldPoll })
+	m.timing.testCycle = 0 // the cycles run back to back: there is no loop goroutine to pace
 
 	m.rt.invoke()
 	c := newControl(m)
@@ -1921,9 +1956,7 @@ func TestChangeBeforeTheLoopStartsEndsItsFirstWait(t *testing.T) {
 // none, and neither is what the idle wake is there for: the params.
 func TestIdleWorkDetector(t *testing.T) {
 	m, c, _ := loopByHand(t, 100000)
-	oldIdle := idleWake
-	idleWake = 5 * time.Millisecond
-	t.Cleanup(func() { idleWake = oldIdle })
+	m.timing.idleWake = 5 * time.Millisecond // loopByHand: no loop goroutine reads it concurrently
 	tick := func() {
 		t.Helper()
 		if !c.tick() {
@@ -1965,7 +1998,7 @@ func TestIdleWorkDetector(t *testing.T) {
 	m.rt.requestScene(true)
 	want("an output at a deadline", 2)
 
-	c.wakeBy(c.now + idleWake)
+	c.wakeBy(c.now + m.timing.idleWake)
 	tick() // a deadline that is the idle wake's time
 	m.rt.requestScene(false)
 	want("an output at a deadline as far off as the idle wake", 2)
@@ -1979,7 +2012,7 @@ func TestIdleWorkDetector(t *testing.T) {
 			inner()
 		}
 	}
-	due := c.now + idleWake + time.Millisecond
+	due := c.now + m.timing.idleWake + time.Millisecond
 	c.wakeBy(due)
 	tick()
 	if c.now != due {
@@ -2034,7 +2067,6 @@ func (e *enableAt) Enable() error {
 // function itself here and wakes on its rings only, so the cycle of the
 // enable is exact.
 func TestFirstStepIsDueAtOnce(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
 	mot := newFakeMotion(m.cfg.NumJoints)

@@ -13,19 +13,21 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 )
 
-// The control loop's timing. They are vars, not consts, so tests can run the
-// same loop at a pace that does not cost a wall-clock second per case.
+// The control loop's timing. Constants: a test that needs another pace sets
+// the instance's loopTiming before the loop starts, never a package variable
+// a running loop of another fixture reads.
 //
 // The loop is driven by the cycle function's frames (PNPTASK_RT_BOUNDARY.md
 // §6.1): it sleeps until the doorbell rings -- something it acts on changed,
 // or servo time reached the wake time it asked for -- and every time it
 // measures is servo time (control.now), not the host's clock.
-var (
+const (
 	// pollInterval is how often the sleeping loop looks at the doorbell: one
 	// atomic load, and the bound on how late it sees a ring.
 	pollInterval = time.Millisecond
 
-	// idleWake is the longest the loop sleeps with nothing to do. Nothing it
+	// idleWake is the default for loopTiming.idleWake: the longest the loop
+	// sleeps with nothing to do. Nothing it
 	// acts on changes meanwhile, but what it reads that is not in the frame --
 	// the params (picker offsets, settle times, task-timeout) -- reaches the
 	// frame and the pins at this pace.
@@ -36,13 +38,15 @@ var (
 	// motion controller gone.
 	rtStallTimeout = time.Second
 
-	// motionEnableTimeout bounds the wait for motion to report itself enabled
+	// motionEnableTimeout is the default for loopTiming.motionEnable: it bounds
+	// the wait for motion to report itself enabled
 	// after Enable(). Two servo cycles suffice on a healthy machine, so a hit
 	// deadline means the enable was refused or instantly revoked (a tripped
 	// limit, say) rather than that the machine is slow.
 	motionEnableTimeout = 1 * time.Second
 
-	// motionModeTimeout bounds a free/teleop/coord mode switch. Motion refuses
+	// motionModeTimeout is the default for loopTiming.motionMode: it bounds a
+	// free/teleop/coord mode switch. Motion refuses
 	// a switch while it is not in position, so the command is re-sent every
 	// cycle until it takes (milltask's guards.go does the same).
 	motionModeTimeout = 500 * time.Millisecond
@@ -89,6 +93,33 @@ var (
 	// for is judged on the first frame past it.
 	settleMargin = 2 * time.Millisecond
 )
+
+// loopTiming is the part of the loop's timing the tests run at another pace.
+// It belongs to one module instance and is fixed before that instance's
+// control loop starts (the factory sets the defaults, a test fixture changes
+// them before startControl), so the loop goroutine reads it unsynchronized:
+// the go statement that starts the loop orders every write before every read.
+type loopTiming struct {
+	idleWake     time.Duration // idleWake
+	motionEnable time.Duration // motionEnableTimeout
+	motionMode   time.Duration // motionModeTimeout
+	firstFrame   time.Duration // firstFrameTimeout, Start's wait for the first frame
+
+	// testCycle paces the unit tests' stand-in servo thread (rtIO.runRT): the
+	// wall-clock sleep before each cycle the loop runs itself. Unused in
+	// production, where the servo thread runs the cycle function.
+	testCycle time.Duration
+}
+
+func defaultLoopTiming() loopTiming {
+	return loopTiming{
+		idleWake:     idleWake,
+		motionEnable: motionEnableTimeout,
+		motionMode:   motionModeTimeout,
+		firstFrame:   firstFrameTimeout,
+		testCycle:    pollInterval,
+	}
+}
 
 // motionControl is the motctl subset this module commands. It is an interface,
 // not the generated client, so the control loop can be exercised against a
@@ -559,7 +590,7 @@ func (c *control) shutdown() {
 func (c *control) run() {
 	defer close(c.done)
 
-	c.m.logger.Debug("pnptask control loop running", "idle_wake", idleWake)
+	c.m.logger.Debug("pnptask control loop running", "idle_wake", c.m.timing.idleWake)
 	for c.tick() {
 		c.step()
 	}
@@ -595,7 +626,7 @@ func (c *control) tick() bool {
 	// the command it follows from, not a wake later.
 	c.publish()
 	c.noteIdleWork()
-	wake, due := c.now+idleWake, c.wakeAt
+	wake, due := c.now+c.m.timing.idleWake, c.wakeAt
 	if due != 0 && due < wake {
 		wake = due
 	}
@@ -653,7 +684,7 @@ func (c *control) noteIdleWork() {
 
 // wait sleeps until the doorbell rings past seenChange. In the unit tests
 // (rtIO.runRT) the loop is the servo thread: it runs the cycle function itself,
-// one cycle per pollInterval, until it rings. It reports false on shutdown.
+// one cycle per loopTiming.testCycle, until it rings. It reports false on shutdown.
 func (c *control) wait() bool {
 	bell := c.m.rt.bell
 	if run := c.m.rt.runRT; run != nil {
@@ -663,7 +694,7 @@ func (c *control) wait() bool {
 				return false
 			default:
 			}
-			time.Sleep(pollInterval) // a servo cycle of the tests' time
+			time.Sleep(c.m.timing.testCycle) // a servo cycle of the tests' time
 			run()
 			if ch := bell.Change(); ch != c.seenChange || c.m.rt.wakeEveryCycle {
 				c.seenChange = ch
@@ -1166,7 +1197,7 @@ func (c *control) enable() error {
 	// the withdrawn request.
 	c.enabling = true
 	defer func() { c.enabling = false }()
-	if err := c.waitUntil(errMotionError, motionEnableTimeout, "motion to report enabled",
+	if err := c.waitUntil(errMotionError, c.m.timing.motionEnable, "motion to report enabled",
 		func() bool { return c.statusOK && c.status.Enabled != 0 }); err != nil {
 		// Stay off and report rather than flapping on and off.
 		_ = c.m.mc.Disable()
@@ -1472,7 +1503,7 @@ func (c *control) runHoming() error {
 // motion rejects a mode switch while it is not in position; a single send would
 // simply be dropped (milltask's guards.go learned the same thing).
 func (c *control) setMotionMode(want int32) error {
-	deadline := c.now + motionModeTimeout
+	deadline := c.now + c.m.timing.motionMode
 	send := true
 	for {
 		if c.statusOK && c.status.MotionState == want {
@@ -1482,7 +1513,7 @@ func (c *control) setMotionMode(want int32) error {
 		// mode is a failure (see control.now) -- checked here, after the fresh
 		// status was looked at, not straight after the tick that read it.
 		if c.now > deadline {
-			return faultf(errMotionError, "motion did not switch to mode %d within %v", want, motionModeTimeout)
+			return faultf(errMotionError, "motion did not switch to mode %d within %v", want, c.m.timing.motionMode)
 		}
 		// Re-sent only on a status read after the last send that still shows
 		// the old mode. The command's echo rings the doorbell at once, and the

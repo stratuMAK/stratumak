@@ -159,47 +159,27 @@ def test_wait_file_contains_honours_count():
         raise AssertionError("count=2 must not be satisfied by a single occurrence")
 
 
-def _file_stable_with_writer(samples):
-    """wait_file_stable against a writer that appends one line at each of
-    the reader's first four sleeps: the writer runs in lockstep with the
-    reader's polls instead of on a thread a loaded machine can starve, so
-    the writer's gap always sits inside the quiet window -- the contract
-    wait_file_stable states -- however slow the host is."""
+def test_wait_file_length_returns_once_the_length_is_there():
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "log")
         with open(path, "w") as f:
-            f.write("line\n")
-        pending = [4]
+            f.write("12345")
+        body = stmak_test.wait_file_length(path, 5, timeout=1)
+        expect(body == "12345", "got %r" % body)
 
-        def sleep_and_write(_secs):
-            if pending[0]:
-                pending[0] -= 1
-                with open(path, "a") as f:
-                    f.write("line\n")
 
-        real_sleep = time.sleep
-        time.sleep = sleep_and_write
+def test_wait_file_length_check_can_fail():
+    # Guard the guard: a file shorter than asked for is a timeout, never an
+    # early return with what is there.
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "log")
+        with open(path, "w") as f:
+            f.write("1234")
         try:
-            return stmak_test.wait_file_stable(path, timeout=10, settle=0.1,
-                                               samples=samples)
-        finally:
-            time.sleep = real_sleep
-
-
-def test_wait_file_stable_waits_for_the_writer_to_finish():
-    body = _file_stable_with_writer(samples=3)
-    # The writer appends 5 lines total; a truncated read is exactly the
-    # bug wait_file_stable exists to prevent.
-    expect(body.count("line") == 5,
-           "expected the complete file, got %d lines" % body.count("line"))
-
-
-def test_wait_file_stable_check_can_fail():
-    # Guard the guard: with a quiet window of zero (one sample) the same
-    # writer is cut short, so the test above can tell a truncated read.
-    body = _file_stable_with_writer(samples=1)
-    expect(body.count("line") < 5,
-           "a one-sample wait must return early, got all %d lines" % body.count("line"))
+            stmak_test.wait_file_length(path, 5, timeout=0.2)
+        except stmak_test.Timeout:
+            return
+        raise AssertionError("a 4-byte file must not satisfy a 5-byte wait")
 
 
 def test_missing_file_times_out_rather_than_raising_oserror():

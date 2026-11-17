@@ -9,6 +9,7 @@
 
 import gmi
 from gmi.constants import *
+import os
 import stmak_test
 
 import sys
@@ -40,10 +41,10 @@ c.program_open('mountaindew.ngc')
 c.auto(AUTO_RUN, 4)
 wait_idle()
 
-# The interceptor cmod appends to out.motion-logger from another process; wait
-# for it to stop growing instead of sleeping and hoping the tail was flushed. A
-# short read here truncates the diff and fails the test for the wrong reason.
-stmak_test.wait_file_stable("out.motion-logger")
+# The interceptor writes each motion command, flushed, as task sends it, so
+# what this run sent is in the file by now; the wait for the golden file's
+# length is the guard on that, not a guess that the writer has gone quiet.
+stmak_test.wait_file_length("out.motion-logger", os.path.getsize("expected.motion-logger"))
 
 status = subprocess.call(
     ["diff", "-u", "expected.motion-logger", "out.motion-logger"])

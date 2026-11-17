@@ -43,6 +43,8 @@ def fail(name, detail):
 
 
 def wait_until(pred, timeout=15.0, interval=0.05):
+    # A hang guard, scaled like every deadline in the suite.
+    timeout *= float(os.environ.get("STMAK_TEST_TIMEOUT_SCALE", "1") or 1)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if pred():
@@ -138,8 +140,12 @@ def start_rest_stub():
 class WsStub:
     """Records every frame; test pushes updates via push()."""
 
-    def __init__(self, port=0):
+    def __init__(self, port=0, sock=None):
         self.want_port = port
+        # A socket bound (not listening) by the caller: serving on it keeps
+        # the port that was promised to the client, with no window in which
+        # another process could take it.
+        self.sock = sock
         self.port = None
         self.frames = []
         self.conns = []
@@ -163,8 +169,11 @@ class WsStub:
 
     async def _main(self):
         self._stop = asyncio.Event()
-        server = await websockets.serve(self._handler, "127.0.0.1",
-                                        self.want_port)
+        if self.sock is not None:
+            server = await websockets.serve(self._handler, sock=self.sock)
+        else:
+            server = await websockets.serve(self._handler, "127.0.0.1",
+                                            self.want_port)
         self.port = server.sockets[0].getsockname()[1]
         self._started.set()
         await self._stop.wait()
@@ -361,17 +370,22 @@ def main():
     # ─── Phase 2: WS-backed contracts ───
 
     # GP-2: ErrorChannel constructed BEFORE the server exists must connect
-    # once the server appears. Pick a port by binding/releasing it first.
-    probe = WsStub().start()
-    ws_port = probe.port
-    probe.stop()
+    # once the server appears. The port is held by a bound socket that does
+    # not listen yet -- a connect to it is refused, as to no server at all --
+    # and the stub later serves on that same socket, so no other process can
+    # take the port in between. (The delay only makes the server late for the
+    # client's first attempts; a client that happens to connect after it is
+    # up still has to pass the checks below.)
+    held = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    held.bind(("127.0.0.1", 0))
+    ws_port = held.getsockname()[1]
     os.environ["STMAK_REST_URL"] = f"http://127.0.0.1:{ws_port}"
 
     stub_holder = {}
 
     def start_ws_later():
         time.sleep(1.0)
-        stub_holder["ws"] = WsStub(ws_port).start()
+        stub_holder["ws"] = WsStub(sock=held).start()
 
     threading.Thread(target=start_ws_later, daemon=True).start()
     e = gmi.ErrorChannel()  # retries until the stub appears
@@ -526,14 +540,23 @@ def main():
     # And a slot store that IS unreachable must not be re-fetched on every
     # access: a failed fetch is not cached (the table must not freeze), so
     # without a retry floor one wrong name is ten requests a second.
-    gmi.reset_info()
-    rest.info_payload["peers"]["tooltable"] = "missing.tt"
-    s4 = Stat()
-    s4.poll()
-    before = len(rest.slot_requests)
-    for _i in range(10):
-        s4.tool_table
-    tries = len(rest.slot_requests) - before
+    # The floor is a wall-clock window (1 s); the ten reads must fall inside
+    # it however slow this host is, so the check widens it rather than
+    # betting on the reads being fast.
+    import gmi.stat as gmi_stat
+    saved_floor = gmi_stat._TOOL_TABLE_RETRY_S
+    gmi_stat._TOOL_TABLE_RETRY_S = 3600.0
+    try:
+        gmi.reset_info()
+        rest.info_payload["peers"]["tooltable"] = "missing.tt"
+        s4 = Stat()
+        s4.poll()
+        before = len(rest.slot_requests)
+        for _i in range(10):
+            s4.tool_table
+        tries = len(rest.slot_requests) - before
+    finally:
+        gmi_stat._TOOL_TABLE_RETRY_S = saved_floor
     if tries > 1:
         fail("stat-tooltable-retry-floor", f"{tries} fetches for 10 reads")
     if s4.tool_table[0].id != -1:

@@ -52,10 +52,14 @@ def capture(name, compare=True):
     diff it against expected.<name>; otherwise just advance the offset (used for
     the reset program, whose stream is position-dependent under real motion).'''
     global log_offset, retval
-    # The interceptor cmod is a *different* writer: wait for its log to stop
-    # growing rather than sleeping and hoping it flushed. The program is already
-    # idle here, so the delta is complete once the size holds steady.
-    stmak_test.wait_file_stable(LOG)
+    # The interceptor writes each motion command, flushed, as task sends it,
+    # and a run reports idle only after the sequencer executed everything it
+    # queued -- so the slice is in the file by now. For a compared slice the
+    # wait for the golden slice's length guards that; it never infers the end
+    # from the file going quiet.
+    if compare:
+        want = len(open("expected.%s" % name, "rb").read())
+        stmak_test.wait_file_length(LOG, log_offset + want)
     with open(LOG, "rb") as f:
         f.seek(log_offset)
         chunk = f.read().decode()

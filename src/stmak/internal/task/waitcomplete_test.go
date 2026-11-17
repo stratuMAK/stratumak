@@ -24,14 +24,14 @@ import (
 // SECOND interp.Synch() (the first happens inside executeMDI before
 // ExecuteString; the second is finishMDI's post-drain synch).
 func TestWaitComplete_SettlesNoMotionMDI(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &recordMotion{}
 	io := &mockIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.SetIOStatusReader(io)
 	task.noForceHoming = true
 
@@ -59,7 +59,7 @@ func TestWaitComplete_SettlesNoMotionMDI(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 	t.Cleanup(func() {
 		select {
 		case <-gate:

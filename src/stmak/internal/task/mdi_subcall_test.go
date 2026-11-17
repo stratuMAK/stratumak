@@ -50,14 +50,14 @@ func (m *recordMotion) lineCount() int {
 // exactly once (only move 1 dispatches) and the task reports done with the sub
 // half-finished.
 func TestMDI_MultiLevelSubContinuation(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &recordMotion{}
 	io := &mockIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.SetIOStatusReader(io)
 	task.noForceHoming = true
 
@@ -97,7 +97,7 @@ func TestMDI_MultiLevelSubContinuation(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	if err := task.MDI("o<probe> call"); err != nil {
 		t.Fatalf("MDI: %v", err)

@@ -35,8 +35,12 @@ s = m.snapshot()
 pnpdrv.check_eq((s["picker.0.pos-x"], s["picker.0.pos-y"]), at,
                 "the head stands still while it waits")
 
+grants = pnpdrv.raw_get("pnp.scene.grants.count")
 m.set("scene-hold", False)
-m.wait(lambda s: s["scene-busy"], "scene-busy once the hold drops and the leg goes")
+# scene-busy is up only while the leg runs: counted in the servo thread
+# (pnptask.hal), so the wait is for the count, not for the pulse itself.
+stmak_test.wait_until(lambda: pnpdrv.raw_get("pnp.scene.grants.count") > grants,
+                      "the lock taken once the hold drops and the leg goes")
 pnpdrv.check_eq(m.await_job(), 0, "the job ends once the scene is free")
 s = m.snapshot()
 pnpdrv.check(s["proc.22.has-material"], "the station holds the part")
@@ -50,20 +54,19 @@ pnpdrv.check(not s["scene-busy"], "scene-busy is down after the job")
 # is held for a cycle or two, which a poll from here cannot be relied on to
 # see.)
 
+moving = pnpdrv.raw_get("pnp.scene.moving.count")
 m.start_job(22, 10, deadzone=OPEN)
 # Under way, not merely taking the lock: scene-busy is up for the one cycle
 # in which the gate looks at scene-hold once more, and a hold raised into
 # that cycle wins (the leg yields and waits). The hold here must land on a
-# leg that is already moving.
-# Both pins from one listing: read by two calls, scene-busy could come from
-# before the zero-length leg into the station dropped its lock and in-position
-# from after the descent there began -- a state that never was, and the hold
-# would land on the leg out before it took the lock.
-def under_way():
-    s = pnpdrv.raw_snapshot("pnp.*")
-    return s["pnp.task.scene-busy"] and not s["pnp.mot.motion.in-position"]
-
-stmak_test.wait_until(under_way, "the leg out of the station to be under way under the lock")
+# leg that is already moving: the servo thread counts each rise of
+# "scene-busy and not in position" (pnptask.hal). (The leg into a station the
+# head already stands at is zero-length and never moves: it does not count.)
+# A hold that lands only after the leg has ended -- this process descheduled
+# for the whole travel -- cannot fail the checks below, which hold either
+# way; that run just does not exercise the hold.
+stmak_test.wait_until(lambda: pnpdrv.raw_get("pnp.scene.moving.count") > moving,
+                      "the leg out of the station to be under way under the lock")
 m.set("scene-hold", True)
 pnpdrv.check_eq(m.await_job(), 0, "the leg already under the lock runs on to its end")
 s = m.snapshot()

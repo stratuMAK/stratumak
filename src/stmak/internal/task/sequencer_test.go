@@ -72,23 +72,24 @@ func (s *testStatus) GetInpos() (int32, error) {
 	return 0, nil
 }
 
-func newSeqTestTask() (*Task, *testMotion, *mockIO, *testStatus) {
+func newSeqTestTask(t *testing.T) (*Task, *testMotion, *mockIO, *testStatus) {
+	t.Helper()
 	mot := &testMotion{failAt: -1}
 	io := &mockIO{}
 	stat := &testStatus{}
 	stat.inPosition.Store(true) // default: in position (no waiting)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	t := NewTask(mot, io, stat, logger)
-	return t, mot, io, stat
+	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	return task, mot, io, stat
 }
 
 func TestSequencer_ExecutesInOrder(t *testing.T) {
-	task, mot, _, _ := newSeqTestTask()
-	restore := SetPollInterval(10 * time.Microsecond)
-	defer restore()
+	task, mot, _, _ := newSeqTestTask(t)
+	task.SetPollInterval(10 * time.Microsecond)
 
 	task.StartSequencer()
-	defer task.StopSequencer()
+	defer task.Shutdown()
 
 	// Enqueue 3 linear moves
 	for i := 0; i < 3; i++ {
@@ -112,9 +113,8 @@ func TestSequencer_ExecutesInOrder(t *testing.T) {
 }
 
 func TestSequencer_AbortClearsQueue(t *testing.T) {
-	task, mot, _, stat := newSeqTestTask()
-	restore := SetPollInterval(10 * time.Microsecond)
-	defer restore()
+	task, mot, _, stat := newSeqTestTask(t)
+	task.SetPollInterval(10 * time.Microsecond)
 
 	// Don't be in position — force the sequencer to wait
 	stat.inPosition.Store(false)
@@ -161,14 +161,13 @@ func TestSequencer_AbortClearsQueue(t *testing.T) {
 }
 
 func TestSequencer_ErrorStopsExecution(t *testing.T) {
-	task, mot, _, _ := newSeqTestTask()
-	restore := SetPollInterval(10 * time.Microsecond)
-	defer restore()
+	task, mot, _, _ := newSeqTestTask(t)
+	task.SetPollInterval(10 * time.Microsecond)
 
 	mot.failAt = 1 // fail on 2nd call
 
 	task.StartSequencer()
-	defer task.StopSequencer() // recoverSeqFault restarts the sequencer after the fault
+	defer task.Shutdown() // recoverSeqFault restarts the sequencer after the fault
 
 	// Capture this generation's done channel under the lock — recoverSeqFault's
 	// restart reassigns the field concurrently after the fault.
@@ -204,9 +203,8 @@ func TestSequencer_ErrorStopsExecution(t *testing.T) {
 }
 
 func TestSequencer_WaitForMotion(t *testing.T) {
-	task, mot, _, stat := newSeqTestTask()
-	restore := SetPollInterval(100 * time.Microsecond)
-	defer restore()
+	task, mot, _, stat := newSeqTestTask(t)
+	task.SetPollInterval(100 * time.Microsecond)
 
 	stat.inPosition.Store(false)
 
@@ -251,9 +249,8 @@ func TestPreconditionDrainsBeforeCommand(t *testing.T) {
 		}
 	}
 
-	task, _, _, stat := newSeqTestTask()
-	restore := SetPollInterval(100 * time.Microsecond)
-	defer restore()
+	task, _, _, stat := newSeqTestTask(t)
+	task.SetPollInterval(100 * time.Microsecond)
 	stat.inPosition.Store(false) // motion not drained yet
 	task.StartSequencer()
 
@@ -273,9 +270,8 @@ func TestPreconditionDrainsBeforeCommand(t *testing.T) {
 }
 
 func TestSequencer_Dwell(t *testing.T) {
-	task, _, _, _ := newSeqTestTask()
-	restore := SetPollInterval(10 * time.Microsecond)
-	defer restore()
+	task, _, _, _ := newSeqTestTask(t)
+	task.SetPollInterval(10 * time.Microsecond)
 
 	task.StartSequencer()
 
@@ -292,9 +288,8 @@ func TestSequencer_Dwell(t *testing.T) {
 }
 
 func TestSequencer_MixedCommands(t *testing.T) {
-	task, mot, _, _ := newSeqTestTask()
-	restore := SetPollInterval(10 * time.Microsecond)
-	defer restore()
+	task, mot, _, _ := newSeqTestTask(t)
+	task.SetPollInterval(10 * time.Microsecond)
 
 	task.StartSequencer()
 
@@ -323,7 +318,7 @@ func TestSequencer_MixedCommands(t *testing.T) {
 }
 
 func TestEnqueueCmd_NotRunning(t *testing.T) {
-	task, _, _, _ := newSeqTestTask()
+	task, _, _, _ := newSeqTestTask(t)
 
 	err := task.EnqueueCmd(&LinearMoveCmd{ID: 1})
 	if err == nil {
@@ -344,7 +339,7 @@ func (m *abortingStatus) GetQueueDepth() (int32, error) { return m.depth.Load(),
 // still decelerating, and the TP refused it ("TP is aborting"): the move was
 // dropped. The sequencer now holds motion until the abort has run out.
 func TestWaitTPAbortDone_HoldsMotionUntilAbortRunsOut(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	st := &abortingStatus{}
 	st.depth.Store(3)
 	task.status = st
@@ -359,7 +354,7 @@ func TestWaitTPAbortDone_HoldsMotionUntilAbortRunsOut(t *testing.T) {
 	select {
 	case err := <-done:
 		t.Fatalf("returned (%v) while the TP still held the aborted segments", err)
-	case <-time.After(5 * pollInterval):
+	case <-time.After(5 * task.pollInterval()):
 	}
 
 	st.depth.Store(0)
@@ -384,7 +379,7 @@ func TestWaitTPAbortDone_HoldsMotionUntilAbortRunsOut(t *testing.T) {
 
 // The wait itself must give way to a sequencer abort.
 func TestWaitTPAbortDone_Abortable(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	st := &abortingStatus{}
 	st.depth.Store(3)
 	task.status = st

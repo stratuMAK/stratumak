@@ -107,9 +107,21 @@ func TestTapping_ResetInsideCycleRestoresOverrides(t *testing.T) {
 // so a pause can be placed inside a tap cycle deterministically.
 type gateCmd struct{ entered, release chan struct{} }
 
-func (c *gateCmd) Execute(*Task) error { close(c.entered); <-c.release; return nil }
-func (c *gateCmd) Wait() WaitType      { return WaitNone }
-func (c *gateCmd) String() string      { return "Gate" }
+// Execute holds the sequencer until release -- or until it is aborted, so a
+// test that fails while the gate is shut still lets Shutdown join it.
+func (c *gateCmd) Execute(t *Task) error {
+	close(c.entered)
+	t.mu.Lock()
+	abort := t.seqAbort
+	t.mu.Unlock()
+	select {
+	case <-c.release:
+	case <-abort:
+	}
+	return nil
+}
+func (c *gateCmd) Wait() WaitType { return WaitNone }
+func (c *gateCmd) String() string { return "Gate" }
 
 // markCmd records that the sequencer executed it.
 type markCmd struct {
@@ -132,7 +144,7 @@ func TestTapping_SequencerDefersPauseAndStep(t *testing.T) {
 	for _, mode := range []string{"pause", "step"} {
 		t.Run(mode, func(t *testing.T) {
 			task, mot := newBlendCanonTask(t)
-			defer task.StopSequencer()
+			defer task.Shutdown()
 			mark := func(n string) QueuedCmd { return &markCmd{n, mot} }
 			events := mot.eventLog
 			gate := &gateCmd{make(chan struct{}), make(chan struct{})}

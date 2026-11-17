@@ -123,6 +123,10 @@ type pnptaskModule struct {
 	// vel/acc of the later phases).
 	limits *motsetup.Result
 
+	// timing is the control loop's pace (loopTiming): the defaults, or what a
+	// test fixture set before the loop started.
+	timing loopTiming
+
 	// ctl is the control loop; nil until Start.
 	ctl *control
 
@@ -172,6 +176,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		logger:  logger,
 		ini:     ini.WithNamespace(name),
 		pickers: 1,
+		timing:  defaultLoopTiming(),
 	}
 	if err := m.parseArgs(args); err != nil {
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
@@ -435,7 +440,7 @@ func (m *pnptaskModule) startControl() error {
 	// it has run once. In the servo thread that is within a millisecond; not
 	// at all means it is on no thread, and the module could see no input and
 	// drive no output.
-	if !m.rt.waitFirstFrame(firstFrameTimeout) {
+	if !m.rt.waitFirstFrame(m.timing.firstFrame) {
 		return fmt.Errorf("pnptask %q: the cycle function has not run: it must be on the servo "+
 			"thread AFTER motion-controller (addf %s.%s servo-thread)", m.name, m.name, cycleFunct)
 	}

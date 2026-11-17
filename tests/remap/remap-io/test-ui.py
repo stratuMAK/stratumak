@@ -67,6 +67,10 @@ def do_dout(on=True, mpos=None):
     if mpos is not None:
         c.mdi('G0 X%.2f' % mpos)
     c.wait_complete()
+    # The output is set by motion in the servo thread: waited for, not read
+    # once (a run that never sets it times out, by name).
+    stmak_test.wait_until(lambda: int(getp(DOUT0)) == int(on),
+                          "motion dout0 to read %d after M%d" % (int(on), code))
 
     d = int(getp(DOUT0))
     print('    M%d remapping post: motion dout0=%d; hal d_out=%d' % (code, d, d))
@@ -143,6 +147,9 @@ def do_aout(out_val, mpos=None):
     if mpos is not None:
         c.mdi('G0 X%.2f' % mpos)
     c.wait_complete()
+    # Set by motion in the servo thread: waited for, not read once.
+    stmak_test.wait_until(lambda: abs(getp(AOUT0) - out_val) < 1e-6,
+                          "motion aout0 to read %.2f after M%d" % (out_val, code))
 
     a = getp(AOUT0)
     print('    M%d remapping post: motion aout0=%.2f; hal a_out=%.2f' % (code, a, a))

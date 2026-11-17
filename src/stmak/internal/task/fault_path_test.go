@@ -69,15 +69,17 @@ func (m *faultSeqMotion) SpindleOff(s int32) error {
 	return nil
 }
 
-func newRecordingTask() (*Task, *mockMotion, *recordingIO) {
+func newRecordingTask(t *testing.T) (*Task, *mockMotion, *recordingIO) {
+	t.Helper()
 	mot := &mockMotion{}
 	io := &recordingIO{}
 	stat := &mockStatus{mot: mot}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	t := NewTask(mot, io, stat, logger)
-	t.SetIOStatusReader(io)
-	t.numSpindles = 1
-	return t, mot, io
+	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetIOStatusReader(io)
+	task.numSpindles = 1
+	return task, mot, io
 }
 
 // TestFaultMDI_RunsOnAbortAbortsIOAndSpindle is the regression test for the MDI
@@ -88,10 +90,9 @@ func newRecordingTask() (*Task, *mockMotion, *recordingIO) {
 // toolchange/probe/input flags, the IO controller was never told to abort, and a
 // running spindle kept spinning.
 func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
-	task, mot, io := newRecordingTask()
+	task, mot, io := newRecordingTask(t)
+	task.SetPollInterval(time.Millisecond)
 	task.noForceHoming = true
 
 	ri := &recordingInterp{}
@@ -112,7 +113,7 @@ func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	if err := task.MDI("g0 x1"); err == nil {
 		t.Fatal("expected MDI to return the interpreter error")
@@ -151,18 +152,18 @@ func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
 // EMC_TASK_EXEC_ERROR path — abort motion, IoAbort with reason TASK_EXEC_ERROR(1),
 // and stop every spindle — not just latch ExecError and rely on the monitor.
 func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &faultSeqMotion{failSetLine: true}
 	io := &recordingIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.numSpindles = 2
 
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// Capture this generation's done channel under the lock: recoverSeqFault
 	// restarts the sequencer after the fault, so reading task.seqDone directly
@@ -213,9 +214,9 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 // G61/G64 with the same values would be coalesced away and the TP left on a
 // stale blending mode.
 func TestCanon_DiscardedTermCondDoesNotPoisonCache(t *testing.T) {
-	task, _, _ := newRecordingTask()
+	task, _, _ := newRecordingTask(t)
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 	c := task.canon
 
 	// Discarded G61 (exact path): dropped, and the cache must not record it.
@@ -238,7 +239,7 @@ func TestCanon_DiscardedTermCondDoesNotPoisonCache(t *testing.T) {
 // state, whose light teardown does no IoAbort), stop the spindles, and run
 // interp on_abort(5) + synch.
 func TestEstopReset_RunsAbortSequence(t *testing.T) {
-	task, mot, io := newRecordingTask()
+	task, mot, io := newRecordingTask(t)
 	ri := &recordingInterp{}
 	// abortInterp must discard ON_ABORT_COMMAND canon output on every abort
 	// path (stratuMAK never replays abort-handler motion). The hook runs on the
@@ -248,7 +249,7 @@ func TestEstopReset_RunsAbortSequence(t *testing.T) {
 	task.SetInterpreter(ri)
 
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	if err := task.SetState(int32(StateEstopReset)); err != nil {
 		t.Fatalf("SetState(EstopReset): %v", err)
@@ -286,10 +287,9 @@ func TestEstopReset_RunsAbortSequence(t *testing.T) {
 // resting mode transactionally re-enters MDI mode, the SECOND MDI killed the
 // spindle the first one started (S1000 + M3 on, then F100 → spindle off).
 func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
-	task, mot, io := newRecordingTask()
+	task, mot, io := newRecordingTask(t)
+	task.SetPollInterval(time.Millisecond)
 	task.noForceHoming = true
 
 	ri := &recordingInterp{}
@@ -297,7 +297,7 @@ func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
 
 	bringUp(t, task)
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// Rest in Manual and start the spindle with a manual command.
 	if err := task.SetMode(int32(ModeManual)); err != nil {
@@ -356,10 +356,9 @@ func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
 // IoAbort with reason 10, spindle stop, operator error), which 2.9 cannot even
 // reach for a plain abort (single-threaded loop, reasons 8/1 there).
 func TestMDI_AbortedEnqueueIsNotAnMDIError(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
-	task, mot, io := newRecordingTask()
+	task, mot, io := newRecordingTask(t)
+	task.SetPollInterval(time.Millisecond)
 	task.noForceHoming = true
 
 	ri := &recordingInterp{}
@@ -388,7 +387,7 @@ func TestMDI_AbortedEnqueueIsNotAnMDIError(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// Assert against deltas from here, not absolute counts (SetMode's light
 	// modeAbortLocked no longer runs on_abort/IoAbort/SpindleOff, but keep the
@@ -430,20 +429,20 @@ func TestMDI_AbortedEnqueueIsNotAnMDIError(t *testing.T) {
 // EMC_ABORT_TASK_EXEC_ERROR (2.9 emcAbortCleanup(1)) and restarts the
 // sequencer so the task accepts new work.
 func TestSeqFault_RecoversInterpWithoutProducer(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &faultSeqMotion{failSetLine: true}
 	io := &recordingIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.numSpindles = 1
 	ri := &recordingInterp{}
 	task.SetInterpreter(ri)
 
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// No producer goroutine exists: the command is enqueued directly, like an
 	// MDI whose interpreter work already finished.
@@ -484,14 +483,14 @@ func TestSeqFault_RecoversInterpWithoutProducer(t *testing.T) {
 // races an in-flight MDI, and that teardown commits InterpIdle itself — so no
 // path leaves the task wedged at InterpReading.
 func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
 	mot := &faultSeqMotion{failSetLine: true}
 	io := &recordingIO{}
 	stat := &mockStatus{mot: &mot.mockMotion}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	task.SetPollInterval(time.Millisecond)
 	task.SetIOStatusReader(io) // estop-reset confirms via the IO status read
 	task.numSpindles = 1
 	task.noForceHoming = true
@@ -503,7 +502,7 @@ func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// Latch a real fault: a rejected motion command drives seqFaultExit, and
 	// recoverSeqFault restarts the sequencer with ExecError latched.
@@ -558,16 +557,15 @@ func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
 // faultProgram run on_abort with reason 9; this test also pins that it stays
 // light (no IoAbort) so the two legs don't collapse into one.
 func TestFaultProgram_RunsOnAbortNoIOAbort(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
-	task, _, io := newRecordingTask()
+	task, _, io := newRecordingTask(t)
+	task.SetPollInterval(time.Millisecond)
 	ri := &recordingInterp{}
 	task.SetInterpreter(ri)
 
 	bringUp(t, task)
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 
 	// bringUp's estop-reset legitimately IoAborts (reason 5, 2.9 parity);
 	// assert the fault path below adds none on top of that baseline.

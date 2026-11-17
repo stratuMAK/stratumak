@@ -285,6 +285,9 @@ type Cartesian = motctl.Cartesian
 type Task struct {
 	mu sync.Mutex
 
+	// timing is this task's wait-loop pace (taskTiming).
+	timing taskTiming
+
 	// cmdMu serializes mutating command entry points end-to-end (see the
 	// locking model above). Always acquired before mu, never while holding mu.
 	cmdMu sync.Mutex
@@ -431,6 +434,16 @@ type Task struct {
 	// conversion must be impossible by construction, not by lock ordering
 	// luck.
 	filterWG sync.WaitGroup
+
+	// bg tracks the task's other background goroutines -- the program
+	// producer (runProgram), the MDI completion (finishMDI) and the sequencer
+	// fault recovery (recoverSeqFault) -- so Shutdown can wait for every one
+	// of them. Spawned only through goBG, which refuses once closed is set:
+	// every Add happens before Shutdown's Wait (both under mu).
+	bg sync.WaitGroup
+	// closed is set by Shutdown (under mu, with seqLifeMu held): no sequencer
+	// generation starts and no background goroutine is spawned after it.
+	closed bool
 	// Bumped when a conversion starts and whenever an in-flight one is
 	// superseded: by abort, at shutdown, and by a newer program open. The
 	// filter goroutine captures it and refuses to publish a result that a

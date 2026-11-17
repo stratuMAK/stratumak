@@ -26,10 +26,9 @@ non-realtime host gives the same numbers.
 """
 
 import math
-import os
-import time
 
 import pnpdrv
+import stmak_test
 
 CLEARANCE = 12.0
 ZONES = [(340.0, 300.0, 420.0, 370.0), (500.0, 60.0, 560.0, 140.0)]
@@ -72,14 +71,20 @@ pnpdrv.check(m.get("proc.21.has-material"), "station 21 holds the part")
 # The capture is written by the filestream I/O thread; wait until it has
 # caught up with the machine standing at the station again.
 m.wait_still()
-deadline = time.monotonic() + 10 * float(os.environ.get("STMAK_TEST_TIMEOUT_SCALE", "1"))
-rows = load_capture()
-while time.monotonic() < deadline:
+# The capture only grows, so this waits for the row the machine stands at; a
+# capture that never gets there fails here, by name, instead of handing the
+# checks below a partial one.
+rows = []
+
+
+def caught_up():
+    rows[:] = load_capture()
     last = rows[-1] if rows else None
-    if last and abs(last[1] - GOAL[0]) < 1e-6 and abs(last[2] - GOAL[1]) < 1e-6 and last[3] >= TRAVEL_Z - 1e-6:
-        break
-    time.sleep(0.05)
-    rows = load_capture()
+    return bool(last) and abs(last[1] - GOAL[0]) < 1e-6 and abs(last[2] - GOAL[1]) < 1e-6 \
+        and last[3] >= TRAVEL_Z - 1e-6
+
+
+stmak_test.wait_until(caught_up, "the capture to reach the machine standing at the station", interval=0.05)
 
 tags = [r[0] for r in rows]
 pnpdrv.check(all(b - a == 1 for a, b in zip(tags, tags[1:])),

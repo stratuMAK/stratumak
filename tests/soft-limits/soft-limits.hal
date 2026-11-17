@@ -37,7 +37,9 @@ sets hand-sel 0
 #
 # Columns: trace-mark, X teleop velocity, X command, X jog enabled,
 # on-soft-limit, motion error (coord-error is the motion error flag).
-load filestream sample_cfg=sffbbb outfile=trace.txt depth=32768 samples=0
+# depth: ~130 s of servo cycles at 1 kHz -- the I/O thread draining the ring
+# may fall that far behind before a sample is lost (stmak_check_filestream).
+load filestream sample_cfg=sffbbb outfile=trace.txt depth=131072 samples=0
 net trace-mark                              => filestream.sample.0
 net xvel      <= axis.x.teleop-vel-cmd      => filestream.sample.1
 net xcmd                                    => filestream.sample.2

@@ -35,6 +35,7 @@ func TestSetDebug_ForwardsAndReports(t *testing.T) {
 	mot := &debugRecMotion{}
 	io := &debugRecIO{}
 	task := NewTask(mot, io, &mockStatus{}, tier3Logger())
+	t.Cleanup(task.Shutdown)
 
 	if err := task.SetDebug(42); err != nil {
 		t.Fatalf("SetDebug: %v", err)
@@ -55,6 +56,7 @@ func TestSetDebug_ForwardsAndReports(t *testing.T) {
 func TestToolUnload(t *testing.T) {
 	io := &debugRecIO{}
 	task := NewTask(&mockMotion{}, io, &mockStatus{}, tier3Logger())
+	t.Cleanup(task.Shutdown)
 
 	if err := task.ToolUnload(); err != nil {
 		t.Fatalf("ToolUnload (idle): %v", err)

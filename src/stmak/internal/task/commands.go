@@ -280,6 +280,9 @@ func (t *Task) preflightManualMode(requireOn bool) error {
 	return nil
 }
 
+// errTaskShutDown refuses a command that would start work after Shutdown.
+var errTaskShutDown = errors.New("milltask is shutting down")
+
 // signalAbort fires the fast abort signals WITHOUT taking cmdMu: close the
 // sequencer abort channel, abort the M-code worker, and abort motion. All
 // three are idempotent and safe from any goroutine.
@@ -733,12 +736,12 @@ func (t *Task) setState(state int32) error {
 	return nil
 }
 
-// motionEnableSettleTimeout bounds how long SetState(ON) waits for the enable
-// to show up in a published motion status. Two servo cycles suffice on a
-// healthy machine, so a hit deadline means the enable was refused/revoked, not
-// that the machine is slow. A var, not a const, so tests exercising the
+// defaultMotionEnableSettleTimeout bounds how long SetState(ON) waits for the
+// enable to show up in a published motion status. Two servo cycles suffice on
+// a healthy machine, so a hit deadline means the enable was refused/revoked,
+// not that the machine is slow. Per task (taskTiming), so tests exercising the
 // refusal path don't have to burn the full production deadline.
-var motionEnableSettleTimeout = 1 * time.Second
+const defaultMotionEnableSettleTimeout = 1 * time.Second
 
 const motionEnableSettleInterval = 2 * time.Millisecond
 
@@ -749,14 +752,14 @@ func (t *Task) waitMotionEnabledStatus() error {
 	if t.status == nil {
 		return nil
 	}
-	deadline := time.Now().Add(motionEnableSettleTimeout)
+	deadline := time.Now().Add(t.motionEnableSettleTimeout())
 	for {
 		if ms, err := t.status.GetStatus(); err == nil && ms.Enabled != 0 {
 			return nil
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("motion status still disabled %v after enable ack",
-				motionEnableSettleTimeout)
+				t.motionEnableSettleTimeout())
 		}
 		time.Sleep(motionEnableSettleInterval)
 	}
@@ -987,12 +990,18 @@ func (t *Task) startFiltering(source string, filter *programfilter.Filter) error
 	}
 	final := filepath.Join(dir, base+".ngc")
 	tmp := fmt.Sprintf("%s.%d.part", final, gen)
+	if t.closed {
+		t.mu.Unlock()
+		cancel()
+		return errTaskShutDown
+	}
 	t.filtering = true
 	t.filterProgress = 0
 	t.filterCancel = cancel
+	// Added under mu with closed checked: Shutdown's Wait cannot miss it.
+	t.filterWG.Add(1)
 	t.mu.Unlock()
 
-	t.filterWG.Add(1)
 	go func() {
 		defer t.filterWG.Done()
 		t.runFilter(ctx, gen, source, tmp, final, filter)
@@ -1303,7 +1312,11 @@ func (t *Task) autoCommand(cmd int32, line int32) error {
 		t.mu.Lock()
 		abort := t.seqAbort
 		t.mu.Unlock()
-		go t.runProgram(interp, startLine, runDone, abort)
+		if !t.goBG(func() { t.runProgram(interp, startLine, runDone, abort) }) {
+			close(runDone)
+			t.setInterpState(InterpIdle)
+			return errTaskShutDown
+		}
 		return nil
 
 	case AutoPause:
@@ -1346,7 +1359,11 @@ func (t *Task) autoCommand(cmd int32, line int32) error {
 			t.mu.Lock()
 			abort := t.seqAbort
 			t.mu.Unlock()
-			go t.runProgram(interp, line, runDone, abort)
+			if !t.goBG(func() { t.runProgram(interp, line, runDone, abort) }) {
+				close(runDone)
+				t.setInterpState(InterpIdle)
+				return errTaskShutDown
+			}
 			return nil
 		}
 
@@ -2032,7 +2049,7 @@ func (t *Task) seekToLine(interp Interpreter, startLine int32, abort <-chan stru
 // waitSequencerDrain waits until the sequencer queue is empty and the
 // sequencer is idle (ExecDone). Returns true if aborted.
 func (t *Task) waitSequencerDrain() bool {
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	for {
@@ -2864,7 +2881,7 @@ func (t *Task) ToolUnload() error {
 // this is the equivalent for the queue-registered-before-POST-returns model.
 func (t *Task) WaitComplete(timeout float64) error {
 	deadline := time.Now().Add(time.Duration(timeout * float64(time.Second)))
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	for {

@@ -1,9 +1,12 @@
 # Two samplers record their own sample numbers, so every line halsampler prints
 # says which sample it is.  "lossy" has a ring of two on a 100 us thread: the
 # stream bridge polls about once a millisecond, so it loses samples all the
-# time.  "roomy" holds ten seconds and must lose none.
+# time.  "roomy" holds a hundred seconds and must lose none.
 load sampler <lossy> depth=2 cfg=s
-load sampler <roomy> depth=100000 cfg=s
+# roomy: 100 s of samples at 10 kHz -- the reader may fall that far behind
+# before it loses one. lossy loses by construction: the server pump sleeps
+# 1 ms after an empty poll, 10 samples arrive meanwhile, the ring holds 2.
+load sampler <roomy> depth=1000000 cfg=s
 newthread fast 100000
 addf lossy fast
 addf roomy fast

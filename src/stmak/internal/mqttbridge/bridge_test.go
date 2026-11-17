@@ -788,7 +788,14 @@ func TestDryrunStartStopAdvancesLiveness(t *testing.T) {
 	if err := b.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	deadline := time.After(3 * time.Second)
+	// The publish loops read the component's pins: they are joined before
+	// the component goes (cleanups run last registered first), also when the
+	// test fails before its own stop.
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(b.stop) }
+	t.Cleanup(stop)
+	// A hang guard only: the count only grows, so a slow runner just waits.
+	deadline := time.After(30 * time.Second)
 	for b.pubCount.Get() < 2 {
 		select {
 		case <-deadline:
@@ -800,7 +807,7 @@ func TestDryrunStartStopAdvancesLiveness(t *testing.T) {
 
 	// stop() must join the publish goroutines; if it did not, the count would
 	// keep moving after it returned.
-	b.stop()
+	stop()
 	after := b.pubCount.Get()
 	time.Sleep(30 * time.Millisecond)
 	if b.pubCount.Get() != after {

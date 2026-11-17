@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -82,6 +83,12 @@ func (t *Task) StartSequencer() {
 	defer t.seqLifeMu.Unlock()
 
 	t.mu.Lock()
+	if t.closed {
+		// Shut down: a teardown path still unwinding (recoverSeqFault, an
+		// abort) must not bring a sequencer back behind Shutdown.
+		t.mu.Unlock()
+		return
+	}
 	oldDone := t.seqDone
 	oldAbort := t.seqAbort
 	// Abort the previous sequencer under t.mu so this check-then-close is atomic
@@ -133,6 +140,49 @@ func (t *Task) StopSequencer() {
 	// Wait for goroutine to finish (lock released — it may need t.mu to exit).
 	if done != nil {
 		<-done
+	}
+}
+
+// goBG runs fn on a goroutine Shutdown waits for. It reports false, and runs
+// nothing, once the task is shut down.
+func (t *Task) goBG(fn func()) bool {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return false
+	}
+	t.bg.Add(1)
+	t.mu.Unlock()
+	go func() {
+		defer t.bg.Done()
+		fn()
+	}()
+	return true
+}
+
+// Shutdown ends everything the task runs and waits for it: after it returns
+// no goroutine of this task touches the interpreter, the motion and IO
+// clients, the filter output or any field. Order: refuse new sequencer
+// generations and goroutines first, then abort -- which makes every wait and
+// enqueue of the producer, the MDI completion and the recovery return -- join
+// the sequencer, wait for the rest, and stop the M-code worker. Safe to call
+// more than once.
+func (t *Task) Shutdown() {
+	t.seqLifeMu.Lock()
+	t.mu.Lock()
+	t.closed = true
+	t.mu.Unlock()
+	t.seqLifeMu.Unlock()
+
+	t.signalAbort()
+	t.StopSequencer()
+	t.bg.Wait()
+	t.cancelFiltering()
+	t.filterWG.Wait()
+	// Last: the sequencer and the background goroutines are what submit
+	// M-codes, and all of them have returned.
+	if t.mcode != nil {
+		t.mcode.Stop()
 	}
 }
 
@@ -319,7 +369,7 @@ func (t *Task) sequencerLoop() {
 						select {
 						case <-t.seqAbort:
 							return // aborted — aborter owns the terminal state
-						case <-time.After(pollInterval):
+						case <-time.After(t.pollInterval()):
 							continue
 						}
 					}
@@ -520,7 +570,7 @@ func (t *Task) waitTPAbortDone() error {
 		t.tpAbortPending.Store(false)
 		return nil
 	}
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 	for {
 		if qd, err := t.status.GetQueueDepth(); err == nil && qd == 0 {
@@ -548,7 +598,7 @@ func (t *Task) waitForQueueSpace() error {
 	}
 
 	t.logger.Debug("waiting for TP queue space", "depth", qd)
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 	for {
 		select {
@@ -584,7 +634,7 @@ func (t *Task) motionDrained() bool {
 // A communication watchdog detects if the motion controller stops responding.
 func (t *Task) waitMotionDone() error {
 	t.setExecState(ExecWaitingForMotion)
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	if t.motionDispatched.Load() {
@@ -647,7 +697,7 @@ func (t *Task) waitMotionDone() error {
 func (t *Task) waitIODone() error {
 	t.setExecState(ExecWaitingForIO)
 	commErrors := 0
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	for {
@@ -689,7 +739,7 @@ func (t *Task) waitIODone() error {
 // ready in the select, so that case simply never fires.
 func (t *Task) waitSpindleOriented(timeout float64) error {
 	t.setExecState(ExecWaitingForSpindleOriented)
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	var deadline <-chan time.Time
@@ -750,7 +800,7 @@ func (t *Task) waitSpindleOriented(timeout float64) error {
 // The condition function should return (done, commOK). If commOK is false for
 // too many consecutive polls, a comm failure is declared.
 func (t *Task) pollUntil(cond func() bool) error {
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	for {
@@ -823,7 +873,7 @@ func (t *Task) seqFaultExit() {
 	// taking cmdMu here would deadlock against an MDI producer that holds cmdMu
 	// until the seqAbort close above unblocks its EnqueueCmd). Spawned before
 	// the hardware stop so it queues on cmdMu as early as possible.
-	go t.recoverSeqFault()
+	t.goBG(t.recoverSeqFault)
 
 	if err := t.abortMotion(); err != nil {
 		t.logger.Error("seqFaultExit: motion abort failed", "err", err)
@@ -1125,30 +1175,53 @@ func (t *Task) DrainQueue() {
 // Keep headroom to avoid that scenario entirely.
 const tpQueueHighWater = 1800
 
-// Mutex-free accessors for sequencer goroutine to read status.
-// These avoid holding mu during polling.
-var pollInterval = 10 * time.Millisecond
+// defaultPollInterval is how often the wait loops look at status (taskTiming).
+const defaultPollInterval = 10 * time.Millisecond
 
 // Timeouts for wait loops — detect communication failure (controller not
 // responding), NOT slow execution. Motion moves and tool changes can take
 // arbitrarily long; what we guard against is a dead controller.
-var (
+const (
 	// If status reads fail for this many consecutive polls, declare comm
-	// failure (~1 s at the 10 ms pollInterval; tests that shrink pollInterval
-	// via SetPollInterval shrink this timeout with it). The monitor's comm
-	// watchdog has its own independent constant (commWatchdogTicks).
+	// failure (~1 s at the default poll interval; a task polling faster
+	// shrinks this timeout with it). The monitor's comm watchdog has its own
+	// independent constant (commWatchdogTicks).
 	commFailureThreshold = 100
 )
 
-// SetPollInterval allows tests to speed up polling. Not thread-safe — call before StartSequencer.
-func SetPollInterval(d time.Duration) func() {
-	old := pollInterval
-	pollInterval = d
-	return func() { pollInterval = old }
+// taskTiming is the part of a Task's timing tests run at another pace. It
+// belongs to one Task, never to the package: a test that speeds up its task
+// cannot change the pace of another test's goroutines that are still winding
+// down. Atomic, so it may be set while that task's own goroutines run. Zero
+// means the default (a Task built as a struct literal polls at the default).
+type taskTiming struct {
+	poll               atomic.Int64 // defaultPollInterval
+	coordSwitch        atomic.Int64 // defaultCoordSwitchTimeout
+	motionEnableSettle atomic.Int64 // defaultMotionEnableSettleTimeout
 }
 
+func timingOr(v *atomic.Int64, def time.Duration) time.Duration {
+	if d := time.Duration(v.Load()); d > 0 {
+		return d
+	}
+	return def
+}
+
+func (t *Task) pollInterval() time.Duration { return timingOr(&t.timing.poll, defaultPollInterval) }
+
+func (t *Task) coordSwitchTimeout() time.Duration {
+	return timingOr(&t.timing.coordSwitch, defaultCoordSwitchTimeout)
+}
+
+func (t *Task) motionEnableSettleTimeout() time.Duration {
+	return timingOr(&t.timing.motionEnableSettle, defaultMotionEnableSettleTimeout)
+}
+
+// SetPollInterval sets this task's status poll interval (tests run it faster).
+func (t *Task) SetPollInterval(d time.Duration) { t.timing.poll.Store(int64(d)) }
+
 func init() {
-	// Ensure pollInterval is used in pollUntil. Override the hardcoded value.
+	// Ensure t.pollInterval() is used in pollUntil. Override the hardcoded value.
 }
 
 // mu-free helpers that call locked setters above (no change needed, just documenting)
@@ -1199,7 +1272,7 @@ type mdiDoneCmd struct{ gen uint64 }
 func (c *mdiDoneCmd) Execute(t *Task) error { return nil }
 
 func (c *mdiDoneCmd) PostWait(t *Task) {
-	go t.finishMDI(c.gen)
+	t.goBG(func() { t.finishMDI(c.gen) })
 }
 
 func (c *mdiDoneCmd) Wait() WaitType { return WaitMotion }

@@ -20,6 +20,10 @@ pnpdrv.check(not s["tray.10.full"] and not s["tray.10.empty"],
 
 held = [n for n in (0, 1) if s["picker.%d.close" % n]]
 pnpdrv.check_eq(len(held), 1, "one picker's held-material record came back")
+# The close output is re-driven at start and the simulated gripper needs its
+# settle time to answer it; with the output held high nothing can open it
+# again, so "holding" is final once it shows — waited for, not read once.
+m.wait_gripper(held[0], True)
 pnpdrv.check(m.holding(held[0]),
              "the restored close output found the part still in the gripper")
 

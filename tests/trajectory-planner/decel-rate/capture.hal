@@ -5,6 +5,8 @@
 # does. The whole point of sampling here rather than polling from a script is
 # that a deceleration ramp is tens of milliseconds long: anything slower than
 # the servo rate cannot see its shape at all.
-load filestream sample_cfg=f outfile=vel.txt depth=32768 samples=0
+# depth: ~130 s of servo cycles at 1 kHz -- the I/O thread draining the ring
+# may fall that far behind before a sample is lost (stmak_check_filestream).
+load filestream sample_cfg=f outfile=vel.txt depth=131072 samples=0
 net tp-vel <= motion.current-vel => filestream.sample.0
 addf filestream.read servo-thread

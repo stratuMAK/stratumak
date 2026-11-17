@@ -13,6 +13,7 @@
 
 import gmi
 from gmi.constants import *
+import os
 import stmak_test
 
 import sys
@@ -27,6 +28,7 @@ def wait_for_startup(s, timeout=15.0):
     # dispatched to motion at estop, which motmod rejects ("need to be enabled,
     # in coord mode") — the deterministic side effect of stratuMAK running startup
     # motion at init while the machine is off. We only need interp idle + estop.
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()
@@ -47,10 +49,10 @@ print("UI abort")
 sys.stdout.flush()
 c.abort()
 c.wait_complete()
-# The interceptor cmod writes out.motion-logger from another process: wait for
-# the abort's log lines to land and the file to stop growing, rather than
-# sleeping and hoping. Reading early truncates the diff below.
-stmak_test.wait_file_stable("out.motion-logger")
+# The interceptor writes each motion command, flushed, as task sends it, so
+# what this run sent is in the file by now; the wait for the golden file's
+# length is the guard on that, not a guess that the writer has gone quiet.
+stmak_test.wait_file_length("out.motion-logger", os.path.getsize("expected.motion-logger"))
 print("UI done with abort")
 sys.stdout.flush()
 

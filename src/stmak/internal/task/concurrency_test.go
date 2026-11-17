@@ -111,10 +111,9 @@ func (f *fakeInterp) ActiveSettings() []float64 {
 // interpreter, and fast polling. Cleanup stops the sequencer.
 func newMDITask(t *testing.T, fi *fakeInterp) *Task {
 	t.Helper()
-	restore := SetPollInterval(time.Millisecond)
-	t.Cleanup(restore)
 
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
+	task.SetPollInterval(time.Millisecond)
 	task.noForceHoming = true
 	task.SetInterpreter(fi)
 	bringUp(t, task)
@@ -122,7 +121,7 @@ func newMDITask(t *testing.T, fi *fakeInterp) *Task {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 	return task
 }
 
@@ -241,9 +240,14 @@ func TestAutoRun_RejectedWhileRunning(t *testing.T) {
 	}
 	fi.onExecute = func(call int) (int, error) { return InterpOK, nil }
 
-	restore := SetPollInterval(time.Millisecond)
-	defer restore()
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
+	// Registered after newTestTask's Shutdown, so it runs first: a failure
+	// before the release below must not leave Shutdown waiting on a producer
+	// held in onRead.
+	var releaseOnce sync.Once
+	releaseRun := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseRun)
+	task.SetPollInterval(time.Millisecond)
 	task.noForceHoming = true
 	task.SetInterpreter(fi)
 	bringUp(t, task)
@@ -265,7 +269,7 @@ func TestAutoRun_RejectedWhileRunning(t *testing.T) {
 		t.Fatalf("second run: want ErrBusy, got %v", err)
 	}
 
-	close(release)
+	releaseRun()
 	waitIdle(t, task, 5*time.Second)
 	task.StopSequencer()
 }
@@ -274,9 +278,8 @@ func TestAutoRun_RejectedWhileRunning(t *testing.T) {
 // used to let two callers pass the same oldDone wait, spawn two loops over one
 // queue, and panic on the double close of seqDone.
 func TestStartSequencer_Concurrent(t *testing.T) {
-	restore := SetPollInterval(time.Millisecond)
-	defer restore()
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
+	task.SetPollInterval(time.Millisecond)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -352,7 +355,7 @@ func TestConcurrentCommandStorm(t *testing.T) {
 // currently holds cmdMu. The test wedges cmdMu and issues doomed commands —
 // each must return within the deadline (they'd block forever otherwise).
 func TestPreflight_RejectsWithoutCmdMu(t *testing.T) {
-	task, _, _ := newTestTask() // fresh task is in ESTOP
+	task, _, _ := newTestTask(t) // fresh task is in ESTOP
 
 	task.cmdMu.Lock()
 	defer task.cmdMu.Unlock()
@@ -385,7 +388,7 @@ func TestPreflight_RejectsWithoutCmdMu(t *testing.T) {
 // leaf lock (msgMu), operatorError->appendMessage re-locked t.mu and this
 // call never returned.
 func TestProgramOpen_BusyRejectDoesNotDeadlock(t *testing.T) {
-	task, _, _ := newTestTask()
+	task, _, _ := newTestTask(t)
 	bringUp(t, task)
 	task.mu.Lock()
 	task.interpState = InterpReading // simulate a running program

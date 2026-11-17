@@ -24,6 +24,7 @@ from gmi.constants import *
 
 
 def wait_for(s, cond, what, timeout=15.0):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()

@@ -66,6 +66,7 @@ func newNaivecamTask(t *testing.T) (*Task, *naivecamMotion) {
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, &mockIO{}, st, logger)
+	t.Cleanup(task.Shutdown)
 	applyBlendLimits(task)
 	task.maxAcceleration = 600
 	task.numJoints = 3

@@ -9,14 +9,16 @@ import (
 	"testing"
 )
 
-func newCanonTestTask() (*Task, *testMotion, *mockIO) {
+func newCanonTestTask(t *testing.T) (*Task, *testMotion, *mockIO) {
+	t.Helper()
 	mot := &testMotion{failAt: -1}
 	io := &mockIO{}
 	stat := &testStatus{}
 	stat.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	t := NewTask(mot, io, stat, logger)
-	return t, mot, io
+	task := NewTask(mot, io, stat, logger)
+	t.Cleanup(task.Shutdown)
+	return task, mot, io
 }
 
 func TestCanon_UnitConversion(t *testing.T) {
@@ -172,7 +174,7 @@ func (m *testMotion) SetCircle(pos Pose, center, normal Cartesian, turn int32, v
 // Dwell is sequencer-internal (never reaches motion), so we inspect the queue
 // directly instead of running the sequencer.
 func TestCanon_Dwell_Args(t *testing.T) {
-	task, _, _ := newCanonTestTask()
+	task, _, _ := newCanonTestTask(t)
 	// Provide the queue channels without a running sequencer so nothing consumes
 	// the enqueued commands before we inspect them.
 	task.mu.Lock()
@@ -198,9 +200,9 @@ func TestCanon_Dwell_Args(t *testing.T) {
 }
 
 func TestCanon_SpindleOnOff(t *testing.T) {
-	task, mot, _ := newCanonTestTask()
+	task, mot, _ := newCanonTestTask(t)
 	task.StartSequencer()
-	defer task.StopSequencer()
+	defer task.Shutdown()
 
 	c := task.canon
 	c.SetSpindleSpeed(0, 1000)    // S1000 while stopped
@@ -234,7 +236,7 @@ func TestCanon_SpindleOnOff(t *testing.T) {
 // C++ SET_SPINDLE_SPEED's 12/(2π)·speed·TO_EXT_LEN(25.4). Without the 25.4 a
 // G20 G96 spindle runs 25.4× too slow (the mm-only corpus masked this).
 func TestCanon_CSSInchFactor(t *testing.T) {
-	task, _, _ := newCanonTestTask()
+	task, _, _ := newCanonTestTask(t)
 	c := task.canon
 	c.state.lengthUnits = CanonUnitsInches
 	c.SetSpindleMode(0, 3000)     // G96 D3000: constant-surface-speed cap (RPM)
@@ -258,7 +260,7 @@ func TestCanon_CSSInchFactor(t *testing.T) {
 // which the interpreter stores into #5399 so a program's `if [#5399 LT 0]`
 // timeout check fires. Matches C++ GET_EXTERNAL_*_INPUT.
 func TestCanon_InputTimeoutReturnsNeg1(t *testing.T) {
-	task, _, _ := newCanonTestTask()
+	task, _, _ := newCanonTestTask(t)
 	c := task.canon
 
 	// No timeout latched: getters read the live pin (default here).
@@ -292,8 +294,9 @@ func TestCanon_CoolantEnqueues(t *testing.T) {
 	stat.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, tio, stat, logger)
+	t.Cleanup(task.Shutdown)
 	task.StartSequencer()
-	defer task.StopSequencer()
+	defer task.Shutdown()
 
 	c := task.canon
 	c.FloodOn()
@@ -332,7 +335,7 @@ func (m *trackingIO) ToolPrepare(t int32) error {
 func (m *trackingIO) ToolLoad() error { m.calls = append(m.calls, "ToolChange"); return nil }
 
 func TestCanon_Getters(t *testing.T) {
-	task, _, _ := newCanonTestTask()
+	task, _, _ := newCanonTestTask(t)
 	task.linearUnits = 1.0 // mm machine
 	c := task.canon
 
@@ -372,8 +375,9 @@ func TestCanon_ToolChange(t *testing.T) {
 	stat.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, tio, stat, logger)
+	t.Cleanup(task.Shutdown)
 	task.StartSequencer()
-	defer task.StopSequencer()
+	defer task.Shutdown()
 
 	c := task.canon
 	c.SelectTool(5)

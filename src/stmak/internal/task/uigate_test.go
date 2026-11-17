@@ -24,7 +24,7 @@ func wantGated(t *testing.T, what string, err error) {
 }
 
 func TestUIGateToggles(t *testing.T) {
-	tk, _, _ := newTestTask()
+	tk, _, _ := newTestTask(t)
 	m := &milltaskModule{task: tk}
 
 	// Pin low: no force needed.
@@ -65,7 +65,7 @@ func TestUIGateToggles(t *testing.T) {
 }
 
 func TestUIGateAuto(t *testing.T) {
-	tk, _, _ := newTestTask()
+	tk, _, _ := newTestTask(t)
 	m := &milltaskModule{task: tk}
 	tk.setProgramUIDisabled(true)
 
@@ -85,7 +85,7 @@ func TestUIGateAuto(t *testing.T) {
 }
 
 func TestUIGateAbort(t *testing.T) {
-	tk, _, _ := newTestTask()
+	tk, _, _ := newTestTask(t)
 	m := &milltaskModule{task: tk}
 	bringUp(t, tk)
 	tk.setProgramUIDisabled(true)
@@ -115,7 +115,7 @@ func TestUIGateAbort(t *testing.T) {
 }
 
 func TestUIGateStat(t *testing.T) {
-	tk, _, _ := newTestTask()
+	tk, _, _ := newTestTask(t)
 	tk.setProgramUIDisabled(true)
 	if !tk.BuildStat().Task.ProgramUiDisabled {
 		t.Error("stat does not publish program_ui_disabled")
@@ -135,7 +135,7 @@ func wantMachineGated(t *testing.T, what string, err error) {
 }
 
 func TestMachineUIGate(t *testing.T) {
-	tk, _, _ := newTestTask()
+	tk, _, _ := newTestTask(t)
 	m := &milltaskModule{task: tk}
 	state := func() TaskState {
 		tk.mu.Lock()
@@ -182,7 +182,7 @@ func TestMachineUIGate(t *testing.T) {
 }
 
 func TestMachineUIGateStat(t *testing.T) {
-	tk, _, _ := newTestTask()
+	tk, _, _ := newTestTask(t)
 	tk.setMachineUIDisabled(true)
 	st := tk.BuildStat().Task
 	if !st.MachineUiDisabled {

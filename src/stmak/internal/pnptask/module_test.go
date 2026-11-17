@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
@@ -85,7 +86,20 @@ func mustLoadModule(t *testing.T, text, instance string, args ...string) *pnptas
 	if err != nil {
 		t.Fatalf("factory: %v", err)
 	}
+	m.timing = testTiming()
 	return m
+}
+
+// testTiming is the loop timing the unit tests run with: the motion timeouts
+// turned down so a case that runs into one costs a tenth of a second rather
+// than a whole one. Set on the instance before its loop starts (loopTiming);
+// a case that needs other values changes its own module's, never a package
+// variable that the loop of another fixture reads.
+func testTiming() loopTiming {
+	t := defaultLoopTiming()
+	t.motionEnable = 100 * time.Millisecond
+	t.motionMode = 100 * time.Millisecond
+	return t
 }
 
 // hasPin reports whether a HAL pin, signal or param of that name exists.
@@ -374,7 +388,6 @@ func TestMotionInstanceFromINI(t *testing.T) {
 // otherwise surface only at the first job, as a fault that does not name the
 // key. startControl validates the three linear axes and names the section.
 func TestStartControlRejectsUnusableAxisLimits(t *testing.T) {
-	fastLoop(t)
 	setupPaths(t)
 	brokenAxes := `
 [AXIS_X]

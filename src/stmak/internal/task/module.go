@@ -463,18 +463,12 @@ func (m *milltaskModule) Stop() {
 	}
 	m.poslog.stopLogger()
 	if m.task != nil {
-		m.task.StopSequencer()
-		if m.task.mcode != nil {
-			m.task.mcode.Stop()
-		}
-	}
-	if m.task != nil {
-		// Stop any filter still converting and wait for its goroutine: after
-		// this point the interpreter gets destroyed and the output directory
-		// removed, and a conversion still holding either would be a
-		// use-after-free, not a race to win.
-		m.task.cancelFiltering()
-		m.task.filterWG.Wait()
+		// Join everything the task runs -- the sequencer, a program producer
+		// or MDI completion still unwinding, the fault recovery, a filter
+		// still converting, the M-code worker: after this point the interpreter gets destroyed
+		// and the output directory removed, and a goroutine still holding
+		// either would be a use-after-free, not a race to win.
+		m.task.Shutdown()
 		// Drop only THIS instance's output directory — another milltask in
 		// the same process may still be serving its own filtered program.
 		// Best effort: the process is going away either way, and a directory

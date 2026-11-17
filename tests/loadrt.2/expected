@@ -15,5 +15,6 @@ streamer.curr-depth
 streamer.empty
 streamer.enable
 streamer.pin.0
+streamer.received
 streamer.time
 streamer.underruns

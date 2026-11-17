@@ -274,12 +274,8 @@ func TestCycleSync(t *testing.T) {
 // TestStartControlNeedsTheCycleFunction: with the function on no thread the
 // module can see no input, so startControl refuses and names the addf line.
 func TestStartControlNeedsTheCycleFunction(t *testing.T) {
-	fastLoop(t)
-	old := firstFrameTimeout
-	firstFrameTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { firstFrameTimeout = old })
-
 	m, _ := rtModule(t)
+	m.timing.firstFrame = 50 * time.Millisecond
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.mc, m.ms = mot, mot
 

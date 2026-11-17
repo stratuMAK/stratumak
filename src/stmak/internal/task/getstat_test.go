@@ -37,7 +37,8 @@ func (m *richMockStatus) GetAnalogInput(i int32) (float64, error) {
 	return 0, nil
 }
 
-func newRichTestTask() (*Task, *richMockStatus) {
+func newRichTestTask(t *testing.T) (*Task, *richMockStatus) {
+	t.Helper()
 	ms := &richMockStatus{
 		status: motstat.MotionStatus{
 			Enabled:      1,
@@ -82,22 +83,23 @@ func newRichTestTask() (*Task, *richMockStatus) {
 	mot := &mockMotion{}
 	io := &mockIO{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	t := NewTask(mot, io, ms, logger)
+	task := NewTask(mot, io, ms, logger)
+	t.Cleanup(task.Shutdown)
 	// Production always wires the IO status reader; without it SetState(EstopReset)
 	// cannot confirm estop-off (GetIOFullStatus) and the machine stays in ESTOP.
-	t.SetIOStatusReader(io)
+	task.SetIOStatusReader(io)
 
 	// Configure task state as if it started up.
-	t.numJoints = 3
-	t.axisMask = 7 // XYZ
-	t.linearUnits = 1.0
-	t.numSpindles = 1
+	task.numJoints = 3
+	task.axisMask = 7 // XYZ
+	task.linearUnits = 1.0
+	task.numSpindles = 1
 
-	return t, ms
+	return task, ms
 }
 
 func TestGetStat_TaskState(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	if err := task.SetState(int32(StateEstopReset)); err != nil {
 		t.Fatalf("SetState(EstopReset): %v", err)
 	}
@@ -122,7 +124,7 @@ func TestGetStat_TaskState(t *testing.T) {
 }
 
 func TestGetStat_MotionFields(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 
 	stat := task.BuildStat()
@@ -154,7 +156,7 @@ func TestGetStat_MotionFields(t *testing.T) {
 }
 
 func TestGetStat_Positions(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 
 	// Tool offset is reported from the canon (task) side, not motion status —
@@ -185,7 +187,7 @@ func TestGetStat_Positions(t *testing.T) {
 }
 
 func TestGetStat_Joints(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 
 	stat := task.BuildStat()
@@ -241,7 +243,7 @@ func TestGetStat_Joints(t *testing.T) {
 }
 
 func TestGetStat_Axes(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 
 	stat := task.BuildStat()
@@ -274,7 +276,7 @@ func TestGetStat_Axes(t *testing.T) {
 }
 
 func TestGetStat_Spindle(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 
 	stat := task.BuildStat()
@@ -304,7 +306,7 @@ func TestGetStat_Spindle(t *testing.T) {
 }
 
 func TestGetStat_ScalarFields(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	bringUp(t, task)
 
 	stat := task.BuildStat()
@@ -344,7 +346,7 @@ func TestGetStat_NilTask(t *testing.T) {
 // The fixture's CartePosCmd and CartePosFb differ, so this distinguishes the
 // two rather than passing on either.
 func TestSyncEndPointUsesCommandedPose(t *testing.T) {
-	task, ms := newRichTestTask()
+	task, ms := newRichTestTask(t)
 	if task.canon == nil {
 		t.Fatal("test task has no canon")
 	}
@@ -377,7 +379,7 @@ func TestSyncEndPointUsesCommandedPose(t *testing.T) {
 // privately. Clamped silently, as 2.9 did — an encoder parked at the end of
 // its travel should not fill the message area.
 func TestOverrideSettersClampToConfiguredLimits(t *testing.T) {
-	task, _ := newRichTestTask()
+	task, _ := newRichTestTask(t)
 	mot := task.motion.(*mockMotion)
 
 	// Stand in for the [DISPLAY] keys the machine that found this uses.

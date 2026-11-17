@@ -14,14 +14,14 @@ halcmd start
 
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 
-deadline=$(( SECONDS + $(stmak_scale 20) ))
-while [ $SECONDS -lt $deadline ]; do
-    [ "$(getp ethercat.0.all-op)" = TRUE ] && break
-    sleep 0.1
-done
+# all-op, and each slave's AL state as the CLI reports it, are waited for:
+# they are derived separately and need not be published in the same cycle.
+# All are final once reached.
+stmak_wait_until 30 "the master to reach OP" '[ "$(getp ethercat.0.all-op)" = TRUE ]'
+stmak_wait_until 30 "the CLI to list both slaves in OP" \
+    'ethercat slaves 2>&1 | grep -qF "0  0:0  OP" && ethercat slaves 2>&1 | grep -qF "1  0:1  OP"'
 
 fail=0
-[ "$(getp ethercat.0.all-op)" = TRUE ] || { echo "FAIL: master did not reach OP" >&2; fail=1; }
 
 check() { # <description> <text-that-must-appear> <actual-output>
     if printf '%s\n' "$3" | grep -qF "$2"; then

@@ -6,6 +6,7 @@ from gmi.constants import *
 import math, time, sys
 
 def wait_for_startup(s, timeout=10.0):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()

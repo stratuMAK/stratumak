@@ -30,11 +30,11 @@ func (p *recordingDisplayPub) got() []string {
 // hit the logger), and in program order — Message enqueues a DisplayMsgCmd that
 // the sequencer executes, rather than firing inline during read-ahead.
 func TestCanon_MessageReachesOperatorDisplay(t *testing.T) {
-	task, _, _ := newCanonTestTask()
+	task, _, _ := newCanonTestTask(t)
 	ep := &recordingDisplayPub{}
 	task.SetErrorPublisher(ep)
 	task.StartSequencer()
-	defer task.StopSequencer()
+	defer task.Shutdown()
 
 	task.canon.Message("hello operator")
 	task.DrainQueue()

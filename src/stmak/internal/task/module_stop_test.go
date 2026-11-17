@@ -12,7 +12,7 @@ import (
 // policing while the fieldbus is being taken down, which ends a clean shutdown
 // with "joint N following error".
 func TestModuleStopDisablesMotion(t *testing.T) {
-	task, mot, _ := newTestTask()
+	task, mot, _ := newTestTask(t)
 	m := &milltaskModule{
 		task:   task,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),

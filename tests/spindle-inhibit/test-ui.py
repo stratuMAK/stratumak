@@ -62,10 +62,13 @@ def spindle_state():
 
 
 def expect(label, on, speed, enabled):
-    got = spindle_state()
+    # The pins follow in the servo thread and the status in its next
+    # publish: the state is waited for, not read once after the command.
     want = (on, speed, enabled)
-    if got != want:
-        stmak_test.fail("%s: expected on/speed/enabled %r, got %r" % (label, want, got))
+    try:
+        stmak_test.wait_until(lambda: spindle_state() == want, label)
+    except stmak_test.Timeout:
+        stmak_test.fail("%s: expected on/speed/enabled %r, got %r" % (label, want, spindle_state()))
     print("ok: %s" % label)
 
 

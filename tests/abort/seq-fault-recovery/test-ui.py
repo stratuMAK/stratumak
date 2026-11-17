@@ -16,6 +16,7 @@ import time
 
 
 def wait_for_startup(s, timeout=10.0):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()
@@ -28,6 +29,7 @@ def wait_for_startup(s, timeout=10.0):
 
 
 def wait_for(s, cond, what, timeout=15.0):
+    timeout *= stmak_test.scale()
     start = time.time()
     while time.time() - start < timeout:
         s.poll()
@@ -65,29 +67,18 @@ wait_for(s, lambda s: s.spindle[0]['enabled'] == 0, "spindle off after fault",
          timeout=5.0)
 
 # Readahead flush: the G1 X1 queued past the failing M102 must never run.
-# Wait for motion to actually come to rest — two consecutive samples holding the
-# same position — rather than sleeping 1 s and hoping it has. The old sleep both
-# under-waited on a loaded runner (x sampled mid-decel, then compared against a
-# threshold it had not reached yet) and hid the interesting failure: if the
-# flushed G1 X1 *did* run, we want the assert below to see the settled endpoint.
 # Positions are reported in mm (stratuMAK motion runs in millimetres); the G1 X0.5
 # before the fault completes (M102's queue-buster drains motion first), so a
 # correct stop leaves x at 12.7 mm, well short of the flushed 25.4 mm target.
-_last_x = {"v": None}
-
-
-def _x_at_rest():
-    s.poll()
-    now = s.actual_position[0]
-    prev, _last_x["v"] = _last_x["v"], now
-    # core_sim loops motor-pos-cmd straight back to motor-pos-fb, so a stopped
-    # axis reports a bit-identical position; only real motion moves it.
-    return prev is not None and abs(now - prev) < 1e-6
-
-
-stmak_test.wait_until(_x_at_rest, "motion to come to rest after the fault",
-                     interval=0.1,
-                     detail=lambda: "x=%.3f mm still changing" % s.actual_position[0])
+#
+# At rest by what motion reports, not by two equal samples (two polls of a
+# status that was not republished in between read equal while the machine
+# still moves): in position with an empty queue is a stop motion completed.
+stmak_test.wait_stat(s, lambda st: st.inpos and st.queue == 0,
+                     "motion to come to rest after the fault",
+                     detail=lambda st: "x=%.3f mm inpos=%s queue=%d" % (
+                         st.actual_position[0], st.inpos, st.queue))
+s.poll()
 x = s.actual_position[0]
 assert x < 0.9 * 25.4, "x=%.3f mm: readahead G1 X1 past the fault was executed" % x
 print("fault latched: EXEC_ERROR, machine ON, spindle off, x=%.3f mm (< 22.86)" % x)

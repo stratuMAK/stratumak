@@ -85,8 +85,11 @@ if not homed:
         print("  operator errors: %r" % errors)
     sys.exit(1)
 
-# Let the final move settle and any late fault surface.
-time.sleep(0.5)
+# homed flips before the final move to HOME has converged: wait for the joint
+# to come to rest (in free mode in-position waits for the joint's planner and
+# the INPOS settle; nothing commands motion after homing, so it stays), then
+# judge the positions, which are final from there.
+stmak_test.wait_stat(s, lambda st: st.inpos, "joint 0 to come to rest after homing")
 s.poll()
 drain_errors()
 

@@ -2,7 +2,9 @@
 # file-backed filestream cmod, so checkresult can verify the arc path.  Appended
 # after core_sim.hal, so filestream.read runs after motion-controller has
 # computed joint.N.motor-pos-cmd for the cycle.  samples=0 => capture until stop.
-load filestream sample_cfg=ff outfile=path.txt depth=8192 samples=0
+# depth: ~130 s of servo cycles at 1 kHz -- the I/O thread draining the ring
+# may fall that far behind before a sample is lost (stmak_check_filestream).
+load filestream sample_cfg=ff outfile=path.txt depth=131072 samples=0
 net Xpos => filestream.sample.0
 net Ypos => filestream.sample.1
 addf filestream.read servo-thread

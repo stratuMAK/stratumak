@@ -78,6 +78,7 @@ func newInterpFixture(t *testing.T, linearUnits float64) *interpFixture {
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, io, st, logger)
+	t.Cleanup(task.Shutdown)
 	applyBlendLimits(task) // XYZ vel/acc limits, so the sequencer has real numbers
 	task.maxAcceleration = 600
 	task.linearUnits = linearUnits // feeds GET_EXTERNAL_LENGTH_UNITS
@@ -141,7 +142,7 @@ func newInterpFixture(t *testing.T, linearUnits float64) *interpFixture {
 	}
 
 	task.StartSequencer()
-	t.Cleanup(task.StopSequencer)
+	t.Cleanup(task.Shutdown)
 	setActiveCanon(task.canon)
 	t.Cleanup(clearActiveCanon)
 

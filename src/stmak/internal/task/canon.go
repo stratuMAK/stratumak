@@ -1808,7 +1808,7 @@ func (c *WaitInputCmd) Execute(t *Task) error {
 	// Arm the timeout flag (C++ sets input_timeout=2 while waiting).
 	t.setInputTimeout(2)
 	deadline := time.Now().Add(time.Duration(c.Timeout * float64(time.Second)))
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 	// Edge waits (rise/fall) are two-phase: the opposite level must be observed
 	// before the target edge counts, so a signal already at the target level

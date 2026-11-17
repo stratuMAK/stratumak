@@ -435,18 +435,20 @@ func TestLegFeedLoopActsMidLeg(t *testing.T) {
 	var hooked bool
 	var pending, movesAtAbort atomic.Int32
 	pending.Store(-1)
-	f.mot.onMove = func(mc moveCall) { // the control goroutine, f.mu held
-		if mc.arc && !hooked {
-			hooked = true
-			f.m.pins.machineOn.Set(false)
+	f.mot.locked(func() {
+		f.mot.onMove = func(mc moveCall) { // the control goroutine, f.mu held
+			if mc.arc && !hooked {
+				hooked = true
+				f.m.pins.machineOn.Set(false)
+			}
 		}
-	}
-	f.mot.onAbort = func() { // the control goroutine, after the cancel was applied
-		if pending.Load() < 0 {
-			pending.Store(int32(uint32(f.m.rt.out.feed_end) - uint32(f.m.rt.in.fed)))
-			movesAtAbort.Store(int32(len(f.mot.moves)))
+		f.mot.onAbort = func() { // the control goroutine, after the cancel was applied
+			if pending.Load() < 0 {
+				pending.Store(int32(uint32(f.m.rt.out.feed_end) - uint32(f.m.rt.in.fed)))
+				movesAtAbort.Store(int32(len(f.mot.moves)))
+			}
 		}
-	}
+	})
 
 	startJobTo(f, 10, 20)
 	f.eventually("the abort", func() bool { return pending.Load() >= 0 })
@@ -464,7 +466,9 @@ func TestLegFeedLoopActsMidLeg(t *testing.T) {
 // Quittieren the next job runs: the loop's cancel let go of the held feed.
 func TestLegFeedRefusedSegmentEndsTheJob(t *testing.T) {
 	f := newSmoothLegFixture(t)
-	f.feed.Refuse(3, 4) // EMCMOT_COMMAND_BAD_EXEC
+	// The fake motmod's refusal is read by the cycle function: set between
+	// two of its runs, on the goroutine that runs it.
+	f.sim.inLoop(t, func() { f.feed.Refuse(3, 4) }) // EMCMOT_COMMAND_BAD_EXEC
 
 	f.runJob(10, 20, 0)
 	if id := f.errorID(); id != errMotionError {
@@ -479,7 +483,7 @@ func TestLegFeedRefusedSegmentEndsTheJob(t *testing.T) {
 		t.Error("busy still up")
 	}
 
-	f.feed.Refuse(0, 0)
+	f.sim.inLoop(t, func() { f.feed.Refuse(0, 0) })
 	f.clearError()
 	f.mot.resetCalls()
 	f.runJob(10, 20, 0)
@@ -522,7 +526,8 @@ func TestLegFeedRefusesALegThatDoesNotFit(t *testing.T) {
 // the job's last commit, and not later.
 func TestLegFeedLegRefusedInPlanningDoesNotMove(t *testing.T) {
 	f := newSmoothLegFixture(t)
-	f.m.limits.AxisMinPos[0] = 95 // the leg bulges to X = 86.9
+	// The limits belong to the control goroutine once it runs.
+	f.sim.inLoop(t, func() { f.m.limits.AxisMinPos[0] = 95 }) // the leg bulges to X = 86.9
 
 	f.runJob(10, 20, 0)
 	f.requireError("a leg out of the limits", errMotionError)
@@ -549,7 +554,7 @@ func TestLegFeedParkRefusedInPlanningDoesNotMove(t *testing.T) {
 	})
 	f.homed()
 	f.mot.setPos(100, 100, 60)
-	f.m.limits.AxisMinPos[0] = 95
+	f.sim.inLoop(t, func() { f.m.limits.AxisMinPos[0] = 95 })
 	f.mot.resetCalls()
 	f.press(f.m.pins.park)
 	f.eventually("the park's error", func() bool { return f.bit("error") })
@@ -569,18 +574,22 @@ func TestLegFeedParkRefusedInPlanningDoesNotMove(t *testing.T) {
 // is latched.
 func TestLegFeedRefusalWithMachineOffIsDropped(t *testing.T) {
 	f := newSmoothLegFixture(t)
-	f.mot.onMove = func(mc moveCall) { // the control goroutine, f.mu held
-		if mc.id == 3 {
-			f.m.pins.machineOn.Set(false)
+	f.mot.locked(func() {
+		f.mot.onMove = func(mc moveCall) { // the control goroutine, f.mu held
+			if mc.id == 3 {
+				f.m.pins.machineOn.Set(false)
+			}
 		}
-	}
-	f.feed.Refuse(4, 4)
+	})
+	// The fake motmod's refusal is read by the cycle function: set between
+	// two of its runs, on the goroutine that runs it.
+	f.sim.inLoop(t, func() { f.feed.Refuse(4, 4) })
 
 	f.runJob(10, 20, 0)
 	f.requireError("machine-on dropped mid-leg", errMachineOff)
 
-	f.mot.onMove = nil
-	f.feed.Refuse(0, 0)
+	f.mot.locked(func() { f.mot.onMove = nil })
+	f.sim.inLoop(t, func() { f.feed.Refuse(0, 0) })
 	f.clearError()
 	f.m.pins.machineOn.Set(true)
 	f.cycles(300)

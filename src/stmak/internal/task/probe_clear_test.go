@@ -44,8 +44,9 @@ func TestCanon_TurnProbeOnClearsBeforeProbe(t *testing.T) {
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, &mockIO{}, st, logger)
+	t.Cleanup(task.Shutdown)
 	task.StartSequencer()
-	defer task.StopSequencer()
+	defer task.Shutdown()
 
 	c := task.canon
 	c.TurnProbeOn()

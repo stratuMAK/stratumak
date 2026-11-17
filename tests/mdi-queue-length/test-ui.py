@@ -17,6 +17,7 @@ import re
 def wait_for_linuxcnc_startup(status, timeout=10.0):
     # Simplified for gmi.Stat (lacks cycle_time/max_acceleration/program_units).
     # test.sh already waits for milltask before this runs.
+    timeout *= stmak_test.scale()
     start_time = time.time()
     while time.time() - start_time < timeout:
         status.poll()
@@ -29,6 +30,7 @@ def wait_for_linuxcnc_startup(status, timeout=10.0):
 
 
 def wait_for_mdi_queue(queue_len, timeout=10):
+    timeout *= stmak_test.scale()
     start_time = time.time()
     while (time.time() - start_time) < timeout:
         s.poll()
@@ -63,9 +65,11 @@ s.poll()
 assert(s.queued_mdi_commands == 0)
 
 # Block Motion from draining the queue, by asking it to wait for us to
-# poke a synchronized digital input.  Wait up to 30 seconds for digital
-# input 0 to go High.
-c.mdi('m66 p0 l3 q30')
+# poke a synchronized digital input. M66 with an L-word needs a Q timeout
+# (0 is an error), and its clock runs while this script works through the
+# steps below: an hour, so only a hung run ever reaches it -- a timeout that
+# a slow host could hit would drain the queue early and fail the counts.
+c.mdi('m66 p0 l3 q3600')
 
 # Each queue depth below is waited for, not sampled once: c.mdi() returning does
 # not mean the new depth has been published, so `s.poll(); assert ...` raced the
@@ -78,9 +82,9 @@ c.mdi('g4 p0')
 
 wait_for_mdi_queue(queue_len=1, timeout=10)
 
-# Add another MDI command that we can control.
-# Wait up to 30 seconds for digital input 0 to go Low.
-c.mdi('m66 p0 l4 q30')
+# Add another MDI command that we can control: wait for digital input 0
+# to go Low (the same hang-guard timeout).
+c.mdi('m66 p0 l4 q3600')
 
 wait_for_mdi_queue(queue_len=2, timeout=10)
 

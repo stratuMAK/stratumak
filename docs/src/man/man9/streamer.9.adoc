@@ -44,6 +44,12 @@ One function is created per FIFO, numbered from zero.
     Current number of samples in the FIFO.
     When this reaches zero, new data will no longer be written to the pins.
 
+*streamer*._N_.*received* s32 output::
+    Samples taken into the FIFO since the component was loaded, counted as
+    they arrive from the stream client (a sample dropped because the FIFO
+    was full is not counted). A client can wait for it to reach the number
+    of samples it sent before it starts the threads.
+
 *streamer*._N_.*empty* bit output::
     TRUE when the FIFO _N_ is empty, FALSE when valid data is available.
 

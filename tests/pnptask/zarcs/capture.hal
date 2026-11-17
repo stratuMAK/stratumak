@@ -1,7 +1,9 @@
 # The commanded joint positions every servo cycle, tagged with the cycle
 # number: a sample the I/O thread drops leaves a gap in the tags, not a
 # shorter leg.
-load filestream <pnp.cap> sample_cfg=fff outfile=path.txt depth=16384 tag
+# depth: ~130 s of servo cycles at 1 kHz -- the I/O thread draining the ring
+# may fall that far behind before a sample is lost (stmak_check_filestream).
+load filestream <pnp.cap> sample_cfg=fff outfile=path.txt depth=131072 tag
 net pnp-x-cmd => pnp.cap.sample.0
 net pnp-y-cmd => pnp.cap.sample.1
 net pnp-z-cmd => pnp.cap.sample.2
