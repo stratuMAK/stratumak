@@ -105,6 +105,7 @@ type motionControl interface {
 	SetTeleop() error
 	SetCoord() error
 	JointHome(joint int32) error
+	JointUnhome(joint int32) error
 	JogCont(num int32, vel float64, isTeleop int32) error
 	JogAbort(num int32, isTeleop int32) error
 
@@ -1385,6 +1386,18 @@ func (c *control) allHomed() bool {
 	return true
 }
 
+func (c *control) anyHomed() bool {
+	if !c.statusOK {
+		return false
+	}
+	for j := 0; j < c.m.cfg.NumJoints; j++ {
+		if c.status.Joints[j].Homed != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *control) anyHoming() bool {
 	if !c.statusOK {
 		return false
@@ -1428,6 +1441,21 @@ func (c *control) runHoming() error {
 	c.nearAt = 0
 	c.lowAt = 0
 	c.dropLift()
+	// A machine that is homed already is homed again: the PLC asks for it when
+	// it has reason to doubt the reference (D58). motmod's sequence unhomes a
+	// joint only when its step starts, so between two steps every joint reads
+	// homed with none homing -- which is what the end looks like, and the
+	// status of before the command looks the same. All of them unhomed first,
+	// and seen unhomed, makes it the homing of an unhomed machine.
+	if c.anyHomed() {
+		if err := c.m.mc.JointUnhome(-1); err != nil {
+			return faultf(errHomingFailed, "unhoming before the home: %v", err)
+		}
+		if err := c.waitUntil(errHomingFailed, motionModeTimeout, "the joints to read unhomed",
+			func() bool { return c.statusOK && !c.anyHomed() }); err != nil {
+			return err
+		}
+	}
 	c.m.logger.Info("pnptask: homing all joints")
 	if err := c.m.mc.JointHome(-1); err != nil {
 		return faultf(errHomingFailed, "commanding home: %v", err)
