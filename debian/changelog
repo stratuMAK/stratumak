@@ -1,3 +1,26 @@
+stratumak (0.1.6) UNRELEASED; urgency=medium
+
+  * BEHAVIOR CHANGE for motion: a home-all sequence ends at a joint that failed
+    to home instead of going on with the next HOME_SEQUENCE step. An idle joint
+    was taken for a finished one, homed or not.
+  * BEHAVIOR CHANGE for pnptask: a picker the model counts free has to report
+    opened before the head goes down, not only have its close output low. One
+    that does not is waited for and ends the job with PICKER_OPEN_FAILED before
+    any descent.
+  * BEHAVIOR CHANGE for pnptask: the grip check of a held record -- after a
+    restart, and with ESTOP_KEEPS_GRIP when the estop clears -- opens nothing.
+    A picker that reads closed over its part keeps its close output and its
+    record becomes material of unknown origin (holds high, origin-id 0), for
+    the operator to open by hand. It used to clear the record and open the
+    picker.
+  * BEHAVIOR CHANGE for pnptask: the home pin on a machine that is homed homes
+    it again, the joints unhomed first. It used to be taken as complete at
+    once.
+  * pnptask: a homing that runs into HOME_TIMEOUT is aborted. Left running, a
+    drive that finished later started the sequence's next joints.
+
+ -- Sascha Ittner <sascha.ittner@modusoft.de>  Tue, 17 Nov 2026 16:41:17 +0100
+
 stratumak (0.1.5) UNRELEASED; urgency=medium
 
   * BEHAVIOR CHANGE for pnptask: the module exports a realtime function,
